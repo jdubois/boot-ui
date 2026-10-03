@@ -93,8 +93,12 @@ class BootUiQuarkusLiveActivityProfileTest {
             boolean exact = "REQUEST_ID".equals(tier.path("tier").asText())
                     || "TRACE_ID".equals(tier.path("tier").asText());
             assertThat(tier.path("available").asBoolean())
-                    .as("only the request-id and trace-id tiers are provable on Quarkus: %s", tier)
+                    .as("only the request-id and trace-id tiers are provable on Quarkus without the agent: %s", tier)
                     .isEqualTo(exact);
+            if ("PROPAGATED".equals(tier.path("tier").asText())) {
+                assertThat(tier.path("unavailableReason").asText())
+                        .startsWith("Requires the BootUI agent's executors sensor");
+            }
         }
     }
 

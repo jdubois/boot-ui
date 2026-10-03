@@ -175,6 +175,11 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             traceRegistry.record(
                     new HttpExchangeTrace(start, end, method, decodedPath, traceId, routeTemplate, requestId),
                     failedOrSlow);
+            // An async request answers on a later dispatch, so its handler is still running: work it handed over and
+            // that ends before that dispatch writes the response did not run after it.
+            if (phases != null && !request.isAsyncStarted()) {
+                phases.end(requestId);
+            }
             try {
                 journal.offer(RuntimeEvent.of(
                         JournalSource.HTTP,

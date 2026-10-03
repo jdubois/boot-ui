@@ -32,6 +32,8 @@ const STEPS = {
     ['GET', '/api/insights/reports/payroll', 1],
     ['GET', '/api/insights/reports/PAYROLL', 1],
     ['GET', '/api/insights/reports/summary', 1],
+    ['GET', '/api/insights/orders/after-response', 1],
+    ['GET', '/api/insights/orders/after-response/waits', 1],
     ['GET', '/api/sample/boom', 3]
   ],
   webflux: [
@@ -39,6 +41,8 @@ const STEPS = {
     ['GET', '/api/insights/notes/on-event-loop', 3],
     ['GET', '/api/insights/notes/one-by-one', 3],
     ['GET', '/api/insights/notes/at-once', 3],
+    ['GET', '/api/insights/notes/after-response', 1],
+    ['GET', '/api/insights/notes/after-response/waits', 1],
     ['GET', '/api/sample/rest-client', 3]
   ]
 }

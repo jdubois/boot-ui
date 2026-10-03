@@ -61,6 +61,7 @@ public final class JournalActivityFeed {
     public static final String TYPE_APP_EVENT = "APP_EVENT";
     public static final String TYPE_WEBSOCKET = "WEBSOCKET";
     public static final String TYPE_ORM = "ORM";
+    public static final String TYPE_ASYNC = "ASYNC";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -130,6 +131,23 @@ public final class JournalActivityFeed {
             int limit,
             JournalRowDetails details,
             Predicate<String> evictedRequestTraces) {
+        return render(entries, eventId, runId, filter, limit, details, evictedRequestTraces, List.of());
+    }
+
+    /**
+     * Renders as {@link #render(List, Function, String, Filter, int, JournalRowDetails, Predicate)} does, adding an
+     * {@link #TYPE_ASYNC} entry, badged {@link ActivityEntryDto#BADGE_RUNNING}, for each task the BootUI agent propagated
+     * that is still running for a request or execution the feed shows (M5-2).
+     */
+    public Feed render(
+            List<JournalEntry> entries,
+            Function<JournalEntry, String> eventId,
+            String runId,
+            Filter filter,
+            int limit,
+            JournalRowDetails details,
+            Predicate<String> evictedRequestTraces,
+            List<RunningHandoffs.Running> running) {
         RouteTemplateResolver routes = resolver();
         JournalRowDetails rowDetails = details == null ? JournalRowDetails.NONE : details;
         Map<String, JournalEntry> requests = new HashMap<>();
@@ -159,6 +177,56 @@ public final class JournalActivityFeed {
                 rows.add(
                         new Row(entry, rowDetails.apply(rendered, entry.event()), aiCallOwners.ownerOf(entry.event())));
             }
+        }
+        long syntheticSequence = Long.MAX_VALUE;
+        for (RunningHandoffs.Running handoff : running == null ? List.<RunningHandoffs.Running>of() : running) {
+            String parentId = handoff.requestId() != null && requests.containsKey(handoff.requestId())
+                    ? handoff.requestId()
+                    : handoff.requestId() == null && executions.containsKey(handoff.executionId())
+                            ? handoff.executionId()
+                            : null;
+            if (parentId == null) {
+                // Its request has not completed yet, or belongs to another application: nothing to nest it under.
+                continue;
+            }
+            RuntimeEvent event = new RuntimeEvent(
+                    JournalSource.AGENT_EXECUTORS,
+                    handoff.startEpochMillis(),
+                    -1,
+                    handoff.requestId(),
+                    handoff.executionId(),
+                    handoff.traceId(),
+                    handoff.thread(),
+                    null,
+                    false,
+                    null);
+            List<String> badges = new ArrayList<>(2);
+            badges.add(ActivityEntryDto.BADGE_RUNNING);
+            JournalEntry request = handoff.requestId() == null ? null : requests.get(handoff.requestId());
+            if (request != null) {
+                badges.add(ActivityEntryDto.BADGE_AFTER_RESPONSE);
+            }
+            ActivityEntryDto entry = new ActivityEntryDto(
+                    // The handoffs of a scheduled run or consumed message share its execution id; the registry's key
+                    // tells them apart.
+                    "running:" + (handoff.id() == RunningHandoffs.NONE ? handoff.executionId() : handoff.id()),
+                    TYPE_ASYNC,
+                    handoff.startEpochMillis(),
+                    SEVERITY_WARN,
+                    asyncSummary(handoff.taskClass()),
+                    "still running · " + (handoff.hook() == null ? "executor" : handoff.hook()),
+                    null,
+                    handoff.traceId(),
+                    null,
+                    null,
+                    null,
+                    handoff.thread(),
+                    false,
+                    parentId,
+                    null,
+                    false,
+                    badges);
+            rows.add(new Row(new JournalEntry(syntheticSequence--, event, 0), entry, handoff.requestId()));
         }
         rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())
                 .thenComparingLong(row -> row.journal().sequence())
@@ -445,6 +513,47 @@ public final class JournalActivityFeed {
                     false,
                     parentId,
                     false);
+        }
+        if (payload instanceof AsyncHandoffPayload handoff) {
+            List<String> badges = new ArrayList<>(2);
+            JournalEntry request = event.requestId() == null ? null : requests.get(event.requestId());
+            boolean afterResponse = handoff.afterResponse() != null
+                    ? handoff.afterResponse()
+                    : request != null
+                            && event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000L
+                                    > request.event().epochMillis()
+                                            + Math.max(0, request.event().durationNanos()) / 1_000_000L;
+            if (afterResponse) {
+                badges.add(ActivityEntryDto.BADGE_AFTER_RESPONSE);
+            }
+            if (handoff.capped()) {
+                badges.add(ActivityEntryDto.BADGE_CAPPED);
+            }
+            StringBuilder detail = new StringBuilder(handoff.hook() == null ? "executor" : handoff.hook());
+            detail.append(" · queued ")
+                    .append(Math.max(0, handoff.queuedNanos()) / 1_000_000L)
+                    .append(" ms");
+            if (handoff.exceptionClass() != null) {
+                detail.append(" · ").append(simpleName(handoff.exceptionClass()));
+            }
+            return new ActivityEntryDto(
+                    id,
+                    TYPE_ASYNC,
+                    event.epochMillis(),
+                    handoff.failed() ? SEVERITY_ERROR : handoff.capped() ? SEVERITY_WARN : SEVERITY_OK,
+                    asyncSummary(handoff.taskClass()),
+                    detail.toString(),
+                    durationMs,
+                    event.traceId(),
+                    null,
+                    null,
+                    null,
+                    event.thread(),
+                    false,
+                    parentId,
+                    null,
+                    false,
+                    badges);
         }
         if (payload instanceof MessagingPayload message) {
             String summary =
@@ -747,6 +856,11 @@ public final class JournalActivityFeed {
                 };
         return simpleName(event.eventType()) + " · " + (event.phase() == null ? "IMMEDIATE" : event.phase()) + " · "
                 + outcome;
+    }
+
+    /** An {@code ASYNC} entry's summary: the task's simple class name, such as {@code Async task OrderMailer}. */
+    static String asyncSummary(String taskClass) {
+        return "Async task" + (taskClass == null ? "" : " " + simpleName(taskClass));
     }
 
     private static String simpleName(String type) {

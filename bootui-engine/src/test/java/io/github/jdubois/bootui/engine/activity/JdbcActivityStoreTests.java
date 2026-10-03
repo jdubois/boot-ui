@@ -71,11 +71,69 @@ class JdbcActivityStoreTests {
                 true,
                 "parent-1",
                 "alice",
-                true);
+                true,
+                List.of(ActivityEntryDto.BADGE_AFTER_RESPONSE, ActivityEntryDto.BADGE_CAPPED));
         store.appendBatch(List.of(new StoredActivityEntry(INSTANCE, 1, original)));
 
         ActivityPage page = store.query(ActivityQuery.firstPage(INSTANCE));
         assertThat(page.entryDtos()).containsExactly(original);
+    }
+
+    @Test
+    void aTableAnEarlierBootUiCreatedGainsTheBadgesColumnAndKeepsItsRows() throws SQLException {
+        DataSource dataSource = newDataSource();
+        try (java.sql.Connection connection = dataSource.getConnection();
+                java.sql.Statement statement = connection.createStatement()) {
+            statement.executeUpdate(
+                    "CREATE TABLE bootui_activity (instance_id VARCHAR(64) NOT NULL, seq BIGINT NOT NULL,"
+                            + " entry_id VARCHAR(128) NOT NULL, entry_type VARCHAR(16) NOT NULL, occurred_at BIGINT NOT NULL,"
+                            + " severity VARCHAR(16), summary VARCHAR(1000), detail VARCHAR(2000), duration_ms BIGINT,"
+                            + " correlation_id VARCHAR(64), http_method VARCHAR(10), path VARCHAR(512), status_code INTEGER,"
+                            + " thread_name VARCHAR(128), profileable INTEGER NOT NULL, parent_entry_id VARCHAR(128),"
+                            + " secured_principal VARCHAR(256), sql_n_plus_one_suspected INTEGER NOT NULL,"
+                            + " PRIMARY KEY (instance_id, seq))");
+            statement.executeUpdate("INSERT INTO bootui_activity (instance_id, seq, entry_id, entry_type, occurred_at,"
+                    + " profileable, sql_n_plus_one_suspected) VALUES ('" + INSTANCE
+                    + "', 1, 'old-1', 'SQL', 1, 0, 0)");
+        }
+        JdbcActivityStore store = new JdbcActivityStore(dataSource, "bootui_activity");
+        ActivityEntryDto running = new ActivityEntryDto(
+                "running:7",
+                "ASYNC",
+                2L,
+                "WARN",
+                "Task",
+                "still running",
+                null,
+                null,
+                null,
+                null,
+                null,
+                "pool-1-thread-1",
+                false,
+                "r1",
+                null,
+                false,
+                List.of(ActivityEntryDto.BADGE_RUNNING, ActivityEntryDto.BADGE_AFTER_RESPONSE));
+
+        store.appendBatch(List.of(new StoredActivityEntry(INSTANCE, 2, running)));
+
+        assertThat(store.query(ActivityQuery.firstPage(INSTANCE)).entryDtos())
+                .extracting(ActivityEntryDto::id, ActivityEntryDto::badges)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("running:7", List.of("RUNNING", "AFTER_RESPONSE")),
+                        org.assertj.core.groups.Tuple.tuple("old-1", List.of()));
+    }
+
+    @Test
+    void badgesAreStoredCommaSeparatedAndEmptyAsNull() {
+        assertThat(JdbcActivityStore.encodeBadges(List.of())).isNull();
+        assertThat(JdbcActivityStore.encodeBadges(null)).isNull();
+        assertThat(JdbcActivityStore.encodeBadges(List.of("RUNNING", " ", "AFTER_RESPONSE")))
+                .isEqualTo("RUNNING,AFTER_RESPONSE");
+        assertThat(JdbcActivityStore.decodeBadges("RUNNING,AFTER_RESPONSE"))
+                .containsExactly("RUNNING", "AFTER_RESPONSE");
+        assertThat(JdbcActivityStore.decodeBadges(null)).isEmpty();
     }
 
     @Test

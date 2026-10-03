@@ -698,7 +698,8 @@ public final class LiveActivityAssembler {
                 true,
                 entry.parentId(),
                 entry.securedPrincipal(),
-                entry.sqlNPlusOneSuspected());
+                entry.sqlNPlusOneSuspected(),
+                entry.badges());
     }
 
     private static void putExecution(Map<String, String> byExecutionId, String executionId, String entryId) {

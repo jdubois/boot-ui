@@ -33,6 +33,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
@@ -363,6 +364,12 @@ public class LiveActivityController implements InitializingBean {
 
     private volatile RuntimeJournalService runtimeJournal = new RuntimeJournalService(null, null);
 
+    /** Installs the Java Agent service, which says whether the request profile's {@code PROPAGATED} tier applies. */
+    @Autowired(required = false)
+    public void setJavaAgent(ObjectProvider<JavaAgentService> javaAgent) {
+        correlator.setJavaAgent(javaAgent);
+    }
+
     /** Installs the runtime journal whose status block and <b>Clear recording</b> this panel serves. */
     @Autowired(required = false)
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
@@ -376,11 +383,12 @@ public class LiveActivityController implements InitializingBean {
         }
         this.journalReports = journalReports(journal, aggregates);
         this.requestJournalProfiles = new RequestJournalProfiles(
-                journal,
-                aggregates,
-                properties.getActivity().getRequestSlowThresholdMs(),
-                properties.getActivity().getNPlusOneThreshold(),
-                properties::isPanelEnabled);
+                        journal,
+                        aggregates,
+                        properties.getActivity().getRequestSlowThresholdMs(),
+                        properties.getActivity().getNPlusOneThreshold(),
+                        properties::isPanelEnabled)
+                .maxHandoff(properties.getAgent().getExecutors().getMaxHandoff());
         if (journal != null) {
             // Ticks the stream for every source the journal records, transactions and log events included.
             unsubscribers.add(journal.subscribe(changeStream::signal));

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
@@ -158,10 +159,14 @@ public record RuntimeEvent(
     }
 
     /**
-     * How the event knows the work it belongs to: {@link CorrelationTier#REQUEST_ID} when it carries a request or
+     * How the event knows the work it belongs to: {@link CorrelationTier#PROPAGATED} when it carries a request id and
+     * ran in a task the BootUI agent propagated, {@link CorrelationTier#REQUEST_ID} when it carries another request or
      * execution id, {@link CorrelationTier#TRACE_ID} when it carries only a trace id, and {@code null} otherwise.
      */
     public CorrelationTier correlationTier() {
+        if (requestId != null && ExecutionIds.isAsync(executionId)) {
+            return CorrelationTier.PROPAGATED;
+        }
         if (requestId != null || executionId != null) {
             return CorrelationTier.REQUEST_ID;
         }

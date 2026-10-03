@@ -6,7 +6,8 @@ import RouteWhySlow from './RouteWhySlow.vue'
 
 // The runtime journal's view of one request (docs/PLAN-v2.md §5.3, §5.11): its work on one timeline, the collections
 // that completed while it ran, the CPU time and memory it used, how it compares with its route, and what it touched.
-// Purely presentational: the drawer fetches the profile when the developer opens a request.
+// Purely presentational: the drawer fetches the profile when the developer opens a request. Its handoffs are the tasks
+// the BootUI agent propagated from this request to an executor (M5-2).
 const props = defineProps({
   profile: {type: Object, required: true}
 })
@@ -35,6 +36,8 @@ const TOUCHED = [
 ]
 
 const timeline = computed(() => props.profile.timeline ?? [])
+const handoffs = computed(() => (props.profile.handoffs ?? []).map(handoffRow))
+const lateHandoffs = computed(() => props.profile.lateHandoffs ?? 0)
 const gcPauses = computed(() => props.profile.gcPauses ?? [])
 const notes = computed(() => props.profile.notes ?? [])
 
@@ -109,6 +112,45 @@ function barStyle(offsetMillis, durationMicros) {
   const left = Math.min(100, Math.max(0, (offsetMillis / durationMillis.value) * 100))
   const width = durationMicros == null ? 0 : Math.max(0.6, (durationMicros / 1000 / durationMillis.value) * 100)
   return {left: `${left}%`, width: durationMicros == null ? undefined : `${Math.min(width, 100 - left)}%`}
+}
+
+function plural(count, noun) {
+  return `${formatNumber(count)} ${noun}${count === 1 ? '' : 's'}`
+}
+
+function simpleName(type) {
+  if (!type) return 'task'
+  return type.slice(type.lastIndexOf('.') + 1)
+}
+
+// A task the BootUI agent propagated from this request to an executor (docs/PLAN-v2.md M5-2): where it ran, what it
+// did under its own execution, and how it ended.
+function handoffRow(handoff) {
+  const work = [
+    handoff.sqlCount ? plural(handoff.sqlCount, 'SQL statement') : null,
+    handoff.restClientCount ? plural(handoff.restClientCount, 'REST call') : null,
+    handoff.messagingCount ? plural(handoff.messagingCount, 'message') : null
+  ].filter(Boolean)
+  return {
+    key: handoff.executionId,
+    task: simpleName(handoff.taskClass),
+    taskClass: handoff.taskClass,
+    hook: handoff.hook,
+    thread: handoff.thread,
+    timing: `${formatDuration(micros(handoff.durationMicros))} after ${formatDuration(
+      micros(handoff.queuedMicros)
+    )} queued`,
+    did: work.length ? work.join(', ') : 'nothing recorded',
+    failed: handoff.failed,
+    outcome: handoff.failed ? `failed: ${simpleName(handoff.exceptionClass)}` : 'completed',
+    afterResponse: handoff.afterResponse
+      ? `after response${
+          handoff.afterResponseMicros ? ` by ${formatDuration(micros(handoff.afterResponseMicros))}` : ''
+        }`
+      : null,
+    capped: handoff.capped,
+    allocated: handoff.allocatedBytes == null ? null : formatBytes(handoff.allocatedBytes)
+  }
 }
 
 function itemTitle(item) {
@@ -187,6 +229,38 @@ function itemTitle(item) {
           </span>
         </li>
       </ol>
+
+      <template v-if="handoffs.length || lateHandoffs">
+        <h4 class="h6 small text-muted mb-1">Handoffs</h4>
+        <ul class="list-unstyled small mb-2 request-journal__handoffs">
+          <li v-for="handoff in handoffs" :key="handoff.key" class="request-journal__handoff">
+            <div>
+              <code :title="handoff.taskClass">{{ handoff.task }}</code>
+              <span class="text-muted"> on </span>
+              <code>{{ handoff.thread }}</code>
+              <span v-if="handoff.afterResponse" class="badge rounded-pill text-bg-warning ms-2">{{
+                handoff.afterResponse
+              }}</span>
+              <span
+                v-if="handoff.capped"
+                class="badge rounded-pill text-bg-secondary ms-2"
+                title="Ended more than bootui.agent.executors.max-handoff after it started: its later work is not attributed to this request"
+                >past deadline</span
+              >
+            </div>
+            <div class="text-muted">
+              {{ handoff.timing }} · {{ handoff.did }} ·
+              <span :class="{'request-journal__failed': handoff.failed}">{{ handoff.outcome }}</span>
+              <template v-if="handoff.allocated"> · {{ handoff.allocated }} allocated</template>
+              <template v-if="handoff.hook"> · via {{ handoff.hook }}</template>
+            </div>
+          </li>
+        </ul>
+        <p v-if="lateHandoffs" class="small text-muted request-journal__late-handoffs">
+          {{ plural(lateHandoffs, 'later task') }} started more than bootui.agent.executors.max-handoff after this
+          request ended: counted, not shown.
+        </p>
+      </template>
 
       <template v-if="touched.length">
         <h4 class="h6 small text-muted mb-1">Touched</h4>
@@ -270,6 +344,16 @@ function itemTitle(item) {
 
 .request-journal__slow {
   color: var(--bootui-warning-text-strong);
+  font-weight: 600;
+}
+
+.request-journal__handoff {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--bootui-border);
+}
+
+.request-journal__failed {
+  color: var(--bootui-danger-text);
   font-weight: 600;
 }
 

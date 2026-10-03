@@ -124,7 +124,8 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
                     key == null ? null : hashKey(key),
                     resolveTraceId(),
                     Thread.currentThread().getName(),
-                    context.requestId());
+                    context.requestId(),
+                    context.executionId());
             synchronized (lock) {
                 events.addLast(event);
                 while (events.size() > maxEntries) {

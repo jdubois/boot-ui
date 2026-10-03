@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -128,6 +129,23 @@ class TransactionPlacementObservationsTests {
                 .contains("Exception hotspots");
     }
 
+    @Test
+    void sqlAPropagatedTaskRanWhileTheResponseWasWrittenIsNotLazyLoading() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/insights/after-response",
+                    sql("select * from orders where id = 1", RequestPhase.HANDLER, 150),
+                    // Defensively ignored even if a recorder stamped the request's phase on the task's statement.
+                    async(sql("update audit set seen = 1", RequestPhase.RESPONSE, 300)));
+        }
+
+        RuntimeInsightsReportDto report = service(InsightsStack.SPRING_MVC).report();
+
+        assertThat(byKind(report, LazySqlAfterHandler.KIND)).isEmpty();
+        assertThat(check(report, LazySqlAfterHandler.KIND).status()).isNotEqualTo("OBSERVED");
+    }
+
     private RuntimeInsightsService service(InsightsStack stack) {
         return new RuntimeInsightsService(journal, null, null, stack, List::of);
     }
@@ -150,20 +168,30 @@ class TransactionPlacementObservationsTests {
         return new Child(
                 JournalSource.TRANSACTION,
                 end - start,
-                new TransactionPayload(method, rolledBack, nested, savepoint, start));
+                new TransactionPayload(method, rolledBack, nested, savepoint, start),
+                null);
     }
 
     private static Child sql(String sql, RequestPhase phase, long completedNanos) {
         return new Child(
-                JournalSource.SQL, 1, new SqlPayload(sql, "Repo.run:1", "db", false, null, phase, completedNanos));
+                JournalSource.SQL,
+                1,
+                new SqlPayload(sql, "Repo.run:1", "db", false, null, phase, completedNanos),
+                null);
+    }
+
+    private static Child async(Child child) {
+        return new Child(child.source(), child.nanos(), child.payload(), ExecutionIds.nextAsync());
     }
 
     private void request(String method, String template, Child... children) {
         String requestId = "r" + (++requests);
         CorrelationContext context = CorrelationContext.forRequest(requestId);
         for (Child child : children) {
+            CorrelationContext owner =
+                    child.executionId() == null ? context : context.withExecutionId(child.executionId());
             journal.offer(RuntimeEvent.of(
-                    child.source(), 1_000, child.nanos(), context, "http-1", null, false, child.payload()));
+                    child.source(), 1_000, child.nanos(), owner, "http-1", null, false, child.payload()));
         }
         journal.offer(RuntimeEvent.of(
                 JournalSource.HTTP,
@@ -182,5 +210,5 @@ class TransactionPlacementObservationsTests {
         }
     }
 
-    private record Child(JournalSource source, long nanos, RuntimeEventPayload payload) {}
+    private record Child(JournalSource source, long nanos, RuntimeEventPayload payload, String executionId) {}
 }

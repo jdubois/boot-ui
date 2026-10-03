@@ -37,6 +37,8 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
@@ -212,6 +214,23 @@ public class BootUiEngineProducer {
                         config.getOptionalValue("bootui.agent.enabled", Boolean.class)
                                 .orElse(true),
                         LaunchMode.current() == LaunchMode.NORMAL ? "Quarkus production mode" : null));
+    }
+
+    /**
+     * The engine side of the BootUI agent's executor propagation ({@code docs/PLAN-v2.md} M5-2), which
+     * {@code QuarkusAgentClaimLifecycle} attaches to this start's claim at startup. It reads the request's context from
+     * the thread scope, else the request's Vert.x duplicated context. Without the agent, nothing calls it.
+     */
+    @Produces
+    @Singleton
+    public AgentHandoffs agentHandoffs(RequestPhases phases, Instance<QuarkusAgentClaim> claim) {
+        AgentClaim current = claim.isResolvable() ? claim.get().claim() : null;
+        return new AgentHandoffs(
+                QuarkusRequestCorrelation::current,
+                phases,
+                current == null
+                        ? AgentHandoffs.DEFAULT_MAX_HANDOFF
+                        : current.sensors().maxHandoff());
     }
 
     @Produces

@@ -42,6 +42,23 @@ public final class BootUiCorrelation {
     }
 
     /**
+     * Makes {@code context}, a request's context propagated to another thread by the BootUI agent, current on this
+     * thread until the returned scope is closed, <em>without</em> changing which request the thread is metered for
+     * ({@code docs/PLAN-v2.md} D32): work handed to an executor is not part of its request's own CPU time and
+     * allocation. Closing restores the previous context and switches the meter back to the request the thread was
+     * metered for when the scope opened, so a metered scope nested inside cannot leave the thread charged to another
+     * request.
+     *
+     * @param context the context to make current; {@code null} is treated as {@link CorrelationContext#NONE}
+     */
+    public static Scope openPropagated(CorrelationContext context) {
+        CorrelationContext previous = current();
+        String metered = SegmentMeter.shared().currentRequestId();
+        set(context);
+        return new Scope(previous, metered);
+    }
+
+    /**
      * Makes {@code context} current on this thread and returns the context it replaces, for bridges that manage
      * restoration themselves, such as a Reactor {@code ThreadLocalAccessor}. Prefer {@link #open}.
      *
@@ -60,6 +77,15 @@ public final class BootUiCorrelation {
         return previous;
     }
 
+    /** Makes {@code context} current without telling the meter. */
+    private static void set(CorrelationContext context) {
+        if (context == null || context.isEmpty()) {
+            CURRENT.remove();
+        } else {
+            CURRENT.set(context);
+        }
+    }
+
     /**
      * An open correlation scope. Closing it restores the context that was current when it opened; closing it again has
      * no effect.
@@ -67,17 +93,32 @@ public final class BootUiCorrelation {
     public static final class Scope implements AutoCloseable {
 
         private final CorrelationContext previous;
+        private final boolean propagated;
+        private final String metered;
         private boolean closed;
 
         private Scope(CorrelationContext previous) {
             this.previous = previous;
+            this.propagated = false;
+            this.metered = null;
+        }
+
+        private Scope(CorrelationContext previous, String metered) {
+            this.previous = previous;
+            this.propagated = true;
+            this.metered = metered;
         }
 
         @Override
         public void close() {
             if (!closed) {
                 closed = true;
-                replace(previous);
+                if (propagated) {
+                    set(previous);
+                    SegmentMeter.shared().switchTo(metered);
+                } else {
+                    replace(previous);
+                }
             }
         }
     }

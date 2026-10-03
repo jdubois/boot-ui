@@ -105,6 +105,29 @@ class RequestCorrelationFilterTests {
                 .isFalse();
     }
 
+    @Test
+    void marksTheEndOfARequestButNotOfOneThatAnswersOnALaterAsyncDispatch() throws Exception {
+        RequestPhases phases = new RequestPhases();
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui", null, 1_000, phases);
+        List<String> requestIds = new ArrayList<>();
+        FilterChain chain =
+                (req, res) -> requestIds.add(BootUiCorrelation.current().requestId());
+
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), new MockHttpServletResponse(), chain);
+        MockHttpServletRequest async = new MockHttpServletRequest("GET", "/api/orders/later");
+        async.setAsyncSupported(true);
+        filter.doFilter(async, new MockHttpServletResponse(), (req, res) -> {
+            requestIds.add(BootUiCorrelation.current().requestId());
+            req.startAsync();
+        });
+
+        assertThat(phases.markers(requestIds.get(0)).endedAt()).isNotNull();
+        assertThat(phases.markers(requestIds.get(1)).endedAt())
+                .as("its handler is still running")
+                .isNull();
+    }
+
     /** The payload without its measured resources, which every published request carries (docs/PLAN-v2.md §5.11). */
     private static HttpPayload withoutResources(Object payload) {
         HttpPayload http = (HttpPayload) payload;

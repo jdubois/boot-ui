@@ -20,7 +20,9 @@ const STEPS = [
   ['POST', '/api/insights/debug/reset-totals', 1],
   ['GET', '/api/insights/reports/payroll', 1],
   ['GET', '/api/insights/reports/PAYROLL', 1],
-  ['GET', '/api/insights/reports/summary', 1]
+  ['GET', '/api/insights/reports/summary', 1],
+  ['GET', '/api/insights/orders/after-response', 1],
+  ['GET', '/api/insights/orders/after-response/waits', 1]
 ]
 
 /**

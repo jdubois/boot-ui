@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.quarkus.javaagent;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,14 +18,40 @@ import java.util.UUID;
 @Recorder
 public class BootUiAgentRecorder {
 
-    /** Claims the agent for this start of {@code application}. */
+    /** Claims the agent for this start of {@code application}, with the default sensors. */
     public RuntimeValue<QuarkusAgentClaim> claim(String application, String mode, List<String> packages) {
+        AgentSensorSettings defaults = AgentSensorSettings.defaults();
+        return claim(
+                application,
+                mode,
+                packages,
+                defaults.sensors(),
+                defaults.skipTasks(),
+                defaults.skipThreads(),
+                defaults.maxHandoff().toMillis());
+    }
+
+    /**
+     * Claims the agent for this start of {@code application}, asking for {@code sensors} ({@code bootui.agent.sensors})
+     * with the executors sensor's options ({@code bootui.agent.executors.*}).
+     */
+    public RuntimeValue<QuarkusAgentClaim> claim(
+            String application,
+            String mode,
+            List<String> packages,
+            List<String> sensors,
+            List<String> skipTasks,
+            List<String> skipThreads,
+            long maxHandoffMillis) {
         AgentBridgeAccess access = AgentBridgeAccess.locate();
         if (!access.present()) {
             return new RuntimeValue<>(QuarkusAgentClaim.none());
         }
         String owner = application + "@" + UUID.randomUUID().toString().substring(0, 8);
-        return new RuntimeValue<>(new QuarkusAgentClaim(AgentClaim.claim(access, application, owner, mode, packages)));
+        AgentSensorSettings settings =
+                new AgentSensorSettings(sensors, skipTasks, skipThreads, Duration.ofMillis(maxHandoffMillis));
+        return new RuntimeValue<>(
+                new QuarkusAgentClaim(AgentClaim.claim(access, application, owner, mode, packages, settings)));
     }
 
     /**

@@ -152,7 +152,8 @@ public final class JournalRowDetails {
                 row.profileable(),
                 row.parentId(),
                 securedPrincipal == null ? row.securedPrincipal() : securedPrincipal,
-                row.sqlNPlusOneSuspected());
+                row.sqlNPlusOneSuspected(),
+                row.badges());
     }
 
     private static String securityKey(String requestId, String type) {

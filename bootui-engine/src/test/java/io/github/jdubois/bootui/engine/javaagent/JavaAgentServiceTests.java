@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.javaagent;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentSnippetDto;
 import java.nio.file.Files;
@@ -222,6 +223,131 @@ class JavaAgentServiceTests {
 
         assertThat(report.state()).isEqualTo(JavaAgentReport.FAILED);
         assertThat(report.reason()).isEqualTo("the redefinition listener failed");
+    }
+
+    @Test
+    void theExecutorsSensorRowCarriesItsSelfTestHooksAndCounters() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> sensor = new LinkedHashMap<>();
+        sensor.put("id", "executors");
+        sensor.put("state", "installed");
+        sensor.put("durationMillis", 87L);
+        sensor.put("selfTestPassed", true);
+        sensor.put("selfTestError", null);
+        sensor.put("selfTestSteps", new LinkedHashMap<>(Map.of("thread-pool", "passed")));
+        sensor.put(
+                "hooks",
+                List.of(
+                        Map.of(
+                                "id", "ThreadPoolExecutor",
+                                "kind", "key",
+                                "type", "java.util.concurrent.ThreadPoolExecutor",
+                                "present", true,
+                                "transformed", true,
+                                "selfTest", "passed"),
+                        Map.of(
+                                "id", "ThreadPoolExecutor.runWorker",
+                                "kind", "apply",
+                                "type", "java.util.concurrent.ThreadPoolExecutor",
+                                "present", true,
+                                "transformed", true,
+                                "selfTest", "passed")));
+        sensor.put("transformed", 6);
+        sensor.put("failed", 0);
+        sensor.put("skipped", 1);
+        stub.sensors = List.of(sensor);
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        AgentHandoffs handoffs = new AgentHandoffs(null, null, null);
+        claim.get().attach(handoffs);
+        try (io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.Scope ignored =
+                io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.open(
+                        io.github.jdubois.bootui.spi.CorrelationContext.forRequest("r1"))) {
+            io.github.jdubois.bootui.agent.bridge.TaskPropagation.submitted(
+                    new java.util.concurrent.FutureTask<>(() -> null),
+                    io.github.jdubois.bootui.agent.bridge.TaskPropagation.KEY_THREAD_POOL);
+        }
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        JavaAgentReport report = service.report();
+
+        assertThat(service.recording()).isTrue();
+        assertThat(report.sensors()).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo("executors");
+            assertThat(row.state()).isEqualTo("installed");
+            assertThat(row.instrumentedTypes()).isEqualTo(6);
+            assertThat(row.skippedTypes()).isEqualTo(1);
+            assertThat(row.durationMillis()).isEqualTo(87L);
+            assertThat(row.selfTestPassed()).isTrue();
+            assertThat(row.selfTestSteps()).containsEntry("thread-pool", "passed");
+            assertThat(row.hooks())
+                    .extracting(JavaAgentHookDto::id, JavaAgentHookDto::kind, JavaAgentHookDto::fired)
+                    .containsExactly(
+                            org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor", "key", 1L),
+                            org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor.runWorker", "apply", 0L));
+            assertThat(row.executors()).isNotNull();
+            assertThat(row.executors().pending()).isEqualTo(1L);
+            assertThat(row.executors().refused()).isZero();
+        });
+
+        claim.get().disarm();
+        assertThat(service.recording()).isFalse();
+    }
+
+    @Test
+    void propagationNeedsAnArmedClaimTheInstalledExecutorsSensorNoDisabledReasonAndAttachedHandoffs() {
+        JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
+        assertThat(absent.propagating()).isFalse();
+        assertThat(absent.propagationUnavailableReason())
+                .startsWith(JavaAgentService.PROPAGATION_REQUIREMENT + ": ")
+                .contains("-javaagent");
+
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        claim.get().attach(new AgentHandoffs(null, null, null));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        assertThat(service.recording()).isTrue();
+        assertThat(service.propagationUnavailableReason())
+                .as("armed, but without the executors sensor")
+                .contains("bootui.agent.sensors");
+
+        Map<String, Object> sensor = new LinkedHashMap<>();
+        sensor.put("id", "executors");
+        sensor.put("state", "installing");
+        stub.sensors = List.of(sensor);
+        assertThat(service.propagationUnavailableReason()).endsWith("the sensor is installing.");
+
+        sensor.put("state", "installed");
+        assertThat(service.propagationUnavailableReason()).isNull();
+        assertThat(service.propagating()).isTrue();
+
+        long generation = claim.get().generation();
+        io.github.jdubois.bootui.agent.bridge.TaskPropagation.disable(generation, "the self-test failed");
+        try {
+            assertThat(service.propagationUnavailableReason()).endsWith("the self-test failed");
+            assertThat(service.propagating()).isFalse();
+        } finally {
+            io.github.jdubois.bootui.agent.bridge.TaskPropagation.enable();
+        }
+
+        claim.get().detach();
+        assertThat(service.propagationUnavailableReason()).contains("has not attached its executor handoffs");
+
+        claim.get().attach(new AgentHandoffs(null, null, null));
+        claim.get().disarm();
+        assertThat(service.propagating()).as("a disarmed claim").isFalse();
+    }
+
+    @Test
+    void onlyTheVerifiedJdksPassWithoutTheSelfTestWarning() {
+        assertThat(JavaAgentService.verifiedJdk(17)).isTrue();
+        assertThat(JavaAgentService.verifiedJdk(21)).isTrue();
+        assertThat(JavaAgentService.verifiedJdk(25)).isTrue();
+        assertThat(JavaAgentService.verifiedJdk(26)).isTrue();
+        assertThat(JavaAgentService.verifiedJdk(27)).isTrue();
+        assertThat(JavaAgentService.verifiedJdk(24)).isFalse();
+        assertThat(JavaAgentService.UNVERIFIED_JDK_WARNING.formatted(24))
+                .contains("not verified on JDK 24")
+                .contains("self-test decides");
     }
 
     @Test

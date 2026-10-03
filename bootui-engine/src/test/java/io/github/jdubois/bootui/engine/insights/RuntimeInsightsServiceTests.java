@@ -185,9 +185,15 @@ class RuntimeInsightsServiceTests {
                 });
         assertThat(report.checks())
                 .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND)
-                        && !check.kind().equals(ProxyBypass.KIND))
+                        && !check.kind().equals(ProxyBypass.KIND)
+                        && !check.kind().equals(WorkAfterResponse.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
                 .containsOnly("EVALUATED");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(WorkAfterResponse.KIND))
+                .extracting(RuntimeInsightCheckDto::status)
+                .as("without the BootUI agent, work handed to an executor is unseen")
+                .containsExactly("NOT_APPLICABLE");
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
                 .extracting(RuntimeInsightCheckDto::status)

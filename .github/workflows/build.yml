@@ -313,6 +313,14 @@ jobs:
             report-name: Custom-path end-to-end tests (Playwright)
             report-dir: playwright-report-custom-path
             results-dir: test-results-custom-path
+          # The MVC sample with the BootUI agent attached (PLAN-v2 M5-2): the executors sensor, propagated work in
+          # Live Activity, and work-after-response. Its agent jar comes from the install step's -am build.
+          - id: agent
+            name: MVC with the BootUI agent
+            script: test:agent
+            report-name: Agent end-to-end tests (Playwright)
+            report-dir: playwright-report-agent
+            results-dir: test-results-agent
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -338,6 +346,16 @@ jobs:
           ./mvnw -T 1C -B -ntp
           -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app
           -am -DskipTests install
+
+      # The agent leg attaches bootui-agent/target/bootui-agent-*.jar, which the -am build above produces as the Spring
+      # sample's test-scope dependency: fail here, clearly, rather than with a raw ENOENT from Playwright's config.
+      - name: Check the BootUI agent jar
+        if: ${{ matrix.suite.id == 'agent' }}
+        run: |
+          if ! ls bootui-agent/target/bootui-agent-*.jar > /dev/null 2>&1; then
+            echo "::error::bootui-agent/target/bootui-agent-*.jar is missing: the Spring sample build must build bootui-agent (-am)."
+            exit 1
+          fi
 
       - name: Install Playwright dependencies
         working-directory: bootui-spring-sample-app/e2e

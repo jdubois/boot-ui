@@ -23,6 +23,10 @@ import java.util.List;
  * @param touched what it touched
  * @param notes what the profile could not show, such as events already evicted
  * @param orm its Hibernate sessions' work, or {@code null} when none was recorded (M4-9)
+ * @param handoffs the tasks it handed to JDK executors that the BootUI agent propagated, in start order, empty when it
+ *     handed none over or the agent is not attached (M5-2)
+ * @param lateHandoffs its handoffs that started more than {@code bootui.agent.executors.max-handoff} after it ended,
+ *     which are only counted and, with their work, not drawn, or {@code null} when none
  */
 public record RequestJournalProfileDto(
         boolean available,
@@ -38,12 +42,15 @@ public record RequestJournalProfileDto(
         RouteComparisonDto routeComparison,
         TouchedResourcesDto touched,
         List<String> notes,
-        RequestOrmDto orm) {
+        RequestOrmDto orm,
+        List<RequestHandoffDto> handoffs,
+        Integer lateHandoffs) {
 
     public RequestJournalProfileDto {
         timeline = DtoCollections.immutableCopy(timeline);
         gcPauses = DtoCollections.immutableCopy(gcPauses);
         notes = DtoCollections.immutableCopy(notes);
+        handoffs = DtoCollections.immutableCopy(handoffs);
     }
 
     /** A request the journal does not retain. */
@@ -61,6 +68,8 @@ public record RequestJournalProfileDto(
                 List.of(),
                 null,
                 TouchedResourcesDto.NONE,
+                List.of(),
+                null,
                 List.of(),
                 null);
     }

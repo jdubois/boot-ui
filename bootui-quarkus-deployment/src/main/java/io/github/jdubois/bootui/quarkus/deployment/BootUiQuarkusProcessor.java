@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.deployment;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentPackages;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiPathRewriteFilter;
 import io.github.jdubois.bootui.quarkus.BootUiProdShellGuardFilter;
@@ -116,6 +117,7 @@ import io.quarkus.runtime.RuntimeValue;
 import jakarta.inject.Singleton;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -131,6 +133,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.config.ConfigValue;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationTransformation;
@@ -1256,6 +1259,7 @@ class BootUiQuarkusProcessor {
                 config.getOptionalValue("bootui.agent.mode", String.class).orElse("auto"), launchMode.getLaunchMode());
         boolean enabled =
                 config.getOptionalValue("bootui.agent.enabled", Boolean.class).orElse(true);
+        AgentSensorSettings defaults = AgentSensorSettings.defaults();
         RuntimeValue<QuarkusAgentClaim> claim = enabled
                 ? recorder.claim(
                         application,
@@ -1263,13 +1267,33 @@ class BootUiQuarkusProcessor {
                         agentPackages(
                                 archives.getRootArchive().getIndex(),
                                 config.getOptionalValues("bootui.agent.packages", String.class)
-                                        .orElse(List.of())))
+                                        .orElse(List.of())),
+                        listOrDefaults(config, "bootui.agent.sensors", defaults.sensors()),
+                        listOrDefaults(config, "bootui.agent.executors.skip-tasks", defaults.skipTasks()),
+                        listOrDefaults(config, "bootui.agent.executors.skip-threads", defaults.skipThreads()),
+                        config.getOptionalValue("bootui.agent.executors.max-handoff", Duration.class)
+                                .orElse(defaults.maxHandoff())
+                                .toMillis())
                 : recorder.release(application, mode);
         syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusAgentClaim.class)
                 .scope(Singleton.class)
                 .runtimeValue(claim)
                 .unremovable()
                 .done());
+    }
+
+    /**
+     * A list property, its defaults when it is not set, and an empty list when it is set to an empty value, as
+     * {@code bootui.agent.sensors=} asks for no sensor ({@code docs/PROPERTIES.md}). MicroProfile Config reads an empty
+     * value as no value, so the raw value tells the two apart.
+     */
+    static List<String> listOrDefaults(Config config, String name, List<String> defaults) {
+        Optional<List<String>> values = config.getOptionalValues(name, String.class);
+        if (values.isPresent()) {
+            return values.get();
+        }
+        ConfigValue raw = config.getConfigValue(name);
+        return raw != null && raw.getRawValue() != null ? List.of() : defaults;
     }
 
     /** {@code bootui.agent.mode}, or with {@code auto}, test in the test launch mode and dev otherwise. */

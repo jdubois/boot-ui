@@ -42,6 +42,7 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -1020,6 +1021,11 @@ class ReactiveLiveActivityControllerTests {
             assertThat(profile.correlationTiers())
                     .filteredOn(tier -> !List.of("REQUEST_ID", "TRACE_ID").contains(tier.tier()))
                     .allSatisfy(tier -> assertThat(tier.available()).isFalse());
+            assertThat(profile.correlationTiers())
+                    .filteredOn(tier -> tier.tier().equals("PROPAGATED"))
+                    .singleElement()
+                    .satisfies(tier ->
+                            assertThat(tier.unavailableReason()).isEqualTo(ProfileCapabilities.PROPAGATION_REASON));
         }
     }
 

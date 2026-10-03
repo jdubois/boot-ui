@@ -9,6 +9,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
+  correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
+  SQL, REST calls, messages, and exceptions are owned by the request at the new `PROPAGATED` correlation tier on Spring
+  MVC, Spring WebFlux, and Quarkus, which request profiles report unavailable, with the reason, while the sensor does
+  not propagate for the application. One window, `bootui.agent.executors.max-handoff`, bounds each task from its start.
+  Each task is recorded by the new `agent.executors` runtime-journal source: Live
+  Activity nests it under its request as an `ASYNC` entry badged **after response**, **running**, or **past deadline**,
+  and the request's journal profile lists it under **Handoffs** with its thread, queue time, what it did, and its
+  outcome. The new Runtime Insights observation `work-after-response` reports work still running after its response
+  that ran SQL, called a service, sent a message, or failed (22 checks), with seeds in each sample. The Java Agent panel
+  shows the sensor's self-test, hooks, and counters, and warns outside the verified JDKs (17, 21, 25, 26, 27). New
+  properties: `bootui.agent.sensors`, `bootui.agent.executors.skip-tasks`, `bootui.agent.executors.skip-threads`, and
+  `bootui.agent.executors.max-handoff`. A managed task that runs where its request is already current reuses it instead
+  of opening an empty nested execution, and exception groups ignore the agent bridge's frames
+  ([Java Agent](docs/features/java-agent.md#the-executors-sensor), PLAN-v2 M5-2).
+
 - **Java Agent panel.** A view-only Java Agent panel in Developer tools, `GET /bootui/api/java-agent`, the read-only
   `get_agent_status` MCP tool, and `bootui agent status` report whether the optional, development-time BootUI agent is
   attached, who holds its claim, and how to attach it, with copyable setup snippets for the Spring Boot Maven plugin,

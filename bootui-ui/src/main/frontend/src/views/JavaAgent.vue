@@ -71,6 +71,46 @@ const STATE_DETAILS = {
   }
 }
 
+// The executors sensor's counters (docs/PLAN-v2.md M5-2), each with what it counts.
+const EXECUTOR_COUNTERS = [
+  ['pending', 'Pending', 'tasks received from owned work that have not run yet'],
+  [
+    'neverApplied',
+    'Never applied',
+    'received tasks that never reached an instrumented run point, such as tasks of pools whose workers started before the claim'
+  ],
+  ['ambiguous', 'Ambiguous', 'tasks submitted more than once by different owners, left unowned'],
+  ['stale', 'Stale', 'tasks received under an earlier claim, never reopened after a restart'],
+  ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['virtualSkipped', 'Virtual threads skipped', 'virtual-thread continuations, which keep their own context'],
+  ['periodicSkipped', 'Periodic tasks skipped', 'repeating scheduled tasks, which are never propagated'],
+  ['skippedTasks', 'Wrappers skipped', 'tasks already carrying their context (bootui.agent.executors.skip-tasks)'],
+  [
+    'skippedThreads',
+    'Threads skipped',
+    'workers whose executor propagates itself (bootui.agent.executors.skip-threads)'
+  ],
+  ['failures', 'Failed tasks', 'propagated tasks that ended with an exception']
+]
+
+const sensorsWithHooks = computed(() => (report.value?.sensors ?? []).filter((sensor) => sensor.hooks?.length))
+
+function executorCounters(counters) {
+  return EXECUTOR_COUNTERS.map(([key, label, explanation]) => ({key, label, explanation, value: counters?.[key] ?? 0}))
+}
+
+function sensorState(sensor) {
+  if (sensor.state === 'installed' && sensor.durationMillis != null) {
+    return `installed in ${formatMillis(sensor.durationMillis)} ms`
+  }
+  return sensor.state
+}
+
+function hookInstalled(hook) {
+  if (!hook.present) return 'unsupported on this JDK'
+  return hook.transformed ? 'yes' : 'no'
+}
+
 async function fetchReport() {
   error.value = null
   try {
@@ -320,35 +360,89 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
           <h3 id="java-agent-sensors-title" class="h6 fw-bold mb-3">
             <i class="bi bi-broadcast-pin me-2" aria-hidden="true"></i>Sensors
           </h3>
-          <div v-if="report.sensors?.length" class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-              <thead>
-                <tr>
-                  <th scope="col">Sensor</th>
-                  <th scope="col">State</th>
-                  <th scope="col" class="text-end">Instrumented types</th>
-                  <th scope="col">Failures</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="sensor in report.sensors" :key="sensor.id">
-                  <td>
-                    <code>{{ sensor.id }}</code>
-                  </td>
-                  <td>{{ sensor.state }}</td>
-                  <td class="text-end">{{ formatNumber(sensor.instrumentedTypes) }}</td>
-                  <td>
-                    <span v-if="!sensor.failures?.length" class="text-muted">—</span>
-                    <ul v-else class="mb-0 ps-3">
-                      <li v-for="failure in sensor.failures" :key="failure">{{ failure }}</li>
-                    </ul>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <template v-if="report.sensors?.length">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Sensor</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Self-test</th>
+                    <th scope="col" class="text-end">Instrumented types</th>
+                    <th scope="col">Failures</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="sensor in report.sensors" :key="sensor.id">
+                    <td>
+                      <code>{{ sensor.id }}</code>
+                    </td>
+                    <td>{{ sensorState(sensor) }}</td>
+                    <td>
+                      <span v-if="sensor.selfTestPassed" class="text-success-emphasis">passed</span>
+                      <span v-else-if="sensor.selfTestError" class="text-danger-emphasis">{{
+                        sensor.selfTestError
+                      }}</span>
+                      <span v-else class="text-muted">not run</span>
+                    </td>
+                    <td class="text-end">{{ formatNumber(sensor.instrumentedTypes) }}</td>
+                    <td>
+                      <span v-if="!sensor.failures?.length" class="text-muted">—</span>
+                      <ul v-else class="mb-0 ps-3">
+                        <li v-for="failure in sensor.failures" :key="failure">{{ failure }}</li>
+                      </ul>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <template v-for="sensor in sensorsWithHooks" :key="`hooks-${sensor.id}`">
+              <h4 :id="`java-agent-hooks-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">
+                <code>{{ sensor.id }}</code> hooks
+              </h4>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0" :aria-labelledby="`java-agent-hooks-${sensor.id}`">
+                  <thead>
+                    <tr>
+                      <th scope="col">Hook</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Installed</th>
+                      <th scope="col">Self-test</th>
+                      <th scope="col" class="text-end">Fired</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="hook in sensor.hooks" :key="hook.id">
+                      <td>
+                        <code :title="hook.type">{{ hook.id }}</code>
+                      </td>
+                      <td>{{ hook.kind === 'apply' ? 'runs tasks' : 'receives tasks' }}</td>
+                      <td>{{ hookInstalled(hook) }}</td>
+                      <td>{{ hook.selfTest }}</td>
+                      <td class="text-end">{{ formatNumber(hook.fired) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <template v-if="sensor.executors">
+                <p v-if="sensor.executors.disabledReason" class="alert alert-warning small mt-3 mb-0" role="note">
+                  Propagation is disabled for this claim: {{ sensor.executors.disabledReason }}
+                </p>
+                <h4 class="h6 small text-muted mt-4 mb-2">Counters</h4>
+                <dl class="row small mb-0 java-agent-counters">
+                  <template v-for="counter in executorCounters(sensor.executors)" :key="counter.key">
+                    <dt class="col-sm-4 col-lg-3">
+                      {{ counter.label }} <span class="fw-normal">{{ formatNumber(counter.value) }}</span>
+                    </dt>
+                    <dd class="col-sm-8 col-lg-9 text-muted">{{ counter.explanation }}</dd>
+                  </template>
+                </dl>
+              </template>
+            </template>
+          </template>
           <p v-else class="text-muted small mb-0">
-            No sensors yet: executor propagation arrives with the next agent release
+            No sensor installed: the agent installs the sensors this application asks for when it claims the agent
+            (bootui.agent.sensors).
           </p>
         </div>
       </section>

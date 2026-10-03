@@ -15,7 +15,10 @@ import java.util.function.Supplier;
  *
  * <p>The bridge holds the claim's capture and reopen functions weakly, so the claim keeps them strongly reachable for as
  * long as it is reachable itself, and each claim makes fresh ones: a claim whose run is gone, with nothing holding it,
- * is abandoned and taken over. No sensor reads them yet: capture answers {@code null} and reopen a no-op.
+ * is abandoned and taken over. They delegate to the {@link AgentHandoffs} the adapter {@linkplain #attach attaches}
+ * once its engine is ready: until then, and once the claim is disarmed, capture answers {@code null} and reopen opens
+ * nothing. A DevTools restart or a live reload claims again with new functions, so a task submitted in the previous run
+ * that ends after the restart closes against that run's handoffs, or none: its late end is lost.
  */
 public final class AgentClaim {
 
@@ -46,13 +49,12 @@ public final class AgentClaim {
     /** Test mode. */
     public static final String TEST = "test";
 
-    private static final AutoCloseable NO_SCOPE = () -> {};
-
     private final AgentBridgeAccess access;
     private final String application;
     private final String owner;
     private final String mode;
     private final List<String> packages;
+    private final AgentSensorSettings sensors;
     private final AtomicBoolean ended = new AtomicBoolean();
 
     // Strongly reachable for as long as this claim is: the bridge only holds them weakly. Each claim builds its own
@@ -63,13 +65,21 @@ public final class AgentClaim {
     private volatile Map<String, Object> result;
     private volatile Long token;
     private volatile Long generation;
+    private volatile AgentHandoffs handoffs;
 
-    private AgentClaim(AgentBridgeAccess access, String application, String owner, String mode, List<String> packages) {
+    private AgentClaim(
+            AgentBridgeAccess access,
+            String application,
+            String owner,
+            String mode,
+            List<String> packages,
+            AgentSensorSettings sensors) {
         this.access = access;
         this.application = application;
         this.owner = owner;
         this.mode = mode;
         this.packages = List.copyOf(packages);
+        this.sensors = sensors == null ? AgentSensorSettings.defaults() : sensors;
         this.capture = () -> captureContext();
         this.reopen = snapshot -> reopenContext(snapshot);
     }
@@ -83,17 +93,40 @@ public final class AgentClaim {
      */
     public static AgentClaim claim(
             AgentBridgeAccess access, String application, String owner, String mode, List<String> packages) {
+        return claim(access, application, owner, mode, packages, AgentSensorSettings.defaults());
+    }
+
+    /**
+     * Claims the agent for this run, asking for the sensors {@code sensors} names. Never throws.
+     *
+     * @param mode {@value #DEV} or {@value #TEST}
+     * @param packages the application's package prefixes
+     * @param sensors the sensors and their options, or {@code null} for the defaults
+     */
+    public static AgentClaim claim(
+            AgentBridgeAccess access,
+            String application,
+            String owner,
+            String mode,
+            List<String> packages,
+            AgentSensorSettings sensors) {
         AgentClaim claim = new AgentClaim(
                 access == null ? AgentBridgeAccess.absent() : access,
                 application,
                 owner,
                 TEST.equals(mode) ? TEST : DEV,
-                packages == null ? List.of() : clean(packages));
+                packages == null ? List.of() : clean(packages),
+                sensors);
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("application", claim.application);
         request.put("owner", claim.owner);
         request.put("mode", claim.mode);
         request.put("packages", new ArrayList<>(claim.packages));
+        request.put("sensors", new ArrayList<>(claim.sensors.sensors()));
+        Map<String, Object> executors = new LinkedHashMap<>();
+        executors.put("skipTasks", new ArrayList<>(claim.sensors.skipTasks()));
+        executors.put("skipThreads", new ArrayList<>(claim.sensors.skipThreads()));
+        request.put("executors", executors);
         Map<String, Object> answer = claim.access.claim(request, claim.capture, claim.reopen);
         claim.result = answer;
         claim.generation = AgentBridgeAccess.number(answer, "generation");
@@ -137,8 +170,34 @@ public final class AgentClaim {
         return answer;
     }
 
+    /**
+     * Hands the agent this run's engine side of executor propagation, once the engine is ready: from now on, capture
+     * and reopen delegate to {@code handoffs}. Does nothing once the claim ended.
+     */
+    public void attach(AgentHandoffs handoffs) {
+        if (!ended.get()) {
+            this.handoffs = handoffs;
+        }
+    }
+
+    /** Takes the engine side back: capture answers {@code null} and reopen opens nothing. Idempotent. */
+    public void detach() {
+        this.handoffs = null;
+    }
+
+    /** The handoffs attached, or {@code null}. */
+    public AgentHandoffs handoffs() {
+        return handoffs;
+    }
+
+    /** The sensors this claim asked for. */
+    public AgentSensorSettings sensors() {
+        return sensors;
+    }
+
     /** Ends this run's claim: recording stops and the agent keeps its transformers (D34). Idempotent. */
     public Map<String, Object> disarm() {
+        detach();
         Long granted = token;
         if (granted == null || !ended.compareAndSet(false, true)) {
             return answer(STALE, "this claim already ended or was never armed");
@@ -203,14 +262,16 @@ public final class AgentClaim {
         return reopen;
     }
 
-    /** No sensor propagates a context before M5-2: nothing to capture. */
+    /** The submitting thread's snapshot from the attached handoffs, or {@code null} without them. */
     private Object captureContext() {
-        return null;
+        AgentHandoffs attached = handoffs;
+        return attached == null ? null : attached.capture();
     }
 
-    /** No sensor propagates a context before M5-2: nothing to reopen. */
+    /** The handoff the attached handoffs open, or {@code null} without them. */
     private AutoCloseable reopenContext(Object snapshot) {
-        return NO_SCOPE;
+        AgentHandoffs attached = handoffs;
+        return attached == null ? null : attached.reopen(snapshot);
     }
 
     private static List<String> clean(List<String> packages) {

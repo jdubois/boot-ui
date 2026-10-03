@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.AgentPropagation;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -23,6 +24,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.web.ExecutionProfileAssembler;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
@@ -56,6 +58,7 @@ public class LiveActivityCorrelator {
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final BootUiProperties properties;
+    private volatile ObjectProvider<JavaAgentService> javaAgent;
 
     public LiveActivityCorrelator(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -80,10 +83,20 @@ public class LiveActivityCorrelator {
         this.properties = properties;
     }
 
+    /**
+     * Installs the Java Agent service, which says whether the agent propagates executor work, and so whether the
+     * {@code PROPAGATED} tier is available.
+     */
+    public void setJavaAgent(ObjectProvider<JavaAgentService> javaAgent) {
+        this.javaAgent = javaAgent;
+    }
+
     /** Build the profile for the request with the given HTTP exchange id or BootUI request id. */
     public RequestProfileDto profile(String requestId) {
-        ExecutionProfileAssembler assembler =
-                new ExecutionProfileAssembler(properties.getActivity().getNPlusOneThreshold());
+        ExecutionProfileAssembler assembler = new ExecutionProfileAssembler(
+                properties.getActivity().getNPlusOneThreshold(),
+                ExecutionProfileAssembler.DEFAULT_MAX_CHILDREN_PER_SECTION,
+                properties.getAgent().getExecutors().getMaxHandoff().toMillis());
         List<HttpExchangeDto> requests = requests();
         boolean found =
                 requests.stream().anyMatch(exchange -> ExecutionProfileAssembler.identifies(exchange, requestId));
@@ -112,7 +125,8 @@ public class LiveActivityCorrelator {
                 ? null
                 : (thread, type, timestamp) -> threadMatch(
                         securityRegistry.classify(thread, type, timestamp, ActivitySql.SECURITY_THREAD_SLACK_MS));
-        return ProfileCapabilities.threadPerRequest(servingThreads, securityThreads);
+        return ProfileCapabilities.threadPerRequest(servingThreads, securityThreads)
+                .withPropagation(AgentPropagation.unavailableReason(javaAgent));
     }
 
     private static ProfileCapabilities.ServingThread servingThread(RequestCorrelation correlation) {

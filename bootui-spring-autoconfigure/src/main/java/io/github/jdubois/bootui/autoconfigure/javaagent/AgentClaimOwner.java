@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import java.util.List;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -22,7 +23,7 @@ import org.springframework.core.Ordered;
  *
  * <p>As initializer, it records its context and registers itself as a singleton so the Java Agent panel can read the
  * claim. As listener, it refines the claim with the auto-configuration packages when its own context is refreshed, and
- * disarms it when its own context closes or the application fails to start. It also disarms when the context destroys
+ * attaches the context's {@link AgentHandoffs} so the agent starts propagating requests' context, and disarms it when its own context closes or the application fails to start. It also disarms when the context destroys
  * its singletons. Disarming is idempotent.
  */
 public final class AgentClaimOwner
@@ -84,6 +85,7 @@ public final class AgentClaimOwner
             if (event instanceof ContextRefreshedEvent refreshed) {
                 if (context != null && refreshed.getApplicationContext() == context) {
                     refine(context.getBeanFactory());
+                    attach(context);
                 }
             } else if (event instanceof ContextClosedEvent closed) {
                 if (context != null && closed.getApplicationContext() == context) {
@@ -103,6 +105,18 @@ public final class AgentClaimOwner
     @Override
     public void destroy() {
         claim.disarm();
+    }
+
+    /** Hands the claim this run's engine side of executor propagation, now that the engine is ready. */
+    private void attach(ConfigurableApplicationContext applicationContext) {
+        if (!claim.armed()) {
+            return;
+        }
+        AgentHandoffs handoffs =
+                applicationContext.getBeanProvider(AgentHandoffs.class).getIfUnique();
+        if (handoffs != null) {
+            claim.attach(handoffs);
+        }
     }
 
     private void refine(ConfigurableListableBeanFactory beanFactory) {

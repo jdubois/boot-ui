@@ -161,7 +161,10 @@ function checkStatusLabel(status) {
 }
 
 function tierLabel(tier) {
-  return {REQUEST_ID: 'request id', TRACE_ID: 'trace id'}[tier] ?? String(tier ?? '').toLowerCase()
+  return (
+    {REQUEST_ID: 'request id', PROPAGATED: 'propagated by the agent', TRACE_ID: 'trace id'}[tier] ??
+    String(tier ?? '').toLowerCase()
+  )
 }
 
 const windowText = computed(() => {

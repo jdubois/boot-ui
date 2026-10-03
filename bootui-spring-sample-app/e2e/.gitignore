@@ -2,8 +2,10 @@ node_modules/
 playwright-report/
 playwright-report-webflux/
 playwright-report-custom-path/
+playwright-report-agent/
 test-results/
 test-results-webflux/
 test-results-custom-path/
+test-results-agent/
 blob-report/
 playwright/.cache/

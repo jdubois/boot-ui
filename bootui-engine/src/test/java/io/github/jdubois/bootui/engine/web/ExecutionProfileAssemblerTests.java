@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities.ServingThread;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities.ThreadMatch;
 import java.time.Instant;
@@ -249,6 +250,79 @@ class ExecutionProfileAssemblerTests {
         }
 
         @Test
+        void workTheAgentPropagatedIsAttributedAtThePropagatedTierWithinItsHandoffWindow() {
+            HttpExchangeDto request = stamped(request("0123456789abcdef", "/orders", null, null, 1_000L, 50L));
+            ProfileEvidence evidence = new Evidence(request)
+                    .sql(
+                            inExecution(sql(1, "select 1", null, 2L, 1_010L), "0123456789abcdef", null),
+                            inExecution(sql(2, "insert into audit", null, 2L, 1_500L), "0123456789abcdef", "async-1"),
+                            // Its handoff started more than max-handoff after the request ended.
+                            inExecution(
+                                    sql(3, "delete from carts", null, 2L, 1_050L + 300_001L),
+                                    "0123456789abcdef",
+                                    "async-2"),
+                            // Recorded more than max-handoff after its handoff started.
+                            inExecution(
+                                    sql(4, "delete from wishlists", null, 2L, 1_500L + 300_001L),
+                                    "0123456789abcdef",
+                                    "async-1"),
+                            // A handoff that started within max-handoff of the request's end keeps its whole window,
+                            // even past max-handoff after the request's end.
+                            inExecution(sql(5, "update stock", null, 2L, 200_000L), "0123456789abcdef", "async-3"),
+                            inExecution(sql(6, "update prices", null, 2L, 450_000L), "0123456789abcdef", "async-3"))
+                    .build();
+
+            RequestProfileDto profile = assembler.requestProfile("0123456789abcdef", evidence, capabilities);
+
+            assertThat(profile.sql())
+                    .as("statements outside their handoff's window are left out")
+                    .extracting(SqlTraceEntryDto::id)
+                    .containsExactlyInAnyOrder(1L, 2L, 5L, 6L);
+            assertThat(section(profile, "SQL").childTiers())
+                    .containsExactlyInAnyOrder("REQUEST_ID", "PROPAGATED", "PROPAGATED", "PROPAGATED");
+            assertThat(section(profile, "SQL").tier()).isEqualTo("PROPAGATED");
+            assertThat(profile.notes())
+                    .anyMatch(note -> note.startsWith("SQL statements recorded in tasks the BootUI agent propagated"));
+        }
+
+        @Test
+        void cacheAccessesOfAPropagatedTaskAreAttributedAtThePropagatedTierWithinItsHandoffWindow() {
+            HttpExchangeDto request = stamped(request("0123456789abcdef", "/orders", null, null, 1_000L, 50L));
+            ProfileEvidence evidence = new Evidence(request)
+                    .cache(
+                            new CacheActivityEvent(
+                                    1,
+                                    1_500L,
+                                    "cacheManager",
+                                    "orders",
+                                    CacheActivityOperation.HIT,
+                                    "a1b2c3d4e5f60718",
+                                    null,
+                                    "pool-1-thread-1",
+                                    "0123456789abcdef",
+                                    "async-1"),
+                            new CacheActivityEvent(
+                                    2,
+                                    1_500L + 300_001L,
+                                    "cacheManager",
+                                    "orders",
+                                    CacheActivityOperation.PUT,
+                                    "a1b2c3d4e5f60718",
+                                    null,
+                                    "pool-1-thread-1",
+                                    "0123456789abcdef",
+                                    "async-1"))
+                    .build();
+
+            RequestProfileDto profile = assembler.requestProfile("0123456789abcdef", evidence, capabilities);
+
+            assertThat(profile.cacheAccesses())
+                    .singleElement()
+                    .satisfies(access -> assertThat(access.operation()).isEqualTo("HIT"));
+            assertThat(section(profile, "CACHE").childTiers()).containsExactly("PROPAGATED");
+        }
+
+        @Test
         void aRequestIdDecidesBeforeASharedTraceId() {
             HttpExchangeDto request = stamped(request("0123456789abcdef", "/orders", "trace-a", null, 1_000L, 50L));
             HttpExchangeDto other = stamped(request("fedcba9876543210", "/orders", "trace-a", null, 1_000L, 50L));
@@ -279,9 +353,27 @@ class ExecutionProfileAssemblerTests {
             assertThat(profile.correlationTiers())
                     .containsExactly(
                             new RequestProfileTierDto("REQUEST_ID", true, null),
+                            new RequestProfileTierDto("PROPAGATED", false, ProfileCapabilities.PROPAGATION_REASON),
                             new RequestProfileTierDto("TRACE_ID", true, null),
                             new RequestProfileTierDto("SERVING_THREAD", false, ProfileCapabilities.EVENT_LOOP_REASON),
                             new RequestProfileTierDto("TIME_WINDOW", false, ProfileCapabilities.EVENT_LOOP_REASON));
+        }
+
+        @Test
+        void reportsThePropagatedTierAvailableOnlyWhileTheAgentPropagatesExecutorWork() {
+            HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 50L);
+            String reason = JavaAgentService.PROPAGATION_REQUIREMENT + ": the sensor is failed.";
+
+            RequestProfileDto propagating =
+                    assembler.requestProfile("req-1", evidence(List.of(request)), capabilities.withPropagation(null));
+            RequestProfileDto disabled =
+                    assembler.requestProfile("req-1", evidence(List.of(request)), capabilities.withPropagation(reason));
+
+            assertThat(propagating.correlationTiers())
+                    .contains(new RequestProfileTierDto("PROPAGATED", true, null))
+                    .contains(
+                            new RequestProfileTierDto("SERVING_THREAD", false, ProfileCapabilities.EVENT_LOOP_REASON));
+            assertThat(disabled.correlationTiers()).contains(new RequestProfileTierDto("PROPAGATED", false, reason));
         }
 
         @Test
@@ -487,7 +579,13 @@ class ExecutionProfileAssemblerTests {
             assertThat(profile.available()).isTrue();
             assertThat(profile.notes()).noneMatch(note -> note.contains("reduced profile"));
             assertThat(profile.correlationTiers())
+                    .filteredOn(tier -> !tier.tier().equals("PROPAGATED"))
                     .allSatisfy(tier -> assertThat(tier.available()).isTrue());
+            assertThat(profile.correlationTiers())
+                    .filteredOn(tier -> tier.tier().equals("PROPAGATED"))
+                    .singleElement()
+                    .satisfies(tier ->
+                            assertThat(tier.unavailableReason()).isEqualTo(ProfileCapabilities.PROPAGATION_REASON));
         }
 
         @Test
@@ -1078,6 +1176,31 @@ class ExecutionProfileAssemblerTests {
                 entry.traceId(),
                 entry.callSite(),
                 requestId);
+    }
+
+    private static SqlTraceEntryDto inExecution(SqlTraceEntryDto entry, String requestId, String executionId) {
+        return new SqlTraceEntryDto(
+                entry.id(),
+                entry.timestamp(),
+                entry.sql(),
+                entry.statementType(),
+                entry.category(),
+                entry.durationMicros(),
+                entry.durationMillis(),
+                entry.success(),
+                entry.errorMessage(),
+                entry.affectedRows(),
+                entry.batchSize(),
+                entry.connectionId(),
+                entry.thread(),
+                entry.slow(),
+                entry.parameters(),
+                entry.traceId(),
+                entry.callSite(),
+                requestId,
+                executionId,
+                null,
+                null);
     }
 
     private static RestClientTraceEntryDto withRequestId(RestClientTraceEntryDto call, String requestId) {

@@ -77,6 +77,7 @@ class BootUiQuarkusLiveActivityProfileWithoutOtelTest {
         }
         assertThat(reduced).as("the profile discloses that it is reduced").isTrue();
         for (JsonNode tier : profile.path("correlationTiers")) {
+            // PROPAGATED needs the BootUI agent's executors sensor, which this JVM runs without.
             boolean exact = "REQUEST_ID".equals(tier.path("tier").asText())
                     || "TRACE_ID".equals(tier.path("tier").asText());
             assertThat(tier.path("available").asBoolean())

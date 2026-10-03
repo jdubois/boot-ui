@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
@@ -409,9 +410,11 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         this.requestPhases = requestPhases;
     }
 
-    private RequestPhase requestPhase(String requestId) {
+    private RequestPhase requestPhase(String requestId, String executionId) {
         RequestPhases phases = requestPhases;
-        if (phases == null || requestId == null) {
+        // A task the agent propagated runs beside its request, so the request's phase says nothing about it: stamping
+        // RESPONSE on its statements would report work after the response as lazy loading in the response.
+        if (phases == null || requestId == null || ExecutionIds.isAsync(executionId)) {
             return null;
         }
         try {
@@ -538,7 +541,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         ThreadKind threadKind = threadKinds.current();
         long completedNanos = System.nanoTime();
         long timestamp = System.currentTimeMillis();
-        RequestPhase phase = requestPhase(context.requestId());
+        RequestPhase phase = requestPhase(context.requestId(), context.executionId());
         // The stack is walked only for what keeps it: the panel's call sites, or the journal's application frames.
         ApplicationFrames frames =
                 ApplicationFrames.wanted(panel, captureCallSite, toJournal) ? ApplicationFrames.capture() : null;

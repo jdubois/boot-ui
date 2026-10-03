@@ -114,6 +114,19 @@ public final class SegmentMeter {
     }
 
     /**
+     * The request the calling thread's open segment measures, or {@code null} when none is open, so a scope that must
+     * not change what the thread is metered for can restore it ({@code docs/PLAN-v2.md} D32).
+     */
+    public String currentRequestId() {
+        try {
+            Segment segment = segments.get();
+            return segment == null || segment.meter == null ? null : segment.requestId;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    /**
      * Stops measuring {@code requestId} and returns its usage, closing its segments still open on any thread. Work the
      * request does afterwards is not measured.
      *

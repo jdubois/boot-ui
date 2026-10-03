@@ -456,8 +456,30 @@ public final class ExceptionStore implements RuntimeEventPublisher {
         return message.length() <= MAX_MESSAGE_LENGTH ? message : message.substring(0, MAX_MESSAGE_LENGTH) + "…";
     }
 
-    private static String fingerprint(String className, List<Frame> frames) {
+    /** The bootstrap bridge of the BootUI agent, whose frames sit on a task's stack only when the agent is attached. */
+    static final String AGENT_BRIDGE_PREFIX = "io.github.jdubois.bootui.agent.bridge.";
+
+    /**
+     * The frames a fingerprint reads: without the BootUI agent bridge's, so the same failure groups together whether
+     * or not the agent propagated the task it ran in (M5-2).
+     */
+    static List<Frame> fingerprintFrames(List<Frame> frames) {
+        List<Frame> kept = new java.util.ArrayList<>(Math.min(frames.size(), FINGERPRINT_FRAMES));
+        for (Frame frame : frames) {
+            if (kept.size() >= FINGERPRINT_FRAMES) {
+                break;
+            }
+            String type = frame.declaringClass();
+            if (type == null || !type.startsWith(AGENT_BRIDGE_PREFIX)) {
+                kept.add(frame);
+            }
+        }
+        return kept;
+    }
+
+    private static String fingerprint(String className, List<Frame> allFrames) {
         StringBuilder builder = new StringBuilder(className);
+        List<Frame> frames = fingerprintFrames(allFrames);
         int count = Math.min(frames.size(), FINGERPRINT_FRAMES);
         for (int i = 0; i < count; i++) {
             Frame frame = frames.get(i);
@@ -475,8 +497,9 @@ public final class ExceptionStore implements RuntimeEventPublisher {
      * The occurrence's cross-run signature: like its fingerprint, but without line numbers, so an edit that shifts the
      * lines of its frames keeps it ({@code docs/PLAN-v2.md} §5.5).
      */
-    static String signature(String className, List<Frame> frames) {
+    static String signature(String className, List<Frame> allFrames) {
         StringBuilder builder = new StringBuilder(className);
+        List<Frame> frames = fingerprintFrames(allFrames);
         int count = Math.min(frames.size(), FINGERPRINT_FRAMES);
         for (int i = 0; i < count; i++) {
             Frame frame = frames.get(i);

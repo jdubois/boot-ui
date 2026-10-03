@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.RequestGcPauseDto;
+import io.github.jdubois.bootui.core.dto.RequestHandoffDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestOrmDto;
 import io.github.jdubois.bootui.core.dto.RequestResourcesDto;
 import io.github.jdubois.bootui.core.dto.RequestTimelineItemDto;
 import io.github.jdubois.bootui.core.dto.RouteComparisonDto;
 import io.github.jdubois.bootui.core.dto.TouchedResourcesDto;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
+import io.github.jdubois.bootui.engine.correlation.HandoffWindow;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
@@ -17,6 +20,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +56,10 @@ public final class RequestJournalProfiles {
     private final JournalActivityFeed feed;
     private final Supplier<RouteTemplateResolver> declaredRoutes;
     private final Predicate<String> panelEnabled;
+    private volatile long maxHandoffMillis = DEFAULT_MAX_HANDOFF_MILLIS;
+
+    /** The default {@code bootui.agent.executors.max-handoff}. */
+    public static final long DEFAULT_MAX_HANDOFF_MILLIS = HandoffWindow.DEFAULT_MAX_HANDOFF_MILLIS;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -69,6 +77,15 @@ public final class RequestJournalProfiles {
         this.declaredRoutes = aggregates == null ? RouteTemplateResolver::empty : aggregates.declaredRoutes();
         this.feed = new JournalActivityFeed(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes);
         this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
+    }
+
+    /**
+     * Sets {@code bootui.agent.executors.max-handoff} ({@link HandoffWindow}): a handoff starting later than this after
+     * its request ended is only counted, and work a handoff recorded later than this after it started is left out.
+     */
+    public RequestJournalProfiles maxHandoff(java.time.Duration maxHandoff) {
+        this.maxHandoffMillis = HandoffWindow.millis(maxHandoff);
+        return this;
     }
 
     /** The profile of {@code requestId}, or why the journal cannot give it. */
@@ -116,9 +133,38 @@ public final class RequestJournalProfiles {
         RuntimeEvent http = request.event();
         HttpPayload payload = (HttpPayload) http.payload();
         long start = http.epochMillis();
+        long endMillis = start + Math.max(0, http.durationNanos()) / 1_000_000L;
+        long maxHandoff = maxHandoffMillis;
+        // A handoff starting past max-handoff after the request ended is only counted, and its work, like any work a
+        // handoff recorded past max-handoff after it started, belongs to no request (M5-2): neither is drawn.
+        HandoffWindow.Starts starts = new HandoffWindow.Starts();
+        for (JournalEntry child : children) {
+            RuntimeEvent event = child.event();
+            if (event.payload() instanceof AsyncHandoffPayload) {
+                starts.handoff(event.executionId(), event.epochMillis());
+            } else {
+                starts.recorded(event.executionId(), event.epochMillis());
+            }
+        }
+        int late = 0;
+        for (Iterator<JournalEntry> it = children.iterator(); it.hasNext(); ) {
+            RuntimeEvent event = it.next().event();
+            if (!ExecutionIds.isAsync(event.executionId())) {
+                continue;
+            }
+            if (event.payload() instanceof AsyncHandoffPayload) {
+                if (!HandoffWindow.attaches(endMillis, event.epochMillis(), maxHandoff)) {
+                    late++;
+                    it.remove();
+                }
+            } else if (!starts.attributed(event.executionId(), event.epochMillis(), endMillis, maxHandoff)) {
+                it.remove();
+            }
+        }
         RouteLabel label = RouteLabel.of(
                 payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), resolver());
         List<String> notes = new ArrayList<>();
+        List<RequestHandoffDto> handoffs = handoffs(children, start, Math.max(0, http.durationNanos()));
 
         List<JournalEntry> rendered = new ArrayList<>(children);
         rendered.add(request);
@@ -173,7 +219,72 @@ public final class RequestJournalProfiles {
                 routeComparison(label.id(), Math.max(0, http.durationNanos()) / 1_000),
                 touched(children),
                 notes,
-                orm(children));
+                orm(children),
+                handoffs,
+                late == 0 ? null : late);
+    }
+
+    /**
+     * The request's handoffs (M5-2), each with what was recorded under its execution id, from children already limited
+     * to the handoff window.
+     */
+    private static List<RequestHandoffDto> handoffs(
+            List<JournalEntry> children, long requestStart, long requestDurationNanos) {
+        Map<String, int[]> work = new HashMap<>();
+        List<RuntimeEvent> handoffEvents = new ArrayList<>();
+        for (JournalEntry child : children) {
+            RuntimeEvent event = child.event();
+            if (event.payload() instanceof AsyncHandoffPayload) {
+                handoffEvents.add(event);
+            } else if (ExecutionIds.isAsync(event.executionId())) {
+                int[] counts = work.computeIfAbsent(event.executionId(), id -> new int[3]);
+                if (event.payload() instanceof SqlPayload) {
+                    counts[0]++;
+                } else if (event.payload() instanceof RestClientPayload) {
+                    counts[1]++;
+                } else if (event.payload() instanceof MessagingPayload) {
+                    counts[2]++;
+                }
+            }
+        }
+        handoffEvents.sort(Comparator.comparingLong(RuntimeEvent::epochMillis));
+        List<RequestHandoffDto> attached = new ArrayList<>();
+        for (RuntimeEvent event : handoffEvents) {
+            AsyncHandoffPayload handoff = (AsyncHandoffPayload) event.payload();
+            long durationNanos = Math.max(0, event.durationNanos());
+            boolean afterResponse;
+            Long afterResponseMicros;
+            if (handoff.afterResponse() != null) {
+                afterResponse = handoff.afterResponse();
+                afterResponseMicros = handoff.afterResponseMicros();
+            } else {
+                long endMicros = event.epochMillis() * 1_000L + durationNanos / 1_000L;
+                long requestEndMicros = requestStart * 1_000L + requestDurationNanos / 1_000L;
+                afterResponse = endMicros > requestEndMicros;
+                afterResponseMicros =
+                        afterResponse ? endMicros - Math.max(event.epochMillis() * 1_000L, requestEndMicros) : 0L;
+            }
+            int[] counts = work.getOrDefault(handoff.executionId(), new int[3]);
+            attached.add(new RequestHandoffDto(
+                    handoff.executionId(),
+                    handoff.parentExecutionId(),
+                    event.thread(),
+                    (event.epochMillis() - requestStart) * 1_000L,
+                    durationNanos / 1_000L,
+                    Math.max(0, handoff.queuedNanos()) / 1_000L,
+                    handoff.taskClass(),
+                    handoff.hook(),
+                    handoff.failed(),
+                    handoff.exceptionClass(),
+                    afterResponse,
+                    afterResponseMicros,
+                    handoff.capped(),
+                    counts[0],
+                    counts[1],
+                    counts[2],
+                    handoff.allocatedBytes()));
+        }
+        return attached;
     }
 
     /**

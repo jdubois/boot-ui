@@ -121,10 +121,8 @@ class AgentClaimTests {
 
         assertThat(first.capture()).isNotSameAs(second.capture());
         assertThat(first.reopen()).isNotSameAs(second.reopen());
-        assertThat(second.capture().get()).isNull();
-        try (AutoCloseable scope = second.reopen().apply(null)) {
-            assertThat(scope).isNotNull();
-        }
+        assertThat(second.capture().get()).as("no handoffs attached yet").isNull();
+        assertThat(second.reopen().apply(null)).as("no handoffs attached yet").isNull();
 
         for (int i = 0; i < 5; i++) {
             System.gc();
@@ -135,6 +133,45 @@ class AgentClaimTests {
                 .containsEntry("owner", "app@2")
                 .containsEntry("abandoned", false);
         assertThat(second.armed()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aClaimAsksForItsSensorsAndDelegatesToTheHandoffsAttachedUntilItIsDisarmed() {
+        AgentSensorSettings sensors = new AgentSensorSettings(
+                List.of("executors"), List.of("com.acme.Wrapper"), List.of("worker-"), java.time.Duration.ofSeconds(9));
+        AgentClaim claim = AgentClaim.claim(access, "app", "app@1", "dev", List.of("com.example"), sensors);
+
+        Map<String, Object> request = agent.requests.get(0);
+        assertThat((List<String>) request.get("sensors")).containsExactly("executors");
+        assertThat((Map<String, Object>) request.get("executors"))
+                .containsEntry("skipTasks", List.of("com.acme.Wrapper"))
+                .containsEntry("skipThreads", List.of("worker-"));
+        assertThat(claim.sensors().maxHandoff()).isEqualTo(java.time.Duration.ofSeconds(9));
+
+        AgentHandoffs handoffs =
+                new AgentHandoffs(() -> io.github.jdubois.bootui.spi.CorrelationContext.forRequest("r1"), null, null);
+        claim.attach(handoffs);
+        assertThat(claim.handoffs()).isSameAs(handoffs);
+        assertThat(claim.capture().get()).isInstanceOf(Object[].class);
+
+        claim.disarm();
+        assertThat(claim.handoffs()).as("disarming detaches").isNull();
+        assertThat(claim.capture().get()).isNull();
+        claim.attach(handoffs);
+        assertThat(claim.handoffs()).as("an ended claim attaches nothing").isNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theDefaultClaimAsksForTheExecutorsSensorWithTheDefaultSkipLists() {
+        AgentClaim.claim(access, "app", "app@1", "dev", List.of());
+
+        Map<String, Object> request = agent.requests.get(0);
+        assertThat((List<String>) request.get("sensors")).containsExactly("executors");
+        assertThat((Map<String, Object>) request.get("executors"))
+                .containsEntry("skipTasks", AgentSensorSettings.DEFAULT_SKIP_TASKS)
+                .containsEntry("skipThreads", AgentSensorSettings.DEFAULT_SKIP_THREADS);
     }
 
     @SuppressWarnings("unchecked")

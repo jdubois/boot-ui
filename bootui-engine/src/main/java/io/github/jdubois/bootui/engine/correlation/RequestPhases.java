@@ -56,6 +56,22 @@ public final class RequestPhases {
     }
 
     /**
+     * Records that a tracked request ended, its response complete, so work it handed over can tell whether it was still
+     * running then even when the adapter marked no {@link RequestPhase#RESPONSE} phase, as for a failed handler.
+     */
+    public void end(String requestId) {
+        if (requestId == null) {
+            return;
+        }
+        synchronized (timelines) {
+            Timeline timeline = timelines.get(requestId);
+            if (timeline != null && timeline.endedAt == null) {
+                timeline.endedAt = epochMicros();
+            }
+        }
+    }
+
+    /**
      * Adds an authentication interval to a tracked request, such as one Spring Security observed while authenticating
      * it. A request authenticated more than once accumulates its intervals.
      */
@@ -123,7 +139,8 @@ public final class RequestPhases {
                             timeline.handlerAt,
                             timeline.responseAt,
                             timeline.current,
-                            timeline.authenticationMicros);
+                            timeline.authenticationMicros,
+                            timeline.endedAt);
         }
     }
 
@@ -137,9 +154,22 @@ public final class RequestPhases {
      *
      * @param current the phase it is in now
      * @param authenticationMicros time spent authenticating it, summed over its authentication intervals
+     * @param endedAt when it ended, or {@code null} while it runs or when its adapter does not say
      */
     public record Markers(
-            Long filtersAt, Long handlerAt, Long responseAt, RequestPhase current, long authenticationMicros) {}
+            Long filtersAt,
+            Long handlerAt,
+            Long responseAt,
+            RequestPhase current,
+            long authenticationMicros,
+            Long endedAt) {
+
+        /** Markers of a request whose end is not known. */
+        public Markers(
+                Long filtersAt, Long handlerAt, Long responseAt, RequestPhase current, long authenticationMicros) {
+            this(filtersAt, handlerAt, responseAt, current, authenticationMicros, null);
+        }
+    }
 
     private static final class Timeline {
 
@@ -149,6 +179,7 @@ public final class RequestPhases {
         private Long responseAt;
         private long authenticationMicros;
         private String operation;
+        private Long endedAt;
 
         private Timeline(long startedAt) {
             this.filtersAt = startedAt;

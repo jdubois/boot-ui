@@ -103,6 +103,56 @@ describe('RequestJournalProfile', () => {
     expect(wrapper.findAll('.request-journal__bar--gc')).toHaveLength(1)
   })
 
+  it('lists the tasks the agent propagated with what they did, how they ended, and their badges', () => {
+    const wrapper = mount(RequestJournalProfile, {
+      props: {
+        profile: journalProfile({
+          handoffs: [
+            {
+              executionId: 'async-1',
+              parentExecutionId: null,
+              thread: 'pool-1-thread-1',
+              startOffsetMicros: 10000,
+              durationMicros: 90000,
+              queuedMicros: 2000,
+              taskClass: 'java.util.concurrent.FutureTask',
+              hook: 'ThreadPoolExecutor.runWorker',
+              failed: true,
+              exceptionClass: 'java.lang.IllegalStateException',
+              afterResponse: true,
+              afterResponseMicros: 60000,
+              capped: false,
+              sqlCount: 1,
+              restClientCount: 2,
+              messagingCount: 0,
+              allocatedBytes: 2048
+            }
+          ],
+          lateHandoffs: 1
+        })
+      }
+    })
+    const text = wrapper.text()
+
+    expect(text).toContain('Handoffs')
+    expect(text).toContain('FutureTask')
+    expect(text).toContain('pool-1-thread-1')
+    expect(text).toContain('90.0 ms after 2.0 ms queued')
+    expect(text).toContain('1 SQL statement, 2 REST calls')
+    expect(text).toContain('failed: IllegalStateException')
+    expect(text).toContain('after response by 60.0 ms')
+    expect(text).toContain('2.0 KB allocated')
+    expect(text).toContain('1 later task started more than bootui.agent.executors.max-handoff after this request ended')
+    expect(text.split('counted, not shown')).toHaveLength(2)
+    expect(wrapper.findAll('.request-journal__late-handoffs')).toHaveLength(1)
+    expect(text).not.toContain('past deadline')
+  })
+
+  it('shows no handoffs section without propagated tasks', () => {
+    const wrapper = mount(RequestJournalProfile, {props: {profile: journalProfile({handoffs: []})}})
+    expect(wrapper.text()).not.toContain('Handoffs')
+  })
+
   it('says why CPU time is unavailable or partial, never showing zero', () => {
     const unavailable = mount(RequestJournalProfile, {
       props: {

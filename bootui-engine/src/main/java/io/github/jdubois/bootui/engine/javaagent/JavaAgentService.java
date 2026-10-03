@@ -2,11 +2,14 @@ package io.github.jdubois.bootui.engine.javaagent;
 
 import io.github.jdubois.bootui.core.dto.JavaAgentClaimDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentCountersDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentExecutorCountersDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSetupDto;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,6 +35,18 @@ public final class JavaAgentService {
             "This run ended its claim: the agent records nothing until the next run claims it.";
     static final String RELEASED_REASON = "The agent was released: no application holds it.";
     static final String REPLACED_REASON = "Another application's claim replaced this run's claim, and it has ended.";
+
+    /** What propagated work, the {@code PROPAGATED} tier, and {@code work-after-response} need. */
+    public static final String PROPAGATION_REQUIREMENT = "Requires the BootUI agent's executors sensor";
+
+    /** The state the agent reports for a sensor whose hooks are in place. */
+    static final String INSTALLED = "installed";
+
+    /** The JDK feature releases the executors sensor's hooks were verified on. */
+    static final List<Integer> VERIFIED_JDKS = List.of(17, 21, 25, 26, 27);
+
+    static final String UNVERIFIED_JDK_WARNING = "The agent's executor hooks are not verified on JDK %d: the self-test"
+            + " decides whether each hook propagates.";
 
     private final AgentBridgeAccess access;
     private final Supplier<AgentClaim> claim;
@@ -66,6 +81,10 @@ public final class JavaAgentService {
                     + ": they speak the same protocol, but attach the bootui-agent jar of BootUI " + bootUiVersion
                     + ".");
         }
+        if (!AgentBridgeAccess.items(agent, "sensors").isEmpty()
+                && !verifiedJdk(Runtime.version().feature())) {
+            warnings.add(UNVERIFIED_JDK_WARNING.formatted(Runtime.version().feature()));
+        }
         JavaAgentSetupDto setup = AgentSetupSnippets.setup(
                 bootUiVersion,
                 jar,
@@ -85,12 +104,89 @@ public final class JavaAgentService {
                 AgentBridgeAccess.number(agent, "startupMicros"),
                 claimDto(bridgeClaim),
                 resolution.heldBy(),
-                sensors(agent),
+                sensors(agent, AgentBridgeAccess.map(status, "executors")),
                 retransformation(AgentBridgeAccess.map(agent, "installer")),
                 counters(AgentBridgeAccess.map(status, "counters")),
                 strings(AgentBridgeAccess.items(status, "messages")),
                 warnings,
                 setup);
+    }
+
+    /**
+     * Whether the agent is attached and this application's claim is armed, so agent-based evidence is recorded for it.
+     * Reads only the bridge's status. Never throws.
+     */
+    public boolean recording() {
+        try {
+            Map<String, Object> status = access.status();
+            return JavaAgentReport.ARMED.equals(
+                    resolve(status, AgentBridgeAccess.map(status, "claim")).state());
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether the agent propagates the work a request hands to a JDK executor for this application: it is attached and
+     * armed for it ({@link #recording()}), its {@code executors} sensor is installed, the bridge has not disabled
+     * propagation, and this application attached its handoffs to its claim. Reads only the bridge's status. Never
+     * throws.
+     */
+    public boolean propagating() {
+        return propagationUnavailableReason() == null;
+    }
+
+    /**
+     * Why the agent does not propagate executor work for this application, starting with
+     * {@value #PROPAGATION_REQUIREMENT}, or {@code null} when it does ({@link #propagating()}). Never throws.
+     */
+    public String propagationUnavailableReason() {
+        try {
+            Map<String, Object> status = access.status();
+            Resolution resolution = resolve(status, AgentBridgeAccess.map(status, "claim"));
+            if (!JavaAgentReport.ARMED.equals(resolution.state())) {
+                String reason = resolution.reason() == null
+                        ? "the agent is not armed for this application."
+                        : resolution.reason();
+                if (JavaAgentReport.NOT_ATTACHED.equals(resolution.state())) {
+                    reason += " Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).";
+                }
+                return PROPAGATION_REQUIREMENT + ": " + reason;
+            }
+            Map<String, Object> sensor = executorsSensor(AgentBridgeAccess.map(status, "agent"));
+            if (sensor == null) {
+                return PROPAGATION_REQUIREMENT
+                        + ": the agent did not start it; bootui.agent.sensors must include executors.";
+            }
+            String state = AgentBridgeAccess.text(sensor, "state");
+            if (!INSTALLED.equals(state)) {
+                return PROPAGATION_REQUIREMENT + ": the sensor is " + (state == null ? "not installed" : state) + ".";
+            }
+            String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, "executors"), "disabledReason");
+            if (disabled != null) {
+                return PROPAGATION_REQUIREMENT + ": the agent disabled executor propagation: " + disabled;
+            }
+            AgentClaim ours = claim.get();
+            if (ours == null || ours.handoffs() == null) {
+                return PROPAGATION_REQUIREMENT + ": BootUI has not attached its executor handoffs to this application's"
+                        + " claim yet.";
+            }
+            return null;
+        } catch (RuntimeException ex) {
+            return PROPAGATION_REQUIREMENT + ".";
+        }
+    }
+
+    private static Map<String, Object> executorsSensor(Map<String, Object> agent) {
+        for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
+            if (item instanceof Map<?, ?> raw) {
+                Map<String, Object> sensor = AgentBridgeAccess.map(Map.of("sensor", raw), "sensor");
+                if (AgentSensorSettings.EXECUTORS.equals(AgentBridgeAccess.text(sensor, "id"))) {
+                    return sensor;
+                }
+            }
+        }
+        return null;
     }
 
     private Resolution resolve(Map<String, Object> status, Map<String, Object> bridgeClaim) {
@@ -194,20 +290,88 @@ public final class JavaAgentService {
                 AgentBridgeAccess.flag(claim, "abandoned"));
     }
 
-    private static List<JavaAgentSensorDto> sensors(Map<String, Object> agent) {
+    private static List<JavaAgentSensorDto> sensors(Map<String, Object> agent, Map<String, Object> executors) {
         List<JavaAgentSensorDto> sensors = new ArrayList<>();
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
                 Map<String, Object> sensor = AgentBridgeAccess.map(Map.of("sensor", raw), "sensor");
                 Long types = AgentBridgeAccess.number(sensor, "instrumentedTypes");
+                if (types == null) {
+                    types = AgentBridgeAccess.number(sensor, "transformed");
+                }
+                String id = AgentBridgeAccess.text(sensor, "id");
+                boolean executorSensor = AgentSensorSettings.EXECUTORS.equals(id);
+                Long duration = AgentBridgeAccess.number(sensor, "durationMillis");
                 sensors.add(new JavaAgentSensorDto(
-                        AgentBridgeAccess.text(sensor, "id"),
+                        id,
                         AgentBridgeAccess.text(sensor, "state"),
                         types == null ? 0 : types.intValue(),
-                        strings(AgentBridgeAccess.items(sensor, "failures"))));
+                        strings(AgentBridgeAccess.items(sensor, "failures")),
+                        duration == null || duration < 0 ? null : duration,
+                        AgentBridgeAccess.flag(sensor, "selfTestPassed"),
+                        AgentBridgeAccess.text(sensor, "selfTestError"),
+                        texts(AgentBridgeAccess.map(sensor, "selfTestSteps")),
+                        hooks(sensor, executorSensor ? executors : Map.of()),
+                        count(sensor, "failed"),
+                        count(sensor, "skipped"),
+                        executorSensor && !executors.isEmpty() ? executorCounters(executors) : null));
             }
         }
         return sensors;
+    }
+
+    private static List<JavaAgentHookDto> hooks(Map<String, Object> sensor, Map<String, Object> executors) {
+        Map<String, Object> keyed = AgentBridgeAccess.map(executors, "keyed");
+        Map<String, Object> applied = AgentBridgeAccess.map(executors, "applied");
+        List<JavaAgentHookDto> hooks = new ArrayList<>();
+        for (Object item : AgentBridgeAccess.items(sensor, "hooks")) {
+            if (item instanceof Map<?, ?> raw) {
+                Map<String, Object> hook = AgentBridgeAccess.map(Map.of("hook", raw), "hook");
+                String id = AgentBridgeAccess.text(hook, "id");
+                String kind = AgentBridgeAccess.text(hook, "kind");
+                Long fired = AgentBridgeAccess.number("apply".equals(kind) ? applied : keyed, id);
+                hooks.add(new JavaAgentHookDto(
+                        id,
+                        kind,
+                        AgentBridgeAccess.text(hook, "type"),
+                        AgentBridgeAccess.flag(hook, "present"),
+                        AgentBridgeAccess.flag(hook, "transformed"),
+                        AgentBridgeAccess.text(hook, "selfTest"),
+                        fired == null ? 0L : fired));
+            }
+        }
+        return hooks;
+    }
+
+    private static JavaAgentExecutorCountersDto executorCounters(Map<String, Object> executors) {
+        return new JavaAgentExecutorCountersDto(
+                longValue(executors, "pending"),
+                longValue(executors, "neverApplied"),
+                longValue(executors, "ambiguous"),
+                longValue(executors, "stale"),
+                longValue(executors, "refused"),
+                longValue(executors, "virtualSkipped"),
+                longValue(executors, "periodicSkipped"),
+                longValue(executors, "skippedTasks"),
+                longValue(executors, "skippedThreads"),
+                longValue(executors, "failures"),
+                AgentBridgeAccess.text(executors, "disabledReason"),
+                AgentBridgeAccess.flag(executors, "asyncApplies"));
+    }
+
+    private static Map<String, String> texts(Map<String, Object> map) {
+        Map<String, String> texts = new LinkedHashMap<>();
+        map.forEach((key, value) -> {
+            if (value != null) {
+                texts.put(key, String.valueOf(value));
+            }
+        });
+        return texts;
+    }
+
+    /** Whether the hooks were verified on this JDK's feature release; others rely on the self-test alone. */
+    static boolean verifiedJdk(int feature) {
+        return VERIFIED_JDKS.contains(feature);
     }
 
     private static JavaAgentRetransformationDto retransformation(Map<String, Object> installer) {

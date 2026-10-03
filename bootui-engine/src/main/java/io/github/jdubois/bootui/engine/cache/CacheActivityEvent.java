@@ -14,6 +14,9 @@ package io.github.jdubois.bootui.engine.cache;
  *     (e.g. {@link CacheActivityOperation#CLEAR})
  * @param traceId distributed trace id active when the access happened, or {@code null} when none
  * @param thread name of the thread that performed the access
+ * @param requestId BootUI's request id current when the access happened, or {@code null}
+ * @param executionId BootUI's execution id current when the access happened, such as a task the BootUI agent
+ *     propagated, or {@code null}
  */
 public record CacheActivityEvent(
         long seq,
@@ -24,7 +27,22 @@ public record CacheActivityEvent(
         String keyHash,
         String traceId,
         String thread,
-        String requestId) {
+        String requestId,
+        String executionId) {
+
+    /** With BootUI's request id only. */
+    public CacheActivityEvent(
+            long seq,
+            long timestampMillis,
+            String managerName,
+            String cacheName,
+            CacheActivityOperation operation,
+            String keyHash,
+            String traceId,
+            String thread,
+            String requestId) {
+        this(seq, timestampMillis, managerName, cacheName, operation, keyHash, traceId, thread, requestId, null);
+    }
 
     /** Without BootUI's request identity. */
     public CacheActivityEvent(
@@ -36,6 +54,6 @@ public record CacheActivityEvent(
             String keyHash,
             String traceId,
             String thread) {
-        this(seq, timestampMillis, managerName, cacheName, operation, keyHash, traceId, thread, null);
+        this(seq, timestampMillis, managerName, cacheName, operation, keyHash, traceId, thread, null, null);
     }
 }

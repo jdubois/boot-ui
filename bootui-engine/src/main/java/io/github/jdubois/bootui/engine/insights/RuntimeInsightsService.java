@@ -128,6 +128,21 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs why the BootUI agent does not propagate executor work for this application, {@code null} when it does,
+     * which {@code work-after-response} needs ({@code docs/PLAN-v2.md} §5.17), and
+     * {@code bootui.agent.executors.max-handoff}; without propagation, that observation does not apply.
+     */
+    public synchronized void setAgent(
+            java.util.function.Supplier<String> propagationUnavailable, java.time.Duration maxHandoff) {
+        for (Observation observation : observations) {
+            if (observation instanceof WorkAfterResponse work) {
+                work.setAgent(propagationUnavailable, maxHandoff);
+            }
+        }
+        this.cached = null;
+    }
+
+    /**
      * Installs the maximum size of each connection pool, by the data source name its connections carry, which
      * {@code transaction-across-remote-call} uses for its labelled estimate.
      */
@@ -183,7 +198,8 @@ public final class RuntimeInsightsService {
                 new GcInflatedLatency(),
                 new HeapGrowthAfterGc(),
                 new AiUsageByRoute(aiTokenThreshold),
-                new FrameworkWarningsByRoute());
+                new FrameworkWarningsByRoute(),
+                new WorkAfterResponse());
     }
 
     /** The current report, projected from the retained events. */

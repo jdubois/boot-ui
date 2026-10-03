@@ -3,6 +3,7 @@
 
 const TIER_LABELS = {
   REQUEST_ID: 'request id',
+  PROPAGATED: 'propagated',
   TRACE_ID: 'trace id',
   SERVING_THREAD: 'serving thread',
   TIME_WINDOW: 'time window'
@@ -10,6 +11,8 @@ const TIER_LABELS = {
 
 const TIER_TITLES = {
   REQUEST_ID: 'Correlated exactly by the BootUI request id stamped when the signal was recorded',
+  PROPAGATED:
+    'Correlated exactly by the BootUI request id, recorded in a task the BootUI agent propagated from this request to an executor',
   TRACE_ID: 'Correlated exactly by a trace id that no other captured request carries',
   SERVING_THREAD: "Correlated exactly by the request's serving thread within its window",
   TIME_WINDOW: 'Matched by time window only, so it may include or miss signals under concurrent requests'
@@ -87,7 +90,8 @@ function truncationText(section, shown) {
  * @returns {boolean}
  */
 export function securityEventExact(section, event, index) {
-  return Boolean(event?.threadMatched) || section?.childTiers?.[Number(index)] === 'REQUEST_ID'
+  const tier = section?.childTiers?.[Number(index)]
+  return Boolean(event?.threadMatched) || tier === 'REQUEST_ID' || tier === 'PROPAGATED'
 }
 
 export function childTierLabel(section, index) {
@@ -102,11 +106,25 @@ export function childTierLabel(section, index) {
 export function unavailableTiersText(profile) {
   const tiers = (profile?.correlationTiers ?? []).filter((tier) => !tier.available)
   if (!tiers.length) return ''
+  // One sentence per reason: the adapter's own limits, and the BootUI agent's propagation, which every adapter can have.
+  const groups = new Map()
+  for (const tier of tiers) {
+    const reason = tier.unavailableReason ?? ''
+    groups.set(reason, [...(groups.get(reason) ?? []), tier])
+  }
+  return [...groups].map(([reason, group]) => unavailableTiersSentence(group, reason)).join(' ')
+}
+
+function unavailableTiersSentence(tiers, reason) {
   const labels = tiers.map((tier) => tierLabel(tier.tier) || tier.tier)
   const joined = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
   const subject = joined.charAt(0).toUpperCase() + joined.slice(1)
+  if (tiers.every((tier) => tier.tier === 'PROPAGATED')) {
+    // "Requires the BootUI agent's executors sensor: …" reads as the rest of the sentence.
+    if (reason.startsWith('Requires ')) return `${subject} correlation r${reason.slice(1)}`
+    return reason ? `${subject} correlation is unavailable: ${reason}` : `${subject} correlation is unavailable.`
+  }
   const text = `${subject} correlation ${tiers.length === 1 ? 'is' : 'are'} unavailable on this adapter`
-  const reason = tiers.find((tier) => tier.unavailableReason)?.unavailableReason
   return reason ? `${text}: ${reason}` : `${text}.`
 }
 

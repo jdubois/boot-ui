@@ -8,6 +8,9 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
  * task. Each task becomes an execution of its own, with a fresh execution id, that keeps its request's id, so the work
  * it records is owned by the request that submitted it. BootUI's own work stays marked as BootUI's, so the journal still
  * leaves it out. Raw executors and {@code CompletableFuture} are left to the agent (M5-2).
+ *
+ * <p>A task that runs on a thread where its request is already current, such as a caller-runs rejection or a direct
+ * executor, reuses that context rather than opening an empty nested execution.</p>
  */
 public final class ManagedTasks {
 
@@ -21,7 +24,22 @@ public final class ManagedTasks {
         if (submitted.bootUi() || submitted.requestId() == null) {
             return submitted;
         }
-        return submitted.withExecutionId("task-" + RequestIds.next());
+        return submitted.withExecutionId(ExecutionIds.nextTask());
+    }
+
+    /**
+     * Opens {@code context} for a task about to run on this thread, or returns {@code null} when the thread already
+     * works for the context's request, which the task then keeps.
+     *
+     * @param context the task's context, from {@link #taskContext}; {@code null} clears the thread's context
+     */
+    public static BootUiCorrelation.Scope open(CorrelationContext context) {
+        if (context != null
+                && context.requestId() != null
+                && context.requestId().equals(BootUiCorrelation.current().requestId())) {
+            return null;
+        }
+        return BootUiCorrelation.open(context);
     }
 
     /** {@code task}, run with the context of the thread submitting it now, as an execution of its request. */
@@ -31,8 +49,13 @@ public final class ManagedTasks {
             return task;
         }
         return () -> {
-            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(context)) {
+            BootUiCorrelation.Scope scope = open(context);
+            try {
                 task.run();
+            } finally {
+                if (scope != null) {
+                    scope.close();
+                }
             }
         };
     }

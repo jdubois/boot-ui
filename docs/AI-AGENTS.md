@@ -284,8 +284,10 @@ through MCP and the CLI:
 2. **Fetch its profile.** Call `get_request_profile` with that entry's `id` (`bootui request-profile <id> --json`). The
    profile carries the request, its correlated SQL as normalized statement groups with N+1 flags and the application
    call sites that issued them, exceptions, security events, REST client calls, cache accesses, a timing breakdown,
-   per-section correlation tiers and truncation counts, and notes. It is the same DTO the REST endpoint returns, masked
-   the same way. An unknown or evicted id returns `available: false` with an `unavailableReason`; that is an answer,
+   per-section correlation tiers and truncation counts, and notes. A child tiered `PROPAGATED` ran in a task the BootUI
+   agent propagated from the request to a JDK executor, as exact as `REQUEST_ID`; `correlationTiers` reports
+   `PROPAGATED` unavailable, with the reason, unless the agent's `executors` sensor propagates for the application. It
+   is the same DTO the REST endpoint returns, masked the same way. An unknown or evicted id returns `available: false` with an `unavailableReason`; that is an answer,
    not a failure to retry.
 3. **Follow each exception.** Every profile exception carries an `exceptionGroupId`; pass it to
    `get_exception_detail` (`bootui exceptions show <id> --json`) for the stack trace, cause chain, and recent

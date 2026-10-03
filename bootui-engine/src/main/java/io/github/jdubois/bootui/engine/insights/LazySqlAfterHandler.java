@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -78,7 +79,10 @@ public final class LazySqlAfterHandler implements Observation {
                 Map<String, int[]> perRequest = new LinkedHashMap<>();
                 Map<String, String> sites = new LinkedHashMap<>();
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    if (!(event.payload() instanceof SqlPayload sql) || sql.phase() != RequestPhase.RESPONSE) {
+                    // Work a propagated task did is work-after-response's, not lazy loading in the response.
+                    if (!(event.payload() instanceof SqlPayload sql)
+                            || sql.phase() != RequestPhase.RESPONSE
+                            || ExecutionIds.isAsync(event.executionId())) {
                         continue;
                     }
                     if (transactions && (!windows.canPlace(event) || windows.innermost(event) != null)) {

@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -105,6 +106,27 @@ class SqlTraceRecorderTests {
         assertThat(response.phase()).isEqualTo(RequestPhase.RESPONSE);
         assertThat(handler.completedNanos()).isGreaterThanOrEqualTo(before);
         assertThat(response.completedNanos()).isGreaterThanOrEqualTo(handler.completedNanos());
+    }
+
+    @Test
+    void stampsNoRequestPhaseOnAStatementOfAPropagatedTask() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, true, false, 8, 100, 2000, 200, 5, 50);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        RequestPhases phases = new RequestPhases();
+        recorder.setRequestPhases(phases);
+        phases.begin("0123456789abcdef");
+        phases.mark("0123456789abcdef", RequestPhase.RESPONSE);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(
+                CorrelationContext.forRequest("0123456789abcdef").withExecutionId(ExecutionIds.nextAsync()))) {
+            record(recorder, Category.UPDATE, "update audit set seen = 1", 0);
+        }
+
+        assertThat(published).singleElement().satisfies(event -> {
+            assertThat(event.requestId()).isEqualTo("0123456789abcdef");
+            assertThat(((SqlPayload) event.payload()).phase()).isNull();
+        });
     }
 
     @Test

@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.journal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.RequestHandoffDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestOrmDto;
 import io.github.jdubois.bootui.core.dto.RequestTimelineItemDto;
@@ -330,6 +332,157 @@ class RequestJournalProfilesTests {
                         .profile("r1")
                         .unavailableReason())
                 .isEqualTo(RequestJournalProfiles.DISABLED);
+    }
+
+    @Test
+    void aRequestsHandoffsCarryWhatTheyDidAndLateOnesAreOnlyCounted() {
+        CorrelationContext async1 = CorrelationContext.forRequest("r1").withExecutionId("async-1");
+        CorrelationContext async2 = CorrelationContext.forRequest("r1").withExecutionId("async-2");
+        CorrelationContext async3 = CorrelationContext.forRequest("r1").withExecutionId("async-3");
+        CorrelationContext async4 = CorrelationContext.forRequest("r1").withExecutionId("async-4");
+        offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_050,
+                1_000_000,
+                async1,
+                "pool-1-thread-1",
+                null,
+                false,
+                new SqlPayload("insert into audit values (?)", null, "orders", false)));
+        offer(RuntimeEvent.of(
+                JournalSource.REST_CLIENT,
+                1_060,
+                1_000_000,
+                async1,
+                "pool-1-thread-1",
+                null,
+                false,
+                new RestClientPayload("POST", "audit:8080", "/events", 202, "RestClient", false)));
+        offer(handoff(async1, 1_010, 90, null, null, false, "java.lang.IllegalStateException"));
+        offer(handoff(async2, 1_005, 5, false, 0L, false, null));
+        // Starts during the request and runs ten minutes: shown capped, and its statement past max-handoff after the
+        // handoff started is left out.
+        offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_000 + 600_000,
+                1_000_000,
+                async3,
+                "pool-1-thread-2",
+                null,
+                false,
+                new SqlPayload("delete from carts", null, "orders", false)));
+        offer(handoff(async3, 1_020, 600_000, true, 599_000_000L, true, null));
+        // Starts more than max-handoff after the request ended: only counted, and neither it nor its work is drawn.
+        offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_040 + 400_010,
+                1_000_000,
+                async4,
+                "pool-1-thread-2",
+                null,
+                false,
+                new SqlPayload("delete from wishlists", null, "orders", false)));
+        offer(handoff(async4, 1_040 + 400_000, 20, true, 20_000L, false, null));
+        offer(http("r1", 1_000, 40_000_000, null));
+
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("r1");
+
+        assertThat(profile.handoffs())
+                .extracting(
+                        RequestHandoffDto::executionId,
+                        RequestHandoffDto::afterResponse,
+                        RequestHandoffDto::sqlCount,
+                        RequestHandoffDto::restClientCount,
+                        RequestHandoffDto::failed)
+                .containsExactly(
+                        tuple("async-2", false, 0, 0, false),
+                        tuple("async-1", true, 1, 1, true),
+                        tuple("async-3", true, 0, 0, false));
+        assertThat(profile.handoffs().get(2).capped()).isTrue();
+        RequestHandoffDto async = profile.handoffs().get(1);
+        assertThat(async.thread()).isEqualTo("pool-1-thread-1");
+        assertThat(async.startOffsetMicros()).isEqualTo(10_000);
+        assertThat(async.durationMicros()).isEqualTo(90_000);
+        assertThat(async.queuedMicros()).isEqualTo(2_000);
+        assertThat(async.afterResponseMicros())
+                .as("after the request's end, its response start unknown")
+                .isEqualTo(60_000);
+        assertThat(async.exceptionClass()).isEqualTo("java.lang.IllegalStateException");
+        assertThat(profile.lateHandoffs()).isEqualTo(1);
+        assertThat(profile.touched().tables()).doesNotContain("carts", "wishlists");
+        assertThat(profile.notes())
+                .as("the late count is the profile's lateHandoffs, shown once by the panel")
+                .noneMatch(note -> note.contains("max-handoff"));
+        assertThat(profile.timeline())
+                .filteredOn(item -> item.source().equals("agent.executors"))
+                .as("the late handoff is counted, not drawn")
+                .hasSize(3)
+                .allMatch(item -> item.offsetMillis() < 400_000);
+
+        JournalActivityFeed.Feed feed = new JournalActivityFeed(1_000, 5, null)
+                .render(
+                        journal.entries(),
+                        journal::eventId,
+                        journal.run().id(),
+                        JournalActivityFeed.Filter.NONE,
+                        0,
+                        JournalRowDetails.NONE,
+                        trace -> false,
+                        List.of(
+                                new RunningHandoffs.Running(
+                                        "r1", "async-9", "e0", null, "pool-1-thread-3", 1_030, "Task", "hook"),
+                                new RunningHandoffs.Running(
+                                        "unknown", "async-8", null, null, "pool-1-thread-4", 1_030, "Task", "hook")));
+        assertThat(feed.entries())
+                .filteredOn(entry -> entry.type().equals(JournalActivityFeed.TYPE_ASYNC))
+                .extracting(ActivityEntryDto::id, ActivityEntryDto::parentId, ActivityEntryDto::badges)
+                .contains(
+                        tuple("running:async-9", "r1", List.of("RUNNING", "AFTER_RESPONSE")),
+                        tuple(journal.eventId(asyncEntry(1_010)), "r1", List.of("AFTER_RESPONSE")),
+                        tuple(journal.eventId(asyncEntry(1_020)), "r1", List.of("AFTER_RESPONSE", "CAPPED")))
+                .noneMatch(row -> "running:async-8".equals(row.toList().get(0)));
+        assertThat(feed.typeCounts()).containsEntry(JournalActivityFeed.TYPE_ASYNC, 5);
+    }
+
+    private JournalEntry asyncEntry(long start) {
+        return journal.entries().stream()
+                .filter(entry -> entry.event().payload() instanceof AsyncHandoffPayload
+                        && entry.event().epochMillis() == start)
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static RuntimeEvent handoff(
+            CorrelationContext context,
+            long start,
+            long millis,
+            Boolean afterResponse,
+            Long afterResponseMicros,
+            boolean capped,
+            String exceptionClass) {
+        return RuntimeEvent.of(
+                JournalSource.AGENT_EXECUTORS,
+                start,
+                millis * 1_000_000,
+                context,
+                "pool-1-thread-1",
+                null,
+                exceptionClass != null,
+                new AsyncHandoffPayload(
+                        context.executionId(),
+                        null,
+                        "java.util.concurrent.FutureTask",
+                        "ThreadPoolExecutor.runWorker",
+                        start - 2,
+                        2_000_000,
+                        null,
+                        exceptionClass != null,
+                        exceptionClass,
+                        afterResponse,
+                        afterResponseMicros,
+                        capped));
     }
 
     private RequestJournalProfiles profiles(Predicate<String> panelEnabled) {

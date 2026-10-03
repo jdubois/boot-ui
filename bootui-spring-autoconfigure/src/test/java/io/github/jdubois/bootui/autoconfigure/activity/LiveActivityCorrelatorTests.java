@@ -37,7 +37,12 @@ import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +62,36 @@ class LiveActivityCorrelatorTests {
 
         assertThat(profile.available()).isFalse();
         assertThat(profile.unavailableReason()).contains("missing");
+    }
+
+    @Test
+    void reportsThePropagatedTierUnavailableWithTheJavaAgentsReason() {
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+        @SuppressWarnings("unchecked")
+        ObjectProvider<JavaAgentService> javaAgent = mock(ObjectProvider.class);
+        when(javaAgent.getIfUnique())
+                .thenReturn(new JavaAgentService(
+                        AgentBridgeAccess.absent(),
+                        () -> null,
+                        JavaAgentSettings.of(AgentSetupSnippets.SPRING, true, null)));
+        correlator.setJavaAgent(javaAgent);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.correlationTiers())
+                .filteredOn(tier -> tier.tier().equals("PROPAGATED"))
+                .singleElement()
+                .satisfies(tier -> {
+                    assertThat(tier.available()).isFalse();
+                    assertThat(tier.unavailableReason())
+                            .startsWith(JavaAgentService.PROPAGATION_REQUIREMENT + ": ")
+                            .contains("-javaagent");
+                });
     }
 
     @Test
@@ -471,7 +506,15 @@ class LiveActivityCorrelatorTests {
                 });
         assertThat(profile.timing().restCallCount()).isEqualTo(1);
         assertThat(profile.correlationTiers())
+                .filteredOn(tier -> !tier.tier().equals("PROPAGATED"))
                 .allSatisfy(tier -> assertThat(tier.available()).isTrue());
+        assertThat(profile.correlationTiers())
+                .filteredOn(tier -> tier.tier().equals("PROPAGATED"))
+                .singleElement()
+                .satisfies(tier -> {
+                    assertThat(tier.available()).as("without the agent").isFalse();
+                    assertThat(tier.unavailableReason()).isEqualTo(ProfileCapabilities.PROPAGATION_REASON);
+                });
     }
 
     @Test

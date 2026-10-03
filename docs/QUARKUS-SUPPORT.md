@@ -214,7 +214,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `HTTP Probe`                                          | Local HTTP probing                                                                |
 | `AI Framework`                                        | —                                                                                 |
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |
-| `Runtime Insights`                                    | The shared `RuntimeInsightsService` over the runtime journal; available while the journal is enabled. Quarkus records no transactions, so `split-transaction-writes` and `transaction-across-remote-call` report themselves not applicable, and lazy loads after the handler surface as `LazyInitializationException` in `exception-hotspots` |
+| `Runtime Insights`                                    | The shared `RuntimeInsightsService` over the runtime journal; available while the journal is enabled. Quarkus records no transactions, so `split-transaction-writes` and `transaction-across-remote-call` report themselves not applicable, and lazy loads after the handler surface as `LazyInitializationException` in `exception-hotspots`. With the BootUI agent attached in dev or test mode, `work-after-response` applies as on Spring |
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
 | `Pentesting`                                          | Shared 77-check engine (see below)                                                |
@@ -269,7 +269,7 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 | `Architecture` advisor | Shared ArchUnit registry; generic rules run unchanged, Spring-only annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus semantics |
 | `Beans`               | **Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, with resolved injection edges captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring Conditions evidence remain unavailable |
 | `Scorecard`           | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
-| `Java Agent`          | **Implemented** — shared Java agent status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test, refines on startup, and disarms on shutdown; production launch mode never claims it |
+| `Java Agent`          | **Implemented** — shared Java agent status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test with the build-time `bootui.agent.sensors` and `bootui.agent.executors.*`, refines and attaches the engine's executor propagation on startup, and disarms on shutdown; production launch mode never claims it. Vert.x threads (`vert.x-`) are skipped: Quarkus carries the request's context across them itself |
 
 ::: details Fault Tolerance fidelity
 

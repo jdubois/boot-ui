@@ -43,6 +43,9 @@ public final class JdbcActivityStore implements ActivityStore {
      */
     private static final int QUERY_TIMEOUT_SECONDS = 10;
 
+    /** The column holding an entry's badges, added after the table's first release. */
+    private static final String BADGES_COLUMN = "badges";
+
     /**
      * The one-row page read {@link #verifySchema()} runs to prove this database accepts the store's read statement.
      * It asks for an instance id no BootUI instance uses, and its result is discarded either way.
@@ -53,6 +56,12 @@ public final class JdbcActivityStore implements ActivityStore {
     private final String tableName;
     private final AtomicBoolean schemaReady = new AtomicBoolean(false);
     private volatile ActivitySqlDialect dialect;
+
+    /**
+     * Whether the table has the {@code badges} column (M5-2). A table an earlier BootUI created gains it with one
+     * {@code ALTER TABLE ... ADD}; when the database refuses, entries are stored and read without their badges.
+     */
+    private volatile boolean badgesColumn;
 
     public JdbcActivityStore(DataSource dataSource, String tableName) {
         this.dataSource = dataSource;
@@ -135,6 +144,7 @@ public final class JdbcActivityStore implements ActivityStore {
         }
         try (Connection connection = dataSource.getConnection()) {
             if (tableExists(connection)) {
+                badgesColumn = ensureBadgesColumn(connection);
                 schemaReady.set(true);
                 return;
             }
@@ -149,6 +159,7 @@ public final class JdbcActivityStore implements ActivityStore {
                     throw createFailed;
                 }
             }
+            badgesColumn = ensureBadgesColumn(connection);
             try (Statement statement = connection.createStatement()) {
                 statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
                 statement.executeUpdate(createIndexSql());
@@ -158,6 +169,33 @@ public final class JdbcActivityStore implements ActivityStore {
                 // the whole store over it.
             }
             schemaReady.set(true);
+        }
+    }
+
+    /** Whether the table has the {@code badges} column, adding it to a table an earlier BootUI created. */
+    private boolean ensureBadgesColumn(Connection connection) {
+        if (columnExists(connection, BADGES_COLUMN)) {
+            return true;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+            statement.executeUpdate("ALTER TABLE " + tableName + " ADD " + BADGES_COLUMN + " VARCHAR(128)");
+        } catch (SQLException alterFailed) {
+            // Another instance may have added it concurrently, or the database refuses the change: re-probe, and
+            // without the column, keep the store working without badges.
+        }
+        return columnExists(connection, BADGES_COLUMN);
+    }
+
+    private boolean columnExists(Connection connection, String column) {
+        try (Statement statement = connection.createStatement()) {
+            statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+            try (ResultSet ignored =
+                    statement.executeQuery("SELECT " + column + " FROM " + tableName + " WHERE 1 = 0")) {
+                return true;
+            }
+        } catch (SQLException notFound) {
+            return false;
         }
     }
 
@@ -206,6 +244,7 @@ public final class JdbcActivityStore implements ActivityStore {
                 + "parent_entry_id VARCHAR(128), "
                 + "secured_principal VARCHAR(256), "
                 + "sql_n_plus_one_suspected INTEGER NOT NULL, "
+                + BADGES_COLUMN + " VARCHAR(128), "
                 + "PRIMARY KEY (instance_id, seq))";
     }
 
@@ -214,10 +253,12 @@ public final class JdbcActivityStore implements ActivityStore {
     }
 
     private void insertBatch(List<StoredActivityEntry> entries) throws SQLException {
+        boolean badges = badgesColumn;
         String sql = "INSERT INTO " + tableName + " (instance_id, seq, entry_id, entry_type, occurred_at, "
                 + "severity, summary, detail, duration_ms, correlation_id, http_method, path, status_code, "
-                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected"
+                + (badges ? ", " + BADGES_COLUMN : "") + ") "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" + (badges ? ", ?" : "") + ")";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
@@ -242,6 +283,9 @@ public final class JdbcActivityStore implements ActivityStore {
                 statement.setString(i++, entry.parentId());
                 statement.setString(i++, entry.securedPrincipal());
                 statement.setInt(i++, entry.sqlNPlusOneSuspected() ? 1 : 0);
+                if (badges) {
+                    statement.setString(i++, encodeBadges(entry.badges()));
+                }
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -249,9 +293,11 @@ public final class JdbcActivityStore implements ActivityStore {
     }
 
     private ActivityPage runQuery(ActivityQuery query) throws SQLException {
+        boolean badges = badgesColumn;
         StringBuilder sql = new StringBuilder("SELECT instance_id, seq, entry_id, entry_type, occurred_at, "
                 + "severity, summary, detail, duration_ms, correlation_id, http_method, path, status_code, "
-                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected FROM "
+                + "thread_name, profileable, parent_entry_id, secured_principal, sql_n_plus_one_suspected"
+                + (badges ? ", " + BADGES_COLUMN : "") + " FROM "
                 + tableName
                 + " WHERE instance_id = ?");
         List<Object> params = new ArrayList<>();
@@ -303,7 +349,7 @@ public final class JdbcActivityStore implements ActivityStore {
             }
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
-                    matches.add(toStoredEntry(rs));
+                    matches.add(toStoredEntry(rs, badges));
                 }
             }
         }
@@ -318,7 +364,7 @@ public final class JdbcActivityStore implements ActivityStore {
         return new ActivityPage(page, nextCursor, hasMore);
     }
 
-    private StoredActivityEntry toStoredEntry(ResultSet rs) throws SQLException {
+    private StoredActivityEntry toStoredEntry(ResultSet rs, boolean badges) throws SQLException {
         String instanceId = rs.getString("instance_id");
         long seq = rs.getLong("seq");
         ActivityEntryDto entry = new ActivityEntryDto(
@@ -337,8 +383,36 @@ public final class JdbcActivityStore implements ActivityStore {
                 rs.getInt("profileable") != 0,
                 rs.getString("parent_entry_id"),
                 rs.getString("secured_principal"),
-                rs.getInt("sql_n_plus_one_suspected") != 0);
+                rs.getInt("sql_n_plus_one_suspected") != 0,
+                badges ? decodeBadges(rs.getString(BADGES_COLUMN)) : List.of());
         return new StoredActivityEntry(instanceId, seq, entry);
+    }
+
+    /** An entry's badges, comma-separated (each is an upper-case identifier), or {@code null} when it has none. */
+    static String encodeBadges(List<String> badges) {
+        if (badges == null || badges.isEmpty()) {
+            return null;
+        }
+        List<String> kept = new ArrayList<>(badges.size());
+        for (String badge : badges) {
+            if (badge != null && !badge.isBlank() && badge.indexOf(',') < 0) {
+                kept.add(badge.trim());
+            }
+        }
+        return kept.isEmpty() ? null : String.join(",", kept);
+    }
+
+    static List<String> decodeBadges(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return List.of();
+        }
+        List<String> badges = new ArrayList<>();
+        for (String badge : stored.split(",")) {
+            if (!badge.isBlank()) {
+                badges.add(badge.trim());
+            }
+        }
+        return badges;
     }
 
     private static void setNullableLong(PreparedStatement statement, int index, Long value) throws SQLException {

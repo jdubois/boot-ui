@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +50,25 @@ class AgentClaimOwnerTests {
         assertThat(owner.claim().armed()).isFalse();
         owner.destroy();
         assertThat(FakeBridge.CALLS).containsExactly("claim", "refine", "disarm");
+    }
+
+    @Test
+    void attachesTheContextsHandoffsWhenItsContextIsRefreshedAndDetachesThemWhenItCloses() {
+        AgentClaimOwner owner = owner();
+        AgentHandoffs handoffs = new AgentHandoffs(null, null, null);
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(AgentHandoffs.class, () -> handoffs);
+            owner.initialize(context);
+            context.addApplicationListener(owner);
+
+            assertThat(owner.claim().handoffs())
+                    .as("nothing captured before the engine is ready")
+                    .isNull();
+            context.refresh();
+
+            assertThat(owner.claim().handoffs()).isSameAs(handoffs);
+        }
+        assertThat(owner.claim().handoffs()).isNull();
     }
 
     @Test

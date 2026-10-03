@@ -29,6 +29,20 @@ class ManagedTasksTests {
     }
 
     @Test
+    void aTaskRunOnAThreadAlreadyWorkingForItsRequestKeepsThatContext() {
+        AtomicReference<CorrelationContext> seen = new AtomicReference<>();
+        CorrelationContext request = CorrelationContext.forRequest("r1").withExecutionId("e0");
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
+            Runnable task = ManagedTasks.propagate(() -> seen.set(BootUiCorrelation.current()));
+            task.run();
+            assertThat(seen.get()).as("caller-runs: no empty nested execution").isEqualTo(request);
+            assertThat(ManagedTasks.open(ManagedTasks.taskContext(request))).isNull();
+            assertThat(BootUiCorrelation.current()).isEqualTo(request);
+        }
+        assertThat(BootUiCorrelation.current()).isEqualTo(CorrelationContext.NONE);
+    }
+
+    @Test
     void aTaskSubmittedOutsideAnyRequestIsUnchangedAndBootUiWorkStaysBootUis() {
         Runnable plain = () -> {};
 

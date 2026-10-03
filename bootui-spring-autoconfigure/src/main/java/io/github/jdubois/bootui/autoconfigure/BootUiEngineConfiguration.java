@@ -58,6 +58,7 @@ import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
@@ -79,6 +80,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
@@ -406,6 +408,19 @@ public class BootUiEngineConfiguration {
                     .observationHandler(new io.github.jdubois.bootui.autoconfigure.activity.AiObservationJournalHandler(
                             journal::getIfAvailable));
         }
+    }
+
+    /**
+     * The engine side of the BootUI agent's executor propagation ({@code docs/PLAN-v2.md} M5-2), which this run's
+     * {@link AgentClaimOwner} attaches to its claim once the context is refreshed. Without the agent, nothing calls it.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    AgentHandoffs bootUiAgentHandoffs(BootUiProperties properties, RequestPhases phases) {
+        return new AgentHandoffs(
+                BootUiCorrelation::current,
+                phases,
+                properties.getAgent().getExecutors().getMaxHandoff());
     }
 
     /**

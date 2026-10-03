@@ -21,8 +21,9 @@ public final class BootUiThreadContextProvider implements ThreadContextProvider 
     public ThreadContextSnapshot currentContext(Map<String, String> props) {
         CorrelationContext context = ManagedTasks.taskContext(QuarkusRequestCorrelation.current());
         return () -> {
-            BootUiCorrelation.Scope scope = BootUiCorrelation.open(context);
-            return scope::close;
+            // The same request already current on this thread keeps its context: no empty nested execution.
+            BootUiCorrelation.Scope scope = ManagedTasks.open(context);
+            return scope == null ? () -> {} : scope::close;
         };
     }
 

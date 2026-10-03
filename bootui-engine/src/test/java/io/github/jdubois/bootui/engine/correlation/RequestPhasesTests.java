@@ -42,6 +42,22 @@ class RequestPhasesTests {
     }
 
     @Test
+    void recordsWhenARequestEndedOnce() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+
+        assertThat(phases.markers("r1").endedAt()).as("still running").isNull();
+        phases.end("r1");
+        Long ended = phases.markers("r1").endedAt();
+        phases.end("r1");
+        phases.end("unknown");
+        phases.end(null);
+
+        assertThat(ended).isGreaterThanOrEqualTo(phases.markers("r1").filtersAt());
+        assertThat(phases.markers("r1").endedAt()).as("the first end is kept").isEqualTo(ended);
+    }
+
+    @Test
     void forgetsTheOldestRequestsFirst() {
         RequestPhases phases = new RequestPhases(2);
         phases.begin("r1");

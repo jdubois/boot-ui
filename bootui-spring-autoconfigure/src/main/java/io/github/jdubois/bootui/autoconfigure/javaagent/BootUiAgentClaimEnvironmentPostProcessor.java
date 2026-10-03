@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiActivationCondition;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentPackages;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -70,8 +73,8 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 AgentClaim.release(access, name, mode);
                 return;
             }
-            AgentClaim claim =
-                    AgentClaim.claim(access, name, owner(name), mode, packages(environment, application, mode));
+            AgentClaim claim = AgentClaim.claim(
+                    access, name, owner(name), mode, packages(environment, application, mode), sensors(environment));
             AgentClaimOwner owner = new AgentClaimOwner(claim);
             application.addInitializers(owner);
             application.addListeners(owner);
@@ -154,6 +157,53 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 .bind("bootui.agent.packages", Bindable.listOf(String.class))
                 .ifBound(extra -> extra.forEach(name -> add(packages, name)));
         return packages;
+    }
+
+    /**
+     * {@code bootui.agent.sensors} and {@code bootui.agent.executors.*}, with Reactor's scheduler threads added to the
+     * skipped threads when Reactor's automatic context propagation carries BootUI's context across them already.
+     */
+    static AgentSensorSettings sensors(ConfigurableEnvironment environment) {
+        Binder binder = Binder.get(environment);
+        AgentSensorSettings defaults = AgentSensorSettings.defaults();
+        AgentSensorSettings settings = new AgentSensorSettings(
+                binder.bind("bootui.agent.sensors", Bindable.listOf(String.class))
+                        .orElse(defaults.sensors()),
+                binder.bind("bootui.agent.executors.skip-tasks", Bindable.listOf(String.class))
+                        .orElse(defaults.skipTasks()),
+                binder.bind("bootui.agent.executors.skip-threads", Bindable.listOf(String.class))
+                        .orElse(defaults.skipThreads()),
+                binder.bind("bootui.agent.executors.max-handoff", Bindable.of(Duration.class))
+                        .orElse(defaults.maxHandoff()));
+        return reactorPropagatesContext(environment)
+                ? settings.withSkipThreads(AgentSensorSettings.REACTOR_SKIP_THREADS)
+                : settings;
+    }
+
+    /**
+     * Whether Reactor's automatic context propagation is on, or will be: {@code Hooks.isAutomaticContextPropagationEnabled()}
+     * when Reactor is present, else {@code spring.reactor.context-propagation=auto}, which Spring Boot turns it on with
+     * once the context starts and BootUI contributes for reactive applications.
+     */
+    static boolean reactorPropagatesContext(ConfigurableEnvironment environment) {
+        if ("auto"
+                .equalsIgnoreCase(environment
+                        .getProperty(
+                                BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY, "")
+                        .trim())) {
+            return true;
+        }
+        try {
+            Class<?> hooks = Class.forName(
+                    "reactor.core.publisher.Hooks",
+                    false,
+                    BootUiAgentClaimEnvironmentPostProcessor.class.getClassLoader());
+            Object enabled =
+                    hooks.getMethod("isAutomaticContextPropagationEnabled").invoke(null);
+            return Boolean.TRUE.equals(enabled);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException ex) {
+            return false;
+        }
     }
 
     private static void add(List<String> packages, String name) {

@@ -61,7 +61,8 @@ const TYPES = [
   'LOG',
   'APP_EVENT',
   'WEBSOCKET',
-  'ORM'
+  'ORM',
+  'ASYNC'
 ]
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
@@ -432,9 +433,33 @@ function typeIcon(type) {
       MARKER: 'bi-flag',
       APP_EVENT: 'bi-broadcast',
       WEBSOCKET: 'bi-plug',
-      ORM: 'bi-layers'
+      ORM: 'bi-layers',
+      ASYNC: 'bi-signpost-split'
     }[type] || 'bi-dot'
   )
+}
+
+// An ASYNC entry's state (docs/PLAN-v2.md M5-2): a task the BootUI agent propagated from its request to an executor.
+const ENTRY_BADGES = {
+  AFTER_RESPONSE: {
+    label: 'after response',
+    title: 'Still running once the response started',
+    className: 'text-bg-warning'
+  },
+  RUNNING: {label: 'running', title: 'Still running now', className: 'text-bg-info'},
+  CAPPED: {
+    label: 'past deadline',
+    title:
+      'Ended more than bootui.agent.executors.max-handoff after it started: its later work is not attributed to the request',
+    className: 'text-bg-secondary'
+  }
+}
+
+function entryBadges(entry) {
+  return (entry?.badges ?? []).map((badge) => ({
+    id: badge,
+    ...(ENTRY_BADGES[badge] ?? {label: badge, title: badge, className: 'text-bg-light'})
+  }))
 }
 
 function severityBadgeClass(severity) {
@@ -1211,6 +1236,13 @@ function toggleFlow() {
                       title="Correlated SQL includes a suspected N+1 query pattern — open the profile for details"
                       >N+1</span
                     >
+                    <span
+                      v-for="badge in entryBadges(entry)"
+                      :key="badge.id"
+                      :class="['badge', 'rounded-pill', 'ms-2', 'activity-entry-badge', badge.className]"
+                      :title="badge.title"
+                      >{{ badge.label }}</span
+                    >
                     <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
                   </td>
                   <td class="text-end text-nowrap small">
@@ -1252,6 +1284,13 @@ function toggleFlow() {
                   </td>
                   <td class="activity-summary-cell">
                     <span>{{ child.summary }}</span>
+                    <span
+                      v-for="badge in entryBadges(child)"
+                      :key="badge.id"
+                      :class="['badge', 'rounded-pill', 'ms-2', 'activity-entry-badge', badge.className]"
+                      :title="badge.title"
+                      >{{ badge.label }}</span
+                    >
                     <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
                   </td>
                   <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>

@@ -34,7 +34,9 @@ public enum JournalSource {
     RESOURCES("resources"),
     APP_EVENT("app-event"),
     WEBSOCKET("websocket"),
-    ORM("orm");
+    ORM("orm"),
+    /** Tasks the BootUI agent propagated through a JDK executor ({@code docs/PLAN-v2.md} M5-2): one event per handoff. */
+    AGENT_EXECUTORS("agent.executors");
 
     private final String propertyName;
 

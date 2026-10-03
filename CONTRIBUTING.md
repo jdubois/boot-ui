@@ -425,6 +425,8 @@ UI, browser-facing API responses, or sample-app behavior:
 (cd bootui-spring-sample-app/e2e && npm ci && npx playwright install chromium)
 (cd bootui-spring-sample-app/e2e && npm test)
 (cd bootui-spring-sample-app/e2e && npm run test:webflux)
+# The MVC sample with the BootUI agent attached, after ./mvnw install -pl bootui-agent -am
+(cd bootui-spring-sample-app/e2e && npm run test:agent)
 
 # Quarkus (requires JDK 17 to 27 and Docker/Podman for Dev Services)
 (cd bootui-quarkus-sample-app/e2e && npm ci && npx playwright install chromium)

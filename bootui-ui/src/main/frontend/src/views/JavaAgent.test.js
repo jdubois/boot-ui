@@ -68,7 +68,7 @@ describe('Java Agent panel', () => {
 
     expect(wrapper.text()).toContain('Not attached')
     expect(wrapper.text()).toContain('This JVM runs without the BootUI agent')
-    expect(wrapper.text()).toContain('No sensors yet: executor propagation arrives with the next agent release')
+    expect(wrapper.text()).toContain('No sensor installed: the agent installs the sensors this application asks for')
     expect(wrapper.text()).toContain('MAVEN')
     expect(wrapper.get('#java-agent-tab-maven-download').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('#java-agent-tab-surefire').attributes('aria-selected')).toBe('false')
@@ -153,6 +153,74 @@ describe('Java Agent panel', () => {
     const warning = wrapper.get('.alert-warning')
     expect(warning.text()).toContain('Agent version 1.9.0 differs from BootUI 2.0.0')
     expect(wrapper.text().indexOf('Agent installed')).toBeLessThan(wrapper.text().indexOf('Claim released'))
+  })
+
+  it('shows the executors sensor with its self-test, hooks, and explained counters', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'executors',
+          state: 'installed',
+          instrumentedTypes: 9,
+          failures: [],
+          durationMillis: 87,
+          selfTestPassed: true,
+          selfTestError: null,
+          selfTestSteps: {'thread-pool': 'passed'},
+          hooks: [
+            {
+              id: 'ThreadPoolExecutor',
+              kind: 'key',
+              type: 'java.util.concurrent.ThreadPoolExecutor',
+              present: true,
+              transformed: true,
+              selfTest: 'passed',
+              fired: 12
+            },
+            {
+              id: 'DelayScheduler',
+              kind: 'key',
+              type: 'java.util.concurrent.DelayScheduler$ScheduledForkJoinTask',
+              present: false,
+              transformed: false,
+              selfTest: 'unsupported',
+              fired: 0
+            }
+          ],
+          failedTypes: 0,
+          skippedTypes: 0,
+          executors: {
+            pending: 1,
+            neverApplied: 3,
+            ambiguous: 0,
+            stale: 0,
+            refused: 0,
+            virtualSkipped: 0,
+            periodicSkipped: 2,
+            skippedTasks: 5,
+            skippedThreads: 0,
+            failures: 1,
+            disabledReason: null,
+            asyncApplies: true
+          }
+        }
+      ]
+    })
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('installed in 87.0 ms')
+    expect(text).toContain('passed')
+    expect(text).toContain('ThreadPoolExecutor')
+    expect(text).toContain('receives tasks')
+    expect(text).toContain('unsupported on this JDK')
+    expect(text).toContain('Never applied 3')
+    expect(text).toContain('pools whose workers started before the claim')
+    expect(text).toContain('Periodic tasks skipped 2')
+    expect(text).not.toContain('No sensor installed')
+    expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
   })
 
   it('does not call the API when manifest availability says the panel is unavailable', async () => {

@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.core.dto;
 
+import java.util.List;
+
 /**
  * A single normalized entry in the Live Activity stream.
  *
@@ -36,6 +38,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param sqlNPlusOneSuspected for a {@code REQUEST} entry, whether its correlated SQL executions contain
  *     a group that looks like an N+1 access pattern (same threshold/logic the per-request profile
  *     drawer uses); always {@code false} for non-request entries
+ * @param badges short markers of the entry's state, such as {@code AFTER_RESPONSE}, {@code RUNNING}, or
+ *     {@code CAPPED} for an {@code ASYNC} entry the BootUI agent propagated (M5-2); empty for most entries
  */
 public record ActivityEntryDto(
         String id,
@@ -53,4 +57,57 @@ public record ActivityEntryDto(
         boolean profileable,
         String parentId,
         String securedPrincipal,
-        boolean sqlNPlusOneSuspected) {}
+        boolean sqlNPlusOneSuspected,
+        List<String> badges) {
+
+    /** An {@code ASYNC} entry's task was still running once its request's response started. */
+    public static final String BADGE_AFTER_RESPONSE = "AFTER_RESPONSE";
+
+    /** An {@code ASYNC} entry's task is still running. */
+    public static final String BADGE_RUNNING = "RUNNING";
+
+    /** An {@code ASYNC} entry's task ran past its handoff deadline. */
+    public static final String BADGE_CAPPED = "CAPPED";
+
+    public ActivityEntryDto {
+        badges = DtoCollections.immutableCopy(badges);
+    }
+
+    /** An entry without badges. */
+    public ActivityEntryDto(
+            String id,
+            String type,
+            long timestamp,
+            String severity,
+            String summary,
+            String detail,
+            Long durationMs,
+            String correlationId,
+            String method,
+            String path,
+            Integer status,
+            String thread,
+            boolean profileable,
+            String parentId,
+            String securedPrincipal,
+            boolean sqlNPlusOneSuspected) {
+        this(
+                id,
+                type,
+                timestamp,
+                severity,
+                summary,
+                detail,
+                durationMs,
+                correlationId,
+                method,
+                path,
+                status,
+                thread,
+                profileable,
+                parentId,
+                securedPrincipal,
+                sqlNPlusOneSuspected,
+                List.of());
+    }
+}

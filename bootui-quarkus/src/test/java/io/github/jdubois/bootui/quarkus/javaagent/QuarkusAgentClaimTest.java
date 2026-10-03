@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
@@ -44,6 +45,22 @@ class QuarkusAgentClaimTest {
 
         assertThat(StubBridge.CALLS).containsExactly("claim test:app", "refine", "disarm");
         assertThat(claim.armed()).isFalse();
+    }
+
+    @Test
+    void theLifecycleAttachesTheEnginesHandoffsOnStartAndDisarmingDetachesThem() {
+        AgentClaim claim = AgentClaim.claim(
+                AgentBridgeAccess.bind(StubBridge.class), "app", "app@1", "test", List.of("com.example"));
+        AgentHandoffs handoffs = new AgentHandoffs(null, null, null);
+        QuarkusAgentClaimLifecycle lifecycle = new QuarkusAgentClaimLifecycle(claim, handoffs);
+
+        assertThat(claim.handoffs())
+                .as("nothing captured before the engine is ready")
+                .isNull();
+        lifecycle.onStart(null);
+        assertThat(claim.handoffs()).isSameAs(handoffs);
+        lifecycle.onStop(null);
+        assertThat(claim.handoffs()).isNull();
     }
 
     @Test

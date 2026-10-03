@@ -1309,7 +1309,11 @@ Features:
   emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
 - A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's SQL, exceptions,
   security audit events, REST client calls, and cache accesses, served on every adapter by one shared engine assembler
-  (`ExecutionProfileAssembler`). Correlation is tiered, strongest first: trace id (a trace id exactly one captured
+  (`ExecutionProfileAssembler`). Correlation is tiered, strongest first: request id (the BootUI request id stamped on
+  the signal), propagated (the request id, on work recorded in a task the BootUI agent propagated from the request to a
+  JDK executor, when the task started within `bootui.agent.executors.max-handoff` of the request's end and the work
+  within `max-handoff` of the task's start; reported unavailable unless the agent's `executors` sensor propagates for
+  the application), trace id (a trace id exactly one captured
   request carries, on every adapter), serving thread (the request's servlet worker thread within its window, Spring MVC
   only), and time window (Spring MVC only, labelled approximate). Exceptions add the request method and path to the
   thread and window tiers; security events add the principal and are pinned to the serving thread when BootUI captured

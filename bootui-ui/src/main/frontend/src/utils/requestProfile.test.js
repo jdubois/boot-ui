@@ -86,6 +86,26 @@ describe('requestProfile helpers', () => {
     ).toBe('Time window correlation is unavailable on this adapter.')
   })
 
+  it('explains the propagated tier with the BootUI agent, apart from the adapter limits', () => {
+    expect(
+      unavailableTiersText({
+        correlationTiers: [
+          {tier: 'REQUEST_ID', available: true, unavailableReason: null},
+          {
+            tier: 'PROPAGATED',
+            available: false,
+            unavailableReason: "Requires the BootUI agent's executors sensor: the sensor is failed."
+          },
+          {tier: 'SERVING_THREAD', available: false, unavailableReason: 'Event loop.'},
+          {tier: 'TIME_WINDOW', available: false, unavailableReason: 'Event loop.'}
+        ]
+      })
+    ).toBe(
+      "Propagated correlation requires the BootUI agent's executors sensor: the sensor is failed." +
+        ' Serving thread and time window correlation are unavailable on this adapter: Event loop.'
+    )
+  })
+
   it('summarizes REST client calls and cache accesses from the masked payload only', () => {
     expect(
       restCallSummary({

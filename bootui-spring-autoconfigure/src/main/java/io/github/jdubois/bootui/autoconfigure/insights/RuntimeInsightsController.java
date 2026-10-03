@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.insights;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.javaagent.AgentPropagation;
 import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
@@ -12,6 +13,7 @@ import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -83,6 +85,10 @@ public class RuntimeInsightsController {
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
+        ObjectProvider<JavaAgentService> javaAgent = context.getBeanProvider(JavaAgentService.class);
+        this.insights.setAgent(
+                () -> AgentPropagation.unavailableReason(javaAgent),
+                properties.getAgent().getExecutors().getMaxHandoff());
     }
 
     @GetMapping

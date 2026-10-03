@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
@@ -2776,8 +2778,28 @@ public class BootUiProperties {
          */
         private String mode = "auto";
 
+        /**
+         * The agent sensors this application asks for. {@code executors} propagates a request's context through the
+         * JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request.
+         */
+        private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
+
+        private final Executors executors = new Executors();
+
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public List<String> getSensors() {
+            return sensors;
+        }
+
+        public void setSensors(List<String> sensors) {
+            this.sensors = sensors == null ? new ArrayList<>() : sensors;
+        }
+
+        public Executors getExecutors() {
+            return executors;
         }
 
         public void setEnabled(boolean enabled) {
@@ -2802,6 +2824,55 @@ public class BootUiProperties {
                 throw new IllegalArgumentException("bootui.agent.mode must be auto, dev, or test.");
             }
             this.mode = value;
+        }
+
+        /** Settings of the agent's {@code executors} sensor ({@code docs/PLAN-v2.md} M5-2). */
+        public static class Executors {
+
+            /**
+             * Task class-name prefixes the sensor never propagates, because they already carry their context, such as
+             * Micrometer's and Spring's context-propagating wrappers.
+             */
+            private List<String> skipTasks = new ArrayList<>(AgentSensorSettings.DEFAULT_SKIP_TASKS);
+
+            /**
+             * Worker thread-name prefixes the sensor never propagates to, because their executor carries the context
+             * itself. With Reactor's automatic context propagation on, Reactor's scheduler threads are added.
+             */
+            private List<String> skipThreads = new ArrayList<>(AgentSensorSettings.DEFAULT_SKIP_THREADS);
+
+            /**
+             * How long a task's work is attributed to the request that handed it over; work recorded later, and tasks
+             * ending later, are not.
+             */
+            private Duration maxHandoff = AgentHandoffs.DEFAULT_MAX_HANDOFF;
+
+            public List<String> getSkipTasks() {
+                return skipTasks;
+            }
+
+            public void setSkipTasks(List<String> skipTasks) {
+                this.skipTasks = skipTasks == null ? new ArrayList<>() : skipTasks;
+            }
+
+            public List<String> getSkipThreads() {
+                return skipThreads;
+            }
+
+            public void setSkipThreads(List<String> skipThreads) {
+                this.skipThreads = skipThreads == null ? new ArrayList<>() : skipThreads;
+            }
+
+            public Duration getMaxHandoff() {
+                return maxHandoff;
+            }
+
+            public void setMaxHandoff(Duration maxHandoff) {
+                if (maxHandoff == null || maxHandoff.isNegative() || maxHandoff.isZero()) {
+                    throw new IllegalArgumentException("bootui.agent.executors.max-handoff must be positive.");
+                }
+                this.maxHandoff = maxHandoff;
+            }
         }
     }
 

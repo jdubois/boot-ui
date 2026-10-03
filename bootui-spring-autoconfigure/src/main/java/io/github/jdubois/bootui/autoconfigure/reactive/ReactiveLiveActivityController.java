@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.javaagent.AgentPropagation;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceControllerSupport;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
@@ -46,6 +47,7 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
@@ -164,7 +166,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
     private final ActivityPersistenceSettings persistenceSettings;
     private final LiveActivityAssembler assembler;
     private final ReservedActivityEntries reservedEntries;
-    private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
+    private final ExecutionProfileAssembler profileAssembler;
+    private volatile ObjectProvider<JavaAgentService> javaAgent;
     private final List<Runnable> unsubscribers = Collections.synchronizedList(new ArrayList<>());
 
     public ReactiveLiveActivityController(
@@ -207,6 +210,10 @@ public class ReactiveLiveActivityController implements InitializingBean {
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.properties = properties;
+        this.profileAssembler = new ExecutionProfileAssembler(
+                properties.getActivity().getNPlusOneThreshold(),
+                ExecutionProfileAssembler.DEFAULT_MAX_CHILDREN_PER_SECTION,
+                properties.getAgent().getExecutors().getMaxHandoff().toMillis());
         this.feedSource = properties.getActivity().feedSource();
         this.exposure = exposure;
         this.assembler = new LiveActivityAssembler(properties.getActivity().getRequestSlowThresholdMs());
@@ -383,6 +390,12 @@ public class ReactiveLiveActivityController implements InitializingBean {
     private volatile RequestJournalProfiles requestJournalProfiles;
 
     /** Installs the runtime journal whose status block and <b>Clear recording</b> this panel serves. */
+    /** Installs the Java Agent service, which says whether the request profile's {@code PROPAGATED} tier applies. */
+    @Autowired(required = false)
+    public void setJavaAgent(ObjectProvider<JavaAgentService> javaAgent) {
+        this.javaAgent = javaAgent;
+    }
+
     @Autowired(required = false)
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
@@ -395,11 +408,12 @@ public class ReactiveLiveActivityController implements InitializingBean {
         }
         this.journalReports = journalReports(journal, aggregates);
         this.requestJournalProfiles = new RequestJournalProfiles(
-                journal,
-                aggregates,
-                properties.getActivity().getRequestSlowThresholdMs(),
-                properties.getActivity().getNPlusOneThreshold(),
-                properties::isPanelEnabled);
+                        journal,
+                        aggregates,
+                        properties.getActivity().getRequestSlowThresholdMs(),
+                        properties.getActivity().getNPlusOneThreshold(),
+                        properties::isPanelEnabled)
+                .maxHandoff(properties.getAgent().getExecutors().getMaxHandoff());
         if (journal != null) {
             // Ticks the stream for every source the journal records, transactions and log events included.
             unsubscribers.add(journal.subscribe(changeStream::signal));
@@ -522,7 +536,10 @@ public class ReactiveLiveActivityController implements InitializingBean {
                         cacheSource(),
                         this::correlateTrace)
                 : new ProfileEvidence(requests, null, null, null, null, null, null);
-        return profileAssembler.requestProfile(id, evidence, ProfileCapabilities.traceIdOnly());
+        return profileAssembler.requestProfile(
+                id,
+                evidence,
+                ProfileCapabilities.traceIdOnly().withPropagation(AgentPropagation.unavailableReason(javaAgent)));
     }
 
     private Source<SqlTraceEntryDto> sqlSource() {

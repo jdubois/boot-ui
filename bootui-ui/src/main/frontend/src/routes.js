@@ -97,7 +97,7 @@ export const routes = [
       icon: 'bi-broadcast',
       title: 'Live Activity',
       shortcut: 'la',
-      keywords: ['realtime', 'live', 'stream', 'feed', 'events', 'recent']
+      keywords: ['realtime', 'live', 'stream', 'feed', 'events', 'recent', 'async', 'executor', 'handoff']
     }
   },
   {
@@ -1004,7 +1004,17 @@ export const routes = [
       icon: 'bi-plug-fill',
       title: 'Java Agent',
       shortcut: 'ja',
-      keywords: ['agent', 'javaagent', 'instrumentation', '-javaagent', 'byte buddy', 'bootui-agent']
+      keywords: [
+        'agent',
+        'javaagent',
+        'instrumentation',
+        '-javaagent',
+        'byte buddy',
+        'bootui-agent',
+        'executors',
+        'propagation',
+        'thread pool'
+      ]
     }
   },
   {

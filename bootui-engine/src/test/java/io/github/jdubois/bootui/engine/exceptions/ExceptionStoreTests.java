@@ -33,6 +33,20 @@ class ExceptionStoreTests {
     }
 
     @Test
+    void theAgentBridgesFramesNeverChangeAFailuresGroup() {
+        ExceptionStore.Frame job = new ExceptionStore.Frame("com.example.Job", "run", "Job.java", 10, true);
+        ExceptionStore.Frame worker = new ExceptionStore.Frame(
+                "java.util.concurrent.ThreadPoolExecutor", "runWorker", "ThreadPoolExecutor.java", 1144, false);
+        ExceptionStore.Frame bridge = new ExceptionStore.Frame(
+                "io.github.jdubois.bootui.agent.bridge.TaskPropagation", "runTask", "TaskPropagation.java", 230, false);
+
+        assertThat(ExceptionStore.fingerprintFrames(List.of(job, bridge, worker)))
+                .containsExactly(job, worker);
+        assertThat(ExceptionStore.signature("java.lang.IllegalStateException", List.of(job, bridge, worker)))
+                .isEqualTo(ExceptionStore.signature("java.lang.IllegalStateException", List.of(job, worker)));
+    }
+
+    @Test
     void groupsRepeatedFailuresWithIdenticalStacks() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         for (Throwable throwable : sameOrigin(3)) {

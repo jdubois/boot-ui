@@ -85,6 +85,20 @@ server, including the servers `read-only.spec.js` starts, and can point them at 
 path: the suites start Maven from this `e2e` directory, so a relative `.m2` resolves to an empty `e2e/.m2`. For example,
 run `export BOOTUI_MAVEN_REPO_LOCAL="$PWD/.m2"` from the repository root.
 
+## Agent suite
+
+`tests-agent/` runs the Spring MVC sample with the BootUI agent attached (`-javaagent`), where the default suites assert
+the Java Agent panel reports it not attached. It checks the armed claim and the executors sensor's hooks and counters,
+the `ASYNC` entry Live Activity nests under the `work-after-response` seed's request, and that Runtime Insights reports
+the seed but not its counterexample. Build the agent first (`./mvnw install -pl bootui-agent -am`), or set
+`BOOTUI_AGENT_JAR`, then run:
+
+```bash
+npm run test:agent
+```
+
+Set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT` to run it beside another sample.
+
 ## Prerequisites
 
 - Node.js 20+

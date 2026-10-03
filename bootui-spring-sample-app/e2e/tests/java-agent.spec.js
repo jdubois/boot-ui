@@ -27,7 +27,7 @@ test.describe('Java Agent view', () => {
     await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()
     await expect(page.getByText('This JVM runs without the BootUI agent')).toBeVisible()
     await expect(
-      page.getByText('No sensors yet: executor propagation arrives with the next agent release')
+      page.getByText('No sensor installed: the agent installs the sensors this application asks for')
     ).toBeVisible()
 
     const tabs = page.getByRole('tab')

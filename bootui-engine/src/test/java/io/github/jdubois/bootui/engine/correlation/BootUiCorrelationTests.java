@@ -170,6 +170,40 @@ class BootUiCorrelationTests {
         }
     }
 
+    @Test
+    void aPropagatedScopeNeverChangesWhichRequestTheThreadIsMeteredFor() {
+        io.github.jdubois.bootui.engine.resources.SegmentMeter meter =
+                io.github.jdubois.bootui.engine.resources.SegmentMeter.shared();
+        String own = "metered-" + System.nanoTime();
+        String nested = "nested-" + System.nanoTime();
+        try {
+            assertThat(meter.begin(own)).isTrue();
+            assertThat(meter.begin(nested)).isTrue();
+            meter.switchTo(own);
+            assertThat(meter.currentRequestId()).isEqualTo(own);
+
+            try (Scope propagated = BootUiCorrelation.openPropagated(
+                    CorrelationContext.forRequest("propagated").withExecutionId("async-1"))) {
+                assertThat(BootUiCorrelation.current().requestId()).isEqualTo("propagated");
+                assertThat(meter.currentRequestId()).as("not switched on open").isEqualTo(own);
+                try (Scope inner = BootUiCorrelation.open(CorrelationContext.forRequest(nested))) {
+                    assertThat(meter.currentRequestId()).isEqualTo(nested);
+                }
+                assertThat(BootUiCorrelation.current().requestId()).isEqualTo("propagated");
+            }
+
+            assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+            assertThat(meter.currentRequestId())
+                    .as("switched back to the request metered when the propagated scope opened")
+                    .isEqualTo(own);
+        } finally {
+            meter.switchTo(null);
+            meter.take(own);
+            meter.take(nested);
+        }
+        assertThat(meter.currentRequestId()).isNull();
+    }
+
     private static ExecutorService virtualThreadPerTaskExecutor() {
         try {
             return (ExecutorService)

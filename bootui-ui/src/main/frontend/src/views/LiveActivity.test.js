@@ -331,6 +331,29 @@ describe('LiveActivity', () => {
     expect(row.text()).not.toContain('N+1')
   })
 
+  it('nests a propagated task under its request with its after-response and running badges', async () => {
+    const handoff = requestEntry({
+      id: 'running:async-1',
+      parentId: 'req-1',
+      profileable: false,
+      type: 'ASYNC',
+      severity: 'WARN',
+      summary: 'Async task FutureTask',
+      detail: 'still running · ThreadPoolExecutor.runWorker',
+      badges: ['RUNNING', 'AFTER_RESPONSE']
+    })
+    vi.stubGlobal('fetch', stubFetch(activityReport({entries: [requestEntry(), handoff]}), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const child = wrapper.get('tr.activity-child-row')
+    expect(child.text()).toContain('ASYNC')
+    expect(child.text()).toContain('Async task FutureTask')
+    expect(child.findAll('.activity-entry-badge').map((badge) => badge.text())).toEqual(['running', 'after response'])
+    expect(child.get('.activity-entry-badge').attributes('title')).toBe('Still running now')
+  })
+
   it('keeps row pointer activation and nested keyboard actions independent', async () => {
     const child = requestEntry({
       id: 'sql-1',

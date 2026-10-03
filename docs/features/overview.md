@@ -187,7 +187,14 @@ through an interceptor bound at build time to the application's `@Observes` and 
 events are left out, and an event's fields are never recorded. Change impact accepts an event type, such as
 `OrderPlaced`, and lists the routes that published or consumed it. **ORM** rows give each Hibernate session's statements, flushes,
 the auto-flushes that wrote before a query, and the most entities its persistence context held, under the request that
-opened it; **WEBSOCKET** rows are inbound WebSocket messages, each an execution owning what its handler did.
+opened it; **WEBSOCKET** rows are inbound WebSocket messages, each an execution owning what its handler did. With the
+[BootUI agent](java-agent.md) attached, **ASYNC** rows are the tasks a request handed to a JDK executor, nested under it:
+the task's class, the hook that propagated it, its queue time, and its outcome, badged **after response** when it was
+still running once the response started, **running** while it still runs, and **past deadline** when it ended more
+than `bootui.agent.executors.max-handoff` after it started. The request's journal profile lists them under
+**Handoffs**, each with its thread, duration, queue time, what it did (its SQL statements, REST calls, and messages),
+its outcome, and its allocated bytes; a task that started more than `max-handoff` after the request ended is only
+counted, and neither it nor its work is drawn on the timeline.
 
 Because the feed is genuinely event-driven, it refreshes over **Server-Sent Events** rather than fixed-interval polling.
 The browser subscribes to `/bootui/api/activity/stream` and re-fetches when any source signals a change. The feed can be
@@ -224,6 +231,7 @@ tier that correlated it, and the whole profile is marked approximate whenever a 
 | Tier           | How it matches                                                              | Adapters             | Labelled        |
 | -------------- | --------------------------------------------------------------------------- | -------------------- | --------------- |
 | Request id     | The BootUI request id stamped on the signal when it was recorded            | All                  | **exact**       |
+| Propagated     | The request id, on work recorded in a task the [BootUI agent](java-agent.md) propagated from the request to a JDK executor, when the task started within `bootui.agent.executors.max-handoff` of the request's end and the work within `max-handoff` of the task's start; unavailable, with the reason, unless the agent's `executors` sensor propagates for the application | All, with the agent | **exact** |
 | Trace id       | A trace id that exactly one captured request carries                        | All                  | **exact**       |
 | Serving thread | The one worker thread that served the request, inside its window            | Spring MVC           | **exact**       |
 | Time window    | The request's time window — plus method and path for exceptions, and the principal for security events | Spring MVC | **approximate** |
@@ -587,7 +595,7 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
 call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
 
-Nineteen observations run over the completed requests and garbage collections the journal retains:
+Twenty-two observations run over the completed requests and garbage collections the journal retains:
 
 | Observation | What it counts |
 | --- | --- |
@@ -612,6 +620,7 @@ Nineteen observations run over the completed requests and garbage collections th
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
+| `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 
 Scheduled runs and consumed messages are projected like requests, named `@Scheduled OrderJob.run` or
 `consume kafka:orders`, and so is each WebSocket message an application handler runs, named by its mapping, such as

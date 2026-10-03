@@ -3,7 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.javaagent;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
@@ -62,6 +65,48 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
                 .orElseThrow();
         assertThat(application.getListeners()).contains(owner);
         assertThat(owner.claim().armed()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theClaimAsksForTheConfiguredSensorsAndExecutorsOptions() {
+        SpringApplication application = new SpringApplication(SampleApplication.class);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.agent.executors.skip-tasks", "com.acme.Wrapper")
+                .withProperty("bootui.agent.executors.skip-threads", "worker-, other-")
+                .withProperty("bootui.agent.executors.max-handoff", "30s");
+
+        withBridge.postProcessEnvironment(environment, application);
+
+        Map<String, Object> request = FakeBridge.REQUESTS.get(0);
+        assertThat(request).containsEntry("sensors", List.of("executors"));
+        assertThat((Map<String, Object>) request.get("executors"))
+                .containsEntry("skipTasks", List.of("com.acme.Wrapper"))
+                .containsEntry("skipThreads", List.of("worker-", "other-"));
+        AgentClaimOwner owner = application.getInitializers().stream()
+                .filter(AgentClaimOwner.class::isInstance)
+                .map(AgentClaimOwner.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(owner.claim().sensors().maxHandoff()).isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void reactorSchedulerThreadsAreSkippedOnlyWhenReactorPropagatesTheContext() {
+        AgentSensorSettings limited = BootUiAgentClaimEnvironmentPostProcessor.sensors(
+                new MockEnvironment().withProperty("spring.reactor.context-propagation", "limited"));
+        AgentSensorSettings auto = BootUiAgentClaimEnvironmentPostProcessor.sensors(
+                new MockEnvironment().withProperty("spring.reactor.context-propagation", "auto"));
+
+        assertThat(limited.skipThreads()).containsExactlyElementsOf(AgentSensorSettings.DEFAULT_SKIP_THREADS);
+        assertThat(limited.skipTasks()).containsExactlyElementsOf(AgentSensorSettings.DEFAULT_SKIP_TASKS);
+        assertThat(auto.skipThreads()).containsExactly("vert.x-", "bootui-", "parallel-", "boundedElastic-", "single-");
+        assertThat(BootUiAgentClaimEnvironmentPostProcessor.sensors(
+                                new MockEnvironment().withProperty("bootui.agent.sensors", ""))
+                        .executors())
+                .as("an empty sensor list asks for none")
+                .isFalse();
     }
 
     @Test

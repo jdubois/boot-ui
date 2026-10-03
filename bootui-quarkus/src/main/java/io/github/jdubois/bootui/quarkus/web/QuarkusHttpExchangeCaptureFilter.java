@@ -144,6 +144,9 @@ public class QuarkusHttpExchangeCaptureFilter {
             HttpServerResponse response = rc.response();
             // Ends the request's measurement (docs/PLAN-v2.md §5.11), closing the segment its worker left open.
             ResourceUsage resources = SegmentMeter.shared().take(requestId);
+            if (phases != null) {
+                phases.end(requestId);
+            }
             try {
                 journal.offer(RuntimeEvent.of(
                         JournalSource.HTTP,

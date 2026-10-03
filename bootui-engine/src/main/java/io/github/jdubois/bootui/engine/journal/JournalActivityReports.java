@@ -82,7 +82,16 @@ public final class JournalActivityReports {
         }
         int cap = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         Feed rendered = feed.render(
-                visible, journal::eventId, journal.run().id(), filter, cap, details, journal::evictedARequestOf);
+                visible,
+                journal::eventId,
+                journal.run().id(),
+                filter,
+                cap,
+                details,
+                journal::evictedARequestOf,
+                journal.settings().records(JournalSource.AGENT_EXECUTORS)
+                        ? RunningHandoffs.shared().snapshot()
+                        : List.of());
         return new LiveActivityReport(
                 true,
                 rendered.entries(),

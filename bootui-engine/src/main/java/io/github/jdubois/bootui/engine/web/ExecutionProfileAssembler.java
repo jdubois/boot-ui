@@ -17,6 +17,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
+import io.github.jdubois.bootui.engine.correlation.HandoffWindow;
 import io.github.jdubois.bootui.engine.sqltrace.SqlDurations;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -49,6 +51,9 @@ import java.util.function.ToLongFunction;
  * <ol>
  *   <li>{@link CorrelationTier#REQUEST_ID} on every adapter: a child carrying the BootUI request id one
  *       captured request carries belongs to that request, whatever thread it ran on.</li>
+ *   <li>{@link CorrelationTier#PROPAGATED}: the same, for a child recorded in a task the BootUI agent
+ *       propagated ({@code async-…} execution id), within the handoff window of {@link HandoffWindow};
+ *       other children are left out.</li>
  *   <li>{@link CorrelationTier#TRACE_ID} on every adapter: a child whose trace id is carried by exactly
  *       one anchor of any type whose trace window contains it (see {@link TraceCorrelationIndex}). A trace
  *       two such anchors carry attaches nothing by trace id.</li>
@@ -87,8 +92,12 @@ public final class ExecutionProfileAssembler {
     private static final String TYPE_REST_CLIENT = "REST_CLIENT";
     private static final String TYPE_CACHE = "CACHE";
 
+    /** The default {@code bootui.agent.executors.max-handoff} ({@link HandoffWindow}). */
+    public static final long DEFAULT_MAX_HANDOFF_MILLIS = HandoffWindow.DEFAULT_MAX_HANDOFF_MILLIS;
+
     private final int nPlusOneThreshold;
     private final int maxChildrenPerSection;
+    private final long maxHandoffMillis;
 
     /** An assembler with the default N+1 threshold and section bound. */
     public ExecutionProfileAssembler() {
@@ -101,8 +110,18 @@ public final class ExecutionProfileAssembler {
     }
 
     public ExecutionProfileAssembler(int nPlusOneThreshold, int maxChildrenPerSection) {
+        this(nPlusOneThreshold, maxChildrenPerSection, DEFAULT_MAX_HANDOFF_MILLIS);
+    }
+
+    /**
+     * @param maxHandoffMillis {@code bootui.agent.executors.max-handoff}: a task the agent propagated belongs to its
+     *     request when it started no later than this after the request ended, and its work recorded no later than
+     *     this after it started is attributed ({@link HandoffWindow})
+     */
+    public ExecutionProfileAssembler(int nPlusOneThreshold, int maxChildrenPerSection, long maxHandoffMillis) {
         this.nPlusOneThreshold = nPlusOneThreshold;
         this.maxChildrenPerSection = Math.max(1, maxChildrenPerSection);
+        this.maxHandoffMillis = HandoffWindow.millis(maxHandoffMillis);
     }
 
     /**
@@ -120,7 +139,8 @@ public final class ExecutionProfileAssembler {
             return RequestProfileDto.unavailable("Request " + requestId + " is no longer in the buffer");
         }
         String traceId = BlankStrings.blankToNull(request.traceId());
-        Context context = context(request, evidence.requests(), capabilities);
+        Context context =
+                context(request, evidence.requests(), capabilities, maxHandoffMillis, handoffStarts(evidence));
         if (traceId == null && !context.carriesRequestId() && !context.self().hasHeuristicTier()) {
             return RequestProfileDto.unavailable(NO_TRACE_ID_REASON);
         }
@@ -151,6 +171,7 @@ public final class ExecutionProfileAssembler {
                 TYPE_REST_CLIENT,
                 evidence.restCalls(),
                 RestClientTraceEntryDto::requestId,
+                RestClientTraceEntryDto::executionId,
                 RestClientTraceEntryDto::traceId,
                 RestClientTraceEntryDto::thread,
                 RestClientTraceEntryDto::timestamp);
@@ -160,6 +181,7 @@ public final class ExecutionProfileAssembler {
                 TYPE_CACHE,
                 evidence.cacheAccesses(),
                 CacheActivityEvent::requestId,
+                CacheActivityEvent::executionId,
                 CacheActivityEvent::traceId,
                 CacheActivityEvent::thread,
                 CacheActivityEvent::timestampMillis);
@@ -229,8 +251,35 @@ public final class ExecutionProfileAssembler {
         return exchange != null && id != null && (id.equals(exchange.id()) || id.equals(exchange.requestId()));
     }
 
+    /**
+     * When each propagated execution in the evidence started. The panels' evidence carries no handoffs, so each
+     * execution's earliest recorded work stands for its start ({@link HandoffWindow.Starts}).
+     */
+    private static HandoffWindow.Starts handoffStarts(ProfileEvidence evidence) {
+        HandoffWindow.Starts starts = new HandoffWindow.Starts();
+        for (SqlTraceEntryDto entry : evidence.sql().records()) {
+            starts.recorded(entry.executionId(), entry.timestamp());
+        }
+        for (RestClientTraceEntryDto call : evidence.restCalls().records()) {
+            starts.recorded(call.executionId(), call.timestamp());
+        }
+        for (CacheActivityEvent access : evidence.cacheAccesses().records()) {
+            starts.recorded(access.executionId(), access.timestampMillis());
+        }
+        for (ExceptionDetailDto detail : evidence.exceptions().records()) {
+            for (ExceptionOccurrenceDto occurrence : detail.occurrences()) {
+                starts.recorded(occurrence.executionId(), occurrence.timestamp());
+            }
+        }
+        return starts;
+    }
+
     private static Context context(
-            HttpExchangeDto request, List<HttpExchangeDto> requests, ProfileCapabilities capabilities) {
+            HttpExchangeDto request,
+            List<HttpExchangeDto> requests,
+            ProfileCapabilities capabilities,
+            long maxHandoffMillis,
+            HandoffWindow.Starts handoffStarts) {
         List<ProfileAnchor> anchors = new ArrayList<>(requests.size());
         Map<String, ProfileAnchor> byRequestId = new HashMap<>();
         Set<String> sharedRequestIds = new HashSet<>();
@@ -256,7 +305,9 @@ public final class ExecutionProfileAssembler {
                 TraceCorrelationIndex.ofAnchors(anchors),
                 capabilities,
                 byRequestId,
-                selfRequestId != null && byRequestId.containsKey(selfRequestId));
+                selfRequestId != null && byRequestId.containsKey(selfRequestId),
+                maxHandoffMillis,
+                handoffStarts);
     }
 
     private static ProfileCapabilities.ServingThread servingThread(
@@ -287,7 +338,8 @@ public final class ExecutionProfileAssembler {
         List<Decision> decisions = new ArrayList<>(records.size());
         boolean anyExact = false;
         for (SqlTraceEntryDto entry : records) {
-            Decision decision = byRequestIdThenTrace(context, entry.requestId(), entry.traceId(), entry.timestamp());
+            Decision decision = byRequestIdThenTrace(
+                    context, entry.requestId(), entry.executionId(), entry.traceId(), entry.timestamp());
             decisions.add(decision);
             anyExact |= decision.outcome() == Outcome.OURS;
         }
@@ -356,6 +408,9 @@ public final class ExecutionProfileAssembler {
         if (section.uses(CorrelationTier.REQUEST_ID)) {
             notes.add(requestIdNote("SQL statements"));
         }
+        if (section.uses(CorrelationTier.PROPAGATED)) {
+            notes.add(propagatedNote("SQL statements"));
+        }
         if (section.uses(CorrelationTier.TRACE_ID)) {
             notes.add("SQL is correlated exactly by trace id " + context.self().traceId() + ".");
         } else if (section.tier() == CorrelationTier.SERVING_THREAD) {
@@ -400,7 +455,7 @@ public final class ExecutionProfileAssembler {
 
     private static Decision correlateOccurrence(Context context, ExceptionOccurrenceDto occurrence) {
         long timestamp = occurrence.timestamp();
-        Decision byRequestId = byRequestId(context, occurrence.requestId());
+        Decision byRequestId = byRequestId(context, occurrence.requestId(), occurrence.executionId(), timestamp);
         if (byRequestId.decided()) {
             return byRequestId;
         }
@@ -454,6 +509,9 @@ public final class ExecutionProfileAssembler {
             Context context, Section<RequestProfileExceptionDto> section, List<String> notes) {
         if (section.uses(CorrelationTier.REQUEST_ID)) {
             notes.add(requestIdNote("Exception occurrences"));
+        }
+        if (section.uses(CorrelationTier.PROPAGATED)) {
+            notes.add(propagatedNote("Exception occurrences"));
         }
         if (section.uses(CorrelationTier.TRACE_ID)) {
             notes.add("Exceptions are correlated exactly by trace id "
@@ -590,13 +648,15 @@ public final class ExecutionProfileAssembler {
             String type,
             ProfileEvidence.Source<T> source,
             Function<T, String> requestId,
+            Function<T, String> executionId,
             Function<T, String> traceId,
             Function<T, String> thread,
             ToLongFunction<T> timestamp) {
         Section<T> section = new Section<>(type, source);
         for (T record : source.records()) {
             long at = timestamp.applyAsLong(record);
-            Decision decision = byRequestIdThenTrace(context, requestId.apply(record), traceId.apply(record), at);
+            Decision decision = byRequestIdThenTrace(
+                    context, requestId.apply(record), executionId.apply(record), traceId.apply(record), at);
             if (!decision.decided()) {
                 decision = decision.orElse(byThread(context, thread.apply(record), at));
             }
@@ -609,6 +669,9 @@ public final class ExecutionProfileAssembler {
             Context context, Section<?> section, String subject, String countNoun, List<String> notes) {
         if (section.uses(CorrelationTier.REQUEST_ID)) {
             notes.add(requestIdNote(subject.substring(0, subject.length() - " are".length())));
+        }
+        if (section.uses(CorrelationTier.PROPAGATED)) {
+            notes.add(propagatedNote(subject.substring(0, subject.length() - " are".length())));
         }
         if (section.uses(CorrelationTier.TRACE_ID)) {
             notes.add(subject + " correlated exactly by trace id "
@@ -628,17 +691,35 @@ public final class ExecutionProfileAssembler {
      * the weaker tiers still may.
      */
     private static Decision byRequestId(Context context, String requestId) {
+        return byRequestId(context, requestId, null, 0L);
+    }
+
+    /**
+     * Resolves a child by its request id, at the {@link CorrelationTier#PROPAGATED} tier when it ran in a task the agent
+     * propagated: such a child outside the handoff window ({@link HandoffWindow}) belongs to no request.
+     */
+    private static Decision byRequestId(Context context, String requestId, String executionId, long timestamp) {
         String stamped = BlankStrings.blankToNull(requestId);
         ProfileAnchor owner = stamped == null ? null : context.byRequestId().get(stamped);
         if (owner == null) {
             return Decision.UNDECIDED;
         }
-        return owner == context.self() ? Decision.ours(CorrelationTier.REQUEST_ID) : Decision.OTHER;
+        if (owner != context.self()) {
+            return Decision.OTHER;
+        }
+        if (ExecutionIds.isAsync(executionId)) {
+            return context.handoffStarts()
+                            .attributed(executionId, timestamp, owner.endMillis(), context.maxHandoffMillis())
+                    ? Decision.ours(CorrelationTier.PROPAGATED)
+                    : Decision.OTHER;
+        }
+        return Decision.ours(CorrelationTier.REQUEST_ID);
     }
 
     /** The request-id tier, then the trace-id tier when the request id decides nothing. */
-    private static Decision byRequestIdThenTrace(Context context, String requestId, String traceId, long timestamp) {
-        Decision decision = byRequestId(context, requestId);
+    private static Decision byRequestIdThenTrace(
+            Context context, String requestId, String executionId, String traceId, long timestamp) {
+        Decision decision = byRequestId(context, requestId, executionId, timestamp);
         return decision.decided() ? decision : byTrace(context, traceId, timestamp);
     }
 
@@ -694,6 +775,12 @@ public final class ExecutionProfileAssembler {
         return candidates.get(0) == context.self() ? Decision.ours(tier) : Decision.OTHER;
     }
 
+    private static String propagatedNote(String subject) {
+        return subject
+                + " recorded in tasks the BootUI agent propagated from this request to an executor are correlated"
+                + " exactly by its request id.";
+    }
+
     private static String requestIdNote(String subject) {
         return subject + " carrying this request's BootUI request id are correlated exactly, with or without tracing.";
     }
@@ -728,8 +815,7 @@ public final class ExecutionProfileAssembler {
         List<RequestProfileTierDto> tiers = new ArrayList<>();
         for (CorrelationTier tier : CorrelationTier.values()) {
             boolean available = capabilities.provides(tier);
-            tiers.add(
-                    new RequestProfileTierDto(tier.name(), available, available ? null : capabilities.limitedReason()));
+            tiers.add(new RequestProfileTierDto(tier.name(), available, capabilities.unavailableReason(tier)));
         }
         return tiers;
     }
@@ -789,7 +875,9 @@ public final class ExecutionProfileAssembler {
             TraceCorrelationIndex index,
             ProfileCapabilities capabilities,
             Map<String, ProfileAnchor> byRequestId,
-            boolean carriesRequestId) {}
+            boolean carriesRequestId,
+            long maxHandoffMillis,
+            HandoffWindow.Starts handoffStarts) {}
 
     private enum Outcome {
         /** The child belongs to the profiled anchor. */

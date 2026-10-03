@@ -27,10 +27,12 @@ import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.HandoffWindow;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
@@ -181,7 +183,8 @@ public class LiveActivityResource {
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler;
     private final ReservedActivityEntries reservedEntries;
-    private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
+    private volatile ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
+    private volatile Instance<JavaAgentService> javaAgent;
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
     private volatile ActivityCapture switchCapture;
@@ -250,7 +253,32 @@ public class LiveActivityResource {
                 config.getOptionalValue("bootui.activity.feed-source", String.class)
                         .orElse(null),
                 ActivityFeedSource.DEFAULT);
+        this.maxHandoff = config.getOptionalValue("bootui.agent.executors.max-handoff", java.time.Duration.class)
+                .orElse(null);
+        this.profileAssembler = new ExecutionProfileAssembler(
+                SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
+                ExecutionProfileAssembler.DEFAULT_MAX_CHILDREN_PER_SECTION,
+                HandoffWindow.millis(maxHandoff));
     }
+
+    /** The Java Agent service, which says whether the request profile's {@code PROPAGATED} tier applies (M5-2). */
+    @Inject
+    void setJavaAgent(Instance<JavaAgentService> javaAgent) {
+        this.javaAgent = javaAgent;
+    }
+
+    private String propagationUnavailableReason() {
+        try {
+            Instance<JavaAgentService> agent = javaAgent;
+            return agent == null || !agent.isResolvable()
+                    ? ProfileCapabilities.PROPAGATION_REASON
+                    : agent.get().propagationUnavailableReason();
+        } catch (RuntimeException ex) {
+            return ProfileCapabilities.PROPAGATION_REASON;
+        }
+    }
+
+    private java.time.Duration maxHandoff;
 
     /** The runtime journal whose status block and <b>Clear recording</b> this panel serves. */
     @Inject
@@ -561,6 +589,7 @@ public class LiveActivityResource {
                         buffer.slowThresholdMillis(),
                         SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
                         panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel))
+                .maxHandoff(maxHandoff)
                 .profile(id);
     }
 
@@ -582,7 +611,8 @@ public class LiveActivityResource {
                                 ? null
                                 : tracesService.detail(traceId).orElse(null))
                 : new ProfileEvidence(requests, null, null, null, null, null, null);
-        return profileAssembler.requestProfile(id, evidence, ProfileCapabilities.traceIdOnly());
+        return profileAssembler.requestProfile(
+                id, evidence, ProfileCapabilities.traceIdOnly().withPropagation(propagationUnavailableReason()));
     }
 
     private Source<SqlTraceEntryDto> sqlSource() {

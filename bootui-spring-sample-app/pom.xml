@@ -209,6 +209,17 @@
             <artifactId>testcontainers-postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            The BootUI agent, for SpringAgentScenarioIT, which starts the sample in its own JVM with -javaagent and this
+            jar's path (${com.julien-dubois.bootui:bootui-agent:jar}). Kept off every test class path: an agent jar is
+            only ever loaded by -javaagent.
+        -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-agent</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <!-- The packaged-reader test deliberately supplies an older host ASM than ArchUnit's embedded copy. -->
         <dependency>
             <groupId>org.ow2.asm</groupId>
@@ -248,6 +259,9 @@
                 <configuration>
                     <!-- A secret-named system property the API conformance suite asserts is masked in JVM input arguments. -->
                     <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Dbootui.conformance.jvm-password=conformance-raw-jvm-secret</argLine>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
                 </configuration>
             </plugin>
             <plugin>
@@ -265,10 +279,16 @@
                 <configuration>
                     <!-- Same as the root Surefire configuration: test output goes to target/failsafe-reports. -->
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <!-- The classes, not the repackaged jar, whose BOOT-INF layout a plain class path cannot read. -->
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                     <systemPropertyVariables>
                         <sample.jar>${project.build.directory}/${project.build.finalName}.jar</sample.jar>
                         <host.asm.jar>${org.ow2.asm:asm:jar}</host.asm.jar>
+                        <bootui.agent.jar>${com.julien-dubois.bootui:bootui-agent:jar}</bootui.agent.jar>
                     </systemPropertyVariables>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
                 </configuration>
             </plugin>
         </plugins>
