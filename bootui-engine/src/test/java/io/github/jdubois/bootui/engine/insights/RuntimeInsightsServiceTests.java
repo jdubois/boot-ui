@@ -115,6 +115,27 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void clearingTheRecordingInvalidatesTheCachedReportEvenWithoutAnyNewEvent() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/orders/{id}",
+                    sqls("select 1 from orders", 5, "select * from lines where order_id = ?"));
+        }
+        RuntimeInsightsService service = service();
+        String id = observations(service.report(), RepeatedSelects.KIND)
+                .get("GET /api/orders/{id}")
+                .id();
+        assertThat(service.insight(id).available()).isTrue();
+
+        journal.clear();
+
+        assertThat(observations(service.report(), RepeatedSelects.KIND)).isEmpty();
+        assertThat(service.report().window().retainedEvents()).isZero();
+        assertThat(service.insight(id).available()).isFalse();
+    }
+
+    @Test
     void writesInGetRequestsAreAskedAboutAndWritesInPostsOrFailedWritesAreNot() {
         request("GET", "/api/products/{id}", sqls("update product_views set n = n + 1 where id = 3", 0, null));
         request("POST", "/api/orders", sqls("insert into orders (id) values (5)", 0, null));

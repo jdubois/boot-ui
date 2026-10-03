@@ -89,6 +89,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** How many times the recording was cleared, so the dispatcher drops an event it took before a clear. */
     private volatile long clears;
+    // Counted once a clear is done, so a reader that sees it also sees the emptied ring.
+    private volatile long clearsCompleted;
 
     private GcEventSource gcSource;
     private ResourceSampler resourceSampler;
@@ -452,6 +454,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             processed.addAndGet(queued.size());
             long dropped = ring.counts().retained() + queued.size();
             ring.clear();
+            clearsCompleted++;
             dictionary.clear();
             SqlShapes.clear();
             for (JournalListener listener : listeners) {
@@ -489,7 +492,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 settings.enabled() ? settings.queueCapacity() : 0,
                 perSource(accepted),
                 perSource(dropped),
-                listenerFailures.sum());
+                listenerFailures.sum(),
+                clearsCompleted);
     }
 
     /**

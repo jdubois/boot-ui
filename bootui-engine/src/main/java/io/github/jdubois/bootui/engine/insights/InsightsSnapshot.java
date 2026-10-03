@@ -355,6 +355,14 @@ public final class InsightsSnapshot {
         return status;
     }
 
+    /**
+     * Whether each route's first retained request is the first it served in the run, so it is its cold request
+     * ({@code docs/PLAN-v2.md} §5.5): nothing was evicted and the recording was not cleared.
+     */
+    public boolean firstRequestIsCold() {
+        return status.evictedByCount() + status.evictedByBytes() == 0 && status.clears() == 0;
+    }
+
     /** Whether the journal records {@code source}. */
     public boolean records(JournalSource source) {
         return recorded.test(source);

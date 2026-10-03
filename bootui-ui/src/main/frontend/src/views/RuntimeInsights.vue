@@ -118,21 +118,30 @@ watch(
   {immediate: true}
 )
 
+// A newer request supersedes an older one, so a slow answer never overwrites the evidence of a later refresh.
+let detailRequest = 0
+
+// Every refresh replaces the report, so the evidence is reloaded with it: the rows must match the sentence above them.
+// When the same observation stays selected the old rows remain visible until the new ones arrive.
 watch(selected, async (observation, previous) => {
+  const token = ++detailRequest
   if (!observation) {
     detail.value = null
     return
   }
-  if (previous && previous.id === observation.id && detail.value?.observation?.id === observation.id) return
-  detailLoading.value = true
+  const refresh = previous?.id === observation.id && detail.value?.observation?.id === observation.id
+  if (!refresh) detailLoading.value = true
   detailError.value = null
   try {
-    detail.value = await getJson(`api/runtime-insights/insights/${encodeURIComponent(observation.id)}`)
+    const loaded = await getJson(`api/runtime-insights/insights/${encodeURIComponent(observation.id)}`)
+    if (token === detailRequest) detail.value = loaded
   } catch (e) {
-    detail.value = null
-    detailError.value = describeLoadError(e, 'Unable to load this observation’s evidence')
+    if (token === detailRequest && !refresh) {
+      detail.value = null
+      detailError.value = describeLoadError(e, 'Unable to load this observation’s evidence')
+    }
   } finally {
-    detailLoading.value = false
+    if (token === detailRequest) detailLoading.value = false
   }
 })
 
