@@ -3,12 +3,9 @@ package io.github.jdubois.bootui.quarkus.devservices;
 import java.util.List;
 
 /**
- * Build-time-captured holder for the host application's Quarkus Dev Services, produced by
- * {@code DevServicesRecorder} and exposed as a synthetic CDI bean by the deployment processor only in
- * non-production launch modes (Dev Services do not run in production). The provider injects an
- * {@code Instance<QuarkusDevServices>}: absent → no dev services were started (panel unavailable); present
- * (even empty) → panel available. The holder exists rather than injecting a raw {@code List} so it is an
- * unambiguous synthetic-bean type.
+ * Build-time-captured list of the host application's Quarkus Dev Services, published by
+ * {@code DevServicesRecorder} into {@link CapturedDevServices} only in non-production launch modes (Dev
+ * Services do not run in production) and only when at least one Dev Service was started.
  *
  * @param services the captured dev services, in discovery order (the engine applies the stable sort)
  */
