@@ -363,7 +363,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   sets its result, before the agent closes the task's handoff, so under load that handoff could end just after the
   response. Now only SQL, REST, and message work that ended at least two milliseconds after the response started is
   counted, which absorbs the millisecond precision of recorded event starts. A task's failure still counts by its own
-  end ([Java Agent](docs/features/java-agent.md#the-executors-sensor), PLAN-v2 M5-2).
+  end ([#1218](https://github.com/jdubois/boot-ui/pull/1218)).
 
 - **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
   filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
