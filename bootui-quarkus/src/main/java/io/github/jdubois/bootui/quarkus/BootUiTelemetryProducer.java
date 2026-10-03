@@ -5,7 +5,6 @@ import io.github.jdubois.bootui.engine.telemetry.AiUsageSettings;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
-import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
@@ -35,8 +34,8 @@ import org.eclipse.microprofile.config.Config;
  *       {@link BootUiEngineProducer} (Metrics, Cache) and the OTel-gated {@link BootUiOtelProducer}
  *       (capture) inject this same instance rather than building their own, so capture and every
  *       transform/display panel can never disagree on which paths are BootUI's own.</li>
- *   <li>The traces transform reads the live {@link QuarkusExposurePolicy} on every call, so span values follow
- *       {@code bootui.expose-values} / {@code bootui.mask-secrets} without a restart.</li>
+ *   <li>The traces transform and the AI chat detail read the live {@link QuarkusExposurePolicy} on every call, so
+ *       span values follow {@code bootui.expose-values} / {@code bootui.mask-secrets} without a restart.</li>
  *   <li>The AI usage settings are supplied fresh per request so {@code bootui.ai.*} and
  *       {@code bootui.telemetry.enabled} overrides are honored live.</li>
  * </ul>
@@ -47,11 +46,7 @@ public class BootUiTelemetryProducer {
     @Produces
     @Singleton
     public TelemetryStore telemetryStore(QuarkusTelemetrySettings settings) {
-        TelemetryStore store = new TelemetryStore(settings);
-        // A span starts where the request's work runs, which on Quarkus may be a worker thread that only the
-        // request's Vert.x context identifies.
-        store.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
-        return store;
+        return new TelemetryStore(settings);
     }
 
     /**
@@ -83,7 +78,7 @@ public class BootUiTelemetryProducer {
     @Produces
     @Singleton
     public AiUsageService aiUsageService(
-            TelemetryStore store, QuarkusTelemetrySettings settings, Config config, QuarkusExposurePolicy exposure) {
+            TelemetryStore store, QuarkusTelemetrySettings settings, QuarkusExposurePolicy exposure, Config config) {
         Supplier<AiUsageSettings> aiSettings = () -> new AiUsageSettings(
                 settings.enabled(),
                 config.getOptionalValue("bootui.ai.max-recent-chats", Integer.class)

@@ -370,6 +370,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
   its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
   as outside any request.
+- **Runtime Insights times AI calls once and reports what it could not count.** `route-time-breakdown` no longer
+  subtracts an AI call's time from the handler when its model HTTP call was already counted as REST client or SQL time:
+  calls reported by Spring AI or Quarkus LangChain4j carry their monotonic completion and are placed on the request's
+  clock as **AI calls**, and tool and retrieval operations, which wrap application code, stay in the handler.
+  `transaction-across-remote-call` no longer shows methods whose remote calls are fast as **Needs more traffic**.
+  `lazy-sql-after-handler` counts requests whose response-phase SQL cannot be placed against their transactions apart,
+  with a limitation and a check reason, instead of dropping them, and `split-transaction-writes` names its uncounted
+  requests in its check reason too. `ai-usage-by-route` reports the tier its calls were actually linked by, and
+  mentions trace-id linking only for calls recovered from GenAI spans.
 
 - **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
   filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
@@ -547,6 +556,18 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   that treats a source as optional evidence reads "recorded **and** visible", so a disabled panel can no longer read as
   proof that nothing happened and produce a false finding.
 
+- **The AI Framework chat detail now follows the value-exposure policy.** `GET /bootui/api/ai/chats/{spanId}` returned
+  the chat span's attributes and events verbatim in every mode, so captured prompts, completions, input and output
+  messages, sensitive attributes, and `exception.message` and `exception.stacktrace` text were shown raw even under the
+  default `MASKED`. Every chat detail read now applies the live `bootui.expose-values` / `bootui.mask-secrets` policy
+  through the same rule as the Traces detail: content is scrubbed of secret-like assignments under `MASKED`, omitted as
+  `null` under `METADATA_ONLY`, and verbatim only under `FULL`, while keys, types, token counts, models, and timings are
+  unchanged. Tool call arguments and results (`gen_ai.tool.call.*`, `spring.ai.tool.call.*`), vector query content and
+  returned documents (`db.vector.query.content`, `db.vector.query.response.documents`), and indexed
+  `gen_ai.prompt.*` / `gen_ai.completion.*` content are now treated as free-form text on the Traces detail and request
+  profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
+  ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
+  [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`

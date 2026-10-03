@@ -17,7 +17,9 @@ import java.util.Set;
 /**
  * {@code transaction-across-remote-call} ({@code docs/PLAN-v2.md} §5.5): a physical transaction still open when a REST
  * client call starts, per route and transactional method, with the connection it held and, as a labelled estimate, the
- * request rate at which this route alone would exhaust the pool: pool size ÷ hold time.
+ * request rate at which this route alone would exhaust the pool: pool size ÷ hold time. Insufficient below 3
+ * transactions; once a method has them, it is reported only when its calls take a median 20 ms or more, since more
+ * traffic would not make a faster call slow.
  */
 public final class TransactionAcrossRemoteCall implements Observation {
 
@@ -92,15 +94,20 @@ public final class TransactionAcrossRemoteCall implements Observation {
             }
             eligible += routeEligible;
             long routeRequests = routeEligible;
-            methods.forEach(
-                    (method, found) -> findings.add(finding(route.getKey(), method, found, routeRequests, snapshot)));
+            methods.forEach((method, found) -> {
+                // A call under the minimum is not a finding: more traffic would not make it slower.
+                if (found.transactions < MIN_TRANSACTIONS
+                        || RouteTimeBreakdown.median(found.callNanos()) >= MIN_CALL_NANOS) {
+                    findings.add(finding(route.getKey(), method, found, routeRequests, snapshot));
+                }
+            });
         }
         return new Evaluation(eligible, findings);
     }
 
     private Finding finding(String route, String method, Method found, long eligible, InsightsSnapshot snapshot) {
         long callMedian = RouteTimeBreakdown.median(found.callNanos());
-        boolean sufficient = found.transactions >= MIN_TRANSACTIONS && callMedian >= MIN_CALL_NANOS;
+        boolean sufficient = found.transactions >= MIN_TRANSACTIONS;
         StringBuilder sentence = new StringBuilder("`" + route + "`: `" + method
                 + "` kept its transaction open across a call to `" + found.firstCall + "` in "
                 + found.transactions + " of " + InsightText.counted(eligible, InsightText.unit(route))
