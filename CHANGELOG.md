@@ -419,7 +419,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   returned documents (`db.vector.query.content`, `db.vector.query.response.documents`), and indexed
   `gen_ai.prompt.*` / `gen_ai.completion.*` content are now treated as free-form text on the Traces detail and request
   profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
-  ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure)).
+  ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
+  [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`
