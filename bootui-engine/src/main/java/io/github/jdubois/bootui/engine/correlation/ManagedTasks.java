@@ -39,7 +39,8 @@ public final class ManagedTasks {
                 && context.requestId().equals(BootUiCorrelation.current().requestId())) {
             return null;
         }
-        return BootUiCorrelation.open(context);
+        // Clearing is explicit rather than merely absent, so an adapter with an ambient context honours it.
+        return context == null ? BootUiCorrelation.openCleared() : BootUiCorrelation.open(context);
     }
 
     /** {@code task}, run with the context of the thread submitting it now, as an execution of its request. */

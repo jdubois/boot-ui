@@ -70,6 +70,10 @@ public class RuntimeInsightsController {
                 journalAggregates,
                 models,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes());
+        this.impact.setStack(
+                context instanceof ReactiveWebApplicationContext
+                        ? InsightsStack.SPRING_WEBFLUX
+                        : InsightsStack.SPRING_MVC);
         this.profile = new ResourceProfileService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),

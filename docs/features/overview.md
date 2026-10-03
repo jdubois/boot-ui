@@ -136,24 +136,33 @@ no host, user, or application data.
 The diagnostics home base: one reverse-chronological stream of everything the application just did, plus a per-request
 profiler for drilling into any single request.
 
-It adds almost no new instrumentation. Six of its ten signals reuse the same buffers and controllers behind the HTTP
-Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, and Email panels, so every value is already masked,
-self-filtered, and bounded exactly as it is there.
+It reuses the existing panel buffers where it can and supplements them with runtime-journal events. Panel-backed values
+remain masked, self-filtered, and bounded exactly as they are in their dedicated panels.
 
-### The ten signals
+### Feed types
 
-| Signal      | Type          | Captured from                                                          | Adapters                     |
-| ----------- | ------------- | ---------------------------------------------------------------------- | ---------------------------- |
-| Requests    | `REQUEST`     | HTTP Exchanges                                                         | All                          |
-| SQL         | `SQL`         | SQL Trace                                                              | All                          |
-| Exceptions  | `EXCEPTION`   | Exceptions                                                             | All                          |
-| Security    | `SECURITY`    | Security Logs                                                          | All                          |
-| Emails      | `MAIL`        | Email                                                                  | All                          |
-| Scheduled   | `SCHEDULED`   | Spring's scheduling observability hook; Quarkus's CDI execution events | All                          |
-| Messaging   | `MESSAGING`   | Kafka and RabbitMQ everywhere, JMS on Spring only                      | All                          |
-| REST client | `REST_CLIENT` | REST Client                                                            | Spring MVC, WebFlux, Quarkus |
-| Cache       | `CACHE`       | A dedicated recorder that stores only a hashed key                     | Spring MVC, WebFlux          |
-| Fault tolerance | `FAULT_TOLERANCE` | Resilience4j, Spring Retry, and SmallRye Fault Tolerance     | All                          |
+The type filter currently exposes these 17 kinds. Their availability depends on the application's stack, enabled
+panels, and installed integrations.
+
+| Signal | Type | Captured from |
+| --- | --- | --- |
+| Requests | `REQUEST` | HTTP Exchanges |
+| SQL | `SQL` | SQL Trace |
+| Exceptions | `EXCEPTION` | Exceptions |
+| Security | `SECURITY` | Security Logs |
+| Cache | `CACHE` | Cache activity |
+| Scheduled | `SCHEDULED` | Scheduled-task execution |
+| Messaging | `MESSAGING` | Kafka, RabbitMQ, or JMS activity |
+| Emails | `MAIL` | Email activity |
+| REST client | `REST_CLIENT` | REST Client |
+| Fault tolerance | `FAULT_TOLERANCE` | Resilience4j, Spring Retry, or SmallRye Fault Tolerance |
+| Transactions | `TRANSACTION` | Transaction activity |
+| AI | `AI` | AI Framework activity |
+| Logs | `LOG` | Log Tail |
+| Application events | `APP_EVENT` | Application event publication and listeners |
+| WebSockets | `WEBSOCKET` | Inbound WebSocket handlers |
+| ORM | `ORM` | Hibernate sessions |
+| Async handoffs | `ASYNC` | BootUI agent executor propagation |
 
 Scheduled-task capture records each `@Scheduled` method _execution_ — start, success, failure, duration — without extra
 proxying on either adapter. Each run also gets its own BootUI execution id while it runs, so the SQL statements,
@@ -201,7 +210,8 @@ The browser subscribes to `/bootui/api/activity/stream` and re-fetches when any 
 paused and resumed so a row you are inspecting does not scroll away.
 
 Every row is a launchpad. Clicking a request row opens its profiler; every row deep-links to its dedicated panel with
-the originating record pre-filtered. A `MAIL` row opens that exact message's detail drawer, not just a filtered list.
+the originating record pre-filtered. A buffer-backed `MAIL` row opens that message's detail drawer. A runtime-journal
+`MAIL` row has no Email-panel message id, so it opens the Email panel without selecting a message.
 
 ::: details The KPI strip
 
@@ -373,6 +383,10 @@ The runtime journal writes the durable history: each batch it records is rendere
 stored once, so a burst is no longer lost between two reads of the panel buffers. Failed and slow entries are still
 remembered longer, in one window per kind of entry, `bootui.activity.persistence.buffer-max-entries` wide, recognized by
 the rule and threshold of the [failure-preserving buffer](diagnostics.md#failure-preserving-retention) that keeps them.
+
+Persisted rows contain only the journal-rendered, `MASKED` view: no bind values, principals, exception or log messages,
+or email subjects. This is a 2.0 change from the former buffer-polling persistence path; applications that relied on
+those details must read the bounded live panel evidence instead.
 The journal is the only source of durable history in 2.0: with `bootui.runtime-journal.enabled=false`, persistence logs
 a warning and writes nothing.
 

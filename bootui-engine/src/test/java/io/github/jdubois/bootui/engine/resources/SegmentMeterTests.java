@@ -209,12 +209,61 @@ class SegmentMeterTests {
         ResourceUsage usage = shared.take(requestId);
 
         assertThat(usage.segments())
-                .as("begin, then two scopes; the first scope continues begin's segment")
-                .isEqualTo(2);
+                .as("the thread never stopped working for the request, so both scopes continue begin's segment")
+                .isEqualTo(1);
         assumeThat(ThreadReadings.get().supported()).isTrue();
         assertThat(usage.availability()).isEqualTo(Availability.AVAILABLE);
         assertThat(usage.cpuNanos()).isPositive();
         assertThat(usage.allocatedBytes()).isGreaterThan(1_000_000);
+    }
+
+    @Test
+    void aScopeRestoresTheRequestTheThreadWasMeteredForRatherThanStoppingIt() {
+        String requestId = RequestIds.next();
+        SegmentMeter shared = SegmentMeter.shared();
+        // Quarkus meters a request whose correlation lives in its Vert.x duplicated context, not in the thread local.
+        shared.begin(requestId);
+        shared.switchTo(requestId);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.openCleared()) {
+            assertThat(shared.currentRequestId()).isNull();
+        }
+
+        assertThat(shared.currentRequestId()).isEqualTo(requestId);
+        shared.take(requestId);
+    }
+
+    @Test
+    void aScopeBegunInsideItsRequestsCorrelationLeavesTheThreadUnmetered() {
+        String requestId = RequestIds.next();
+        SegmentMeter shared = SegmentMeter.shared();
+        // A request filter's shape: open the request's correlation, then begin its meter inside that scope. Closing
+        // the scope is the end of that work, so the event loop must not keep charging the next request it serves to
+        // this one.
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(requestId))) {
+            shared.begin(requestId);
+            assertThat(shared.currentRequestId()).isEqualTo(requestId);
+        }
+
+        assertThat(shared.currentRequestId()).isNull();
+        shared.take(requestId);
+    }
+
+    @Test
+    void aScopeOverAmbientCorrelationForTheMeteredRequestKeepsMeasuringIt() {
+        String requestId = RequestIds.next();
+        SegmentMeter shared = SegmentMeter.shared();
+        // Quarkus: a worker serves a request whose correlation lives in its duplicated context, so the thread local
+        // names no request. Work that re-states that same correlation inline must not end the request's measurement.
+        shared.begin(requestId);
+        shared.switchTo(requestId);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(requestId))) {
+            assertThat(shared.currentRequestId()).isEqualTo(requestId);
+        }
+
+        assertThat(shared.currentRequestId()).isEqualTo(requestId);
+        shared.take(requestId);
     }
 
     @Test
