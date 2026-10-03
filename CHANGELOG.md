@@ -542,6 +542,18 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   that treats a source as optional evidence reads "recorded **and** visible", so a disabled panel can no longer read as
   proof that nothing happened and produce a false finding.
 
+- **The AI Framework chat detail now follows the value-exposure policy.** `GET /bootui/api/ai/chats/{spanId}` returned
+  the chat span's attributes and events verbatim in every mode, so captured prompts, completions, input and output
+  messages, sensitive attributes, and `exception.message` and `exception.stacktrace` text were shown raw even under the
+  default `MASKED`. Every chat detail read now applies the live `bootui.expose-values` / `bootui.mask-secrets` policy
+  through the same rule as the Traces detail: content is scrubbed of secret-like assignments under `MASKED`, omitted as
+  `null` under `METADATA_ONLY`, and verbatim only under `FULL`, while keys, types, token counts, models, and timings are
+  unchanged. Tool call arguments and results (`gen_ai.tool.call.*`, `spring.ai.tool.call.*`), vector query content and
+  returned documents (`db.vector.query.content`, `db.vector.query.response.documents`), and indexed
+  `gen_ai.prompt.*` / `gen_ai.completion.*` content are now treated as free-form text on the Traces detail and request
+  profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
+  ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
+  [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`
