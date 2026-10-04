@@ -108,6 +108,36 @@ To stop this variant explicitly, from the repository root:
 docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down
 ```
 
+## Run it with the BootUI Java agent and PostgreSQL
+
+Run the same lightweight PostgreSQL and Redis stack with the optional BootUI Java agent attached:
+
+```bash
+./bootui-spring-sample-app/run-local-agent.sh
+```
+
+The launcher builds the sample with `-am`, which also builds `bootui-agent`, then starts the `docker-postgresql`
+profile with `bootui-agent/target/bootui-agent-<version>.jar` as a `-javaagent`. Set `BOOTUI_AGENT_JAR` to attach
+another jar, such as one downloaded from Maven Central. The agent is passed through `spring-boot.run.agents`, so your
+own `-Dspring-boot.run.jvmArguments=...` adds JVM options without detaching it.
+
+Open <http://localhost:8080/bootui/#/java-agent>: the panel reports `ARMED` for the `io.github.jdubois.bootui.sample`
+package with the `executors`, `inventory`, and `code-paths` sensors installed. Exercise
+<http://localhost:8080/api/sample/products>, then open **Code Paths** for the route's bean-method tree and **Code
+Inventory** for the executed methods. The PostgreSQL panel works as in the previous section.
+
+DevTools restarts stay enabled: each restart claims the agent again in the same slot, so recompiling a class shows
+the edited methods as changed in **Code Inventory**. For parallel worktrees, use a unique Compose project and port as
+above:
+
+```bash
+COMPOSE_PROJECT_NAME=my-agent-sample ./bootui-spring-sample-app/run-local-agent.sh \
+  -Dspring-boot.run.arguments=--server.port=8085
+```
+
+Stop it with `Ctrl-C`, then `docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down` (with the same
+`COMPOSE_PROJECT_NAME` if you set one).
+
 ## Run it with Docker and MySQL
 
 Use MySQL 8.4.6 **as the application's primary database**, with Redis for caching and no Kafka or Ollama.
@@ -117,8 +147,8 @@ The dedicated launcher builds the sample and runs the lightweight stack:
 ./bootui-spring-sample-app/run-local-mysql.sh
 ```
 
-The original `run-local.sh` continues to run the Docker-free `dev` profile. All three scripts use the isolated `.m2`
-repository and forward additional Maven arguments to the application launch.
+The original `run-local.sh` continues to run the Docker-free `dev` profile. Every `run-local*.sh` script uses the
+isolated `.m2` repository and forwards additional Maven arguments to the application launch.
 
 No Maven profile or externally configured database is needed. Spring Boot starts
 [`compose-mysql.yaml`](compose-mysql.yaml), discovers MySQL's dynamically mapped localhost port and credentials,
