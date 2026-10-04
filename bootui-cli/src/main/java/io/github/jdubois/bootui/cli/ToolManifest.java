@@ -55,7 +55,10 @@ public final class ToolManifest {
                     tool.get("stacks").values().stream()
                             .map(stack -> stack.asString(""))
                             .toList(),
-                    tool.get("summary").asString("")));
+                    tool.get("summary").asString(""),
+                    tool.get("example").asString(""),
+                    tool.get("idHelp").asString(""),
+                    tool.get("queryHelp").asString("")));
         }
         return new ToolManifest(tools);
     }
@@ -84,6 +87,9 @@ public final class ToolManifest {
      * @param action whether it changes state, and is therefore refused on a read-only panel
      * @param stacks the stacks that advertise it, so help can say when a command is stack-specific
      * @param summary a one-line description for help output
+     * @param example one complete command line, with {@code <placeholders>} for values another command returns
+     * @param idHelp where the {@code <id>} comes from, or empty when the command takes none
+     * @param queryHelp the words {@code --query} understands beyond a plain filter, or empty
      */
     public record Tool(
             String name,
@@ -92,12 +98,53 @@ public final class ToolManifest {
             String panel,
             boolean action,
             List<String> stacks,
-            String summary) {
+            String summary,
+            String example,
+            String idHelp,
+            String queryHelp) {
 
         public Tool {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(command, "command");
             stacks = stacks == null ? List.of() : List.copyOf(stacks);
+            example = example == null || example.isBlank() ? "bootui " + command : example;
+            idHelp = idHelp == null ? "" : idHelp;
+            queryHelp = queryHelp == null ? "" : queryHelp;
+        }
+
+        public Tool(
+                String name,
+                String command,
+                String schema,
+                String panel,
+                boolean action,
+                List<String> stacks,
+                String summary) {
+            this(name, command, schema, panel, action, stacks, summary, null, null, null);
+        }
+
+        /**
+         * The command with its arguments, such as {@code bootui insights show <id>} or
+         * {@code bootui beans [--query <text>] [--limit <count>]}, from the same schema flags the command tree binds.
+         */
+        public String synopsis() {
+            StringBuilder line = new StringBuilder("bootui ").append(command);
+            if (takesId()) {
+                line.append(optionalId() ? " [<id>]" : " <id>");
+            }
+            if (takesScanId()) {
+                line.append(" --scan-id <scanId>");
+            }
+            if (takesQuery()) {
+                line.append(" [--query <text>]");
+            }
+            if (takesOffset()) {
+                line.append(" [--offset <offset>]");
+            }
+            if (takesLimit()) {
+                line.append(" [--limit <count>]");
+            }
+            return line.toString();
         }
 
         /** The command path split into its words. */

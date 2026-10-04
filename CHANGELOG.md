@@ -9,6 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **One help call instead of many, and answers that name the next call.** `bootui --help` lists every command with
+  its arguments, what it returns, where its `<id>` comes from, the words its `--query` understands, and one example,
+  and `bootui <group> --help` lists a group the same way; every example is generated from the MCP tool registry and run
+  by a test. Every Runtime Insights answer (`get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`,
+  `get_runtime_run_comparison`, and their `bootui insights` commands) gains `next`: at most three follow-up calls, each
+  with its `command`, MCP `tool` and `arguments`, and `why`, naming only tools the application advertises, on Spring
+  MVC, Spring WebFlux, and Quarkus. An unknown observation id names the list, an unknown run id the runs still kept, and
+  an ambiguous or unknown impact symbol the candidates or the beans and mappings to search. A tool called without its
+  required `id` now says where the id comes from, such as `Missing required argument: id (an observation id from
+  get_runtime_insights)`; the error code is unchanged. The how-to-ask hints in `get_runtime_insights` limitations
+  moved to `next` ([Command line](docs/CLI.md#discovering-what-an-application-exposes),
+  [AI agents](docs/AI-AGENTS.md#runtime-insights-for-agents), PLAN-v2 M4-21).
 - **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
   any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
   and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth
@@ -253,6 +265,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Less runtime-journal work on request threads.** A recorded statement, REST client call, or cache access now only
+  selects its application frames on the application thread; the journal's dispatcher formats them, with the same
+  `Class.method(File.java:42)` text and masking as before. An offer to the journal takes one lock instead of three,
+  checks the queue's reserved share and inserts atomically, and no longer wakes the dispatcher for every event: the
+  dispatcher drains in batches, recording an event at most about a millisecond later. On the Spring MVC sample under
+  load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about 8.4 % to 3.5 %.
+  An event offered after the run ended is now counted as dropped rather than accepted. A frame whose class is
+  redefined, by the BootUI agent or a hot swap, while its event waits for the dispatcher reads `(Unknown Source)`
+  (PLAN-v2 M4-18d).
 - **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
   Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
   attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,
@@ -497,9 +518,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 - **Runtime Insights no longer judges a request that lost events to eviction or a clear.** A request or execution that
   started before an event the runtime journal evicted, could not fit, or cleared (**Clear recording** while it ran) was
   projected with only the events it kept, so `proxy-bypass` reported a `@Cacheable` method as bypassed when the
-  request's cache access was the event it lost. Such work is now left out whole, with a limitation counting it, on
-  Spring MVC, Spring WebFlux, and Quarkus; a partial check's reason no longer calls its counts a floor, since a dropped
-  transaction or cache access can make a finding appear. A cross-observation counterexample harness now replays every
+  request's cache access was the event it lost. Such work is now left out whole, with a limitation counting it and
+  each check that would have examined it saying so, on Spring MVC, Spring WebFlux, and Quarkus; the agent view no
+  longer asks for traffic when requests were only left out. A partial check's reason no longer calls its counts a
+  floor, since a dropped transaction or cache access can make a finding appear. A cross-observation counterexample harness now replays every
   observation kind's seeded case and counterexamples against every kind, with each event dropped in turn, the
   recording cleared and the ring overflowing at every point, and each stack, SQL capture, source, and panel missing;
   every kind passes it, including D29's four ([Runtime Insights](docs/features/overview.md#runtime-insights),

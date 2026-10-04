@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -93,6 +96,15 @@ class WebFluxRuntimeInsightsSeedsTest {
     void noObservationOfAnyKindFiresOnACounterexampleRoute() {
         List<String> counterexamples =
                 List.of("GET /api/notes", "GET /api/insights/notes/at-once", "GET /api/sample/rest-client");
+        Set<String> exercised = journal.entries().stream()
+                .map(entry -> entry.event().payload())
+                .filter(HttpPayload.class::isInstance)
+                .map(HttpPayload.class::cast)
+                .map(http -> http.method() + " " + http.routeTemplate())
+                .collect(Collectors.toSet());
+        assertThat(exercised)
+                .as("every counterexample route ran, so its silence is a result")
+                .containsAll(counterexamples);
         assertThat(observations)
                 .filteredOn(observation ->
                         counterexamples.contains(observation.path("subject").asText()))

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.journalapp.ApplicationCode;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -36,8 +37,9 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * <pre>./mvnw -pl bootui-engine test -Dtest=JournalCaptureBudgetBenchmarkTest -Dbootui.benchmark=true</pre>
  *
  * <p>The offer path is timed per call with {@link System#nanoTime()}, whose own cost (tens of nanoseconds) is included,
- * so the percentiles are an upper bound. The stack walk that keeps a statement's application frames also runs on the
- * application thread, only when call sites are kept; it is timed apart, since its cost grows with the stack's depth.</p>
+ * so the percentiles are an upper bound. The stack walk that selects a statement's application frames also runs on the
+ * application thread, only when call sites are kept; it is timed apart, since its cost grows with the stack's depth.
+ * The selected frames are formatted later, on the dispatcher, which is timed apart too (M4-18d).</p>
  */
 @EnabledIfSystemProperty(named = "bootui.benchmark", matches = "true")
 class JournalCaptureBudgetBenchmarkTest {
@@ -69,16 +71,23 @@ class JournalCaptureBudgetBenchmarkTest {
         row("Snapshot, envelope, and offer", 8, eight, "< 2 µs p99");
         long[] frames = frameCaptureLatencies();
         row("Application frames stack walk (call sites kept)", 1, frames, "not budgeted apart");
+        long[] selected = frameSelectionLatencies();
+        row("Application frames stack walk, one application frame found", 1, selected, "not budgeted apart");
+        long[] formatting = frameFormattingLatencies();
+        row("Application frames formatted on the dispatcher", 1, formatting, "off the application thread");
         long[] duringClear = offerLatenciesWhileClearDrainIsPaused();
         row("Offer while a detached-queue drain is pending", 1, duringClear, "report only");
 
         report.add("");
         report.add("| Dispatcher | Offered per second | Seconds | Accepted | Dropped | Recorded per second | Budget |");
         report.add("| --- | --- | --- | --- | --- | --- | --- |");
-        Throughput paced = dispatch(4, 20_000, Duration.ofSeconds(10));
-        Throughput unpaced = dispatch(4, 0, Duration.ofSeconds(10));
+        Throughput paced = dispatch(4, 20_000, Duration.ofSeconds(10), false);
+        Throughput unpaced = dispatch(4, 0, Duration.ofSeconds(10), false);
+        Throughput pacedWithFrames = dispatch(4, 20_000, Duration.ofSeconds(10), true);
         throughputRow("Paced at the budget", paced, "≥ 20,000/s with no drop");
         throughputRow("Unpaced, 4 producers", unpaced, "capacity");
+        throughputRow(
+                "Paced at the budget, statements with application frames", pacedWithFrames, "≥ 20,000/s with no drop");
 
         Path out = Path.of("target", "capture-budgets", "journal.md");
         write(out);
@@ -86,6 +95,9 @@ class JournalCaptureBudgetBenchmarkTest {
 
         assertThat(percentile(single, 99)).as("single-producer p99 offer path").isLessThan(2_000L);
         assertThat(paced.dropped()).as("events dropped at 20,000 per second").isZero();
+        assertThat(pacedWithFrames.dropped())
+                .as("events dropped at 20,000 per second, frames formatted on the dispatcher")
+                .isZero();
     }
 
     /** Times each request's children and the request itself as an adapter publishes them, on {@code threads}. */
@@ -176,6 +188,52 @@ class JournalCaptureBudgetBenchmarkTest {
         return timings;
     }
 
+    /** Times the stack walk below an application frame, which selects that frame, as an application's statement does. */
+    private long[] frameSelectionLatencies() {
+        for (int i = 0; i < 50_000; i++) {
+            deepCapture(60);
+        }
+        long[] timings = new long[50_000];
+        for (int i = 0; i < timings.length; i++) {
+            long before = System.nanoTime();
+            deepCapture(60);
+            timings[i] = System.nanoTime() - before;
+        }
+        Arrays.sort(timings);
+        return timings;
+    }
+
+    /** Times formatting and interning captured frames, as the dispatcher does when it retains their event. */
+    private long[] frameFormattingLatencies() {
+        JournalDictionary dictionary = new JournalDictionary(10_000, 10_000_000);
+        ApplicationFrames[] captured = new ApplicationFrames[100_000];
+        for (int i = 0; i < captured.length; i++) {
+            captured[i] = deepCapture(60);
+        }
+        long[] timings = new long[captured.length / 2];
+        for (int i = 0; i < captured.length; i++) {
+            long before = System.nanoTime();
+            captured[i].interned(dictionary);
+            long elapsed = System.nanoTime() - before;
+            if (i >= timings.length) {
+                timings[i - timings.length] = elapsed;
+            }
+        }
+        Arrays.sort(timings);
+        return timings;
+    }
+
+    /** Captures the frames {@code depth} frames below an application frame. */
+    private static ApplicationFrames deepCapture(int depth) {
+        ApplicationFrames[] captured = new ApplicationFrames[1];
+        ApplicationCode.run(() -> captured[0] = below(depth));
+        return captured[0];
+    }
+
+    private static ApplicationFrames below(int depth) {
+        return depth > 0 ? below(depth - 1) : ApplicationFrames.capture();
+    }
+
     /** Times offers into the replacement queue while a full detached queue is deliberately kept undrained. */
     private long[] offerLatenciesWhileClearDrainIsPaused() throws Exception {
         CountDownLatch beforeDrain = new CountDownLatch(1);
@@ -240,8 +298,12 @@ class JournalCaptureBudgetBenchmarkTest {
 
     record Throughput(int offeredPerSecond, double seconds, long accepted, long dropped, double recordedPerSecond) {}
 
-    /** Offers {@code perSecond} events a second in total (0 for as fast as possible) and measures what was recorded. */
-    private Throughput dispatch(int producers, int perSecond, Duration duration) throws Exception {
+    /**
+     * Offers {@code perSecond} events a second in total (0 for as fast as possible) and measures what was recorded. With
+     * {@code frames}, each statement carries the application frames captured below an application frame, which the
+     * dispatcher formats.
+     */
+    private Throughput dispatch(int producers, int perSecond, Duration duration, boolean frames) throws Exception {
         try (RuntimeJournal journal = journal()) {
             AtomicLong offered = new AtomicLong();
             long deadline = System.nanoTime() + duration.toNanos();
@@ -278,8 +340,13 @@ class JournalCaptureBudgetBenchmarkTest {
                                         http
                                                 ? new HttpPayload(
                                                         "GET", "/api/orders/" + request, "/api/orders/{id}", null, 200)
-                                                : new SqlPayload(
-                                                        SELECT, "OrderRepository.findByCustomer:42", "orders", false)));
+                                                : frames
+                                                        ? new SqlPayload(SELECT, null, "orders", false, deepCapture(60))
+                                                        : new SqlPayload(
+                                                                SELECT,
+                                                                "OrderRepository.findByCustomer:42",
+                                                                "orders",
+                                                                false)));
                                 offered.incrementAndGet();
                             }
                         }

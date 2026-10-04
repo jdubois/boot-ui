@@ -104,6 +104,15 @@ public final class McpProtocol {
         return UNKNOWN_TOOL_PREFIX + name;
     }
 
+    /**
+     * {@link #MISSING_ID_ARGUMENT_MESSAGE} or {@link #MISSING_SCAN_ID_ARGUMENT_MESSAGE}, followed by where the tool's id
+     * comes from, so the error names the call to make first.
+     */
+    public static String missingArgumentMessage(String message, String toolName) {
+        McpToolGuide.IdSource source = McpToolGuide.idSource(toolName);
+        return source == null ? message : message + " (" + source.describe() + ")";
+    }
+
     /** Canonical invalid-type message used by both adapter codecs. */
     public static String invalidArgumentTypeMessage(String name, String expectedType) {
         return "Argument '" + name + "' must be " + expectedType;

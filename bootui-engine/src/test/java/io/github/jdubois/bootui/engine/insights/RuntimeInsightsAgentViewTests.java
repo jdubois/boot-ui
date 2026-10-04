@@ -54,9 +54,10 @@ class RuntimeInsightsAgentViewTests {
                 .contains(AnonymousDataReach.KIND, ExceptionHotspots.KIND)
                 .filteredOn(RepeatedSelects.KIND::equals)
                 .hasSize(5);
-        assertThat(list.limitations())
-                .contains("Left out by limit: repeated-selects 3. List one kind by passing its name as the query, or"
-                        + " raise limit.");
+        assertThat(list.limitations()).contains("Left out by limit: repeated-selects 3.");
+        assertThat(list.next())
+                .extracting(step -> step.command())
+                .contains("bootui insights list --query repeated-selects");
         assertThat(RuntimeInsightsAgentView.list(report(), "Repeated-Selects", 20)
                         .observations())
                 .hasSize(8)
@@ -117,6 +118,26 @@ class RuntimeInsightsAgentViewTests {
     }
 
     @Test
+    void requestsZeroAfterAClearSaysRequestsWereLeftOutRatherThanAskingForTraffic() {
+        RuntimeInsightsReportDto cleared = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", null, null, 12, 0, 0, 0),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(RuntimeInsightsService.leftOutBeforeLoss(2, 0)),
+                List.of(),
+                0);
+
+        assertThat(RuntimeInsightsAgentView.list(cleared, null, null)
+                        .limitations()
+                        .get(0))
+                .contains(RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS, "not proof the run was idle")
+                .doesNotContain("not exercised, not healthy", "send it traffic");
+    }
+
+    @Test
     void theEmptyQueryOmitsRepeatedSelectsUnderTheFloorAndANamedQueryDoesNot() {
         RuntimeObservationDto cheap = observation(
                 1,
@@ -140,9 +161,10 @@ class RuntimeInsightsAgentViewTests {
         assertThat(list.observations())
                 .extracting(observation -> observation.id())
                 .containsExactly("repeated-selects:2");
-        assertThat(list.limitations())
-                .anyMatch(limitation -> limitation.contains("Left out 1 repeated-selects row"))
-                .anyMatch(limitation -> limitation.contains("query repeated-selects"));
+        assertThat(list.limitations()).anyMatch(limitation -> limitation.contains("Left out 1 repeated-selects row"));
+        assertThat(list.next())
+                .anyMatch(step -> step.tool().equals("get_runtime_insights")
+                        && step.arguments().equals(java.util.Map.of("query", RepeatedSelects.KIND)));
         assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
                 .extracting(observation -> observation.id())
                 .containsExactly("repeated-selects:1", "repeated-selects:2");
@@ -190,8 +212,13 @@ class RuntimeInsightsAgentViewTests {
         assertThat(RuntimeInsightsAgentView.list(report(), "/api/orders/3", 20).observations())
                 .extracting(observation -> observation.subject())
                 .containsExactly("GET /api/orders/3");
-        assertThat(RuntimeInsightsAgentView.list(report(), "diff", 20).limitations())
-                .anyMatch(limitation -> limitation.contains("get_runtime_run_comparison"));
+        assertThat(RuntimeInsightsAgentView.list(report(), "diff", 20).next())
+                .first()
+                .satisfies(step -> {
+                    assertThat(step.command()).isEqualTo("bootui insights compare previous");
+                    assertThat(step.tool()).isEqualTo("get_runtime_run_comparison");
+                    assertThat(step.arguments()).containsExactly(java.util.Map.entry("id", "previous"));
+                });
     }
 
     @Test
@@ -204,6 +231,13 @@ class RuntimeInsightsAgentViewTests {
                 new RuntimeObservationDetailDto(false, "No observation x.", null, List.of(), List.of(), 0));
         assertThat(unknown.available()).isFalse();
         assertThat(unknown.unavailableReason()).isEqualTo("No observation x.");
+        assertThat(unknown.next())
+                .as("an unknown id names the call that lists the current ones")
+                .singleElement()
+                .satisfies(step -> assertThat(step.command()).isEqualTo("bootui insights list"));
+        assertThat(RuntimeInsightsAgentView.list(disabled, "", 8).next())
+                .extracting(step -> step.command())
+                .containsExactly("bootui config --query bootui.runtime-journal");
 
         RuntimeInsightAgentDetailDto known = RuntimeInsightsAgentView.detail(new RuntimeObservationDetailDto(
                 true,
@@ -245,6 +279,143 @@ class RuntimeInsightsAgentViewTests {
         assertThat(compact.limitations()).anyMatch(limitation -> limitation.contains("Latency rows are left out"));
         assertThat(RuntimeInsightsAgentView.runId(" previous ")).isNull();
         assertThat(RuntimeInsightsAgentView.runId("run-4")).isEqualTo("run-4");
+    }
+
+    @Test
+    void aListNamesTheEvidenceAndOneRequestOfItsLeadObservation() {
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report(), null, null);
+
+        assertThat(list.next())
+                .extracting(step -> step.command())
+                .containsExactly(
+                        "bootui insights show repeated-selects:0",
+                        "bootui request-profile r-0",
+                        "bootui insights list --query repeated-selects");
+        assertThat(list.next().get(0).why()).contains("call sites");
+        assertThat(list.next().get(1).arguments()).containsExactly(java.util.Map.entry("id", "r-0"));
+    }
+
+    @Test
+    void theWaysToAskForMoreKeepTheirPlaceBesideABusyLeadObservation() {
+        List<RuntimeObservationDto> observations = new ArrayList<>();
+        observations.add(observation(0, ExceptionHotspots.KIND, "GET /api/boom", "recorded `X`"));
+        for (int i = 1; i < 6; i++) {
+            observations.add(observation(i, RepeatedSelects.KIND, "GET /api/orders/" + i, "repeated a SELECT"));
+        }
+        RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", 1L, 2L, 10, 3, 0, 0),
+                List.of(),
+                List.of(),
+                observations,
+                List.of(),
+                List.of(),
+                0);
+
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report, null, 3);
+        assertThat(list.next())
+                .extracting(step -> step.command())
+                .containsExactly(
+                        "bootui exceptions list",
+                        "bootui insights show exception-hotspots:0",
+                        "bootui insights list --query repeated-selects");
+
+        RuntimeInsightsAgentReportDto filtered = RuntimeInsightsAgentView.list(report, "/api/orders", 2);
+        assertThat(filtered.next())
+                .as("a filtered list keeps its filter and asks for more rows rather than another query")
+                .extracting(step -> step.command())
+                .contains("bootui insights list --query /api/orders --limit 50");
+    }
+
+    @Test
+    void anAnonymousAccessObservationNamesTheSecurityRulesOnlyWhereTheStackHasThem() {
+        RuntimeObservationDetailDto anonymous = new RuntimeObservationDetailDto(
+                true,
+                null,
+                observation(9, AnonymousDataReach.KIND, "GET /api/payroll/report", "an anonymous read"),
+                List.of(),
+                List.of(),
+                0);
+
+        assertThat(RuntimeInsightsAgentView.detail(anonymous, tool -> true).next())
+                .extracting(step -> step.command())
+                .containsExactly(
+                        "bootui security config",
+                        "bootui mappings --query /api/payroll/report",
+                        "bootui request-profile r-9");
+        assertThat(RuntimeInsightsAgentView.detail(anonymous, tool -> !tool.equals("get_spring_security"))
+                        .next())
+                .as("Quarkus has no get_spring_security, so it is never named there")
+                .extracting(step -> step.tool())
+                .containsExactly("get_mappings", "get_request_profile");
+    }
+
+    @Test
+    void anUnknownRunIdNamesThePreviousRunAndTheRunsStillKept() {
+        RuntimeRunComparisonAgentDto unknown = RuntimeInsightsAgentView.comparison(
+                new RuntimeRunComparisonDto(
+                        "NO_PREVIOUS_RUN",
+                        "No kept run has the id run-1.",
+                        new RuntimeRunRefDto("run-5", 5, 3, null, 12, "CURRENT"),
+                        null,
+                        List.of(
+                                new RuntimeRunRefDto("run-4", 4, 1, 2L, 10, "KEPT"),
+                                new RuntimeRunRefDto("run-3", 3, 0, 1L, 9, "KEPT")),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        null,
+                        List.of(),
+                        List.of()),
+                "run-1",
+                null);
+
+        assertThat(unknown.next())
+                .extracting(step -> step.command())
+                .as("previous already selects run-4, the newest kept run")
+                .containsExactly("bootui insights compare previous", "bootui insights compare run-3");
+    }
+
+    @Test
+    void anAmbiguousOrUnknownImpactNamesTheCallsThatResolveIt() {
+        io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto ambiguous =
+                new io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto(
+                        ChangeImpactService.AMBIGUOUS,
+                        "`orders` names 2 nodes: name one of them.",
+                        "orders",
+                        null,
+                        List.of("TABLE orders", "BEAN orders"),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of());
+        assertThat(RuntimeInsightsAgentView.impact(ambiguous, null).next())
+                .extracting(step -> step.command())
+                .containsExactly("bootui insights impact 'TABLE orders'", "bootui insights impact 'BEAN orders'");
+
+        io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto notFound =
+                new io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto(
+                        ChangeImpactService.NOT_FOUND,
+                        "No route, bean, repository, table, cache, host, or method named `com.example.Orders#total`.",
+                        "com.example.Orders#total",
+                        null,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of());
+        assertThat(RuntimeInsightsAgentView.impact(notFound, null).next())
+                .extracting(step -> step.command())
+                .containsExactly("bootui beans --query Orders", "bootui code inventory --query Orders");
     }
 
     private static RuntimeInsightsReportDto report() {

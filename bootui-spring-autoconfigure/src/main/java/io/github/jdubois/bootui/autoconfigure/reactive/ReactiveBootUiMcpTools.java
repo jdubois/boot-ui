@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -312,24 +313,29 @@ public class ReactiveBootUiMcpTools {
                     args -> codePathsBean.agentProbe(args.id())));
         }
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
+        // Read at call time, so a next step never names a tool this application does not advertise (M4-21).
+        Predicate<String> advertised = RuntimeInsightsAgentView.advertisedBy(this::tools);
         if (runtimeInsightsBean != null) {
             registry.add(tool(
                     "get_runtime_insights",
                     McpToolDescriptions.spring("get_runtime_insights"),
-                    args -> RuntimeInsightsAgentView.list(runtimeInsightsBean.report(), args.query(), args.limit())));
+                    args -> RuntimeInsightsAgentView.list(
+                            runtimeInsightsBean.report(), args.query(), args.limit(), advertised)));
             registry.add(tool(
                     "get_runtime_insight",
                     McpToolDescriptions.spring("get_runtime_insight"),
-                    args -> RuntimeInsightsAgentView.detail(runtimeInsightsBean.insight(args.id()))));
+                    args -> RuntimeInsightsAgentView.detail(runtimeInsightsBean.insight(args.id()), advertised)));
             registry.add(tool(
                     "get_runtime_impact",
                     McpToolDescriptions.spring("get_runtime_impact"),
-                    args -> runtimeInsightsBean.impact(args.id())));
+                    args -> RuntimeInsightsAgentView.impact(runtimeInsightsBean.impact(args.id()), advertised)));
             registry.add(tool(
                     "get_runtime_run_comparison",
                     McpToolDescriptions.spring("get_runtime_run_comparison"),
                     args -> RuntimeInsightsAgentView.comparison(
-                            runtimeInsightsBean.comparison(RuntimeInsightsAgentView.runId(args.id())))));
+                            runtimeInsightsBean.comparison(RuntimeInsightsAgentView.runId(args.id())),
+                            args.id(),
+                            advertised)));
         }
         if (exceptionsBean != null) {
             registry.add(tool(

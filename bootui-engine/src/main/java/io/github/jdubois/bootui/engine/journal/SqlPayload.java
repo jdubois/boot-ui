@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
+import java.util.Objects;
 
 /**
  * A SQL statement's payload: its text as SQL Trace retained it, never its bind values, the application call site and
  * up to four application frames above it, the datasource, and whether it failed. The journal aggregates statements by
  * their literal-free fingerprint, computed on its dispatcher thread.
  *
+ * @param callSite the application call site, or {@code null} to read it from {@code frames}, which a recorder passes
+ *     so the frames are formatted on the journal's dispatcher rather than the application thread (M4-18d)
  * @param phase the part of its request it ran in, or {@code null} when unknown or outside a request
  * @param completedNanos the {@link System#nanoTime()} when it completed, or {@code -1} when unknown, which places it
  *     inside or outside a transaction of its thread below the millisecond ({@code docs/PLAN-v2.md} §5.5)
@@ -25,6 +28,40 @@ public record SqlPayload(
         long completedNanos,
         long codePathStamp)
         implements RuntimeEventPayload {
+
+    /** The call site given, or else the innermost of {@link #frames()}; {@code null} when neither is known. */
+    @Override
+    public String callSite() {
+        return callSite != null || frames == null ? callSite : frames.callSite();
+    }
+
+    /** Equal when every component is, its call site as {@link #callSite()} reads it. */
+    @Override
+    public boolean equals(Object other) {
+        return this == other
+                || other instanceof SqlPayload that
+                        && failed == that.failed
+                        && completedNanos == that.completedNanos
+                        && codePathStamp == that.codePathStamp
+                        && Objects.equals(sql, that.sql)
+                        && Objects.equals(callSite(), that.callSite())
+                        && Objects.equals(dataSource, that.dataSource)
+                        && Objects.equals(frames, that.frames)
+                        && phase == that.phase;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(sql, callSite(), dataSource, failed, frames, phase, completedNanos, codePathStamp);
+    }
+
+    @Override
+    public String toString() {
+        return "SqlPayload[sql=" + sql + ", callSite=" + callSite() + ", dataSource=" + dataSource + ", failed="
+                + failed
+                + ", frames=" + frames + ", phase=" + phase + ", completedNanos=" + completedNanos + ", codePathStamp="
+                + codePathStamp + "]";
+    }
 
     /** A statement without a code-paths stamp. */
     public SqlPayload(
@@ -59,10 +96,10 @@ public record SqlPayload(
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
         return new SqlPayload(
                 SqlShapes.shareable(sql) ? dictionary.shared(sql) : sql,
-                dictionary.shared(callSite),
+                dictionary.shared(callSite()),
                 dictionary.shared(dataSource),
                 failed,
-                frames == null ? null : frames.interned(dictionary),
+                ApplicationFrames.interned(frames, dictionary),
                 phase,
                 completedNanos,
                 codePathStamp);
@@ -79,7 +116,7 @@ public record SqlPayload(
     public int estimatedBytes(JournalDictionary dictionary) {
         return 40
                 + JournalDictionary.retained(dictionary, sql)
-                + JournalDictionary.retained(dictionary, callSite)
+                + JournalDictionary.retained(dictionary, callSite())
                 + JournalDictionary.retained(dictionary, dataSource)
                 + (frames == null ? 0 : frames.estimatedBytes());
     }

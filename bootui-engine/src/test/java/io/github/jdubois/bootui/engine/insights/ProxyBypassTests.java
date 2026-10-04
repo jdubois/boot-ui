@@ -123,6 +123,18 @@ class ProxyBypassTests {
         assertThat(report.limitations())
                 .contains("1 request or execution started before events the journal evicted or cleared, so it is left"
                         + " out: some of its events may be missing.");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                .singleElement()
+                .satisfies(check -> assertThat(check.reason())
+                        .as("an empty result is not read as nothing found")
+                        .contains(RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS));
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(HeapGrowthAfterGc.KIND))
+                .singleElement()
+                .satisfies(check -> assertThat(String.valueOf(check.reason()))
+                        .as("it examines collections, not requests")
+                        .doesNotContain(RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS));
     }
 
     @Test

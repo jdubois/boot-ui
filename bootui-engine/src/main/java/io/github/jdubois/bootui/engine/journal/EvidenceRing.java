@@ -129,10 +129,14 @@ final class EvidenceRing {
 
     /** Moves the loss horizon past {@code event} when it belonged to a request, an execution, or a trace. */
     synchronized void lost(RuntimeEvent event) {
-        if (event != null
-                && (event.requestId() != null || event.executionId() != null || event.traceId() != null)
-                && event.epochMillis() > lossHorizonMillis) {
-            lossHorizonMillis = event.epochMillis();
+        if (event == null || (event.requestId() == null && event.executionId() == null && event.traceId() == null)) {
+            return;
+        }
+        // Never past now: a span from a skewed clock, or a wall clock stepped back, would otherwise hide every request
+        // until the restart.
+        long started = Math.min(event.epochMillis(), System.currentTimeMillis());
+        if (started > lossHorizonMillis) {
+            lossHorizonMillis = started;
         }
     }
 

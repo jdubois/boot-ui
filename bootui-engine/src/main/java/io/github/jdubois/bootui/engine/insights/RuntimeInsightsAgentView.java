@@ -1,16 +1,21 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
+import io.github.jdubois.bootui.core.dto.RuntimeCodeChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeCodeChangesDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightAgentDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightAgentDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
+import io.github.jdubois.bootui.core.dto.RuntimeNextStepDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonAgentDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
+import io.github.jdubois.bootui.core.dto.RuntimeRunRefDto;
+import io.github.jdubois.bootui.engine.mcp.McpTool;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -19,11 +24,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Runtime Insights for agents ({@code docs/PLAN-v2.md} §5.6): the panel's report, observation, and run comparison,
  * compacted into short, stable facts an agent can diff and refuse to act on. Each adapter's MCP tools and CLI commands
- * call it with what its panel endpoints already return, so the three stacks answer alike.
+ * call it with what its panel endpoints already return, so the three stacks answer alike. Every answer, an unknown id
+ * included, names the calls to make next (M4-21), restricted to the tools the adapter advertises.
  */
 public final class RuntimeInsightsAgentView {
 
@@ -41,7 +49,19 @@ public final class RuntimeInsightsAgentView {
 
     private static final String NEW_MARK = "not observed in the previous run";
 
+    private static final String JOURNAL_SETTINGS = "bootui.runtime-journal";
+
     private RuntimeInsightsAgentView() {}
+
+    /** Whether a tool is advertised, read from the adapter's current tool list at call time. */
+    public static Predicate<String> advertisedBy(Supplier<List<McpTool>> tools) {
+        return name -> tools.get().stream().anyMatch(tool -> tool.name().equals(name));
+    }
+
+    /** {@link #list(RuntimeInsightsReportDto, String, Integer, Predicate)} naming any tool as a next step. */
+    public static RuntimeInsightsAgentReportDto list(RuntimeInsightsReportDto report, String query, Integer limit) {
+        return list(report, query, limit, null);
+    }
 
     /**
      * The report's observations matching {@code query}, at most {@code limit}: empty for every observation, including
@@ -51,11 +71,14 @@ public final class RuntimeInsightsAgentView {
      * that route, table, bean, or class. When more match than {@code limit}, every kind's most affected observation
      * comes before any kind's second, so one prolific kind cannot hide the others.
      */
-    public static RuntimeInsightsAgentReportDto list(RuntimeInsightsReportDto report, String query, Integer limit) {
+    public static RuntimeInsightsAgentReportDto list(
+            RuntimeInsightsReportDto report, String query, Integer limit, Predicate<String> callable) {
         String asked = query == null ? "" : query.trim();
         int max =
                 Math.min(MAX_LIMIT, limit == null || limit <= 0 ? RuntimeInsightsAgentReportDto.DEFAULT_LIMIT : limit);
         if (!report.available()) {
+            NextSteps next = new NextSteps(callable);
+            next.add("get_config", "query", JOURNAL_SETTINGS, "whether the runtime journal is enabled");
             return new RuntimeInsightsAgentReportDto(
                     false,
                     report.unavailableReason(),
@@ -67,7 +90,8 @@ public final class RuntimeInsightsAgentView {
                     0,
                     List.of(),
                     0,
-                    List.of());
+                    List.of(),
+                    next.list());
         }
         List<RuntimeObservationDto> matching = new ArrayList<>();
         for (RuntimeObservationDto observation : report.observations()) {
@@ -82,12 +106,18 @@ public final class RuntimeInsightsAgentView {
             limitations.add(requestsZero(report));
         }
         limitations.addAll(report.limitations());
+        // The ways to ask for more come first, so the lead observation's follow-ups never crowd them out.
+        NextSteps asks = new NextSteps(callable);
         if (asked.equalsIgnoreCase("diff")) {
-            limitations.add("For what changed between runs, statements, calls, routes, and edges, call"
-                    + " get_runtime_run_comparison with previous.");
+            asks.add(
+                    "get_runtime_run_comparison",
+                    "id",
+                    "previous",
+                    "what changed since the previous run: statements, calls, routes, and edges");
         }
+        long dropped = 0;
         if (asked.isEmpty()) {
-            long dropped = report.observations().stream()
+            dropped = report.observations().stream()
                     .filter(RuntimeInsightsAgentView::underFloor)
                     .count();
             if (dropped > 0) {
@@ -98,6 +128,33 @@ public final class RuntimeInsightsAgentView {
         String leftOut = leftOut(matching, listed);
         if (leftOut != null) {
             limitations.add(leftOut);
+            if (asked.isEmpty()) {
+                String kind = firstLeftOutKind(matching, listed);
+                asks.add("get_runtime_insights", "query", kind, "the " + kind + " observations this limit left out");
+            } else if (max < MAX_LIMIT) {
+                Map<String, Object> wider = new LinkedHashMap<>();
+                wider.put("query", asked);
+                wider.put("limit", MAX_LIMIT);
+                asks.add("get_runtime_insights", wider, "every match, up to " + MAX_LIMIT);
+            }
+        }
+        if (dropped > 0) {
+            asks.add(
+                    "get_runtime_insights",
+                    "query",
+                    RepeatedSelects.KIND,
+                    "the cheap repeated-selects rows the default list leaves out");
+        }
+        if (listed.isEmpty() && requests == 0 && report.observations().isEmpty()) {
+            asks.add("get_runtime_insights", "again after running the application's tests or sending it traffic");
+        }
+        NextSteps next = new NextSteps(callable, Math.max(1, NextSteps.MAX - asks.size()));
+        RuntimeObservationDto lead = listed.stream()
+                .filter(observation -> !"INSUFFICIENT".equals(observation.status()))
+                .findFirst()
+                .orElse(listed.isEmpty() ? null : listed.get(0));
+        if (lead != null) {
+            follow(next, lead, true);
         }
         List<String> notExercised = report.notExercised();
         int notExercisedShown = Math.min(RuntimeInsightsAgentReportDto.MAX_NOT_EXERCISED, notExercised.size());
@@ -112,16 +169,37 @@ public final class RuntimeInsightsAgentView {
                 matching.size() - listed.size(),
                 notExercised.subList(0, notExercisedShown),
                 notExercised.size() - notExercisedShown + report.notExercisedOmitted(),
-                limitations);
+                limitations,
+                // A diff query asks for the comparison, so it comes before the lead observation's follow-ups.
+                asked.equalsIgnoreCase("diff") ? asks.then(next) : next.then(asks));
     }
 
-    /** One observation with its evidence; an unknown or evicted id answers unavailable with the reason. */
+    /** {@link #detail(RuntimeObservationDetailDto, Predicate)} naming any tool as a next step. */
     public static RuntimeInsightAgentDetailDto detail(RuntimeObservationDetailDto detail) {
+        return detail(detail, null);
+    }
+
+    /**
+     * One observation with its evidence; an unknown or evicted id answers unavailable with the reason, and names the
+     * call that lists the current ids.
+     */
+    public static RuntimeInsightAgentDetailDto detail(RuntimeObservationDetailDto detail, Predicate<String> callable) {
+        NextSteps next = new NextSteps(callable);
         RuntimeObservationDto observation = detail.observation();
         if (!detail.available() || observation == null) {
+            next.add("get_runtime_insights", "the current observation ids, since ids change as the run goes on");
             return new RuntimeInsightAgentDetailDto(
-                    false, detail.unavailableReason(), null, List.of(), List.of(), List.of(), List.of(), 0);
+                    false,
+                    detail.unavailableReason(),
+                    null,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    0,
+                    next.list());
         }
+        follow(next, observation, false);
         return new RuntimeInsightAgentDetailDto(
                 true,
                 null,
@@ -130,11 +208,22 @@ public final class RuntimeInsightsAgentView {
                 observation.limitations(),
                 detail.columns(),
                 detail.rows(),
-                detail.truncated());
+                detail.truncated(),
+                next.list());
     }
 
-    /** A run comparison with comparability first and at most eight behavior rows and edges; latency is left out. */
+    /** {@link #comparison(RuntimeRunComparisonDto, String, Predicate)} for the default run, naming any tool. */
     public static RuntimeRunComparisonAgentDto comparison(RuntimeRunComparisonDto comparison) {
+        return comparison(comparison, null, null);
+    }
+
+    /**
+     * A run comparison with comparability first and at most eight behavior rows and edges; latency is left out.
+     *
+     * @param asked the run id the caller named, or {@code null} for the default, so an unknown one can be corrected
+     */
+    public static RuntimeRunComparisonAgentDto comparison(
+            RuntimeRunComparisonDto comparison, String asked, Predicate<String> callable) {
         List<String> limitations = new ArrayList<>(comparison.limitations());
         if (!comparison.latency().isEmpty()) {
             limitations.add("Latency rows are left out: they are noisy, and a change in them is never a reason to"
@@ -152,7 +241,201 @@ public final class RuntimeInsightsAgentView {
                 omitted(comparison.behavior()),
                 head(comparison.edges()),
                 omitted(comparison.edges()),
-                limitations);
+                limitations,
+                comparisonNext(comparison, runId(asked), callable));
+    }
+
+    /** {@link #impact(RuntimeChangeImpactDto, Predicate)} naming any tool as a next step. */
+    public static RuntimeChangeImpactDto impact(RuntimeChangeImpactDto impact) {
+        return impact(impact, null);
+    }
+
+    /** A change impact for an agent: an ambiguous, unknown, or unavailable symbol names the calls that resolve it. */
+    public static RuntimeChangeImpactDto impact(RuntimeChangeImpactDto impact, Predicate<String> callable) {
+        NextSteps next = new NextSteps(callable);
+        String symbol = impact.symbol() == null ? "" : impact.symbol().strip();
+        switch (impact.status()) {
+            case ChangeImpactService.AMBIGUOUS ->
+                impact.candidates().stream()
+                        .limit(2)
+                        .forEach(candidate -> next.add("get_runtime_impact", "id", candidate, "only " + candidate));
+            case ChangeImpactService.NOT_FOUND -> {
+                if (symbol.isEmpty()) {
+                    next.add("get_mappings", "the routes, by the path a route symbol names");
+                    next.add("get_beans", "the beans and classes, by the name a bean symbol uses");
+                } else {
+                    String name = simpleSymbol(symbol);
+                    if (symbol.contains("/")) {
+                        next.add("get_mappings", "query", name, "the routes as this application spells them");
+                    }
+                    next.add("get_beans", "query", name, "the beans and classes as this application names them");
+                    if (symbol.contains("#")) {
+                        next.add(
+                                "get_code_inventory",
+                                "query",
+                                name,
+                                "the methods of " + name + " the BootUI agent tracks");
+                    }
+                }
+            }
+            case ChangeImpactService.UNAVAILABLE -> {
+                if (impact.reason() != null && impact.reason().contains(JOURNAL_SETTINGS)) {
+                    next.add("get_config", "query", JOURNAL_SETTINGS, "whether the runtime journal is enabled");
+                }
+            }
+            default -> {
+                // A resolved symbol is a checklist the caller reads; it has no single follow-up call.
+            }
+        }
+        if (next.list().isEmpty()) {
+            return impact;
+        }
+        return new RuntimeChangeImpactDto(
+                impact.status(),
+                impact.reason(),
+                impact.symbol(),
+                impact.node(),
+                impact.candidates(),
+                impact.structuralReach(),
+                impact.observed(),
+                impact.observedTotal(),
+                impact.notExercised(),
+                impact.notExercisedTotal(),
+                impact.sharedResources(),
+                impact.sharedResourcesTotal(),
+                impact.limitations(),
+                impact.notExercisedUndetermined(),
+                impact.observedFrom(),
+                impact.methods(),
+                impact.methodStatus(),
+                impact.notObserved(),
+                impact.notObservedTotal(),
+                next.list());
+    }
+
+    /**
+     * The calls that follow an observation up: the one kind-specific source of its cause, then its evidence rows (in a
+     * list answer) and one request that shows it.
+     */
+    private static void follow(NextSteps next, RuntimeObservationDto observation, boolean fromList) {
+        String kind = observation.kind();
+        String subject = observation.subject();
+        String exemplar = observation.exemplarRequestIds().isEmpty()
+                ? null
+                : observation.exemplarRequestIds().get(0);
+        if (SECURITY_KINDS.contains(kind)) {
+            next.add("get_spring_security", "the security rules that let anonymous requests reach " + subject);
+            next.add("get_mappings", "query", routePath(subject), "the handler mapped to " + subject);
+        } else if (ExceptionHotspots.KIND.equals(kind) || ErrorsBehind2xx.KIND.equals(kind)) {
+            next.add("get_exceptions", "the exception group ids, for get_exception_detail");
+        } else if (ChangedCodeNotExecuted.KIND.equals(kind)) {
+            next.add("get_code_inventory", "query", "changed", "each changed method and whether it ran");
+        } else if (RouteTimeBreakdown.KIND.equals(kind)) {
+            next.add("get_code_paths", "query", subject, "the application methods " + subject + " spends its time in");
+        }
+        if (fromList) {
+            next.add(
+                    "get_runtime_insight",
+                    "id",
+                    observation.id(),
+                    "the evidence rows behind this " + kind + " observation, call sites included");
+        }
+        next.add("get_request_profile", "id", exemplar, "one request or execution that shows it, step by step");
+    }
+
+    private static List<RuntimeNextStepDto> comparisonNext(
+            RuntimeRunComparisonDto comparison, String asked, Predicate<String> callable) {
+        NextSteps next = new NextSteps(callable);
+        String current =
+                comparison.current() == null ? null : comparison.current().runId();
+        boolean unknownRun = asked != null
+                && comparison.previous() == null
+                && !RunComparison.UNAVAILABLE.equals(comparison.status());
+        if (unknownRun) {
+            next.add("get_runtime_run_comparison", "id", "previous", "the newest kept run, instead of " + asked);
+            boolean newest = true;
+            for (RuntimeRunRefDto run : comparison.runs()) {
+                if (run.runId().equals(current) || run.runId().equals(asked)) {
+                    continue;
+                }
+                if (newest) {
+                    // previous already selects the newest kept run.
+                    newest = false;
+                    continue;
+                }
+                next.add("get_runtime_run_comparison", "id", run.runId(), "an older run this application still keeps");
+            }
+            return next.list();
+        }
+        switch (comparison.status()) {
+            case RunComparison.COMPARED -> {
+                RuntimeCodeChangesDto changes = comparison.codeChanges();
+                if (changes != null) {
+                    changes.methods().stream()
+                            .filter(method -> "NEVER_EXECUTED".equals(method.status()))
+                            .map(RuntimeInsightsAgentView::methodSymbol)
+                            .filter(symbol -> symbol != null)
+                            .findFirst()
+                            .ifPresent(symbol -> next.add(
+                                    "get_runtime_impact",
+                                    "id",
+                                    symbol,
+                                    "the routes that reach this changed method, which the tests must still run"));
+                }
+                if (!comparison.behavior().isEmpty()) {
+                    next.add("get_runtime_insights", "query", "new", "the observations the previous run did not show");
+                }
+            }
+            case RunComparison.INSUFFICIENT ->
+                next.add(
+                        "get_runtime_run_comparison",
+                        "again after the tests or traffic reach the routes both runs served");
+            case RunComparison.NOT_COMPARABLE ->
+                next.add("get_runtime_insights", "this run alone, since the runs cannot be compared");
+            case RunComparison.NO_PREVIOUS_RUN ->
+                next.add("get_runtime_insights", "this run alone, until a restart keeps it as the previous run");
+            case RunComparison.UNAVAILABLE ->
+                next.add("get_config", "query", JOURNAL_SETTINGS, "whether the runtime journal and its history are on");
+            default -> {
+                // An unknown status names nothing to do next.
+            }
+        }
+        return next.list();
+    }
+
+    /**
+     * The changed method as change impact resolves exactly one overload, its agent key {@code class#name+descriptor}, or
+     * {@code null} for a constructor, an initializer, or a synthetic method, which impact cannot name.
+     */
+    private static String methodSymbol(RuntimeCodeChangeDto method) {
+        String name = method.name();
+        if (name == null || name.startsWith("<") || name.contains("$") || method.className() == null) {
+            return null;
+        }
+        return method.className() + "#" + name + (method.descriptor() == null ? "" : method.descriptor());
+    }
+
+    /** The path of a route subject such as {@code GET /owners/{id}}, or the subject itself. */
+    private static String routePath(String subject) {
+        if (subject == null) {
+            return null;
+        }
+        int space = subject.indexOf(' ');
+        return space < 0 ? subject : subject.substring(space + 1);
+    }
+
+    /** The class or bean name of a symbol such as {@code com.example.OrderService#total(String)} or a route. */
+    private static String simpleSymbol(String symbol) {
+        String name = symbol;
+        int hash = name.indexOf('#');
+        if (hash >= 0) {
+            name = name.substring(0, hash);
+        }
+        if (name.contains("/")) {
+            return routePath(name);
+        }
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(dot + 1);
     }
 
     /** Code changes with at most {@value RuntimeRunComparisonAgentDto#MAX_ROWS} methods, the not executed first. */
@@ -208,6 +491,13 @@ public final class RuntimeInsightsAgentView {
             return "requests counts completed HTTP exchanges only. Observations here can come from scheduled jobs,"
                     + " messages, or other non-HTTP executions, so requests 0 is not proof nothing ran.";
         }
+        boolean leftOut = report.limitations().stream()
+                .anyMatch(limitation -> limitation.contains(RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS));
+        if (leftOut) {
+            return "Requests that " + RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS + " (Clear recording, or the"
+                    + " journal's bounds) are left out, so requests 0 is not proof the run was idle: call again once"
+                    + " new requests have completed.";
+        }
         if (evicted > 0) {
             return "The journal evicted older events, so requests 0 is not proof the run was idle.";
         }
@@ -230,7 +520,7 @@ public final class RuntimeInsightsAgentView {
         return "Left out " + dropped + " repeated-selects " + (dropped == 1 ? "row" : "rows")
                 + " under 50 ms of summed measured time, seen in fewer than " + RepeatedSelects.MIN_REQUESTS
                 + " requests and fewer than " + RepeatedSelects.HIGH_REPEAT_KEEP
-                + " times in any one; ask for them with the query repeated-selects.";
+                + " times in any one.";
     }
 
     /** Whether the empty query leaves this repeated-selects row out, matching the finding's exact-nanos decision. */
@@ -307,8 +597,17 @@ public final class RuntimeInsightsAgentView {
                 parts.add(kind + " " + count);
             }
         });
-        return "Left out by limit: " + String.join(", ", parts)
-                + ". List one kind by passing its name as the query, or raise limit.";
+        return "Left out by limit: " + String.join(", ", parts) + ".";
+    }
+
+    /** The first kind that lost rows to {@code limit}, in report order, or {@code null}. */
+    private static String firstLeftOutKind(List<RuntimeObservationDto> matching, List<RuntimeObservationDto> listed) {
+        for (RuntimeObservationDto observation : matching) {
+            if (!listed.contains(observation)) {
+                return observation.kind();
+            }
+        }
+        return null;
     }
 
     private static boolean contains(String text, String needle) {

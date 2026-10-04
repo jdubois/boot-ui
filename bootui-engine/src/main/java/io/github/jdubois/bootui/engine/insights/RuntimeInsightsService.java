@@ -63,6 +63,12 @@ public final class RuntimeInsightsService {
      */
     static final long LOSS_HORIZON_SLACK_MILLIS = 16;
 
+    /**
+     * The words of the limitation and check reasons naming work left out because it started before an event the journal
+     * evicted or cleared. The agent view matches them rather than the counts.
+     */
+    public static final String LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared";
+
     /** The evidence rows an observation's detail returns at most. */
     public static final int MAX_EVIDENCE_ROWS = 20;
 
@@ -681,6 +687,8 @@ public final class RuntimeInsightsService {
     private VisibleEntries visibleEntries(List<JournalEntry> entries, PanelVisibility visibility, Long lossHorizon) {
         Set<String> hidden = new HashSet<>();
         Set<String> incomplete = new HashSet<>();
+        Map<ProjectedRequest.Kind, Integer> incompleteByKind = new EnumMap<>(ProjectedRequest.Kind.class);
+        int aiCallsLeftOut = 0;
         Map<ProjectedRequest.Kind, Set<String>> hiddenPanels = new EnumMap<>(ProjectedRequest.Kind.class);
         AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : entries) {
@@ -689,15 +697,13 @@ public final class RuntimeInsightsService {
             if (anchorsAUnitOfWork(event) && visibility.visible(event) && beforeLoss(event, lossHorizon)) {
                 // It started before an event the journal lost, which may have been its own: judging it would read a
                 // missing transaction, cache access, or decision as one that never happened.
-                incomplete.add(unitOf(event));
+                if (incomplete.add(unitOf(event))) {
+                    incompleteByKind.merge(kindOf(event), 1, Integer::sum);
+                }
             }
             if (anchorsAUnitOfWork(event) && !visibility.visible(event)) {
                 hidden.add(unitOf(event));
-                ProjectedRequest.Kind kind = event.requestId() != null
-                        ? ProjectedRequest.Kind.HTTP
-                        : event.payload() instanceof ScheduledPayload
-                                ? ProjectedRequest.Kind.SCHEDULED
-                                : ProjectedRequest.Kind.MESSAGE;
+                ProjectedRequest.Kind kind = kindOf(event);
                 hiddenPanels
                         .computeIfAbsent(kind, ignored -> new LinkedHashSet<>())
                         .add(JournalSourcePanels.panelOf(event));
@@ -716,6 +722,7 @@ public final class RuntimeInsightsService {
             if (AiCallOwners.linksByTrace(event)) {
                 if (beforeLoss(event, lossHorizon)) {
                     // Its request may be the one whose events were lost, so it is attributed to none.
+                    aiCallsLeftOut++;
                     continue;
                 }
                 String owner = aiCallOwners.ownerOf(event);
@@ -727,7 +734,37 @@ public final class RuntimeInsightsService {
         }
         Map<ProjectedRequest.Kind, List<String>> panelsByKind = new EnumMap<>(ProjectedRequest.Kind.class);
         hiddenPanels.forEach((kind, panels) -> panelsByKind.put(kind, List.copyOf(panels)));
-        return new VisibleEntries(visible, Map.copyOf(panelsByKind), incomplete.size());
+        return new VisibleEntries(visible, Map.copyOf(panelsByKind), Map.copyOf(incompleteByKind), aiCallsLeftOut);
+    }
+
+    /** The kind of unit of work an anchoring event opens. */
+    private static ProjectedRequest.Kind kindOf(RuntimeEvent event) {
+        return event.requestId() != null
+                ? ProjectedRequest.Kind.HTTP
+                : event.payload() instanceof ScheduledPayload
+                        ? ProjectedRequest.Kind.SCHEDULED
+                        : ProjectedRequest.Kind.MESSAGE;
+    }
+
+    /**
+     * The sentence naming the work left out because it started before an event the journal lost, or {@code null} when
+     * none was.
+     */
+    static String leftOutBeforeLoss(int units, int aiCalls) {
+        if (units + aiCalls == 0) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        if (units > 0) {
+            parts.add(units == 1 ? "1 request or execution" : units + " requests or executions");
+        }
+        if (aiCalls > 0) {
+            parts.add(aiCalls == 1 ? "1 AI call linked only by a trace" : aiCalls + " AI calls linked only by a trace");
+        }
+        boolean one = units + aiCalls == 1;
+        return String.join(" and ", parts) + " " + LEFT_OUT_BEFORE_LOSS + ", so "
+                + (one ? "it is left out: some of its" : "they are left out: some of their")
+                + " events may be missing.";
     }
 
     /** Whether {@code event} started early enough that its unit of work may have lost an event. */
@@ -809,6 +846,11 @@ public final class RuntimeInsightsService {
             if (evaluation.uncounted() != null) {
                 reasons.add(evaluation.uncounted());
             }
+            String leftOut = projected.leftOut(observation, snapshot);
+            if (leftOut != null) {
+                // What it did not judge, so an empty result is not read as nothing found.
+                reasons.add(leftOut);
+            }
             if (!evaluation.hasEligibleWork()) {
                 reasons.add(0, "No eligible work was recorded for this check.");
             }
@@ -873,13 +915,9 @@ public final class RuntimeInsightsService {
             limitations.add("The journal evicted " + evicted + " older events, so requests before "
                     + "the oldest retained event are not projected.");
         }
-        if (projected.incomplete() > 0) {
-            limitations.add(
-                    projected.incomplete() == 1
-                            ? "1 request or execution started before events the journal evicted or cleared, so it is"
-                                    + " left out: some of its events may be missing."
-                            : projected.incomplete() + " requests or executions started before events the journal"
-                                    + " evicted or cleared, so they are left out: some of their events may be missing.");
+        String leftOut = leftOutBeforeLoss(projected.incomplete(), projected.aiCallsLeftOut());
+        if (leftOut != null) {
+            limitations.add(leftOut);
         }
         String nonHttp = nonHttpExecutions(snapshot);
         if (nonHttp != null) {
@@ -1166,10 +1204,33 @@ public final class RuntimeInsightsService {
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
 
     /**
-     * @param incomplete the requests and executions left out because they started before an event the journal lost
+     * @param incompleteByKind the requests and executions left out, by kind, because they started before an event the
+     *     journal lost
+     * @param aiCallsLeftOut the AI calls linked only by a trace left out for the same reason
      */
     private record VisibleEntries(
-            List<JournalEntry> entries, Map<ProjectedRequest.Kind, List<String>> panelsByKind, int incomplete) {
+            List<JournalEntry> entries,
+            Map<ProjectedRequest.Kind, List<String>> panelsByKind,
+            Map<ProjectedRequest.Kind, Integer> incompleteByKind,
+            int aiCallsLeftOut) {
+
+        int incomplete() {
+            return incompleteByKind.values().stream()
+                    .mapToInt(Integer::intValue)
+                    .sum();
+        }
+
+        /** What {@code observation} would have examined but was left out, or {@code null}. */
+        String leftOut(Observation observation, InsightsSnapshot snapshot) {
+            int units = 0;
+            for (ProjectedRequest.Kind kind : observation.unitKinds()) {
+                units += incompleteByKind.getOrDefault(kind, 0);
+            }
+            boolean readsAi = observation.reads().contains(JournalSource.AI)
+                    || observation.optionalReads(snapshot).contains(JournalSource.AI);
+            return leftOutBeforeLoss(units, readsAi ? aiCallsLeftOut : 0);
+        }
+
         List<String> hiddenPanels(Observation observation) {
             Set<String> names = new LinkedHashSet<>();
             for (ProjectedRequest.Kind kind : ProjectedRequest.Kind.values()) {

@@ -5,10 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.AppEventPayload;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -234,6 +236,9 @@ class RuntimeInsightsSeedsTest {
         justified.put("POST /api/insights/tags/read-then-write", anonymousWrite);
         justified.put("consume websocket:/app/insights/rooms/{room}/orders-joined", Set.of());
 
+        assertThat(justified.keySet())
+                .as("every counterexample route ran, so its silence is a result")
+                .allSatisfy(subject -> assertThat(exercised()).contains(subject));
         assertThat(observations)
                 .filteredOn(observation ->
                         justified.containsKey(observation.path("subject").asText()))
@@ -245,6 +250,19 @@ class RuntimeInsightsSeedsTest {
                         + observation.path("subject").asText() + ": "
                         + observation.path("sentence").asText())
                 .isEmpty();
+    }
+
+    /** The routes and message handlers the journal recorded, named as observations name their subject. */
+    private Set<String> exercised() {
+        Set<String> subjects = new HashSet<>();
+        for (var entry : journal.entries()) {
+            if (entry.event().payload() instanceof HttpPayload http && http.routeTemplate() != null) {
+                subjects.add(http.method() + " " + http.routeTemplate());
+            } else if (entry.event().payload() instanceof WebSocketPayload message && message.destination() != null) {
+                subjects.add("consume websocket:" + message.destination());
+            }
+        }
+        return subjects;
     }
 
     private long handledMessages() throws InterruptedException {
