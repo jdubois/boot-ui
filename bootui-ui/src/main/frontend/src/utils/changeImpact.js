@@ -21,8 +21,10 @@ export function impactLists(impact) {
     },
     {
       id: 'not-exercised',
-      title: 'Not exercised',
-      empty: 'Every mapped route that reaches it ran.',
+      title: impact.notExercisedUndetermined ? 'Not exercised (incomplete)' : 'Not exercised',
+      empty: impact.notExercisedUndetermined
+        ? 'Cannot determine whether every mapped route ran: the route aggregate exceeded its limit.'
+        : 'Every mapped route that reaches it ran.',
       rows: impact.notExercised,
       total: impact.notExercisedTotal
     },

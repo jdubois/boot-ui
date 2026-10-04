@@ -516,6 +516,7 @@ public final class BootUiApiContractCatalog {
                     "observedTotal", JsonType.INTEGER,
                     "notExercised", JsonType.ARRAY,
                     "notExercisedTotal", JsonType.INTEGER,
+                    "notExercisedUndetermined", JsonType.BOOLEAN,
                     "sharedResources", JsonType.ARRAY,
                     "sharedResourcesTotal", JsonType.INTEGER,
                     "limitations", JsonType.ARRAY));
