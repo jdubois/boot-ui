@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
@@ -29,6 +30,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
+import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
@@ -148,6 +150,44 @@ class ReactiveLiveActivityControllerTests {
         } finally {
             controller.shutdown();
         }
+    }
+
+    @Test
+    void persistedPagesContinuePastRowsOfDisabledPanels() throws Exception {
+        InMemoryActivityStore history = new InMemoryActivityStore(10);
+        history.appendBatch(List.of(
+                new StoredActivityEntry("instance-reactive-a", 1, row("marker", "MARKER")),
+                new StoredActivityEntry("instance-reactive-a", 2, row("request", "REQUEST")),
+                new StoredActivityEntry("instance-reactive-a", 3, row("sql", "SQL"))));
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
+        when(store.query(any())).thenAnswer(invocation -> history.query(invocation.getArgument(0)));
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.SQL_TRACE).setEnabled(false);
+        ReactiveLiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                enabledSettings("instance-reactive-a", Duration.ofSeconds(2)),
+                empty(DataSource.class),
+                properties);
+        try {
+            LiveActivityReport first = controller.activity(null, null, 0, 0, null, null, null, 1);
+            assertThat(first.entries()).extracting(ActivityEntryDto::id).containsExactly("request");
+            assertThat(first.pageInfo().hasMore()).isTrue();
+            LiveActivityReport second = controller.activity(
+                    null, null, 0, 0, null, null, first.pageInfo().nextCursor(), 1);
+            assertThat(second.entries()).extracting(ActivityEntryDto::id).containsExactly("marker");
+            assertThat(second.pageInfo().hasMore()).isFalse();
+        } finally {
+            controller.shutdown();
+        }
+    }
+
+    private static ActivityEntryDto row(String id, String type) {
+        return new ActivityEntryDto(
+                id, type, 1_000L, "OK", type, null, null, null, null, null, null, null, false, null, null, false);
     }
 
     @Test

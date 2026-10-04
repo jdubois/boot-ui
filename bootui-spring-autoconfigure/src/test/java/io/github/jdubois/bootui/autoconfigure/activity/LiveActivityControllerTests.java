@@ -193,6 +193,41 @@ class LiveActivityControllerTests {
         }
     }
 
+    @Test
+    void persistedPagesSkipDisabledPanelRowsWithoutSkippingOlderVisibleRows() throws Exception {
+        InMemoryActivityStore history = new InMemoryActivityStore(20);
+        history.appendBatch(List.of(
+                new StoredActivityEntry("instance-a", 1, storedRow("marker", "MARKER", "started")),
+                new StoredActivityEntry("instance-a", 2, storedRow("request", "REQUEST", "GET /orders")),
+                new StoredActivityEntry("instance-a", 3, storedRow("sql", "SQL", "select 1"))));
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
+        when(store.query(any())).thenAnswer(invocation -> history.query(invocation.getArgument(0)));
+        BootUiProperties properties = new BootUiProperties();
+        BootUiProperties.Panel disabled = new BootUiProperties.Panel();
+        disabled.setEnabled(false);
+        properties.getPanels().put(BootUiPanels.SQL_TRACE, disabled);
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                enabledSettings("instance-a", Duration.ofSeconds(2)),
+                empty(DataSource.class),
+                properties);
+        try {
+            LiveActivityReport first = controller.activity(null, null, 0, 0, null, null, null, 1);
+            assertThat(first.entries()).extracting(ActivityEntryDto::id).containsExactly("request");
+            assertThat(first.pageInfo().hasMore()).isTrue();
+            assertThat(first.pageInfo().nextCursor()).isNotNull();
+            LiveActivityReport second = controller.activity(
+                    null, null, 0, 0, null, null, first.pageInfo().nextCursor(), 1);
+            assertThat(second.entries()).extracting(ActivityEntryDto::id).containsExactly("marker");
+            assertThat(second.pageInfo().hasMore()).isFalse();
+        } finally {
+            controller.shutdown();
+        }
+    }
+
     private static ActivityEntryDto storedRow(String id, String type, String summary) {
         return new ActivityEntryDto(
                 id, type, 1_000L, "OK", summary, null, null, null, null, null, null, null, false, null, null, false);
@@ -220,7 +255,7 @@ class LiveActivityControllerTests {
                 null,
                 false);
         ActivityPage page =
-                new ActivityPage(List.of(new StoredActivityEntry("instance-a", 1L, storedEntry)), "cursor-2", true);
+                new ActivityPage(List.of(new StoredActivityEntry("instance-a", 1L, storedEntry)), null, false);
         when(store.query(any())).thenReturn(page);
         ActivityPersistenceSettings settings = enabledSettings("instance-a", Duration.ofSeconds(2));
 
@@ -256,7 +291,7 @@ class LiveActivityControllerTests {
                             storedEntry.securedPrincipal(),
                             storedEntry.sqlNPlusOneSuspected(),
                             storedEntry.badges()));
-            assertThat(result.pageInfo()).isEqualTo(new ActivityPageInfo(true, "cursor-2", true));
+            assertThat(result.pageInfo()).isEqualTo(new ActivityPageInfo(true, null, false));
             assertThat(result.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, false, "bootui_activity"));
             // The KPI strip stays a "right now" summary from the live re-merge, not scoped to whichever

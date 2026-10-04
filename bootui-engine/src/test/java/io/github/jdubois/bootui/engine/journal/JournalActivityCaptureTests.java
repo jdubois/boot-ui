@@ -85,6 +85,100 @@ class JournalActivityCaptureTests {
     }
 
     @Test
+    void aNeverCompletingRequestKeepsOnlyBoundedLiteralFreeSelectFingerprints() {
+        JournalActivityCapture capture = start(null);
+        for (int i = 0; i < JournalActivityFeed.MAX_SELECTS_PER_REQUEST + 30; i++) {
+            offer(
+                    "r1",
+                    null,
+                    JournalSource.SQL,
+                    new SqlPayload("select * from table_" + i + " where id = " + i, null, null, false));
+            journal.dispatchPending();
+        }
+        assertThat(capture.pendingSelectCount()).isEqualTo(JournalActivityFeed.MAX_SELECTS_PER_REQUEST);
+        assertThat(capture.overflowedSelects()).isEqualTo(30);
+        offer(
+                "r1",
+                null,
+                JournalSource.SQL,
+                new SqlPayload("select * from table_45 where id = 999", null, null, false));
+        journal.dispatchPending();
+        assertThat(capture.pendingSelectCount()).isEqualTo(JournalActivityFeed.MAX_SELECTS_PER_REQUEST);
+        assertThat(capture.overflowedSelects()).isEqualTo(30);
+        capture.onClear();
+        assertThat(capture.pendingSelectCount()).isZero();
+    }
+
+    @Test
+    void aWideOrLateSelectStillRaisesThePersistedRequestNPlusOneFlag() {
+        start(null);
+        for (int i = 0; i < JournalActivityFeed.MAX_SELECTS_PER_REQUEST; i++) {
+            offer("r1", null, JournalSource.SQL, new SqlPayload("select * from table_" + i, null, null, false));
+        }
+        String wide = "select " + "column_name_".repeat(60) + " from orders where id = ";
+        for (int i = 0; i < 3; i++) {
+            offer("r1", null, JournalSource.SQL, new SqlPayload(wide + i, null, null, false));
+        }
+        offer("r1", null, JournalSource.HTTP, http("/orders"));
+        journal.dispatchPending();
+
+        assertThat(store.entries())
+                .filteredOn(row -> row.type().equals("REQUEST"))
+                .singleElement()
+                .satisfies(row -> assertThat(row.sqlNPlusOneSuspected()).isTrue());
+    }
+
+    @Test
+    void literalVariantsHaveTheSameNPlusOneFlagInLiveAndPersistedRows() {
+        start(null);
+        for (int i = 0; i < 3; i++) {
+            offer(
+                    "r1",
+                    null,
+                    JournalSource.SQL,
+                    new SqlPayload("select * from orders where id = " + i, null, null, false));
+        }
+        offer("r1", null, JournalSource.HTTP, http("/orders"));
+        journal.dispatchPending();
+
+        ActivityEntryDto persisted = store.entries().stream()
+                .filter(row -> row.type().equals("REQUEST"))
+                .findFirst()
+                .orElseThrow();
+        ActivityEntryDto live = new JournalActivityFeed(1_000, 3, null)
+                        .render(journal.entries(), journal::eventId, "run", JournalActivityFeed.Filter.NONE, 0)
+                        .entries()
+                        .stream()
+                        .filter(row -> row.type().equals("REQUEST"))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(persisted.sqlNPlusOneSuspected()).isTrue().isEqualTo(live.sqlNPlusOneSuspected());
+    }
+
+    @Test
+    void aHotSelectAfterSixteenRepeatedShapesCanStillBeTracked() {
+        JournalActivityCapture capture = start(null);
+        for (int i = 0; i < JournalActivityFeed.MAX_SELECTS_PER_REQUEST; i++) {
+            for (int repeat = 0; repeat < 2; repeat++) {
+                offer("r1", null, JournalSource.SQL, new SqlPayload("select * from table_" + i, null, null, false));
+            }
+        }
+        for (int repeat = 0; repeat < 3; repeat++) {
+            offer("r1", null, JournalSource.SQL, new SqlPayload("select * from late_table", null, null, false));
+        }
+        journal.dispatchPending();
+
+        assertThat(capture.pendingSelectCount()).isEqualTo(JournalActivityFeed.MAX_SELECTS_PER_REQUEST);
+        assertThat(capture.overflowedSelects()).isEqualTo(1);
+        offer("r1", null, JournalSource.HTTP, http("/orders"));
+        journal.dispatchPending();
+        assertThat(store.entries())
+                .filteredOn(row -> row.type().equals("REQUEST"))
+                .singleElement()
+                .satisfies(row -> assertThat(row.sqlNPlusOneSuspected()).isTrue());
+    }
+
+    @Test
     void anAiCallLinkedOnlyByItsTraceIsWrittenOnItsOwnAtOnce() {
         start(null);
 

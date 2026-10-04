@@ -243,30 +243,37 @@ public final class SqlTracingProxies {
             Object result = invokeTarget(method, args);
             if ("getConnection".equals(method.getName()) && result instanceof Connection connection) {
                 return wrapConnection(
-                        connection, recorder, recorder.checkoutConnection(name, System.nanoTime() - start));
+                        connection, recorder, name, recorder.checkoutConnection(name, System.nanoTime() - start));
             }
             return result;
         }
     }
 
     private static Connection wrapConnection(
-            Connection connection, SqlTraceRecorder recorder, ConnectionCheckout checkout) {
+            Connection connection, SqlTraceRecorder recorder, String dataSource, ConnectionCheckout checkout) {
         String connectionId = "conn-" + CONNECTION_IDS.incrementAndGet();
         return (Connection) Proxy.newProxyInstance(
                 classLoader(connection),
                 CONNECTION_INTERFACES,
-                new ConnectionHandler(connection, recorder, connectionId, checkout));
+                new ConnectionHandler(connection, recorder, connectionId, dataSource, checkout));
     }
 
     /** Wraps the statements a connection creates, remembering prepared/callable SQL. */
     private static final class ConnectionHandler extends DelegatingHandler {
 
         private final String connectionId;
+        private final String dataSource;
         private final ConnectionCheckout checkout;
 
-        ConnectionHandler(Object target, SqlTraceRecorder recorder, String connectionId, ConnectionCheckout checkout) {
+        ConnectionHandler(
+                Object target,
+                SqlTraceRecorder recorder,
+                String connectionId,
+                String dataSource,
+                ConnectionCheckout checkout) {
             super(target, recorder);
             this.connectionId = connectionId;
+            this.dataSource = dataSource;
             this.checkout = checkout;
         }
 
@@ -292,7 +299,7 @@ public final class SqlTracingProxies {
                             case "prepareCall" -> StatementType.CALLABLE;
                             default -> StatementType.STATEMENT;
                         };
-                return wrapStatement(statement, recorder, connectionId, checkout, type, sql);
+                return wrapStatement(statement, recorder, connectionId, dataSource, checkout, type, sql);
             }
             return result;
         }
@@ -302,6 +309,7 @@ public final class SqlTracingProxies {
             Statement statement,
             SqlTraceRecorder recorder,
             String connectionId,
+            String dataSource,
             ConnectionCheckout checkout,
             StatementType type,
             String preparedSql) {
@@ -314,13 +322,14 @@ public final class SqlTracingProxies {
         return (Statement) Proxy.newProxyInstance(
                 classLoader(statement),
                 interfaces,
-                new StatementHandler(statement, recorder, connectionId, checkout, type, preparedSql));
+                new StatementHandler(statement, recorder, connectionId, dataSource, checkout, type, preparedSql));
     }
 
     /** Times {@code execute*}/{@code executeBatch}, captures bound parameters, and records the outcome. */
     private static final class StatementHandler extends DelegatingHandler {
 
         private final String connectionId;
+        private final String dataSource;
         private final ConnectionCheckout checkout;
         private final StatementType statementType;
         private final String preparedSql;
@@ -334,11 +343,13 @@ public final class SqlTracingProxies {
                 Object target,
                 SqlTraceRecorder recorder,
                 String connectionId,
+                String dataSource,
                 ConnectionCheckout checkout,
                 StatementType statementType,
                 String preparedSql) {
             super(target, recorder);
             this.connectionId = connectionId;
+            this.dataSource = dataSource;
             this.checkout = checkout;
             this.statementType = statementType;
             this.preparedSql = preparedSql;
@@ -443,7 +454,8 @@ public final class SqlTracingProxies {
                         affected,
                         0,
                         connectionId,
-                        Thread.currentThread().getName());
+                        Thread.currentThread().getName(),
+                        dataSource);
             }
         }
 
@@ -477,7 +489,8 @@ public final class SqlTracingProxies {
                         affected,
                         batchSize,
                         connectionId,
-                        Thread.currentThread().getName());
+                        Thread.currentThread().getName(),
+                        dataSource);
                 clearBatchState();
             }
         }
