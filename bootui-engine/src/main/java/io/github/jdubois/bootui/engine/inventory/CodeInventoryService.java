@@ -592,7 +592,9 @@ public final class CodeInventoryService implements AutoCloseable {
             return null;
         }
         try {
-            String reason = unavailableReason();
+            // The Code Inventory panel owns this evidence, and HTTP Exchanges the first routes (PLAN-v2 §8, M5-11).
+            AgentEvidence.Read read = read();
+            String reason = readReason(read);
             if (reason != null) {
                 return VulnerabilityReach.unavailable(report, reason);
             }
@@ -614,7 +616,7 @@ public final class CodeInventoryService implements AutoCloseable {
                     roots.add(canonical(root));
                 }
             }
-            boolean routes = routesVisible();
+            boolean routes = read.requests();
             // Reading jars may load classes (a nested jar's URL handler): BootUI's own work, not the application's.
             boolean previous = access.bootUiWork(true);
             try {
