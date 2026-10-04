@@ -59,6 +59,18 @@ class AgentBridgeAccessTests {
     }
 
     @Test
+    void theRealBridgeCarriesTheCodePathsSensorAndABridgeWithoutItLeavesItUnavailable() {
+        assertThat(Bridges.access().codePathsSupported()).isTrue();
+
+        AgentBridgeAccess future = new AgentBridgeAccess(FutureBridge.class);
+        assertThat(future.codePathsSupported()).isFalse();
+        assertThat(future.drainCodePaths(1L, blob -> {})).isZero();
+        assertThat(future.excludeCodePathsMethod(1L, 1)).isFalse();
+        assertThat(future.codePathsExcluded()).isEmpty();
+        assertThat(AgentBridgeAccess.absent().codePathsSupported()).isFalse();
+    }
+
+    @Test
     void aBridgeMissingTheProtocolMethodsCannotBeBound() {
         AgentBridgeAccess access = new AgentBridgeAccess(HalfBridge.class);
 

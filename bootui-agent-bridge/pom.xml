@@ -25,7 +25,9 @@
         The bridge runs on the bootstrap class path, inside advised java.base methods, possibly while java.lang.invoke is
         still bootstrapping (PLAN-v2 M5 rules). So it uses JDK types only, no dependency, and no lambda, method reference,
         invokedynamic string concatenation, synchronized, or VarHandle: AgentBridgeBytecodeTests enforces it on the
-        compiled classes.
+        compiled classes. Its classes keep their source file name but no line numbers or local variables (-g:source),
+        so a debugger stepping into an instrumented method steps over the inlined advice's calls into the bridge instead
+        of stopping in it; BridgeDebugInfoTests enforces it on the compiled classes and through JDI.
     -->
     <dependencies>
         <dependency>
@@ -55,6 +57,7 @@
                     <execution>
                         <id>default-compile</id>
                         <configuration>
+                            <debuglevel>source</debuglevel>
                             <compilerArgs>
                                 <arg>-XDstringConcat=inline</arg>
                             </compilerArgs>

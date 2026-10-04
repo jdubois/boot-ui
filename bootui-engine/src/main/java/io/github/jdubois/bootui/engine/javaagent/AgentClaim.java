@@ -67,6 +67,7 @@ public final class AgentClaim {
     private volatile Long token;
     private volatile Long generation;
     private volatile AgentHandoffs handoffs;
+    private AgentRecordDrainer drainer;
 
     private AgentClaim(
             AgentBridgeAccess access,
@@ -111,6 +112,26 @@ public final class AgentClaim {
             String mode,
             List<String> packages,
             AgentSensorSettings sensors) {
+        return claim(access, application, owner, mode, packages, sensors, List.of());
+    }
+
+    /**
+     * Claims the agent for this run, asking for the sensors {@code sensors} names, with the application's bean classes
+     * already known, as Quarkus knows them at build time, for the {@code code-paths} sensor. Never throws.
+     *
+     * @param mode {@value #DEV} or {@value #TEST}
+     * @param packages the application's package prefixes
+     * @param sensors the sensors and their options, or {@code null} for the defaults
+     * @param beanClasses the application's bean classes by binary name, in its packages
+     */
+    public static AgentClaim claim(
+            AgentBridgeAccess access,
+            String application,
+            String owner,
+            String mode,
+            List<String> packages,
+            AgentSensorSettings sensors,
+            List<String> beanClasses) {
         AgentClaim claim = new AgentClaim(
                 access == null ? AgentBridgeAccess.absent() : access,
                 application,
@@ -129,6 +150,7 @@ public final class AgentClaim {
         executors.put("skipThreads", new ArrayList<>(claim.sensors.skipThreads()));
         request.put("executors", executors);
         request.put("ringCapacity", claim.sensors.ringCapacity());
+        request.put("beanClasses", beanClasses == null ? List.of() : clean(beanClasses));
         Map<String, Object> answer = claim.access.claim(request, claim.capture, claim.reopen);
         claim.result = answer;
         claim.generation = AgentBridgeAccess.number(answer, "generation");
@@ -159,12 +181,22 @@ public final class AgentClaim {
      * nothing once the claim ended or was never armed.
      */
     public Map<String, Object> refine(List<String> packages) {
+        return refine(packages, List.of());
+    }
+
+    /**
+     * Adds packages and bean classes to this run's claim, as known once the context started: the {@code code-paths}
+     * sensor instruments the bean classes' methods, and retransforms those already loaded. Does nothing once the claim
+     * ended or was never armed.
+     */
+    public Map<String, Object> refine(List<String> packages, List<String> beanClasses) {
         Long granted = token;
         if (granted == null || ended.get()) {
             return answer(STALE, "this claim is not armed");
         }
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("packages", packages == null ? List.of() : clean(packages));
+        request.put("beanClasses", beanClasses == null ? List.of() : clean(beanClasses));
         Map<String, Object> answer = access.refine(granted, request);
         if (ARMED.equals(answer.get("status"))) {
             result = answer;
@@ -197,6 +229,20 @@ public final class AgentClaim {
         return sensors;
     }
 
+    /**
+     * This claim's one drainer of the agent ({@code docs/PLAN-v2.md} M5-4a), created on first use, which each sensor's
+     * service routes its records to; {@code null} once the claim ended or when it was never armed. Disarming closes it.
+     */
+    public synchronized AgentRecordDrainer drainer() {
+        if (token == null || ended.get()) {
+            return null;
+        }
+        if (drainer == null) {
+            drainer = new AgentRecordDrainer(this, access);
+        }
+        return drainer;
+    }
+
     /** Ends this run's claim: recording stops and the agent keeps its transformers (D34). Idempotent. */
     public Map<String, Object> disarm() {
         detach();
@@ -204,9 +250,18 @@ public final class AgentClaim {
         if (granted == null || !ended.compareAndSet(false, true)) {
             return answer(STALE, "this claim already ended or was never armed");
         }
+        AgentRecordDrainer running;
+        synchronized (this) {
+            // Ended now: drainer() creates no other.
+            running = drainer;
+        }
         Map<String, Object> answer = access.disarm(granted);
         if (DISARMED.equals(answer.get("status"))) {
             result = answer;
+        }
+        if (running != null) {
+            // After the bridge stopped recording: a last drain, then the thread ends and the routes are forgotten.
+            running.close();
         }
         return answer;
     }
@@ -222,6 +277,35 @@ public final class AgentClaim {
             return 0;
         }
         return access.drain(granted, sink);
+    }
+
+    /**
+     * Hands the code-paths sensor's queued fragments to {@code sink} with this claim's token, while it is armed
+     * ({@code docs/PLAN-v2.md} M5-4a): the sink owns each {@code long[]} blob. Returns how many were drained.
+     */
+    public int drainCodePaths(Consumer<long[]> sink) {
+        Long granted = token;
+        if (granted == null || ended.get() || sink == null) {
+            return 0;
+        }
+        return access.drainCodePaths(granted, sink);
+    }
+
+    /**
+     * Excludes method {@code id} from the code-paths sensor for the rest of this run, as the engine's adaptive exclusion
+     * decides. Returns whether it is excluded.
+     */
+    public boolean excludeCodePathsMethod(int id) {
+        Long granted = token;
+        if (granted == null || ended.get()) {
+            return false;
+        }
+        return access.excludeCodePathsMethod(granted, id);
+    }
+
+    /** The bridge this claim was made through. */
+    public AgentBridgeAccess access() {
+        return access;
     }
 
     /** The status of the claim's first answer: {@value #ARMED}, {@value #HELD}, {@value #FAILED}, or {@value #UNAVAILABLE}. */

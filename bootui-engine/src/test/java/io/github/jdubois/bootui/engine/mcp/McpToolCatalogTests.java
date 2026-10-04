@@ -13,10 +13,10 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(97);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(97);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(96);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(81);
+        assertThat(McpToolCatalog.entries()).hasSize(98);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(98);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(97);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(82);
     }
 
     @Test
@@ -30,6 +30,18 @@ class McpToolCatalogTests {
         assertThat(inventory.panelId()).isEqualTo(BootUiPanels.CODE_INVENTORY);
         assertThat(inventory.stacks()).containsExactlyInAnyOrder(Stack.values());
         assertThat(McpToolCatalog.defaultLimit("get_code_inventory")).isEqualTo(25);
+    }
+
+    @Test
+    void codePathsIsAReadOnTheExistingQueryLimitSchemaOnEveryStackWithACompactDefault() {
+        McpToolCatalog.Entry codePaths = McpToolCatalog.byName("get_code_paths").orElseThrow();
+
+        // The published CLI binds options by schema name, so the tool reuses the existing QUERY_LIMIT schema.
+        assertThat(codePaths.schema()).isEqualTo(McpToolSchema.QUERY_LIMIT);
+        assertThat(codePaths.action()).isFalse();
+        assertThat(codePaths.panelId()).isEqualTo(BootUiPanels.CODE_PATHS);
+        assertThat(codePaths.stacks()).containsExactlyInAnyOrder(Stack.values());
+        assertThat(McpToolCatalog.defaultLimit("get_code_paths")).isEqualTo(10);
     }
 
     @Test

@@ -139,9 +139,36 @@ const INVENTORY_COUNTERS = [
   ['internOverflow', 'Strings over the limit', 'routes recorded as unknown because the run’s string table was full']
 ]
 
+// The code-paths sensor's counters (docs/PLAN-v2.md M5-4a), each with what it counts.
+const CODE_PATHS_COUNTERS = [
+  ['fragmentsFlushed', 'Fragments recorded', 'call trees of requests’ bean methods handed to BootUI, one per thread'],
+  ['fragmentsDropped', 'Fragments dropped', 'fragments not recorded because every tree of the agent’s pool was in use'],
+  ['queueDropped', 'Queue full', 'fragments dropped because the agent’s fragment queue was full'],
+  [
+    'callsDropped',
+    'Calls in no node',
+    'calls deeper than 32 levels or past a fragment’s node budget, whose time stays in their caller'
+  ],
+  ['queueBytes', 'Bytes waiting', 'fragments waiting for BootUI to read them'],
+  [
+    'excludedMethods',
+    'Methods excluded',
+    'methods called more than 50,000 times a second under 2 µs each, no longer timed in this run'
+  ],
+  ['errors', 'Internal errors', 'errors of the sensor itself; after 100 it switches itself off']
+]
+
 const sensorsWithHooks = computed(() => (report.value?.sensors ?? []).filter((sensor) => sensor.hooks?.length))
 
 function sensorCounters(sensor) {
+  if (sensor.codePaths) {
+    return CODE_PATHS_COUNTERS.map(([key, label, explanation]) => ({
+      key,
+      label,
+      explanation,
+      value: sensor.codePaths[key] ?? 0
+    }))
+  }
   if (sensor.inventory) {
     return INVENTORY_COUNTERS.map(([key, label, explanation]) => ({
       key,
@@ -160,7 +187,9 @@ function sensorCounters(sensor) {
 }
 
 function sensorDisabledReason(sensor) {
-  return sensor.executors?.disabledReason ?? sensor.inventory?.disabledReason ?? null
+  return (
+    sensor.executors?.disabledReason ?? sensor.inventory?.disabledReason ?? sensor.codePaths?.disabledReason ?? null
+  )
 }
 
 function sensorState(sensor) {
@@ -178,7 +207,10 @@ function sensorRetransformation(sensor) {
 }
 
 function hookRole(sensor, hook) {
-  if (hook.kind === 'record') return hook.id === 'class load' ? 'counts loaded classes' : 'records first calls'
+  if (hook.kind === 'record') {
+    if (sensor.id === 'code-paths') return 'times bean methods per request'
+    return hook.id === 'class load' ? 'counts loaded classes' : 'records first calls'
+  }
   if (sensor.id === 'threads') return hook.kind === 'apply' ? 'runs threads' : 'starts threads'
   return hook.kind === 'apply' ? 'runs tasks' : 'receives tasks'
 }
@@ -508,9 +540,9 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                   </tbody>
                 </table>
               </div>
-              <template v-if="sensor.executors || sensor.inventory">
+              <template v-if="sensor.executors || sensor.inventory || sensor.codePaths">
                 <p v-if="sensorDisabledReason(sensor)" class="alert alert-warning small mt-3 mb-0" role="note">
-                  {{ sensor.inventory ? 'Recording' : 'Propagation' }} is disabled for this claim:
+                  {{ sensor.inventory || sensor.codePaths ? 'Recording' : 'Propagation' }} is disabled for this claim:
                   {{ sensorDisabledReason(sensor) }}
                 </p>
                 <h4 :id="`java-agent-counters-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">Counters</h4>

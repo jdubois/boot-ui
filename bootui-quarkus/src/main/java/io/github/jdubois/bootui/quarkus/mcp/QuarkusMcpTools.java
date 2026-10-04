@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.quarkus.web.BeansResource;
 import io.github.jdubois.bootui.quarkus.web.CacheResource;
 import io.github.jdubois.bootui.quarkus.web.ClaudeCodeResource;
 import io.github.jdubois.bootui.quarkus.web.CodeInventoryResource;
+import io.github.jdubois.bootui.quarkus.web.CodePathsResource;
 import io.github.jdubois.bootui.quarkus.web.ConfigResource;
 import io.github.jdubois.bootui.quarkus.web.ConnectionPoolsResource;
 import io.github.jdubois.bootui.quarkus.web.CopilotResource;
@@ -141,7 +142,8 @@ public class QuarkusMcpTools {
             ClaudeCodeResource claudeCode,
             RuntimeInsightsResource runtimeInsights,
             JavaAgentResource javaAgent,
-            CodeInventoryResource codeInventory) {
+            CodeInventoryResource codeInventory,
+            CodePathsResource codePaths) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -344,6 +346,14 @@ public class QuarkusMcpTools {
                         "get_code_inventory",
                         McpToolDescriptions.quarkus("get_code_inventory"),
                         args -> codeInventory.agentReport(args.query(), args.limit())));
+        // Code Paths, advertised while the BootUI agent's code-paths sensor records this start (§5.14).
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_code_paths",
+                        McpToolDescriptions.quarkus("get_code_paths"),
+                        args -> codePaths.agentReport(args.query(), args.limit())));
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         addIfAvailable(
                 registry,

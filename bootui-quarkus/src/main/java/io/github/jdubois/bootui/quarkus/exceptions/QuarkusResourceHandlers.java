@@ -44,6 +44,17 @@ public final class QuarkusResourceHandlers {
         }
     }
 
+    /** The current request's resource method, or {@code null} when unavailable for any reason. */
+    public static Method currentResourceMethod() {
+        try {
+            ResteasyReactiveRequestContext current = CurrentRequestManager.get();
+            ResourceInfo info = current == null ? null : current.getResteasyReactiveResourceInfo();
+            return info == null ? null : info.getResourceMethod();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     /**
      * Renders a JAX-RS {@link ResourceInfo} as {@code "ResourceClass#method"}, matching the Spring adapter's
      * {@code HandlerMethod} format. Package-visible for direct unit testing without needing a live RESTEasy

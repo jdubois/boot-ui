@@ -34,6 +34,9 @@ public final class AgentBridgeAccess {
     /** The agent's transport ring, beside the bridge. */
     static final String AGENT_RING_CLASS = "io.github.jdubois.bootui.agent.bridge.AgentRing";
 
+    /** The code-paths sensor's bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-4a). */
+    static final String CODE_PATHS_CLASS = "io.github.jdubois.bootui.agent.bridge.CodePaths";
+
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
 
@@ -51,6 +54,7 @@ public final class AgentBridgeAccess {
     private final MethodHandle disarm;
     private final MethodHandle release;
     private final Inventory inventory;
+    private final CodePathsHandles codePaths;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -107,6 +111,7 @@ public final class AgentBridgeAccess {
         this.disarm = disarmHandle;
         this.release = releaseHandle;
         this.inventory = releaseHandle == null ? null : Inventory.bind(bridge);
+        this.codePaths = this.inventory == null ? null : CodePathsHandles.bind(bridge);
     }
 
     /**
@@ -362,6 +367,78 @@ public final class AgentBridgeAccess {
             return (boolean) inventory.bootUiWork.invoke(on);
         } catch (Throwable ex) {
             return false;
+        }
+    }
+
+    /**
+     * Whether the bridge carries the code-paths sensor's entry points ({@code CodePaths}): an agent of the same protocol
+     * from before M5-4 does not, and then the sensor is simply unavailable.
+     */
+    public boolean codePathsSupported() {
+        return inventorySupported() && codePaths != null;
+    }
+
+    /**
+     * Hands the code-paths sensor's queued fragments to {@code sink} with the claim token {@code token}: only the
+     * current claim's token drains, one caller at a time. The sink owns each {@code long[]} blob. Returns how many were
+     * drained, 0 without the sensor's bridge.
+     */
+    public int drainCodePaths(long token, Consumer<long[]> sink) {
+        if (!codePathsSupported()) {
+            return 0;
+        }
+        try {
+            return (int) codePaths.drain.invoke(token, sink);
+        } catch (Throwable ex) {
+            return 0;
+        }
+    }
+
+    /**
+     * Excludes method {@code id} from the code-paths sensor for the rest of the run of the claim {@code token}: its
+     * time then stays in its caller. Returns whether it is excluded; false without the sensor's bridge.
+     */
+    public boolean excludeCodePathsMethod(long token, int id) {
+        if (!codePathsSupported()) {
+            return false;
+        }
+        try {
+            return (boolean) codePaths.exclude.invoke(token, id);
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
+    /** The method ids the code-paths sensor excludes in this run: a copy, empty without the sensor's bridge. */
+    public int[] codePathsExcluded() {
+        if (!codePathsSupported()) {
+            return new int[0];
+        }
+        try {
+            Object value = codePaths.excluded.invoke();
+            return value instanceof int[] ids ? ids : new int[0];
+        } catch (Throwable ex) {
+            return new int[0];
+        }
+    }
+
+    /** The code-paths sensor's bridge entry points, bound once; {@code null} when the bridge has none. */
+    private record CodePathsHandles(MethodHandle drain, MethodHandle exclude, MethodHandle excluded) {
+
+        static CodePathsHandles bind(Class<?> bridge) {
+            try {
+                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                Class<?> codePaths = Class.forName(CODE_PATHS_CLASS, false, bridge.getClassLoader());
+                return new CodePathsHandles(
+                        lookup.findStatic(
+                                codePaths, "drain", MethodType.methodType(int.class, long.class, Consumer.class)),
+                        lookup.findStatic(
+                                codePaths, "exclude", MethodType.methodType(boolean.class, long.class, int.class)),
+                        lookup.findStatic(codePaths, "excluded", MethodType.methodType(int[].class)));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-4: no code-paths sensor.
+                return null;
+            }
         }
     }
 

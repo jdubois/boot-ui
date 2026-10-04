@@ -60,6 +60,7 @@ import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
 import io.github.jdubois.bootui.quarkus.web.BootUiCliResource;
 import io.github.jdubois.bootui.quarkus.web.ClaudeCodeResource;
 import io.github.jdubois.bootui.quarkus.web.CodeInventoryResource;
+import io.github.jdubois.bootui.quarkus.web.CodePathsResource;
 import io.github.jdubois.bootui.quarkus.web.CopilotResource;
 import io.github.jdubois.bootui.quarkus.web.DevServicesResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
@@ -437,6 +438,7 @@ class BootUiQuarkusProcessor {
                         RuntimeInsightsResource.class,
                         JavaAgentResource.class,
                         CodeInventoryResource.class,
+                        CodePathsResource.class,
                         QuarkusAgentClaimLifecycle.class,
                         QuarkusActivityCapture.class,
                         SecurityLogsResource.class,
@@ -1261,14 +1263,15 @@ class BootUiQuarkusProcessor {
         boolean enabled =
                 config.getOptionalValue("bootui.agent.enabled", Boolean.class).orElse(true);
         AgentSensorSettings defaults = AgentSensorSettings.defaults();
+        IndexView rootIndex = archives.getRootArchive().getIndex();
+        List<String> packages = agentPackages(
+                rootIndex,
+                config.getOptionalValues("bootui.agent.packages", String.class).orElse(List.of()));
         RuntimeValue<QuarkusAgentClaim> claim = enabled
                 ? recorder.claim(
                         application,
                         mode,
-                        agentPackages(
-                                archives.getRootArchive().getIndex(),
-                                config.getOptionalValues("bootui.agent.packages", String.class)
-                                        .orElse(List.of())),
+                        packages,
                         listOrDefaults(config, "bootui.agent.sensors", defaults.sensors()),
                         listOrDefaults(config, "bootui.agent.executors.skip-tasks", defaults.skipTasks()),
                         listOrDefaults(config, "bootui.agent.executors.skip-threads", defaults.skipThreads()),
@@ -1276,7 +1279,8 @@ class BootUiQuarkusProcessor {
                                 .orElse(defaults.maxHandoff())
                                 .toMillis(),
                         config.getOptionalValue("bootui.agent.ring-capacity", Integer.class)
-                                .orElse(defaults.ringCapacity()))
+                                .orElse(defaults.ringCapacity()),
+                        agentBeanClasses(rootIndex, packages))
                 : recorder.release(application, mode);
         syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusAgentClaim.class)
                 .scope(Singleton.class)
@@ -1306,6 +1310,51 @@ class BootUiQuarkusProcessor {
             return mode;
         }
         return launchMode == LaunchMode.TEST ? AgentClaim.TEST : AgentClaim.DEV;
+    }
+
+    /**
+     * Annotations that make a class an ArC bean, or a Quarkus REST resource, read for the agent's {@code code-paths}
+     * sensor from the root archive's index, which this build step already consumes, rather than from ArC's bean
+     * discovery, so no build-step cycle arises.
+     */
+    static final List<DotName> AGENT_BEAN_ANNOTATIONS = List.of(
+            DotName.createSimple("jakarta.enterprise.context.ApplicationScoped"),
+            DotName.createSimple("jakarta.enterprise.context.RequestScoped"),
+            DotName.createSimple("jakarta.enterprise.context.SessionScoped"),
+            DotName.createSimple("jakarta.enterprise.context.Dependent"),
+            DotName.createSimple("jakarta.inject.Singleton"),
+            DotName.createSimple("io.quarkus.runtime.Startup"),
+            DotName.createSimple("jakarta.ws.rs.Path"),
+            DotName.createSimple("jakarta.ws.rs.ext.Provider"));
+
+    /**
+     * The application archive's bean classes in {@code packages} ({@code docs/PLAN-v2.md} M5-4a): the classes carrying
+     * a bean-defining annotation or {@code @Path} at class level, interfaces left out. Sorted.
+     */
+    static List<String> agentBeanClasses(IndexView index, List<String> packages) {
+        Set<String> names = new TreeSet<>();
+        for (DotName annotation : AGENT_BEAN_ANNOTATIONS) {
+            for (AnnotationInstance instance : index.getAnnotations(annotation)) {
+                if (instance.target() == null || instance.target().kind() != AnnotationTarget.Kind.CLASS) {
+                    continue;
+                }
+                ClassInfo type = instance.target().asClass();
+                String name = type.name().toString();
+                if (!type.isInterface() && !type.isAnnotation() && inAgentPackages(name, packages)) {
+                    names.add(name);
+                }
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    private static boolean inAgentPackages(String className, List<String> packages) {
+        for (String name : packages) {
+            if (className.startsWith(name + ".")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The packages of the application archive's classes, reduced, then the configured extra packages. */

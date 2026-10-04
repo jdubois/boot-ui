@@ -169,15 +169,58 @@ class AgentClaimTests {
 
     @Test
     @SuppressWarnings("unchecked")
-    void theDefaultClaimAsksForTheExecutorsAndInventorySensorsWithTheDefaultSkipListsAndRing() {
+    void theDefaultClaimAsksForTheExecutorsInventoryAndCodePathsSensorsWithTheDefaultSkipListsAndRing() {
         AgentClaim.claim(access, "app", "app@1", "dev", List.of());
 
         Map<String, Object> request = agent.requests.get(0);
-        assertThat((List<String>) request.get("sensors")).containsExactly("executors", "inventory");
+        assertThat((List<String>) request.get("sensors")).containsExactly("executors", "inventory", "code-paths");
         assertThat(request).containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", AgentSensorSettings.DEFAULT_SKIP_TASKS)
                 .containsEntry("skipThreads", AgentSensorSettings.DEFAULT_SKIP_THREADS);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void beanClassesReachTheAgentAtTheClaimAndAsAUnionAtEachRefine() {
+        AgentClaim claim = AgentClaim.claim(
+                access,
+                "app",
+                "app@1",
+                "dev",
+                List.of("com.example"),
+                AgentSensorSettings.defaults(),
+                List.of("com.example.OrderService", " com.example.OrderService "));
+
+        assertThat((List<String>) agent.requests.get(0).get("beanClasses")).containsExactly("com.example.OrderService");
+        assertThat(claim.refine(List.of(), List.of("com.example.Cart"))).containsEntry("status", "armed");
+        assertThat((List<String>) agent.requests.get(1).get("beanClasses"))
+                .containsExactly("com.example.OrderService", "com.example.Cart");
+        assertThat(claim.refine(List.of("com.other"))).containsEntry("status", "armed");
+        assertThat((List<String>) agent.requests.get(2).get("beanClasses"))
+                .as("a refine without bean classes keeps them")
+                .containsExactly("com.example.OrderService", "com.example.Cart");
+        Map<String, Object> bridgeClaim = (Map<String, Object>) claim.result().get("claim");
+        assertThat(bridgeClaim).as("status carries their count, not the names").containsEntry("beanClassCount", 2);
+        assertThat(bridgeClaim).doesNotContainKey("beanClasses");
+    }
+
+    @Test
+    void theClaimOwnsOneDrainerUntilItIsDisarmed() {
+        AgentClaim claim = AgentClaim.claim(access, "app", "app@1", "dev", List.of());
+        AgentRecordDrainer drainer = claim.drainer();
+
+        assertThat(claim.drainer()).isSameAs(drainer);
+        drainer.route(AgentRecordDrainer.SENSOR_INVENTORY, record -> {});
+        assertThat(drainer.running()).isTrue();
+
+        claim.disarm();
+
+        assertThat(drainer.closed()).isTrue();
+        assertThat(drainer.running()).isFalse();
+        assertThat(claim.drainer()).isNull();
+        drainer.route(AgentRecordDrainer.SENSOR_INVENTORY, record -> {});
+        assertThat(drainer.running()).as("a closed drainer never starts again").isFalse();
     }
 
     @Test

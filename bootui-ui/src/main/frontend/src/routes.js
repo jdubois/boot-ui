@@ -54,6 +54,7 @@ const McpServer = () => import('./views/McpServer.vue')
 const Cli = () => import('./views/Cli.vue')
 const JavaAgent = () => import('./views/JavaAgent.vue')
 const CodeInventory = () => import('./views/CodeInventory.vue')
+const CodePaths = () => import('./views/CodePaths.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
 const RuntimeInsights = () => import('./views/RuntimeInsights.vue')
 const Email = () => import('./views/Email.vue')
@@ -994,6 +995,28 @@ export const routes = [
         'dependencies',
         'unused jars',
         'not loaded',
+        'agent'
+      ]
+    }
+  },
+  {
+    path: '/code-paths',
+    name: 'code-paths',
+    component: CodePaths,
+    meta: {
+      group: groups.diagnostics,
+      icon: 'bi-hourglass-split',
+      title: 'Code Paths',
+      shortcut: 'co',
+      keywords: [
+        'call tree',
+        'slow route',
+        'handler time',
+        'self time',
+        'which method is slow',
+        'bean calls',
+        'callers',
+        'hot path',
         'agent'
       ]
     }

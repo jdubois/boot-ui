@@ -6,7 +6,9 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -137,7 +139,36 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             SegmentMeter.shared().begin(correlation.requestId());
         }
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-            recordAround(request, response, chain, correlation);
+            // The BootUI agent's code-paths fragment of this request on this thread (docs/PLAN-v2.md M5-4a): opened
+            // inside the scope, so it captures the request, and flushed before the scope closes.
+            AgentCodePaths.begin();
+            AgentCodePaths.phase(RequestPhase.FILTERS);
+            try {
+                recordAround(request, response, chain, correlation);
+            } finally {
+                try {
+                    markAssemblyOnlyIfAsync(request, correlation);
+                } finally {
+                    AgentCodePaths.end();
+                }
+            }
+        }
+    }
+
+    /**
+     * Marks the request's code-paths tree assembly only when its handler only started async processing (a
+     * {@code Callable}, {@code DeferredResult}, {@code CompletableFuture}, or reactive type): its tree times that, not
+     * the work, which finishes on another thread ({@code docs/PLAN-v2.md} §5.14, M5-4b). Never throws, so neither the
+     * fragment's end nor the chain's own exception is lost: a request the container already recycled answers
+     * {@code isAsyncStarted()} with an exception.
+     */
+    static void markAssemblyOnlyIfAsync(HttpServletRequest request, CorrelationContext correlation) {
+        try {
+            if (AgentCodePaths.bound() && request.isAsyncStarted()) {
+                AgentCodePaths.assemblyOnly(correlation.requestId());
+            }
+        } catch (RuntimeException ex) {
+            // Code paths are diagnostics only; the request's outcome stays its own.
         }
     }
 

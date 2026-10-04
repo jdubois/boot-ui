@@ -10,7 +10,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The agent-rooted leak walk (PLAN-v2 M5-0 second pass, M5-1 acceptance): ten simulated DevTools runs, each in its own
- * child-first class loader, claim and disarm with the probe and the executors, threads, and inventory sensors installed;
+ * child-first class loader, claim and disarm with the probe and the executors, threads, inventory, and code-paths sensors
+ * installed;
  * afterwards the agent must strongly reach no run's class loader. Each mutation must be caught, so the test can fail.
  */
 class AgentLeakIT {
@@ -105,6 +106,10 @@ class AgentLeakIT {
                 .doesNotContain("methodsTracked=0,")
                 .doesNotContain("executedThisRun=0,")
                 .contains("methodsFailed=0,");
+        assertThat(output.value("CODE_PATHS"))
+                .as("the code-paths sensor recorded the runs' bean calls: %s", output)
+                .doesNotContain("fragmentsFlushed=0,")
+                .contains("errors=0,");
         return dump;
     }
 }

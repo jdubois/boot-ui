@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.insights.ChangeImpactService;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
@@ -112,6 +113,17 @@ public class RuntimeInsightsController {
                 () -> {
                     CodeInventoryService inventory = codeInventory.getIfUnique();
                     return inventory == null ? 0L : inventory.changesFingerprint();
+                });
+        // route-time-breakdown's handler split by method, from the agent's code paths (docs/PLAN-v2.md §5.14).
+        ObjectProvider<CodePathsService> codePaths = context.getBeanProvider(CodePathsService.class);
+        this.insights.setCodePaths(
+                route -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? null : paths.handlerMethods(route);
+                },
+                () -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? 0L : paths.routeTreesFingerprint();
                 });
     }
 

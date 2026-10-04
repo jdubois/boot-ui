@@ -16,8 +16,8 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 63-panel manifest the servlet adapter
-reports, including the view-only **Java Agent** and **Code Inventory** panels, minus the one panel (**HTTP Sessions**, §6.7) that stays
+The WebFlux adapter serves the large majority of the panel surface — the same 64-panel manifest the servlet adapter
+reports, including the view-only **Java Agent**, **Code Inventory**, and **Code Paths** panels, minus the one panel (**HTTP Sessions**, §6.7) that stays
 unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
@@ -157,7 +157,7 @@ WebFlux blocking-execution policy, and requests rejected by the preceding safety
 | `Not yet ported` | Deliberately deferred, no reactive implementation wired yet                      |
 | `Not applicable` | No faithful reactive analog exists for this panel's concept                      |
 
-### 6.1 Ported as-is (47 panels)
+### 6.1 Ported as-is (48 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these controllers
 were already framework-neutral in practice, not just in the engine underneath them.
@@ -169,7 +169,7 @@ were already framework-neutral in practice, not just in the engine underneath th
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
 | GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS, Runtime Insights[^runtime-insights-reactive], Java Agent |
-| Code Inventory[^code-inventory-reactive] |
+| Code Inventory[^code-inventory-reactive], Code Paths[^code-paths-reactive] |
 
 [^mappings-reactive]: The Actuator-backed provider reads WebFlux's `dispatcherHandlers` descriptions as well as Spring
     MVC's `dispatcherServlets`, each only when its web module is present: annotated controllers by their conditions,
@@ -179,6 +179,14 @@ were already framework-neutral in practice, not just in the engine underneath th
 [^code-inventory-reactive]: The shared `CodeInventoryController` and engine service: available while the BootUI agent's
     inventory sensor records the run, otherwise unavailable with the Java Agent panel's reason, as on Spring MVC. The
     scan reads the class files the application context's class loader sees.
+
+[^code-paths-reactive]: The shared `CodePathsController` and engine service: available while the BootUI agent's
+    code-paths sensor records the run. The reactive correlation filter brackets each request's subscription, where
+    WebFlux runs its filters and invokes the handler up to its first asynchronous boundary, as the request's fragment on
+    the subscribing thread, so the tree times the pipeline's assembly, not the work its publisher does later: every
+    WebFlux route is **assembly only**, and `route-time-breakdown` never splits its handler by method. The reactive
+    configuration marks every tree once, when it creates the Code Paths service, so nothing is recorded per request on
+    the event loop, and the subscription sees the thread's correlation exactly as it does without the agent.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
     handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and

@@ -43,6 +43,39 @@ class BootUiQuarkusProcessorJavaAgentTest {
     }
 
     @Test
+    void theClaimsBeanClassesAreTheArchivesBeanDefiningClassesAndResourcesInItsPackages() throws IOException {
+        Index index = Index.of(
+                OrderService.class,
+                OrderResource.class,
+                StartupBean.class,
+                Plain.class,
+                Repository.class,
+                QuarkusAgentClaim.class);
+        String here = BootUiQuarkusProcessorJavaAgentTest.class.getPackageName();
+
+        assertThat(BootUiQuarkusProcessor.agentBeanClasses(index, List.of(here)))
+                .containsExactly(
+                        OrderResource.class.getName(), OrderService.class.getName(), StartupBean.class.getName());
+        assertThat(BootUiQuarkusProcessor.agentBeanClasses(index, List.of("com.example")))
+                .isEmpty();
+    }
+
+    @jakarta.enterprise.context.ApplicationScoped
+    static class OrderService {}
+
+    @jakarta.ws.rs.Path("/orders")
+    public static class OrderResource {}
+
+    @io.quarkus.runtime.Startup
+    @jakarta.inject.Singleton
+    static class StartupBean {}
+
+    static class Plain {}
+
+    @jakarta.enterprise.context.ApplicationScoped
+    interface Repository {}
+
+    @Test
     void anUnsetListPropertyKeepsItsDefaultsAndAnEmptyOneMeansNone() {
         List<String> defaults = List.of("executors");
 

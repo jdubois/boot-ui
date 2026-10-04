@@ -118,6 +118,19 @@
       "summary": "Return Code Inventory: did the code changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status)."
     },
     {
+      "name": "get_code_paths",
+      "command": "code paths",
+      "schema": "QUERY_LIMIT",
+      "panel": "code-paths",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return Code Paths: which application bean methods each route spends its time in, from the BootUI agent's code-paths sensor."
+    },
+    {
       "name": "get_conditions",
       "command": "conditions",
       "schema": "QUERY_LIMIT",

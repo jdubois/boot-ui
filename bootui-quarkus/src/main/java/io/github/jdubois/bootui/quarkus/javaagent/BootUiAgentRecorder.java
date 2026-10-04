@@ -46,6 +46,33 @@ public class BootUiAgentRecorder {
             List<String> skipThreads,
             long maxHandoffMillis,
             int ringCapacity) {
+        return claim(
+                application,
+                mode,
+                packages,
+                sensors,
+                skipTasks,
+                skipThreads,
+                maxHandoffMillis,
+                ringCapacity,
+                List.of());
+    }
+
+    /**
+     * Claims the agent for this start of {@code application}, as {@link #claim(String, String, List, List, List, List,
+     * long, int)} does, with the application archive's bean classes for the {@code code-paths} sensor, read at build
+     * time ({@code docs/PLAN-v2.md} M5-4a).
+     */
+    public RuntimeValue<QuarkusAgentClaim> claim(
+            String application,
+            String mode,
+            List<String> packages,
+            List<String> sensors,
+            List<String> skipTasks,
+            List<String> skipThreads,
+            long maxHandoffMillis,
+            int ringCapacity,
+            List<String> beanClasses) {
         AgentBridgeAccess access = AgentBridgeAccess.locate();
         if (!access.present()) {
             return new RuntimeValue<>(QuarkusAgentClaim.none());
@@ -53,8 +80,8 @@ public class BootUiAgentRecorder {
         String owner = application + "@" + UUID.randomUUID().toString().substring(0, 8);
         AgentSensorSettings settings = new AgentSensorSettings(
                 sensors, skipTasks, skipThreads, Duration.ofMillis(maxHandoffMillis), ringCapacity);
-        return new RuntimeValue<>(
-                new QuarkusAgentClaim(AgentClaim.claim(access, application, owner, mode, packages, settings)));
+        return new RuntimeValue<>(new QuarkusAgentClaim(
+                AgentClaim.claim(access, application, owner, mode, packages, settings, beanClasses)));
     }
 
     /**

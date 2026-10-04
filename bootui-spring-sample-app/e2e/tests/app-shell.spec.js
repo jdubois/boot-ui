@@ -49,6 +49,7 @@ const allPanelLinks = [
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'code-inventory', title: 'Code Inventory', heading: /^Code Inventory/},
+  {id: 'code-paths', title: 'Code Paths', heading: /^Code Paths/},
   {id: 'email', title: 'Email', heading: /^Email/},
   {id: 'kafka', title: 'Kafka', heading: /^Kafka/},
   {id: 'rabbitmq', title: 'RabbitMQ', heading: /^RabbitMQ/},
@@ -426,7 +427,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Database', count: 9},
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
-      {title: 'Diagnostics', count: 6},
+      {title: 'Diagnostics', count: 7},
       {title: 'Developer tools', count: 8}
     ]
 
@@ -481,14 +482,15 @@ test.describe('BootUI app shell', () => {
       'JMS'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+7/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
       'Exceptions',
       'HTTP Exchanges',
       'HTTP Probe',
-      'Code Inventory'
+      'Code Inventory',
+      'Code Paths'
     ])
 
     await page.getByRole('button', {name: /Developer tools\s+8/}).click()

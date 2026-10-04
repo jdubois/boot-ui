@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * One sensor of the BootUI agent ({@code docs/PLAN-v2.md} §5.13, M5-2, M5-3), such as {@code executors}.
+ * One sensor of the BootUI agent ({@code docs/PLAN-v2.md} §5.13, M5-2, M5-3, M5-4a), such as {@code executors}.
  *
  * @param id the sensor id, such as {@code executors}
  * @param state the sensor's state as the agent reports it: {@code off}, {@code installing}, {@code installed}, or
@@ -29,6 +29,7 @@ import java.util.Map;
  * @param retransformedTypes how many already loaded classes it retransformed, cumulatively
  * @param executors the {@code executors} sensor's counters, or {@code null} for another sensor
  * @param inventory the {@code inventory} sensor's counters, or {@code null} for another sensor
+ * @param codePaths the {@code code-paths} sensor's counters, or {@code null} for another sensor
  */
 public record JavaAgentSensorDto(
         String id,
@@ -49,7 +50,8 @@ public record JavaAgentSensorDto(
         int transformedTypes,
         int retransformedTypes,
         JavaAgentExecutorCountersDto executors,
-        JavaAgentInventoryCountersDto inventory) {
+        JavaAgentInventoryCountersDto inventory,
+        JavaAgentCodePathsCountersDto codePaths) {
 
     public JavaAgentSensorDto {
         failures = DtoCollections.immutableCopy(failures);
@@ -77,6 +79,7 @@ public record JavaAgentSensorDto(
                 0,
                 0,
                 0,
+                null,
                 null,
                 null);
     }
@@ -120,6 +123,51 @@ public record JavaAgentSensorDto(
                 transformedTypes,
                 retransformedTypes,
                 executors,
+                null,
+                null);
+    }
+
+    /** Every component but the code-paths sensor's counters, for the inventory sensor and older callers. */
+    public JavaAgentSensorDto(
+            String id,
+            String state,
+            boolean active,
+            int instrumentedTypes,
+            List<String> failures,
+            Long durationMillis,
+            Long installMillis,
+            Long selfTestMillis,
+            long retransformMillis,
+            boolean selfTestPassed,
+            String selfTestError,
+            Map<String, String> selfTestSteps,
+            List<JavaAgentHookDto> hooks,
+            int failedTypes,
+            int skippedTypes,
+            int transformedTypes,
+            int retransformedTypes,
+            JavaAgentExecutorCountersDto executors,
+            JavaAgentInventoryCountersDto inventory) {
+        this(
+                id,
+                state,
+                active,
+                instrumentedTypes,
+                failures,
+                durationMillis,
+                installMillis,
+                selfTestMillis,
+                retransformMillis,
+                selfTestPassed,
+                selfTestError,
+                selfTestSteps,
+                hooks,
+                failedTypes,
+                skippedTypes,
+                transformedTypes,
+                retransformedTypes,
+                executors,
+                inventory,
                 null);
     }
 }

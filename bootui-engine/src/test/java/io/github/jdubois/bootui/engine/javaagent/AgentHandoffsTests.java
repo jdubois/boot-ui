@@ -384,10 +384,14 @@ class AgentHandoffsTests {
     void anEarlyOutcomeDoesNotEndTheBodyOrReTimeItsFailure() {
         RequestPhases phases = new RequestPhases();
         phases.begin("r1");
+        long start = phases.markers("r1").filtersAt();
+        now = Instant.ofEpochSecond(start / 1_000_000L, start % 1_000_000L * 1_000L);
         AgentHandoffs handoffs = handoffs(phases, null);
         AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "ForkJoinTask", "hook"});
         ((IntConsumer) handle).accept(1);
         phases.mark("r1", RequestPhase.RESPONSE);
+        long responseAt = phases.markers("r1").responseAt();
+        nanos.addAndGet((responseAt - start + 10_000L) * 1_000L);
         ((Runnable) handle).run();
         @SuppressWarnings("unchecked")
         Consumer<Throwable> outcome = (Consumer<Throwable>) handle;
@@ -418,9 +422,16 @@ class AgentHandoffsTests {
     }
 
     @ParameterizedTest
-    @CsvSource({"false,1999,false", "false,2000,true", "true,1,true"})
-    void aNestedPromiseKeepsLongContinuationsAndFastAlreadyLateBodiesButToleratesClockSlack(
-            boolean responseFirst, long continuationMicros, boolean expectedAfterResponse) {
+    @CsvSource({
+        "1,false,1999,false",
+        "1,false,2000,true",
+        "1,true,0,true",
+        "2,false,1999,false",
+        "2,false,2000,true",
+        "2,true,0,true"
+    })
+    void aPublicationKeepsLongContinuationsAndFastAlreadyLateBodiesButToleratesClockSlack(
+            int marker, boolean responseFirst, long continuationMicros, boolean expectedAfterResponse) {
         RequestPhases phases = new RequestPhases();
         phases.begin("r1");
         long start = phases.markers("r1").filtersAt();
@@ -430,13 +441,15 @@ class AgentHandoffsTests {
         }
         AgentHandoffs handoffs = handoffs(phases, null);
         AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "Runnable", "hook"});
-        ((IntConsumer) handle).accept(2);
+        ((IntConsumer) handle).accept(marker);
         if (!responseFirst) {
             phases.mark("r1", RequestPhase.RESPONSE);
         }
         long responseAt = phases.markers("r1").responseAt();
         nanos.addAndGet((responseAt - start + continuationMicros) * 1_000L);
-        ((IntConsumer) handle).accept(2);
+        if (marker == 2) {
+            ((IntConsumer) handle).accept(marker);
+        }
         ((Runnable) handle).run();
         close(handle);
 
