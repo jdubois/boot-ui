@@ -55,7 +55,12 @@ public final class GcInflatedLatency implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.GC, JournalSource.RESOURCES);
+        return Set.of(JournalSource.HTTP, JournalSource.GC, JournalSource.RESOURCES);
+    }
+
+    @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
     }
 
     @Override

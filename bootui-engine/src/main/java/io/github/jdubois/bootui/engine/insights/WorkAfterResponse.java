@@ -52,7 +52,12 @@ public final class WorkAfterResponse implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.AGENT_EXECUTORS);
+        return Set.of(JournalSource.HTTP, JournalSource.AGENT_EXECUTORS);
+    }
+
+    @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
     }
 
     @Override

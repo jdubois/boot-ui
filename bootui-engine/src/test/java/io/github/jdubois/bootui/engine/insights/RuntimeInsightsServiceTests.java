@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -19,9 +20,11 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
@@ -30,6 +33,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
@@ -39,6 +44,54 @@ class RuntimeInsightsServiceTests {
 
     private RuntimeJournal journal = journal(JournalSource.all());
     private int requests;
+
+    @Test
+    void anEmptySnapshotLeavesEveryCheckWithoutEligibleWork() {
+        assertThat(service().report().checks()).isNotEmpty().allSatisfy(check -> {
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.status()).isNotIn("EVALUATED", "PARTIAL");
+        });
+    }
+
+    @Test
+    void aZeroEligibleCheckPreservesTheExplanationOfUncountedWork() {
+        Observation observation = new Observation() {
+            @Override
+            public String kind() {
+                return "uncounted-work";
+            }
+
+            @Override
+            public String title() {
+                return "Uncounted work";
+            }
+
+            @Override
+            public CorrelationTier minimumTier() {
+                return CorrelationTier.REQUEST_ID;
+            }
+
+            @Override
+            public Set<JournalSource> reads() {
+                return Set.of(JournalSource.HTTP);
+            }
+
+            @Override
+            public Evaluation evaluate(InsightsSnapshot snapshot) {
+                return new Evaluation(0, List.of(), "Recorded work could not be placed against its transaction.");
+            }
+        };
+        RuntimeInsightsService service = new RuntimeInsightsService(
+                journal, null, panel -> true, InsightsStack.SPRING_MVC, List::of, List.of(observation));
+        assertThat(service.report().checks()).singleElement().satisfies(check -> {
+            assertThat(check.status()).isEqualTo("INSUFFICIENT");
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.reason())
+                    .contains(
+                            "No eligible work was recorded",
+                            "Recorded work could not be placed against its transaction.");
+        });
+    }
 
     @AfterEach
     void close() {
@@ -188,6 +241,43 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void aQuarkusPreparationCannotProveAWriteWhenTheHibernatePanelIsHidden() {
+        request(
+                "GET",
+                "/api/products/{id}",
+                new Child(JournalSource.SQL, 0, new SqlPayload("insert into audit (id) values (1)", null, "db", false)),
+                new Child(JournalSource.ORM, 1_000, orm()));
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HIBERNATE), InsightsStack.QUARKUS, null)
+                .report();
+
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason())
+                .contains("hibernate")
+                .contains("prepared statements cannot be verified");
+        assertThat(observations(report, SafeMethodDml.KIND)).isEmpty();
+    }
+
+    @Test
+    void aTimedJdbcWriteIsStillReportedWhenHibernateIsUnavailable() {
+        request(
+                "GET",
+                "/api/products/{id}",
+                new Child(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload("insert into audit (id) values (1)", null, "db", false)));
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HIBERNATE), InsightsStack.QUARKUS, null)
+                .report();
+
+        assertThat(observations(report, SafeMethodDml.KIND)).containsOnlyKeys("GET /api/products/{id}");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).contains("timed JDBC executions still are");
+    }
+
+    @Test
     void aSentenceAndItsEvidenceQuoteAStatementsShapeNeverAValueItsFingerprintKeeps() {
         // A fingerprint keeps identifier-like "..." runs, which MySQL reads as string literals, and a truncated dollar
         // quote verbatim: it groups statements but is never shown.
@@ -278,8 +368,15 @@ class RuntimeInsightsServiceTests {
                 .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND)
                         && !check.kind().equals(ProxyBypass.KIND)
                         && !check.kind().equals(WorkAfterResponse.KIND))
-                .extracting(RuntimeInsightCheckDto::status)
-                .containsOnly("EVALUATED");
+                .allSatisfy(check -> {
+                    assertThat(check.status()).as(check.kind()).isIn("INSUFFICIENT", "EVALUATED");
+                    if ("INSUFFICIENT".equals(check.status())) {
+                        assertThat(check.eligibleRequests()).isZero();
+                        assertThat(check.reason()).contains("No eligible work");
+                    } else if (!HeapGrowthAfterGc.KIND.equals(check.kind())) {
+                        assertThat(check.eligibleRequests()).isPositive();
+                    }
+                });
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(WorkAfterResponse.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
@@ -323,18 +420,24 @@ class RuntimeInsightsServiceTests {
                 .contains("not R2DBC");
         RuntimeInsightCheckDto breakdown = checks.get(RouteTimeBreakdown.KIND);
         assertThat(breakdown.status())
-                .as("an observation that only optionally reads SQL still runs")
-                .isEqualTo("EVALUATED");
-        assertThat(breakdown.reason()).contains(SqlCapture.R2DBC_ONLY);
+                .as("without request phase measurements, no breakdown is eligible")
+                .isEqualTo("INSUFFICIENT");
+        assertThat(breakdown.eligibleRequests()).isZero();
+        assertThat(breakdown.reason()).contains("No eligible work", SqlCapture.R2DBC_ONLY);
         assertThat(report.observations())
                 .filteredOn(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
-                .allSatisfy(observation -> assertThat(observation.limitations()).contains(breakdown.reason()));
+                .allSatisfy(observation -> {
+                    assertThat(observation.status()).isEqualTo("INSUFFICIENT");
+                    assertThat(observation.eligible()).isZero();
+                    assertThat(observation.limitations())
+                            .anySatisfy(limitation -> assertThat(limitation).contains(SqlCapture.R2DBC_ONLY));
+                });
 
         service.setSqlCapture(SqlCapture::capturing);
         assertThat(service.report().checks())
                 .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
-                .as("once a traced DataSource records statements, the check runs")
+                .as("the requests remain eligible for SELECT checks once SQL capture is available")
                 .containsExactly("EVALUATED");
     }
 
@@ -606,6 +709,203 @@ class RuntimeInsightsServiceTests {
         assertThat(report.observations())
                 .as("nothing reports a route the http-exchanges panel no longer publishes")
                 .noneMatch(observation -> String.valueOf(observation.subject()).contains("/api/orders"));
+        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("http-exchanges");
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("NOT_APPLICABLE");
+    }
+
+    @Test
+    void aSurvivingScheduledRunDoesNotMakeHiddenHttpRequestsLookEvaluated() {
+        request("GET", "/api/orders/{id}", sqls("select 1", 0, null));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                2_000,
+                1_000,
+                CorrelationContext.forExecution("job-1"),
+                "scheduler",
+                null,
+                false,
+                new ScheduledPayload("Job.run", null)));
+        drain();
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES), null, null)
+                .report();
+
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).contains("http-exchanges");
+        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(RepeatedSelects.KIND).eligibleRequests()).isEqualTo(1);
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("http-exchanges");
+    }
+
+    @Test
+    void aHiddenScheduledUnitDoesNotMakeSqlChecksLookEvaluated() {
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                2_000,
+                1_000,
+                CorrelationContext.forExecution("job-1"),
+                "scheduler",
+                null,
+                false,
+                new ScheduledPayload("Job.run", null)));
+        drain();
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.SCHEDULED), null, null)
+                .report();
+        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).isNull();
+    }
+
+    @Test
+    void hiddenScheduledUnitsDoNotLimitFindingsAboutVisibleHttpRequests() {
+        request("GET", "/api/orders/{id}", sqls("insert into audit (id) values (1)", 0, null));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                2_000,
+                1_000,
+                CorrelationContext.forExecution("job-1"),
+                "scheduler",
+                null,
+                false,
+                new ScheduledPayload("Job.run", null)));
+        drain();
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.SCHEDULED), null, null)
+                .report();
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).isNull();
+        assertThat(observations(report, SafeMethodDml.KIND))
+                .containsOnlyKeys("GET /api/orders/{id}")
+                .allSatisfy((route, finding) ->
+                        assertThat(finding.limitations()).noneMatch(limitation -> limitation.contains("scheduled")));
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
+    }
+
+    @Test
+    void anHttpDropIsCountedOnceWhenTheObservationRequiresHttp() throws InterruptedException {
+        journal.close();
+        journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 10_000, 50_000_000, 1, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            blocked.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        try {
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            1_000,
+                            1_000,
+                            CorrelationContext.forRequest("r1"),
+                            "http-1",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/first", "/first", null, 200))))
+                    .isTrue();
+            assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            2_000,
+                            1_000,
+                            CorrelationContext.forRequest("r2"),
+                            "http-1",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/second", "/second", null, 200))))
+                    .isTrue();
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            3_000,
+                            1_000,
+                            CorrelationContext.forRequest("r3"),
+                            "http-1",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/dropped", "/dropped", null, 200))))
+                    .isFalse();
+        } finally {
+            release.countDown();
+        }
+        drain();
+
+        assertThat(journal.status().dropped()).containsEntry(JournalSource.HTTP, 1L);
+        RuntimeInsightCheckDto check = checks(service().report()).get(SafeMethodDml.KIND);
+        assertThat(check.status()).isEqualTo("PARTIAL");
+        assertThat(check.reason()).contains("dropped 1 events").doesNotContain("dropped 2 events");
+    }
+
+    @Test
+    void unavailablePanelsWithoutHiddenUnitsDoNotChangeChecks() {
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal,
+                        null,
+                        panel -> !panel.equals(BootUiPanels.JMS) && !panel.equals(BootUiPanels.SCHEDULED),
+                        InsightsStack.QUARKUS,
+                        null)
+                .report();
+        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).isNull();
+    }
+
+    @Test
+    void aTraceOnlyAiCallOwnedByAHiddenHttpRequestIsNotUncorrelatedCoverage() {
+        journal.offer(new RuntimeEvent(
+                JournalSource.HTTP,
+                1_000,
+                200_000_000,
+                "hidden",
+                null,
+                "trace-hidden",
+                "http-1",
+                null,
+                false,
+                new HttpPayload("GET", "/hidden", "/hidden", null, 200)));
+        journal.offer(new RuntimeEvent(
+                JournalSource.AI,
+                1_010,
+                1_000,
+                null,
+                null,
+                "trace-hidden",
+                "http-1",
+                null,
+                false,
+                new AiPayload(AiPayload.CHAT, "openai", "model", 10L, 5L, "stop", false)));
+        journal.offer(new RuntimeEvent(
+                JournalSource.AI,
+                1_010,
+                1_000,
+                null,
+                null,
+                "unowned-trace",
+                "http-1",
+                null,
+                false,
+                new AiPayload(AiPayload.CHAT, "openai", "model", 10L, 5L, "stop", false)));
+        drain();
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES), null, null)
+                .report();
+        assertThat(report.coverage())
+                .filteredOn(coverage -> coverage.source().equals("ai"))
+                .singleElement()
+                .satisfies(coverage -> {
+                    assertThat(coverage.events()).isEqualTo(1);
+                    assertThat(coverage.unlinked()).isEqualTo(1);
+                });
     }
 
     @Test

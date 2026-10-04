@@ -432,6 +432,11 @@ uses the same rule, and Spring MVC is unaffected.
 
 :::
 
+**Run comparison timing.** Run summaries survive a live reload when the engine stays in Quarkus's base runtime
+class loader. Routes and consumed-message executions compare through the shared engine. Restart cost is explicitly
+unavailable: `StartupEvent` supplies neither a complete live-reload duration nor its start timestamp, and BootUI
+does not infer the total from its own later initialization.
+
 **Hibernate sessions in the runtime journal.** The `orm` source (`docs/PLAN-v2.md` §5.18, M4-9) needs Hibernate to
 create BootUI's `SessionEventListener` for every session. Quarkus offers no supported property for that, so in dev and
 test mode the deployment processor defaults `quarkus.hibernate-orm.unsupported-properties."hibernate.session.events.auto"`
@@ -440,7 +445,8 @@ configuration declares with a `datasource` or `packages` property; Quarkus logs 
 unsupported property. ORM sessions also give Quarkus what its statement inspector cannot: measured statement time, which
 `route-time-breakdown` uses as its SQL phase, and, for `safe-method-dml`, which counts a Hibernate write in a GET when it is prepared, the evidence to leave out a
 request whose sessions executed no statement at all; fewer executions than preparations prove nothing, since a JDBC batch
-over several tables counts once.
+over several tables counts once. If the journal records ORM but the Hibernate panel is disabled, `safe-method-dml`
+leaves out unverified preparations and names the limitation; timed JDBC executions are still counted.
 
 ::: details The optional durable JDBC persistence backend
 

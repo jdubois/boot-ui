@@ -59,7 +59,8 @@ public class RuntimeInsightsController {
             ObjectProvider<MappingProvider> mappings,
             ObjectProvider<BeanProvider> beans) {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
-        this.comparison = new RunComparisonService(journal.getIfAvailable(), journalAggregates, RunHistory.shared());
+        this.comparison = new RunComparisonService(
+                journal.getIfAvailable(), journalAggregates, RunHistory.shared(), properties::isPanelEnabled);
         RuntimeModelService models = new RuntimeModelService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
