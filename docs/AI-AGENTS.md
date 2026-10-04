@@ -268,6 +268,8 @@ the classpath) are simply not advertised.
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
   `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. Stack-specific or
   unavailable capabilities are omitted.
+- **Code Inventory read:** `get_code_inventory`, whether the code changed since the previous run executed in this run;
+  see [Did my change run?](#did-my-change-run).
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
@@ -325,7 +327,8 @@ count, not evidence of zero traffic. Source-panel policy also hides disabled sou
 exception classes, execution names, and edges, with a “not compared because &lt;panel&gt; is disabled” limitation;
 configuration comparability and restart timings are independent facts. The `diagnose_runtime_issue` prompt starts
 with `get_runtime_insights`, then one `get_request_profile`; the
-`verify_after_change` prompt calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
+`verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
+calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
 `get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
 
 **Change, then verify.** An agent editing code uses the four tools as one loop:
@@ -346,6 +349,22 @@ with `get_runtime_insights`, then one `get_request_profile`; the
 **Analyze after tests.** Tests are where realistic traffic comes from: run the application's integration or browser
 tests against the running application, then `bootui insights list --json`. In the browser, **Copy for AI** on an
 observation renders the same evidence as one Markdown document, previewed before anything reaches the clipboard.
+
+### Did my change run?
+
+With the [BootUI agent](features/java-agent.md) attached, [Code Inventory](features/diagnostics.md#code-inventory)
+answers the question an agent most needs after an edit: did the method it changed execute, and on which route?
+
+| Tool | CLI | Returns |
+| --- | --- | --- |
+| `get_code_inventory` | `bootui code inventory [--query Q] [--limit N]` | The summary first (this run, N of M tracked methods executed, changed, added, and removed counts, dependency counts, limitations), then at most `limit` (25) rows of `query`: `changed` (the default; the methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, each with its status and the first request id and route that ran it), `never-executed`, `not-tracked`, `executed`, `dependencies` (declared jars not loaded in this run first), or a package or class |
+
+The tool is advertised only while the agent's inventory sensor records this run, like every tool of an unavailable
+panel; read `get_agent_status` once to learn whether it can be, and why not. `summary.available: false`, from a run
+that stopped recording since, carries the reason too. `NEVER_EXECUTED` on a changed method means the change has not run yet:
+run the test or send the request that reaches it, then call the tool again before reading any latency. `NOT_TRACKED`
+is not evidence either way, and a jar `NOT_LOADED` in this run is not proof it is unused. Runtime Insights reports the
+same gap as `changed-code-not-executed`.
 
 ### MySQL operational evidence
 

@@ -37,6 +37,10 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventorySettings;
+import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
@@ -237,6 +241,48 @@ public class BootUiEngineProducer {
                         config.getOptionalValue("bootui.agent.enabled", Boolean.class)
                                 .orElse(true),
                         LaunchMode.current() == LaunchMode.NORMAL ? "Quarkus production mode" : null));
+    }
+
+    /**
+     * Code Inventory ({@code docs/PLAN-v2.md} §5.15): this run's executed and changed application methods and its
+     * dependency use, from the BootUI agent's inventory sensor. {@code QuarkusAgentClaimLifecycle} starts it at startup
+     * once this start's claim is armed; it stops its drain and scan threads when the application stops, which a live
+     * reload does. It scans the class files the application class loader of this start sees.
+     */
+    @Produces
+    @Singleton
+    public CodeInventoryService codeInventoryService(
+            Instance<QuarkusAgentClaim> claim,
+            JavaAgentService javaAgent,
+            QuarkusDependencyProvider dependencies,
+            Instance<JournalAggregates> aggregates,
+            Instance<RuntimeJournal> journal,
+            Config config) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        CodeInventoryService service = new CodeInventoryService(
+                AgentBridgeAccess.locate(),
+                current::claim,
+                javaAgent::inventoryUnavailableReason,
+                () -> loader,
+                dependencies::inventory,
+                () -> aggregates.isResolvable() ? aggregates.get().runReadyAtEpochMillis() : null,
+                new CodeInventorySettings(
+                        config.getOptionalValue("bootui.code-inventory.max-classes", Integer.class)
+                                .orElse(CodeInventorySettings.DEFAULT_MAX_CLASSES),
+                        config.getOptionalValue("bootui.code-inventory.scan-timeout", Duration.class)
+                                .orElse(CodeInventorySettings.DEFAULT_SCAN_TIMEOUT)),
+                CodeInventoryHistory.shared());
+        JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
+        service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        return service;
+    }
+
+    /** Stops Code Inventory's drain and scan threads with the application. */
+    public void closeCodeInventoryService(@Disposes CodeInventoryService service) {
+        service.close();
     }
 
     /**

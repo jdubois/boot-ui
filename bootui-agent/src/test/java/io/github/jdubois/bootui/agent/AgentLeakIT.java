@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The agent-rooted leak walk (PLAN-v2 M5-0 second pass, M5-1 acceptance): ten simulated DevTools runs, each in its own
- * child-first class loader, claim and disarm with the probe installed; afterwards the agent must strongly reach no run's
- * class loader. Each mutation must be caught, so the test can fail.
+ * child-first class loader, claim and disarm with the probe and the executors, threads, and inventory sensors installed;
+ * afterwards the agent must strongly reach no run's class loader. Each mutation must be caught, so the test can fail.
  */
 class AgentLeakIT {
 
@@ -84,6 +84,8 @@ class AgentLeakIT {
         List<String> jvm = new ArrayList<>();
         jvm.add(ChildJvm.javaAgent(ChildJvm.TEST_AGENT));
         jvm.add("-Dbootui.agent.it.probe=bootuiagentit.run");
+        // From a jar, outside a test root, so the inventory sensor instruments the runs' classes too.
+        jvm.add("-Dbootui.agent.it.run-jar=" + TestJars.jar("leak-runs.jar", "bootuiagentit/run", List.of()));
         jvm.add("-XX:SoftRefLRUPolicyMSPerMB=0");
         jvm.addAll(options);
         ChildJvm.Output output = ChildJvm.run(jvm, "runs", String.valueOf(RUNS), dump.toString());
@@ -98,6 +100,11 @@ class AgentLeakIT {
         assertThat(output.value("EXECUTORS"))
                 .as("the runs' work was propagated: %s", output)
                 .doesNotContain("ThreadPoolExecutor.runWorker=0");
+        assertThat(output.value("INVENTORY"))
+                .as("the inventory sensor instrumented and saw the runs' classes: %s", output)
+                .doesNotContain("methodsTracked=0,")
+                .doesNotContain("executedThisRun=0,")
+                .contains("methodsFailed=0,");
         return dump;
     }
 }

@@ -160,7 +160,7 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
     }
 
     /**
-     * {@code bootui.agent.sensors} and {@code bootui.agent.executors.*}, with Reactor's scheduler threads added to the
+     * {@code bootui.agent.sensors}, {@code bootui.agent.executors.*}, and {@code bootui.agent.ring-capacity}, with Reactor's scheduler threads added to the
      * skipped threads when Reactor's automatic context propagation carries BootUI's context across them already.
      */
     static AgentSensorSettings sensors(ConfigurableEnvironment environment) {
@@ -174,7 +174,9 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 binder.bind("bootui.agent.executors.skip-threads", Bindable.listOf(String.class))
                         .orElse(defaults.skipThreads()),
                 binder.bind("bootui.agent.executors.max-handoff", Bindable.of(Duration.class))
-                        .orElse(defaults.maxHandoff()));
+                        .orElse(defaults.maxHandoff()),
+                binder.bind("bootui.agent.ring-capacity", Bindable.of(Integer.class))
+                        .orElse(defaults.ringCapacity()));
         return reactorPropagatesContext(environment)
                 ? settings.withSkipThreads(AgentSensorSettings.REACTOR_SKIP_THREADS)
                 : settings;

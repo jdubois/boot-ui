@@ -265,6 +265,18 @@ public final class McpToolDescriptions {
                             + "sensors, and setup snippets that attach it. This read never claims, installs, or "
                             + "changes the agent."),
             Map.entry(
+                    "get_code_inventory",
+                    "Return Code Inventory: did the code changed since the previous run execute in this run? "
+                            + "Advertised only while the BootUI agent's inventory sensor records this run (see "
+                            + "get_agent_status). Counts "
+                            + "first (N of M tracked methods executed, changed, added, removed, dependencies), then at "
+                            + "most limit (25) rows of query: changed (the default; methods changed or added since the "
+                            + "previous DevTools restart or Quarkus live reload, not executed first, with the first "
+                            + "request id and route that ran each), never-executed, not-tracked, executed, "
+                            + "dependencies (declared jars not loaded in this run first), or a package or class. "
+                            + "NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is "
+                            + "unused."),
+            Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
                             + "This is a passive calculation and does not change JVM or container settings."),

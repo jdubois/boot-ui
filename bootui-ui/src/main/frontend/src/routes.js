@@ -53,6 +53,7 @@ const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const Cli = () => import('./views/Cli.vue')
 const JavaAgent = () => import('./views/JavaAgent.vue')
+const CodeInventory = () => import('./views/CodeInventory.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
 const RuntimeInsights = () => import('./views/RuntimeInsights.vue')
 const Email = () => import('./views/Email.vue')
@@ -972,6 +973,29 @@ export const routes = [
       title: 'HTTP Probe',
       shortcut: 'hp',
       keywords: ['curl', 'request', 'api test', 'send request', 'http client', 'ping']
+    }
+  },
+  {
+    path: '/code-inventory',
+    name: 'code-inventory',
+    component: CodeInventory,
+    meta: {
+      group: groups.diagnostics,
+      icon: 'bi-list-check',
+      title: 'Code Inventory',
+      shortcut: 'ci',
+      keywords: [
+        'executed',
+        'never executed',
+        'dead code',
+        'coverage',
+        'changed methods',
+        'did my change run',
+        'dependencies',
+        'unused jars',
+        'not loaded',
+        'agent'
+      ]
     }
   },
   {

@@ -56,6 +56,7 @@ const PANEL_HEADINGS = {
   exceptions: /^Exceptions/,
   'http-exchanges': /HTTP Exchanges/,
   'http-probe': /HTTP Probe/,
+  'code-inventory': /^Code Inventory/,
   'rest-client-trace': /^REST Client/,
   websockets: /^WebSockets/,
   email: /^Email/,

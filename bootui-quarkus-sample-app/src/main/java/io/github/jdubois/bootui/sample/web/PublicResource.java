@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.sample.web;
 
+import io.github.jdubois.bootui.sample.inventory.GreetingService;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -10,9 +11,15 @@ import jakarta.ws.rs.core.MediaType;
 @Produces(MediaType.TEXT_PLAIN)
 public class PublicResource {
 
+    private final GreetingService greetings;
+
+    public PublicResource(GreetingService greetings) {
+        this.greetings = greetings;
+    }
+
     @GET
     @Path("/hello")
     public String hello() {
-        return "Hello, world";
+        return greetings.greet("world");
     }
 }

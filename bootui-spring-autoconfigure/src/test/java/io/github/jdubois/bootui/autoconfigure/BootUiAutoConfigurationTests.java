@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
@@ -37,6 +38,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunSummaryDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -415,6 +417,32 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void codeInventoryIsServedUnavailableWithTheAgentsReasonWithoutAClaim() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.code-inventory.max-classes=500")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CodeInventoryService.class);
+                    assertThat(context.getBean(BootUiProperties.class)
+                                    .getCodeInventory()
+                                    .toSettings()
+                                    .maxClasses())
+                            .isEqualTo(500);
+                    CodeInventoryController controller = context.getBean(CodeInventoryController.class);
+                    // The context runner runs no EnvironmentPostProcessor: nothing claims the agent, so nothing
+                    // records.
+                    assertThat(controller.report().available()).isFalse();
+                    assertThat(controller.report().unavailableReason())
+                            .startsWith(JavaAgentService.INVENTORY_REQUIREMENT);
+                    assertThat(controller.changes(null, null).available()).isFalse();
+                    assertThat(controller.methods(null, null, null, null, null).available())
+                            .isFalse();
+                    assertThat(controller.dependencies(null, null, null).available())
+                            .isFalse();
+                    assertThat(controller.agentReport(null, null).summary().available())
+                            .isFalse();
+                });
+    }
+
+    @Test
     void requestDrivenBootUiBeansAreLazyWhileInfrastructureStaysEager() {
         runner.withPropertyValues("bootui.enabled=ON").run(context -> {
             ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
@@ -453,6 +481,7 @@ class BootUiAutoConfigurationTests {
                             LiveMemoryController.class,
                             JvmTuningController.class,
                             JavaAgentController.class,
+                            CodeInventoryController.class,
                             MetricsController.class,
                             OtlpReceiverController.class,
                             OverviewController.class,
@@ -478,6 +507,7 @@ class BootUiAutoConfigurationTests {
             assertLazyBeanDefinition(beanFactory, "bootUiThreadDumpService");
             assertLazyBeanDefinition(beanFactory, "bootUiHeapDumpService");
             assertLazyBeanDefinition(beanFactory, "bootUiJavaAgentService");
+            assertLazyBeanDefinition(beanFactory, "bootUiCodeInventoryService");
 
             assertEagerBean(beanFactory, BootUiActivation.class);
             assertEagerBean(beanFactory, DevServicesController.class);

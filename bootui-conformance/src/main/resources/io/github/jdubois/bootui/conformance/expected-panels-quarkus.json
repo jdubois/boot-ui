@@ -58,6 +58,7 @@
     { "id": "java-agent", "title": "Java Agent", "actionCapable": false },
     { "id": "activity", "title": "Live Activity", "actionCapable": true },
     { "id": "runtime-insights", "title": "Runtime Insights", "actionCapable": true },
+    { "id": "code-inventory", "title": "Code Inventory", "actionCapable": false },
     { "id": "email", "title": "Email", "actionCapable": true },
     { "id": "kafka", "title": "Kafka", "actionCapable": true },
     { "id": "rabbitmq", "title": "RabbitMQ", "actionCapable": true },

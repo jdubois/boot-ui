@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsWindowDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.ControlMarkers;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
@@ -22,6 +23,7 @@ import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Instant;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -59,6 +62,11 @@ public final class RuntimeInsightsService {
 
     /** The markers a report's limitation names at most. */
     static final int MAX_NAMED_MARKERS = 3;
+
+    /** The Code Inventory panel's id, whose evidence {@code changed-code-not-executed} reads. */
+    static final String CODE_INVENTORY_PANEL = BootUiPanels.CODE_INVENTORY;
+
+    static final String CODE_INVENTORY_DISABLED = "The Code Inventory panel, whose evidence this reads, is disabled.";
 
     /** Why Runtime Insights is unavailable without the journal, naming the property to set. */
     public static final String DISABLED = "Runtime Insights reads the runtime journal, which is disabled:"
@@ -91,6 +99,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
     private volatile Function<String, String> panelUnavailable;
+    private volatile LongSupplier codeInventoryFingerprint;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -163,6 +172,48 @@ public final class RuntimeInsightsService {
         for (Observation observation : observations) {
             if (observation instanceof WorkAfterResponse work) {
                 work.setAgent(propagationUnavailable, maxHandoff);
+            }
+        }
+        this.cached = null;
+    }
+
+    /**
+     * Installs what Code Inventory reports about this run's changed methods, which {@code changed-code-not-executed}
+     * reads ({@code docs/PLAN-v2.md} §5.17), such as {@code CodeInventoryService::changedCode}; without it, or while the
+     * Code Inventory panel is disabled, that observation does not apply. A change in what it reports invalidates the
+     * cached projection, since the agent's hit flags change without a journal event.
+     */
+    public synchronized void setCodeInventory(Supplier<CodeInventoryService.ChangedCode> changes) {
+        setCodeInventory(changes, null);
+    }
+
+    /**
+     * {@link #setCodeInventory(Supplier)}, with a cheap fingerprint of what {@code changes} would answer, such as
+     * {@code CodeInventoryService::changesFingerprint}: a read compares it to decide whether its cached projection is
+     * stale, instead of asking Code Inventory for its changes, which builds its whole view. Without it, the changes are
+     * asked for on each read.
+     */
+    public synchronized void setCodeInventory(
+            Supplier<CodeInventoryService.ChangedCode> changes, LongSupplier fingerprint) {
+        this.codeInventoryFingerprint = changes == null || fingerprint == null
+                ? null
+                : () -> fingerprint.getAsLong() * 31 + (codeInventoryVisible() ? 1 : 0);
+        for (Observation observation : observations) {
+            if (observation instanceof ChangedCodeNotExecuted changed) {
+                changed.setChanges(
+                        changes == null
+                                ? null
+                                : () -> {
+                                    CodeInventoryService.ChangedCode code = changes.get();
+                                    if (code == null || code.unavailableReason() != null) {
+                                        // Without the agent, its reason comes first, whatever the panel's state.
+                                        return code;
+                                    }
+                                    return codeInventoryVisible()
+                                            ? code
+                                            : new CodeInventoryService.ChangedCode(
+                                                    CODE_INVENTORY_DISABLED, false, null, List.of(), 0L, null, null);
+                                });
             }
         }
         this.cached = null;
@@ -263,7 +314,8 @@ public final class RuntimeInsightsService {
                 new HeapGrowthAfterGc(),
                 new AiUsageByRoute(aiTokenThreshold),
                 new FrameworkWarningsByRoute(),
-                new WorkAfterResponse());
+                new WorkAfterResponse(),
+                new ChangedCodeNotExecuted());
     }
 
     /** The current report, projected from the retained events. */
@@ -311,6 +363,7 @@ public final class RuntimeInsightsService {
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of(),
+                    0,
                     0);
         }
         JournalStatus status = journal.status();
@@ -321,17 +374,52 @@ public final class RuntimeInsightsService {
         SqlCapture capture = sqlCapture();
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
+        // And so is what Code Inventory reports, which the agent's hit flags change without any journal event.
+        long inventory = codeInventoryFingerprint();
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
                 && cached.clears() == status.clears()
-                && text.equals(cached.exposure())) {
+                && text.equals(cached.exposure())
+                && cached.inventory() == inventory) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, text);
+        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, text)
+                .withInventory(inventory);
         return cached;
+    }
+
+    private boolean codeInventoryVisible() {
+        try {
+            return panelEnabled.test(CODE_INVENTORY_PANEL);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private long codeInventoryFingerprint() {
+        LongSupplier cheap = codeInventoryFingerprint;
+        if (cheap != null) {
+            try {
+                return cheap.getAsLong();
+            } catch (RuntimeException ex) {
+                return 0L;
+            }
+        }
+        for (Observation observation : observations) {
+            if (observation instanceof ChangedCodeNotExecuted changed) {
+                CodeInventoryService.ChangedCode code = changed.current();
+                if (code == null) {
+                    return 0L;
+                }
+                return code.unavailableReason() != null
+                        ? code.unavailableReason().hashCode()
+                        : code.fingerprint() * 31 + (code.previousRun() ? 1 : 0);
+            }
+        }
+        return 0L;
     }
 
     private SqlCapture sqlCapture() {
@@ -592,7 +680,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears());
+        return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears(), 0L);
     }
 
     /**
@@ -930,5 +1018,12 @@ public final class RuntimeInsightsService {
             JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
-            long clears) {}
+            long clears,
+            long inventory) {
+
+        Cached withInventory(long fingerprint) {
+            return new Cached(
+                    watermark, evicted, visibility, sqlCapture, exposure, report, details, clears, fingerprint);
+        }
+    }
 }

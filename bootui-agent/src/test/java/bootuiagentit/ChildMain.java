@@ -40,6 +40,8 @@ public final class ChildMain {
             case "mockito" -> mockito();
             case "behaviors" -> Behaviors.main(new String[] {"agent"});
             case "thread-behaviors" -> ThreadBehaviors.main(new String[0]);
+            case "inventory-behaviors" -> InventoryBehaviors.main(new String[0]);
+            case "inventory-mockito" -> InventoryMockito.main(new String[] {args[1]});
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }
@@ -216,7 +218,11 @@ public final class ChildMain {
 
     /** Simulated DevTools runs, each in its own child-first class loader, then a heap dump. */
     static void runs(int count, String dump) throws Exception {
-        URL classes = ChildMain.class.getProtectionDomain().getCodeSource().getLocation();
+        // From a jar when given, as a run's classes are outside a test root, so the inventory sensor instruments them.
+        String runJar = System.getProperty("bootui.agent.it.run-jar");
+        URL classes = runJar != null
+                ? new File(runJar).toURI().toURL()
+                : ChildMain.class.getProtectionDomain().getCodeSource().getLocation();
         for (int run = 1; run <= count; run++) {
             System.setProperty("bootui.agent.it.run", String.valueOf(run));
             RunLoader loader = new RunLoader(classes);
@@ -236,6 +242,8 @@ public final class ChildMain {
         System.out.println("HITS=" + counter(bridge(), "probeHits"));
         System.out.println("INSTALLER=" + installer(bridge()));
         System.out.println("EXECUTORS=" + executors(bridge()));
+        System.out.println(
+                "INVENTORY=" + ((Map<?, ?>) bridge().getMethod("status").invoke(null)).get("inventory"));
         for (int i = 0; i < 3; i++) {
             System.gc();
             Thread.sleep(100);

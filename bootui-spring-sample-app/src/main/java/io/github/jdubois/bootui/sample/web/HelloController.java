@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.sample.web;
 
 import io.github.jdubois.bootui.sample.catalog.ProductSummary;
 import io.github.jdubois.bootui.sample.catalog.SampleCatalog;
+import io.github.jdubois.bootui.sample.inventory.GreetingService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,14 +13,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class HelloController {
 
     private final SampleCatalog catalog;
+    private final GreetingService greetings;
 
-    public HelloController(SampleCatalog catalog) {
+    public HelloController(SampleCatalog catalog, GreetingService greetings) {
         this.catalog = catalog;
+        this.greetings = greetings;
     }
 
     @GetMapping("/hello")
     public String hello() {
-        return "Hello, world";
+        return greetings.greet("world");
     }
 
     @GetMapping("/secure")

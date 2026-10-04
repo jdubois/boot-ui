@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
@@ -295,6 +296,7 @@ import tools.jackson.databind.ObjectMapper;
     LiveServiceMapController.class,
     RuntimeInsightsController.class,
     JavaAgentController.class,
+    CodeInventoryController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -365,6 +367,7 @@ public class BootUiReactiveAutoConfiguration {
             LiveServiceMapController.class.getName(),
             RuntimeInsightsController.class.getName(),
             JavaAgentController.class.getName(),
+            CodeInventoryController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
@@ -441,7 +444,8 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<SpringCacheController> cache,
                 ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
                 ObjectProvider<RuntimeInsightsController> runtimeInsights,
-                ObjectProvider<JavaAgentController> javaAgent) {
+                ObjectProvider<JavaAgentController> javaAgent,
+                ObjectProvider<CodeInventoryController> codeInventory) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -476,7 +480,8 @@ public class BootUiReactiveAutoConfiguration {
                     cache,
                     connectionPools,
                     runtimeInsights,
-                    javaAgent);
+                    javaAgent,
+                    codeInventory);
         }
 
         @Bean
