@@ -1,5 +1,8 @@
 <script setup>
-import {computed} from 'vue'
+import {computed, inject, ref, watch} from 'vue'
+import {getJson} from '../api.js'
+import {insightsUsable} from '../utils/insightsPanel.js'
+import {MEMORY_KINDS} from '../utils/runtimeInsights.js'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
@@ -20,6 +23,40 @@ const panel = useAdvisorPanel(props, {
 })
 
 const summary = computed(() => panel.report?.summary || null)
+
+// Garbage collection and heap rows are left out of Runtime Insights' default list and reached from here
+// (docs/PLAN-v2.md M4-19), so this panel says how many there are. It reads the report Runtime Insights already serves,
+// a projection of what the journal recorded, whenever this panel loads its own report: nothing is captured or scanned.
+const panels = inject('panels', ref(null))
+const memoryInsights = ref(null)
+
+async function loadMemoryInsights() {
+  if (!insightsUsable(panels.value)) {
+    memoryInsights.value = null
+    return
+  }
+  try {
+    const report = await getJson('api/runtime-insights')
+    const rows = (report?.observations ?? []).filter((observation) => MEMORY_KINDS.includes(observation.kind))
+    memoryInsights.value = {
+      total: rows.length,
+      observed: rows.filter((observation) => observation.status === 'OBSERVED' || observation.status === 'PARTIAL')
+        .length
+    }
+  } catch {
+    memoryInsights.value = null
+  }
+}
+
+// After this panel's own report, once on load and again after a scan, so the count is no older than the findings.
+watch(() => panel.report, loadMemoryInsights)
+
+const memoryInsightsText = computed(() => {
+  const counts = memoryInsights.value
+  if (!counts?.total) return ''
+  const rows = `${counts.total} ${counts.total === 1 ? 'row' : 'rows'}`
+  return counts.observed > 0 ? `${rows}, ${counts.observed} observed` : rows
+})
 
 function formatBytes(value) {
   if (value === null || value === undefined || value < 0) return 'n/a'
@@ -150,8 +187,17 @@ function formatBytes(value) {
                 </dd>
               </dl>
               <p class="small text-muted mt-3 mb-0">
-                A snapshot is one moment. Whether the heap left after collections keeps rising across the run is in
-                <RouterLink :to="{path: '/runtime-insights', query: {theme: 'memory'}}">Runtime Insights</RouterLink>.
+                A snapshot is one moment. Whether the heap left after collections keeps rising across the run, and which
+                routes' slowest requests a collection pause completed during, are in
+                <RouterLink :to="{path: '/runtime-insights', query: {theme: 'memory', all: '1'}}"
+                  >Runtime Insights</RouterLink
+                >.
+                <span
+                  v-if="memoryInsightsText"
+                  class="badge text-bg-secondary ms-1 memory-insights-count"
+                  :title="`Garbage collection and heap rows in Runtime Insights for this run: ${memoryInsightsText}`"
+                  >{{ memoryInsightsText }}</span
+                >
               </p>
             </div>
           </div>

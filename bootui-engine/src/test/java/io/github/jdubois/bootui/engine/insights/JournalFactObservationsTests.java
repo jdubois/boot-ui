@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -180,6 +181,7 @@ class JournalFactObservationsTests {
                                         "com.fasterxml.jackson.databind.exc.MismatchedInputException",
                                         "com.fasterxml.jackson.databind.JsonMappingException"))));
         assertThat(byKind(service(null, null).report(), ExceptionHotspots.KIND))
+                .filteredOn(observation -> observation.subject().equals("GET /api/orders/{id}"))
                 .singleElement()
                 .satisfies(observation ->
                         assertThat(observation.whatToCheck()).containsExactly(ExceptionHotspots.GENERIC_CHECK));
@@ -469,7 +471,277 @@ class JournalFactObservationsTests {
                     .first()
                     .satisfies(check -> assertThat(check).contains("paginated in memory"));
             assertThat(observation.whatToCheck()).hasSize(2);
+            assertThat(observation.listed())
+                    .as("a known message is listed by default")
+                    .isTrue();
         });
+    }
+
+    /**
+     * The default list ({@code docs/PLAN-v2.md} M4-19) shows a group seen behind a 5xx, a redirect, or not observed in
+     * the previous run, and collapses the groups seen only behind 4xx responses into one counted row listed last.
+     */
+    @Test
+    void exceptionHotspotsListFailedNewAndRedirectGroupsAndCountThoseOnlyBehind4xx() {
+        RuntimeJournal previousJournal = journal;
+        for (String signature : List.of("s500", "s400", "s200", "s302")) {
+            request(previousJournal, "/api/orders/{id}", 200, exception(signature, "java.lang.IllegalStateException"));
+        }
+        RunSummary previous = summaryOf(previousJournal);
+        journal = journal(JournalSource.all());
+
+        request("/api/orders/{id}", 500, exception("s500", "java.lang.IllegalStateException"));
+        request("/api/orders/{id}", 400, exception("s400", "java.lang.IllegalArgumentException"));
+        request("/api/orders/{id}", 404, exception("s400", "java.lang.IllegalArgumentException"));
+        request("/api/orders/{id}", 200, exception("s200", "java.lang.IllegalStateException"));
+        request("/api/orders/{id}", 400, exception("s200", "java.lang.IllegalStateException"));
+        request("/api/orders/{id}", 302, exception("s302", "java.lang.IllegalStateException"));
+        request("/api/orders/{id}", 400, exception("fresh", "java.lang.UnsupportedOperationException"));
+
+        RuntimeInsightsService service = service(InsightsStack.SPRING_MVC, previous);
+        List<RuntimeObservationDto> hotspots = byKind(service.report(), ExceptionHotspots.KIND);
+        Map<String, RuntimeObservationDto> byGroup = hotspots.stream()
+                .filter(observation -> observation.subject().equals(ORDERS))
+                .collect(Collectors.toMap(
+                        observation -> service.insight(observation.id())
+                                .rows()
+                                .get(0)
+                                .cells()
+                                .get(3),
+                        Function.identity()));
+
+        assertThat(byGroup.get("g-s500").listed()).as("behind a 5xx").isTrue();
+        assertThat(byGroup.get("g-s302").listed())
+                .as("behind a redirect, which no other check reports")
+                .isTrue();
+        assertThat(byGroup.get("g-fresh").listed())
+                .as("not observed in the previous run")
+                .isTrue();
+        assertThat(byGroup.get("g-s400").listed()).isFalse();
+        assertThat(byGroup.get("g-s400").unlistedReason()).isEqualTo(ExceptionHotspots.ONLY_4XX);
+        assertThat(byGroup.get("g-s200").unlistedReason()).isEqualTo(ExceptionHotspots.ONLY_2XX_OR_4XX);
+
+        RuntimeObservationDto counted = hotspots.stream()
+                .filter(observation -> observation.subject().equals(ExceptionHotspots.BEHIND_4XX))
+                .findFirst()
+                .orElseThrow();
+        assertThat(counted.listed()).isTrue();
+        assertThat(counted.sentence())
+                .isEqualTo("1 exception group on 1 route was recorded only behind 4xx responses: 2 occurrences in 2"
+                        + " requests.");
+        assertThat(counted.affected())
+                .as("ranked after the groups it does not collapse")
+                .isZero();
+        assertThat(service.insight(counted.id()).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.cells())
+                        .containsExactly(ORDERS, "IllegalArgumentException", "2", "2", "400, 404"));
+        assertThat(hotspots.indexOf(counted)).isEqualTo(hotspots.size() - 1);
+    }
+
+    /** A completed run's exception is listed when the previous run ran the same job without it. */
+    @Test
+    void anExceptionNewInACompletedScheduledRunIsListed() {
+        RuntimeJournal previousJournal = journal;
+        scheduledRun(previousJournal, "x-0", "Jobs.retry", null, null);
+        RunSummary previous = summaryOf(previousJournal);
+        journal = journal(JournalSource.all());
+        scheduledRun(journal, "x-1", "Jobs.retry", "fresh", null);
+
+        assertThat(byKind(service(null, previous).report(), ExceptionHotspots.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.subject()).isEqualTo("@Scheduled Jobs.retry");
+                    assertThat(observation.sentence()).contains("not observed in the previous run");
+                    assertThat(observation.listed()).isTrue();
+                });
+    }
+
+    private void scheduledRun(
+            RuntimeJournal target, String executionId, String task, String signature, String failure) {
+        CorrelationContext run = CorrelationContext.forExecution(executionId);
+        if (signature != null) {
+            target.offer(RuntimeEvent.of(
+                    JournalSource.EXCEPTION,
+                    1_000,
+                    0,
+                    run,
+                    "sched-1",
+                    null,
+                    false,
+                    new ExceptionPayload("g-" + signature, "java.lang.IllegalStateException", signature)));
+        }
+        target.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                1_000,
+                1_000_000,
+                run,
+                "sched-1",
+                null,
+                failure != null,
+                new ScheduledPayload(task, failure)));
+        try {
+            assertThat(target.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+    }
+
+    @Test
+    void anExceptionInAFailedScheduledRunIsListedAndOneItCaughtIsNot() {
+        CorrelationContext failedRun = CorrelationContext.forExecution("x-failed");
+        journal.offer(RuntimeEvent.of(
+                JournalSource.EXCEPTION,
+                1_000,
+                0,
+                failedRun,
+                "sched-1",
+                null,
+                false,
+                new ExceptionPayload("g-job", "java.lang.IllegalStateException", "job")));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                1_000,
+                1_000_000,
+                failedRun,
+                "sched-1",
+                null,
+                true,
+                new ScheduledPayload("Jobs.sync", "java.lang.IllegalStateException")));
+        CorrelationContext completedRun = CorrelationContext.forExecution("x-completed");
+        journal.offer(RuntimeEvent.of(
+                JournalSource.EXCEPTION,
+                1_000,
+                0,
+                completedRun,
+                "sched-1",
+                null,
+                false,
+                new ExceptionPayload("g-caught", "java.lang.IllegalStateException", "caught")));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                1_000,
+                1_000_000,
+                completedRun,
+                "sched-1",
+                null,
+                false,
+                new ScheduledPayload("Jobs.retry", null)));
+        try {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+
+        Map<String, RuntimeObservationDto> bySubject =
+                byKind(service(null, null).report(), ExceptionHotspots.KIND).stream()
+                        .collect(Collectors.toMap(RuntimeObservationDto::subject, Function.identity()));
+
+        assertThat(bySubject.get("@Scheduled Jobs.sync").listed()).isTrue();
+        assertThat(bySubject.get("@Scheduled Jobs.retry").unlistedReason())
+                .isEqualTo(ExceptionHotspots.CAUGHT_IN_EXECUTION);
+        RuntimeObservationDto caught = bySubject.get(ExceptionHotspots.CAUGHT_IN_RUNS);
+        assertThat(caught.listed())
+                .as("caught exceptions stay counted where the default list shows them")
+                .isTrue();
+        assertThat(caught.sentence())
+                .isEqualTo("1 exception group was recorded in 1 scheduled job or listener whose runs or messages"
+                        + " completed: 1 occurrence in 1 run or message.");
+        assertThat(caught.affected()).isZero();
+    }
+
+    /**
+     * The default list keeps every {@code ERROR} group and the {@code WARN} groups with a specific check, except Spring
+     * MVC's note that it resolved an exception into the 4xx every request answered, and counts the framework errors that
+     * carried no request id in one row of their own (M4-19).
+     */
+    @Test
+    void frameworkWarningsListErrorsAndKnownWarningsAndCountErrorsWithoutARequest() {
+        request(
+                "/api/orders/{id}",
+                200,
+                child(JournalSource.LOG, new LogPayload("org.springframework.web.Some", "WARN", "Odd {}", null)));
+        request(
+                "/api/orders/{id}",
+                400,
+                child(
+                        JournalSource.LOG,
+                        new LogPayload(
+                                "org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver",
+                                "WARN",
+                                "Resolved [{}]",
+                                null)));
+        request(
+                "/api/orders/{id}",
+                500,
+                child(JournalSource.LOG, new LogPayload("org.springframework.web.Some", "ERROR", "Broke {}", null)));
+        for (int i = 0; i < 3; i++) {
+            unownedLog(new LogPayload("org.apache.catalina.core.ContainerBase", "ERROR", "Servlet.service() {}", null));
+        }
+        unownedLog(new LogPayload("org.apache.coyote.http11.Http11Processor", "ERROR", "Error parsing {}", null));
+        unownedLog(new LogPayload("org.apache.coyote.http11.Http11Processor", "WARN", "Slow {}", null));
+        unownedLog(new LogPayload("com.example.Orders", "ERROR", "Application failure {}", null));
+        // Tomcat logs the exception a servlet threw after the request's filters, and so its id, are gone: the last
+        // request on loop-1 answered 500.
+        unownedLog(
+                1_020,
+                "loop-1",
+                new LogPayload("org.apache.catalina.core.StandardWrapperValve", "ERROR", "Servlet.service() {}", null));
+
+        RuntimeInsightsService service = service(null, null);
+        RuntimeObservationDto unowned = byKind(service.report(), FrameworkWarningsByRoute.KIND).stream()
+                .filter(observation -> observation.subject().equals(FrameworkWarningsByRoute.NO_REQUEST))
+                .findFirst()
+                .orElseThrow();
+        assertThat(unowned.listed()).isTrue();
+        assertThat(unowned.sentence())
+                .isEqualTo("Framework loggers wrote 4 `ERROR` events that carried no request or execution id, from 2"
+                        + " messages; the most frequent from `ContainerBase`, 3 times.");
+        assertThat(unowned.eligible()).isZero();
+        assertThat(unowned.affected()).as("ranked by its ERROR events").isEqualTo(4);
+        assertThat(unowned.exemplarRequestIds()).isEmpty();
+        assertThat(service.insight(unowned.id()).rows())
+                .extracting(row -> row.cells().get(2))
+                .containsExactly("3", "1");
+        assertThat(unowned.limitations())
+                .anyMatch(limitation -> limitation.startsWith(
+                        "1 more event written on the thread of a request that failed, within 1000 ms"));
+
+        List<RuntimeObservationDto> routed = byKind(service.report(), FrameworkWarningsByRoute.KIND).stream()
+                .filter(observation -> observation.subject().equals(ORDERS))
+                .toList();
+        assertThat(routed)
+                .filteredOn(observation -> observation.sentence().contains("`ERROR`"))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.listed()).isTrue());
+        assertThat(routed)
+                .filteredOn(observation -> observation.sentence().contains("`Some`")
+                        && observation.sentence().contains("`WARN`"))
+                .singleElement()
+                .satisfies(observation ->
+                        assertThat(observation.unlistedReason()).isEqualTo(FrameworkWarningsByRoute.UNKNOWN_MESSAGE));
+        assertThat(routed)
+                .filteredOn(observation -> observation.sentence().contains("DefaultHandlerExceptionResolver"))
+                .singleElement()
+                .satisfies(observation ->
+                        assertThat(observation.unlistedReason()).isEqualTo(FrameworkWarningsByRoute.RESOLVED_4XX));
+    }
+
+    private void unownedLog(LogPayload log) {
+        unownedLog(1_000, "http-nio-1", log);
+    }
+
+    /** An event without a request or execution id, drained before the projection reads it. */
+    private void unownedLog(long epochMillis, String thread, LogPayload log) {
+        journal.offer(RuntimeEvent.of(JournalSource.LOG, epochMillis, 0, null, thread, null, true, log));
+        try {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
     }
 
     private RuntimeInsightsService service(InsightsStack stack, RunSummary previous) {

@@ -715,6 +715,9 @@ export function insightMarkdown(detail, {title, checkReason} = {}) {
         ? bullet('Counted', `${formatNumber(observation.affected)} of ${formatNumber(observation.eligible)} requests`)
         : null,
       bullet('Linked by', escapeMarkdown(observation.minimumTier)),
+      observation.listed === false
+        ? bullet('Not listed by default', escapeMarkdown(observation.unlistedReason || 'Left out of the default list.'))
+        : null,
       checkReason ? bullet('Check', escapeMarkdown(checkReason)) : null
     ]
       .filter(Boolean)

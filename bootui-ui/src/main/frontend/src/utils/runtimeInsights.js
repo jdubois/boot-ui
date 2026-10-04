@@ -1,14 +1,18 @@
 // Runtime Insights (docs/PLAN-v2.md §5.5): pure helpers the panel uses to group, filter, and summarize the report the
 // engine projects from the runtime journal. They never fetch anything.
 
+/** The garbage collection and heap kinds the Memory panel counts and links to (docs/PLAN-v2.md M4-19). */
+export const MEMORY_KINDS = ['gc-inflated-latency', 'heap-growth-after-gc']
+
 /** The theme chips, in display order, and the observation kinds each one gathers. */
 export const THEMES = [
   {
     id: 'time',
     label: 'Time',
-    kinds: ['route-time-breakdown', 'event-loop-blocking', 'gc-inflated-latency', 'work-after-response']
+    kinds: ['route-time-breakdown', 'event-loop-blocking', 'work-after-response']
   },
-  {id: 'memory', label: 'Memory', kinds: ['heap-growth-after-gc']},
+  // Garbage collection and heap rows are reached from the Memory panel, which links here (docs/PLAN-v2.md M4-19).
+  {id: 'memory', label: 'Memory', kinds: MEMORY_KINDS},
   {
     id: 'queries',
     label: 'Queries',
@@ -51,10 +55,28 @@ export function availableThemes(report) {
 }
 
 /**
- * The observations matching the search text and theme, grouped by check in the report's check order. The search
- * matches the route or subject, the sentence, and the evidence a sentence names, such as a table or a logger.
+ * Whether the default list shows an observation (docs/PLAN-v2.md M4-19). A server that predates the flag lists them
+ * all.
  */
-export function groupObservations(report, {query = '', theme = ''} = {}) {
+export function isListed(observation) {
+  return observation?.listed !== false
+}
+
+/**
+ * Whether an observation is shown under the current filters: listed by default, or every row is asked for with
+ * **Show all routes** or a search, which is explicit intent.
+ */
+function shown(observation, {query = '', all = false, selectedId = null} = {}) {
+  return all || query.trim() !== '' || isListed(observation) || observation.id === selectedId
+}
+
+/**
+ * The observations matching the search text and theme, grouped by check in the report's check order. The search
+ * matches the route or subject, the sentence, and the evidence a sentence names, such as a table or a logger. Without
+ * `all` or a search, only the observations listed by default are shown, and the selected one, so a refresh that leaves
+ * it out never takes it away from the developer; with them, the listed ones stay first.
+ */
+export function groupObservations(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
   const needle = query.trim().toLowerCase()
   const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
   const groups = new Map()
@@ -64,6 +86,7 @@ export function groupObservations(report, {query = '', theme = ''} = {}) {
   for (const observation of report?.observations ?? []) {
     if (theme && themeOf(observation.kind) !== theme) continue
     if (needle && !`${observation.subject} ${observation.sentence}`.toLowerCase().includes(needle)) continue
+    if (!shown(observation, {query, all, selectedId})) continue
     if (!groups.has(observation.kind)) {
       groups.set(observation.kind, {
         kind: observation.kind,
@@ -78,9 +101,32 @@ export function groupObservations(report, {query = '', theme = ''} = {}) {
     .map((group) => ({
       ...group,
       observations: [...group.observations].sort(
-        (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || b.affected - a.affected
+        (a, b) =>
+          Number(!isListed(a)) - Number(!isListed(b)) ||
+          (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
+          b.affected - a.affected
       )
     }))
+}
+
+/**
+ * The observations the current filters leave out only because the default list does not show them, counted per check
+ * in the report's check order, so the panel can say what **Show all routes** would add. Empty when every row is shown.
+ */
+export function unlistedSummary(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
+  if (all || query.trim() !== '') return {total: 0, groups: []}
+  const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
+  const counts = new Map()
+  for (const observation of report?.observations ?? []) {
+    if (isListed(observation) || observation.id === selectedId) continue
+    if (theme && themeOf(observation.kind) !== theme) continue
+    counts.set(observation.kind, (counts.get(observation.kind) ?? 0) + 1)
+  }
+  const order = (report?.checks ?? []).map((check) => check.kind)
+  const groups = [...counts.entries()]
+    .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+    .map(([kind, count]) => ({kind, title: titles.get(kind) ?? kind, count}))
+  return {total: groups.reduce((sum, group) => sum + group.count, 0), groups}
 }
 
 // Garbage collections belong to the JVM, never to one request: a request's pauses are joined to it by collection id.
