@@ -17,7 +17,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import java.util.function.LongSupplier;
 
 /**
@@ -228,7 +230,8 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
      * One task running in its request's context. The bridge tells it the task's failure, if any, then closes it, which
      * restores the worker's previous context and then publishes the handoff.
      */
-    final class Handoff implements AutoCloseable, Consumer<Throwable> {
+    final class Handoff
+            implements AutoCloseable, Consumer<Throwable>, BiConsumer<Throwable, Boolean>, IntConsumer, Runnable {
 
         private final CorrelationContext context;
         private final String parentExecutionId;
@@ -245,6 +248,13 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
         private volatile long key = RunningHandoffs.NONE;
         private volatile String exceptionClass;
         private volatile boolean failed;
+        private Boolean bodyAfterResponse;
+        private Long bodyAfterResponseMicros;
+        private boolean bodyEnded;
+        private Boolean failureAfterResponse;
+        private Boolean earlyOutcomeAfterResponse;
+        private boolean nestedPublication;
+        private Boolean responseBeforeNestedPublication;
 
         private Handoff(
                 CorrelationContext context,
@@ -272,10 +282,77 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
         /** Remembers the task's failure: its class only, never its message. */
         @Override
         public void accept(Throwable failure) {
+            accept(failure, true);
+        }
+
+        @Override
+        public void accept(Throwable failure, Boolean bodyFailure) {
             if (failure != null) {
                 failed = true;
                 exceptionClass = failure.getClass().getName();
+                if (Boolean.TRUE.equals(bodyFailure)) {
+                    failureAfterResponse =
+                            earlyOutcomeAfterResponse != null ? earlyOutcomeAfterResponse : bodyAfterResponse;
+                } else {
+                    long failureAt = startMicros() + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L;
+                    RequestPhases.Markers markers =
+                            context.requestId() == null || phases == null ? null : phases.markers(context.requestId());
+                    Long responseAt = markers == null
+                            ? null
+                            : markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
+                    failureAfterResponse = markers == null
+                            ? null
+                            : responseAt != null
+                                    && failureAt - responseAt >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS;
+                }
             }
+        }
+
+        /** Records an explicit early outcome without confusing it with the body's later return. */
+        @Override
+        public void accept(int marker) {
+            if (marker != 1 && marker != 2) {
+                throw new IllegalArgumentException("Unknown task publication marker: " + marker);
+            }
+            if (marker == 2 && nestedPublication) {
+                return;
+            }
+            RequestPhases.Markers markers =
+                    context.requestId() == null || phases == null ? null : phases.markers(context.requestId());
+            Boolean afterResponse = markers == null ? null : markers.responseAt() != null || markers.endedAt() != null;
+            if (marker == 1) {
+                earlyOutcomeAfterResponse = afterResponse;
+            } else {
+                nestedPublication = true;
+                responseBeforeNestedPublication = afterResponse;
+            }
+        }
+
+        /** Called before normal result publication, or at a raw/early-published task body's own return. */
+        @Override
+        public void run() {
+            if (bodyEnded) {
+                return;
+            }
+            bodyEnded = true;
+            RequestPhases.Markers markers =
+                    context.requestId() == null || phases == null ? null : phases.markers(context.requestId());
+            if (markers == null) {
+                return;
+            }
+            Long responseAt = markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
+            long endMicros = startMicros() + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L;
+            // No marker yet is an ordering fact, not a comparison between clocks on different threads.
+            bodyAfterResponse = responseAt != null
+                    && (!nestedPublication
+                            || Boolean.TRUE.equals(responseBeforeNestedPublication)
+                            || endMicros - responseAt >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS);
+            bodyAfterResponseMicros =
+                    !bodyAfterResponse ? 0L : Math.max(0, endMicros - Math.max(startMicros(), responseAt));
+        }
+
+        private long startMicros() {
+            return start.getEpochSecond() * 1_000_000L + start.getNano() / 1_000L;
         }
 
         @Override
@@ -336,15 +413,16 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                     : null;
             Boolean afterResponse = null;
             Long afterResponseMicros = null;
+            Long responseAt = null;
             if (context.requestId() != null && phases != null) {
                 RequestPhases.Markers markers = phases.markers(context.requestId());
                 // The response's start, else the request's end when its adapter marked no response, as for a failed
                 // handler.
-                Long responseAt = markers == null
+                responseAt = markers == null
                         ? null
                         : markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
                 if (responseAt != null) {
-                    long startMicros = start.getEpochSecond() * 1_000_000L + start.getNano() / 1_000L;
+                    long startMicros = startMicros();
                     long endMicros = startMicros + durationNanos / 1_000L;
                     afterResponse = endMicros > responseAt;
                     afterResponseMicros = afterResponse ? endMicros - Math.max(startMicros, responseAt) : 0L;
@@ -367,7 +445,11 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                     exceptionClass,
                     afterResponse,
                     afterResponseMicros,
-                    HandoffWindow.capped(durationNanos, maxHandoffNanos));
+                    HandoffWindow.capped(durationNanos, maxHandoffNanos),
+                    bodyAfterResponse,
+                    bodyAfterResponseMicros,
+                    responseAt,
+                    failureAfterResponse);
             journal.offer(RuntimeEvent.of(
                     JournalSource.AGENT_EXECUTORS,
                     start.toEpochMilli(),

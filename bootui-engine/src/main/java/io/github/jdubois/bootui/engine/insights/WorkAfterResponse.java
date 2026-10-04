@@ -28,13 +28,6 @@ public final class WorkAfterResponse implements Observation {
 
     static final int MIN_REQUESTS = 1;
 
-    /**
-     * How much later than the response a handoff's work must read to have surely ended after it. Events start at
-     * millisecond precision: the recovered response start can read up to a millisecond early, and a child's end, its
-     * start derived from its whole-millisecond duration, up to a millisecond early or late.
-     */
-    private static final long TIMESTAMP_SLACK_MICROS = 2_000L;
-
     static final String REQUIRES_AGENT = "This observation requires the BootUI agent's executors sensor, which"
             + " propagates the work a request hands to an executor as its own: start the application with"
             + " -javaagent:bootui-agent.jar (see the Java Agent panel).";
@@ -117,15 +110,21 @@ public final class WorkAfterResponse implements Observation {
                                     requestEndMillis(request), event.epochMillis(), maxHandoffMillis)) {
                         continue;
                     }
-                    if (!afterResponse(request, event, handoff)) {
+                    if (!Boolean.TRUE.equals(handoff.bodyAfterResponse())
+                            && !Boolean.TRUE.equals(handoff.failureAfterResponse())
+                            && !afterResponse(request, event, handoff)) {
                         continue;
                     }
-                    Work work = work(request, event, handoff, responseStartMicros(request, event, handoff));
-                    if (work.empty() && !handoff.failed()) {
+                    Work work = work(request, event, handoff);
+                    boolean failedAfterResponse = handoff.failed()
+                            && (handoff.failureAfterResponse() != null
+                                    ? handoff.failureAfterResponse()
+                                    : !Boolean.FALSE.equals(handoff.bodyAfterResponse()));
+                    if (work.empty() && !failedAfterResponse) {
                         continue;
                     }
                     affected = true;
-                    if (handoff.failed()) {
+                    if (failedAfterResponse) {
                         failed++;
                     }
                     rows.add(List.of(
@@ -133,9 +132,15 @@ public final class WorkAfterResponse implements Observation {
                             InsightText.simpleName(handoff.taskClass()),
                             work.describe(),
                             handoff.failed()
-                                    ? "failed: " + InsightText.simpleName(handoff.exceptionClass())
+                                    ? (failedAfterResponse ? "failed: " : "failed before response: ")
+                                            + InsightText.simpleName(handoff.exceptionClass())
                                     : handoff.capped() ? "still running at the handoff deadline" : "completed",
-                            millis(afterResponseMicros(request, event, handoff)) + " ms"));
+                            millis(
+                                            Boolean.TRUE.equals(handoff.bodyAfterResponse())
+                                                            && handoff.bodyAfterResponseMicros() != null
+                                                    ? handoff.bodyAfterResponseMicros()
+                                                    : afterResponseMicros(request, event, handoff))
+                                    + " ms"));
                 }
                 if (affected) {
                     exemplars.add(request.requestId());
@@ -189,14 +194,14 @@ public final class WorkAfterResponse implements Observation {
     }
 
     /**
-     * From when the handoff's work counts as after the response: the response's start, recovered from the handoff's
-     * time after it, or, when that is unknown, the request's end.
+     * The actual response boundary, or the request's end when it is unknown. Never recover it by subtracting the
+     * handoff's time after the response: for a late-starting task that subtraction gives the task's start instead.
      */
     private static long responseStartMicros(ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff) {
-        if (handoff.afterResponse() != null && handoff.afterResponseMicros() != null) {
-            return endMicros(event) - handoff.afterResponseMicros();
+        if (handoff.responseAtMicros() != null) {
+            return handoff.responseAtMicros();
         }
-        return Math.max(event.epochMillis() * 1_000L, requestEndMicros(request));
+        return requestEndMicros(request);
     }
 
     private static long endMicros(RuntimeEvent event) {
@@ -212,13 +217,11 @@ public final class WorkAfterResponse implements Observation {
     }
 
     /**
-     * What the handoff recorded under its execution id within max-handoff of its start and that ended after
-     * {@code afterMicros} by at least {@link #TIMESTAMP_SLACK_MICROS}. A task the handler waited for releases the
-     * handler before its handoff closes, so the handoff can end just after the response while all of its work ended
-     * before: only the work itself is timed, and work ending within the timestamps' precision of the response cannot be
-     * told from work that ended before it.
+     * All attributed I/O is evidence when the task body ended after the response, including earlier writes followed
+     * by computation. Otherwise only late I/O counts: a waited-for task can close its handoff late, and synchronous
+     * dependent stages or FutureTask.done() can perform genuine work after publishing the result.
      */
-    private Work work(ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff, long afterMicros) {
+    private Work work(ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff) {
         int sql = 0;
         int rest = 0;
         int messages = 0;
@@ -227,7 +230,10 @@ public final class WorkAfterResponse implements Observation {
                     || handoff.executionId() == null
                     || !handoff.executionId().equals(child.executionId())
                     || !HandoffWindow.attributed(event.epochMillis(), child.epochMillis(), maxHandoffMillis)
-                    || endMicros(child) < afterMicros + TIMESTAMP_SLACK_MICROS) {
+                    || (!Boolean.TRUE.equals(handoff.bodyAfterResponse())
+                            && endMicros(child)
+                                    < responseStartMicros(request, event, handoff)
+                                            + HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS)) {
                 continue;
             }
             if (child.payload() instanceof SqlPayload) {
