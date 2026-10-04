@@ -9,8 +9,10 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -206,6 +208,43 @@ class RuntimeInsightsSeedsTest {
                 .extracting(payload -> ((WebSocketPayload) payload).destination())
                 .as("each room is one template, never one destination per room")
                 .containsOnly("/app/insights/rooms/{room}/orders", "/app/insights/rooms/{room}/orders-joined");
+    }
+
+    /**
+     * The cross-observation check on the sample's counterexamples (M4-18e): a route seeded as one kind's counterexample
+     * fires no kind but those its own work justifies, not only no instance of the kind it stands beside. The sample
+     * serves its seeds anonymously, so each write it commits is a fact of {@code anonymous-data-reach}. The engine's
+     * {@code ObservationHonestyHarnessTests} replays the same shapes with incomplete evidence.
+     */
+    @Test
+    void aCounterexampleRouteFiresOnlyTheKindsItsOwnWorkJustifies() {
+        Set<String> anonymousWrite = Set.of("anonymous-data-reach");
+        Map<String, Set<String>> justified = new LinkedHashMap<>();
+        justified.put("GET /api/insights/orders/joined", Set.of());
+        justified.put("GET /api/sample/products", Set.of());
+        justified.put("POST /api/insights/orders/{id}/ship", anonymousWrite);
+        justified.put("GET /api/insights/orders/{id}/price-check-after-commit", Set.of());
+        justified.put("POST /api/insights/orders/{id}/recalculate-through-bean", anonymousWrite);
+        justified.put("POST /api/insights/orders/{id}/notify-in-transaction", anonymousWrite);
+        // Its AFTER_COMMIT listener writes in a REQUIRES_NEW transaction while the committed one still holds its
+        // connection: two connections at once and two independent units, which is why it is not an after-commit write.
+        justified.put(
+                "POST /api/insights/orders/{id}/restore",
+                Set.of("anonymous-data-reach", "connections-per-request", "split-transaction-writes"));
+        justified.put("POST /api/insights/tags/read-then-write", anonymousWrite);
+        justified.put("consume websocket:/app/insights/rooms/{room}/orders-joined", Set.of());
+
+        assertThat(observations)
+                .filteredOn(observation ->
+                        justified.containsKey(observation.path("subject").asText()))
+                .filteredOn(observation -> !observation.path("status").asText().equals("INSUFFICIENT"))
+                .filteredOn(observation -> !justified
+                        .get(observation.path("subject").asText())
+                        .contains(observation.path("kind").asText()))
+                .extracting(observation -> observation.path("kind").asText() + " on "
+                        + observation.path("subject").asText() + ": "
+                        + observation.path("sentence").asText())
+                .isEmpty();
     }
 
     private long handledMessages() throws InterruptedException {

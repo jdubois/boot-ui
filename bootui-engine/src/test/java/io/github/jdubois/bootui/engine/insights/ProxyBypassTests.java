@@ -95,6 +95,37 @@ class ProxyBypassTests {
     }
 
     @Test
+    void aRequestThatLostItsCacheAccessToAClearIsLeftOutRatherThanReportedAsBypassed() throws InterruptedException {
+        CorrelationContext context = CorrelationContext.forRequest("r1");
+        journal.offer(RuntimeEvent.of(
+                JournalSource.CACHE, 5_001, 0, context, "http-1", null, false, new CachePayload("prices", "MISS")));
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        // Clear recording while the request is still running: its cache access is gone, its statement is not.
+        journal.clear();
+        Child statement = sql(1_000, "http-1", PRICE);
+        journal.offer(RuntimeEvent.of(
+                statement.source(), 5_002, statement.nanos(), context, "http-1", null, false, statement.payload()));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                5_000,
+                5_000_000,
+                context,
+                "http-1",
+                null,
+                false,
+                new HttpPayload("GET", "/api/prices", "/api/prices", null, 200)));
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+        RuntimeInsightsReportDto report = report();
+
+        assertThat(byKind(report)).isEmpty();
+        assertThat(report.window().requests()).isZero();
+        assertThat(report.limitations())
+                .contains("1 request or execution started before events the journal evicted or cleared, so it is left"
+                        + " out: some of its events may be missing.");
+    }
+
+    @Test
     void itDoesNotApplyOnQuarkusWithoutAResolverOrWhenTheResolverSaysWhy() {
         request("POST", "/api/orders", "http-1", List.of(sql(1_000, "http-1", REPOSITORY, PLACE, CHECKOUT)));
 

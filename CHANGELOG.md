@@ -494,6 +494,17 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Runtime Insights no longer judges a request that lost events to eviction or a clear.** A request or execution that
+  started before an event the runtime journal evicted, could not fit, or cleared (**Clear recording** while it ran) was
+  projected with only the events it kept, so `proxy-bypass` reported a `@Cacheable` method as bypassed when the
+  request's cache access was the event it lost. Such work is now left out whole, with a limitation counting it, on
+  Spring MVC, Spring WebFlux, and Quarkus; a partial check's reason no longer calls its counts a floor, since a dropped
+  transaction or cache access can make a finding appear. A cross-observation counterexample harness now replays every
+  observation kind's seeded case and counterexamples against every kind, with each event dropped in turn, the
+  recording cleared and the ring overflowing at every point, and each stack, SQL capture, source, and panel missing;
+  every kind passes it, including D29's four ([Runtime Insights](docs/features/overview.md#runtime-insights),
+  PLAN-v2 §2.2, M4-18e).
+
 - **Code Paths overhead under load.** With more than 512 request trees open, as under sustained load, the engine settled
   the eldest one tree at a time, reading the whole runtime journal once per request on BootUI's drain thread: 15 % of
   the process's CPU in a profile of the sample under the agent overhead benchmark's load. The eldest quarter now settle

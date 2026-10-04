@@ -49,6 +49,13 @@ final class EvidenceRing {
      */
     private final LinkedHashSet<String> evictedRequestTraces = new LinkedHashSet<>();
 
+    /**
+     * The latest start, by the wall clock, of an event of a request, an execution, or a trace that the ring lost to
+     * eviction, to the byte bound, or to a clear; {@link Long#MIN_VALUE} while it lost none. A unit of work that started
+     * after it cannot have lost an event, since its events start no earlier than it does ({@link #lossHorizonMillis}).
+     */
+    private long lossHorizonMillis = Long.MIN_VALUE;
+
     EvidenceRing(int maxEvents, long maxBytes, int reservedSharePercent, LongSupplier externalBytes) {
         this.maxEvents = Math.max(1, maxEvents);
         this.maxBytes = Math.max(1, maxBytes);
@@ -59,6 +66,7 @@ final class EvidenceRing {
     synchronized void add(JournalEntry entry) {
         if (entry.estimatedBytes() + externalBytes.getAsLong() > maxBytes) {
             rememberEvictedRequest(entry.event());
+            lost(entry.event());
             lastBound = Bound.BYTES;
             evictedByBytes++;
             while (size() > 0 && retainedBytes + externalBytes.getAsLong() > maxBytes) {
@@ -87,6 +95,7 @@ final class EvidenceRing {
         JournalEntry evicted = evictOne();
         retainedBytes -= evicted.estimatedBytes();
         rememberEvictedRequest(evicted.event());
+        lost(evicted.event());
         lastBound = bound;
         if (bound == Bound.COUNT) {
             evictedByCount++;
@@ -118,6 +127,23 @@ final class EvidenceRing {
         }
     }
 
+    /** Moves the loss horizon past {@code event} when it belonged to a request, an execution, or a trace. */
+    synchronized void lost(RuntimeEvent event) {
+        if (event != null
+                && (event.requestId() != null || event.executionId() != null || event.traceId() != null)
+                && event.epochMillis() > lossHorizonMillis) {
+            lossHorizonMillis = event.epochMillis();
+        }
+    }
+
+    /**
+     * The latest start of an event of a unit of work the ring lost, or {@code null} while it lost none: a request or an
+     * execution that started then or before may have lost some of its events, so it is incomplete evidence.
+     */
+    synchronized Long lossHorizonMillis() {
+        return lossHorizonMillis == Long.MIN_VALUE ? null : lossHorizonMillis;
+    }
+
     /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */
     synchronized boolean evictedARequestOf(String traceId) {
         return traceId != null && evictedRequestTraces.contains(traceId);
@@ -127,8 +153,13 @@ final class EvidenceRing {
         return routine.size() + reserved.size();
     }
 
-    /** Drops every retained event. Eviction counts are kept: they report events lost to the bounds since startup. */
+    /**
+     * Drops every retained event. Eviction counts are kept: they report events lost to the bounds since startup. The
+     * loss horizon moves past them, since a request still running loses the events it recorded before the clear.
+     */
     synchronized void clear() {
+        routine.forEach(entry -> lost(entry.event()));
+        reserved.forEach(entry -> lost(entry.event()));
         routine.clear();
         reserved.clear();
         evictedRequestTraces.clear();

@@ -709,6 +709,12 @@ they conservatively mark checks that examine consumed messages partial.
 Collection checks and `changed-code-not-executed`, which reads Code Inventory rather than the journal,
 do not read execution completion events and are not made partial by their drops.
 A new drop refreshes the report, coverage, and observation details even before another event is dispatched.
+A drop can hide a finding or make one appear, such as a statement whose transaction or cache access was dropped, so a
+partial finding is never read as a floor. A request or execution that started before an event the journal evicted or
+**Clear recording** removed may be missing some of its own events, so it is left out whole, with a limitation counting
+it, rather than judged on what was left of it. This includes a failed or slow request the journal kept in its reserved
+share after its routine events were evicted: its exception and response stay in Live Activity, but Runtime Insights no
+longer judges it.
 Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
 three exemplar request ids to open in Live Activity, and at most 20 evidence rows. When BootUI changed something during the
 window, the report names it among its limitations, and a finding whose evidence names the logger, cache, or key that a

@@ -85,6 +85,24 @@ class WebFluxRuntimeInsightsSeedsTest {
                 .doesNotContain("GET /api/insights/notes/at-once", "GET /api/notes");
     }
 
+    /**
+     * The cross-observation check on the WebFlux sample's counterexamples (M4-18e): JDBC offloaded to boundedElastic,
+     * one statement for every note, and an asynchronous client fire no kind at all.
+     */
+    @Test
+    void noObservationOfAnyKindFiresOnACounterexampleRoute() {
+        List<String> counterexamples =
+                List.of("GET /api/notes", "GET /api/insights/notes/at-once", "GET /api/sample/rest-client");
+        assertThat(observations)
+                .filteredOn(observation ->
+                        counterexamples.contains(observation.path("subject").asText()))
+                .filteredOn(observation -> !observation.path("status").asText().equals("INSUFFICIENT"))
+                .extracting(observation -> observation.path("kind").asText() + " on "
+                        + observation.path("subject").asText() + ": "
+                        + observation.path("sentence").asText())
+                .isEmpty();
+    }
+
     @Test
     void eachMessageTheEchoHandlerReceivesIsAnExecutionNamedByItsMapping() throws Exception {
         new ReactorNettyWebSocketClient()

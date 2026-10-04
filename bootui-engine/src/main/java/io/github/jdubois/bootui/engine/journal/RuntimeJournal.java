@@ -354,6 +354,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 events.add(queued.event());
             }
         }
+        for (Queued queued : batch) {
+            if (queued.clears() != generation && queued.event() != null) {
+                ring.lost(queued.event());
+            }
+        }
         processed.addAndGet(batch.size() - events.size());
         if (!events.isEmpty()) {
             process(events);
@@ -494,6 +499,16 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return ring.evictedARequestOf(traceId);
     }
 
+    /**
+     * The latest start, by the wall clock, of an event of a request, an execution, or a trace that the journal evicted,
+     * could not fit, or cleared, or {@code null} while it lost none. A request or an execution that started then or
+     * before may be missing some of its events, so a reader that judges what a unit did not do leaves it out; one that
+     * started later is complete, since its events start no earlier than it does.
+     */
+    public Long lossHorizonMillis() {
+        return ring.lossHorizonMillis();
+    }
+
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);
@@ -550,6 +565,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             detached.queue.offer(Queued.WAKE_UP);
             processed.addAndGet(queued.size());
             long dropped = ring.counts().retained() + queued.size();
+            for (Queued cleared : queued) {
+                if (cleared.event() != null) {
+                    ring.lost(cleared.event());
+                }
+            }
             ring.clear();
             dictionary.clear();
             SqlShapes.clear();

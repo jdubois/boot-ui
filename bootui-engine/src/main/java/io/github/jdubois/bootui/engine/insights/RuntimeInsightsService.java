@@ -56,6 +56,13 @@ import java.util.function.Supplier;
  */
 public final class RuntimeInsightsService {
 
+    /**
+     * How long after the journal's loss horizon a request or an execution may still have lost an event: a messaging or
+     * WebSocket anchor's start is derived from its end and duration in whole milliseconds, and a wall clock can be that
+     * coarse, so an anchor can read a little later than its first child.
+     */
+    static final long LOSS_HORIZON_SLACK_MILLIS = 16;
+
     /** The evidence rows an observation's detail returns at most. */
     public static final int MAX_EVIDENCE_ROWS = 20;
 
@@ -671,13 +678,19 @@ public final class RuntimeInsightsService {
      * the disabled panel's evidence, and keeping the opening event to carry its children would publish exactly that.
      * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
      */
-    private VisibleEntries visibleEntries(List<JournalEntry> entries, PanelVisibility visibility) {
+    private VisibleEntries visibleEntries(List<JournalEntry> entries, PanelVisibility visibility, Long lossHorizon) {
         Set<String> hidden = new HashSet<>();
+        Set<String> incomplete = new HashSet<>();
         Map<ProjectedRequest.Kind, Set<String>> hiddenPanels = new EnumMap<>(ProjectedRequest.Kind.class);
         AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
+            if (anchorsAUnitOfWork(event) && visibility.visible(event) && beforeLoss(event, lossHorizon)) {
+                // It started before an event the journal lost, which may have been its own: judging it would read a
+                // missing transaction, cache access, or decision as one that never happened.
+                incomplete.add(unitOf(event));
+            }
             if (anchorsAUnitOfWork(event) && !visibility.visible(event)) {
                 hidden.add(unitOf(event));
                 ProjectedRequest.Kind kind = event.requestId() != null
@@ -697,12 +710,16 @@ public final class RuntimeInsightsService {
                 continue;
             }
             String unit = unitOf(event);
-            if (unit != null && hidden.contains(unit)) {
+            if (unit != null && (hidden.contains(unit) || incomplete.contains(unit))) {
                 continue;
             }
             if (AiCallOwners.linksByTrace(event)) {
+                if (beforeLoss(event, lossHorizon)) {
+                    // Its request may be the one whose events were lost, so it is attributed to none.
+                    continue;
+                }
                 String owner = aiCallOwners.ownerOf(event);
-                if (owner != null && hidden.contains("request:" + owner)) {
+                if (owner != null && (hidden.contains("request:" + owner) || incomplete.contains("request:" + owner))) {
                     continue;
                 }
             }
@@ -710,7 +727,12 @@ public final class RuntimeInsightsService {
         }
         Map<ProjectedRequest.Kind, List<String>> panelsByKind = new EnumMap<>(ProjectedRequest.Kind.class);
         hiddenPanels.forEach((kind, panels) -> panelsByKind.put(kind, List.copyOf(panels)));
-        return new VisibleEntries(visible, Map.copyOf(panelsByKind));
+        return new VisibleEntries(visible, Map.copyOf(panelsByKind), incomplete.size());
+    }
+
+    /** Whether {@code event} started early enough that its unit of work may have lost an event. */
+    private static boolean beforeLoss(RuntimeEvent event, Long lossHorizon) {
+        return lossHorizon != null && event.epochMillis() <= lossHorizon + LOSS_HORIZON_SLACK_MILLIS;
     }
 
     private static boolean anchorsAUnitOfWork(RuntimeEvent event) {
@@ -740,7 +762,7 @@ public final class RuntimeInsightsService {
         } catch (RuntimeException ex) {
             resolver = RouteTemplateResolver.empty();
         }
-        VisibleEntries projected = visibleEntries(entries, visibility);
+        VisibleEntries projected = visibleEntries(entries, visibility, journal.lossHorizonMillis());
         InsightsSnapshot snapshot = InsightsSnapshot.of(
                         projected.entries(),
                         status,
@@ -850,6 +872,14 @@ public final class RuntimeInsightsService {
         if (evicted > 0) {
             limitations.add("The journal evicted " + evicted + " older events, so requests before "
                     + "the oldest retained event are not projected.");
+        }
+        if (projected.incomplete() > 0) {
+            limitations.add(
+                    projected.incomplete() == 1
+                            ? "1 request or execution started before events the journal evicted or cleared, so it is"
+                                    + " left out: some of its events may be missing."
+                            : projected.incomplete() + " requests or executions started before events the journal"
+                                    + " evicted or cleared, so they are left out: some of their events may be missing.");
         }
         String nonHttp = nonHttpExecutions(snapshot);
         if (nonHttp != null) {
@@ -1114,7 +1144,8 @@ public final class RuntimeInsightsService {
         long dropped = sources.stream().mapToLong(snapshot::dropped).sum();
         return dropped == 0
                 ? null
-                : "The journal dropped " + dropped + " events this observation reads, so its counts are a floor.";
+                : "The journal dropped " + dropped + " events this observation reads, so its findings are"
+                        + " incomplete: a dropped event can hide a finding, or make one appear.";
     }
 
     private static void addAnchor(Set<JournalSource> sources, JournalSource source, InsightsSnapshot snapshot) {
@@ -1134,7 +1165,11 @@ public final class RuntimeInsightsService {
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
 
-    private record VisibleEntries(List<JournalEntry> entries, Map<ProjectedRequest.Kind, List<String>> panelsByKind) {
+    /**
+     * @param incomplete the requests and executions left out because they started before an event the journal lost
+     */
+    private record VisibleEntries(
+            List<JournalEntry> entries, Map<ProjectedRequest.Kind, List<String>> panelsByKind, int incomplete) {
         List<String> hiddenPanels(Observation observation) {
             Set<String> names = new LinkedHashSet<>();
             for (ProjectedRequest.Kind kind : ProjectedRequest.Kind.values()) {
