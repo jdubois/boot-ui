@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -35,6 +36,8 @@ public final class RequestPhaseInterceptor implements HandlerInterceptor {
     }
 
     private void mark(RequestPhase phase) {
+        // Where the BootUI agent's code-paths nodes record the phase they entered in (docs/PLAN-v2.md M5-4a).
+        AgentCodePaths.phase(phase);
         try {
             phases.mark(BootUiCorrelation.current().requestId(), phase);
         } catch (RuntimeException ex) {

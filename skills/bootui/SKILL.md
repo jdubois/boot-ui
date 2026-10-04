@@ -135,6 +135,7 @@ bootui tools                                   # what this application actually 
 bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
+bootui code paths --json                        # with the agent: which methods each route spends its time in
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -182,6 +183,16 @@ and route that ran it. A changed method still `NEVER_EXECUTED` has not run yet: 
 reaches it and read the inventory again before claiming the change works, or say plainly that it did not run.
 `NOT_TRACKED` is not evidence either way. Without the agent the command is not available here (exit code `2` or an
 unknown tool): `bootui agent status --json` says why.
+
+### Find where a slow route's handler time goes
+
+With the agent attached, run `bootui code paths --json` (`get_code_paths`): routes ranked by their warm median, each
+with its top application methods by self time per request. Pass a route as `--query` (for example
+`"GET /api/orders/{id}"`) to get that route's method nodes with the most self time. A method's self time still includes
+the SQL and REST calls it waited on, so read it beside `bootui insights list --json`, whose `route-time-breakdown` names
+the same methods in the handler split. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or
+asynchronous result, or BootUI could not tell where its work ran: its tree times assembly, not the work, so do not
+optimize from it.
 
 ### Read MySQL operational evidence
 

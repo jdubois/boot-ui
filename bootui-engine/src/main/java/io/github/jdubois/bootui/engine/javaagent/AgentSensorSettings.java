@@ -5,14 +5,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3): which sensors to
+ * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3, M5-4a): which sensors to
  * install ({@code bootui.agent.sensors}), for the {@code executors} and {@code threads} sensors which tasks and threads
  * to leave alone because they already propagate their context ({@code bootui.agent.executors.skip-tasks},
  * {@code bootui.agent.executors.skip-threads}) and how long a handoff's work is attributed to its request
  * ({@code bootui.agent.executors.max-handoff}), and the capacity of the agent's transport ring
  * ({@code bootui.agent.ring-capacity}).
  *
- * @param sensors the sensors to install: {@code executors} and {@code inventory}, and the opt-in {@code threads}
+ * @param sensors the sensors to install: {@code executors}, {@code inventory}, and {@code code-paths}, and the opt-in
+ *     {@code threads}
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -37,8 +38,14 @@ public record AgentSensorSettings(
      */
     public static final String INVENTORY = "inventory";
 
+    /**
+     * The sensor timing the application's bean methods per request (M5-4a), on by default (D21): it shares the
+     * inventory sensor's transformer.
+     */
+    public static final String CODE_PATHS = "code-paths";
+
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY);
+    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS);
 
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;
@@ -121,6 +128,11 @@ public record AgentSensorSettings(
     /** Whether the {@code inventory} sensor is asked for. */
     public boolean inventory() {
         return sensors.contains(INVENTORY);
+    }
+
+    /** Whether the {@code code-paths} sensor is asked for. */
+    public boolean codePaths() {
+        return sensors.contains(CODE_PATHS);
     }
 
     /** Whether the {@code executors} sensor is asked for. */

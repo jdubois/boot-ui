@@ -76,6 +76,7 @@ public final class BootUiPanels {
     public static final String ACTIVITY = "activity";
     public static final String RUNTIME_INSIGHTS = "runtime-insights";
     public static final String CODE_INVENTORY = "code-inventory";
+    public static final String CODE_PATHS = "code-paths";
     public static final String EMAIL = "email";
     public static final String KAFKA = "kafka";
     public static final String RABBITMQ = "rabbitmq";
@@ -152,6 +153,7 @@ public final class BootUiPanels {
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
             new Panel(RUNTIME_INSIGHTS, "Runtime Insights", true, "/runtime-insights"),
             new Panel(CODE_INVENTORY, "Code Inventory", false, "/code-inventory"),
+            new Panel(CODE_PATHS, "Code Paths", false, "/code-paths"),
             new Panel(EMAIL, "Email", true, "/email"),
             new Panel(KAFKA, "Kafka", true, "/kafka"),
             new Panel(RABBITMQ, "RabbitMQ", true, "/rabbitmq"),

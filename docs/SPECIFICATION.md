@@ -694,6 +694,49 @@ Acceptance criteria:
   the requests sent.
 - A seeded never-called method is never executed, and a declared jar the sample never loads is not loaded in this run.
 
+### 5.7.4 Code Paths
+
+Purpose: answer "Which of my methods does this route spend its time in?"
+
+Data sources:
+
+- The BootUI agent's `code-paths` sensor through the bootstrap bridge: per-thread fragments of each request's call tree
+  of application bean methods, merged by the engine into request trees and, once settled, into one route tree per route
+  and run (per node: requests, calls, total and self time, and a 32-bucket log2 histogram of per-request time with its
+  least and most).
+- The runtime journal's `http` events, which name each request's route and outcome.
+- The adapters' marks of requests whose handler only assembled its result: a Spring MVC request that started async
+  processing, and a Quarkus resource method on the event loop or returning `Uni`, `Multi`, `CompletionStage`, or a
+  publisher, or one Quarkus could not identify, in a bounded lock-free set; Spring WebFlux marks every request once,
+  for the whole stack.
+
+Features:
+
+- Routes ranked by warm median, each with its warm requests, first recorded request, median, 95th percentile, and top
+  methods by self time; assembly-only routes labelled (a handler on an event loop, returning a reactive or asynchronous
+  result, or whose work BootUI could not place).
+- The selected route's tree as an indented table: method, calls per request, total, self, an approximate (≈) median from
+  log2 buckets, share of the handler (of the request when no handler phase is known), and a share bar; asynchronous
+  children marked and kept apart; an Other node per parent past the budget (2,000 nodes a route, 100,000 and 500 routes
+  a run).
+- Selecting a method shows its callers within the tree and the routes that reach it.
+- The methods adaptively excluded in this run, with why.
+- `route-time-breakdown` splits a route's handler work into its top five handler-phase methods by self time, the rest as
+  other handler time, unless its tree is assembly only or its recorded calls take 10 % of the handler phase or more
+  (until call sites are stamped, a method's self time includes the calls it waited on); the parts never exceed the
+  handler work, and a limitation says which applies.
+- `GET /bootui/api/code-paths`, `/code-paths/route?route=` (paged by `depth`, `offset`, and `limit`), and
+  `/code-paths/requests/{requestId}`; `get_code_paths` and `bootui code paths` take `query` (a route, or part of a route
+  or method) and `limit`.
+
+Acceptance criteria:
+
+- The panel is view-only on Spring MVC, Spring WebFlux, and Quarkus; it is available while the agent's code-paths sensor
+  records this run and otherwise unavailable with the Java Agent panel's reason, and every read answers the same
+  `available: false` shape.
+- On the Spring sample with the agent, the seeded slow route's breakdown names `SlowPricingService.quote`, and the route
+  tree's handler-phase time reconciles with the handler phase within 5 %.
+
 ### 5.8 Startup Timeline
 
 Purpose: answer "What made startup slow?"
@@ -2896,6 +2939,9 @@ Initial endpoints:
 | `/bootui/api/code-inventory/changes`         | GET    | Paged methods changed or added since the previous run, each executed or not in this run  |
 | `/bootui/api/code-inventory/methods`         | GET    | Paged application methods by `package`, `class`, and `status`, with package and class counts |
 | `/bootui/api/code-inventory/dependencies`    | GET    | Paged dependency use: declared jars, classes loaded in this run, startup or later, first route |
+| `/bootui/api/code-paths`                     | GET    | Code Paths summary: sensor status, routes ranked by warm median with top methods, excluded methods |
+| `/bootui/api/code-paths/route`               | GET    | One route's call tree, paged by `depth`, `offset`, and `limit`, with callers and reach per method |
+| `/bootui/api/code-paths/requests/{requestId}` | GET   | One request's call tree while the run keeps it                                           |
 | `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
 | `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
 | `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
@@ -3125,7 +3171,7 @@ Design rules:
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
-    `get_devtools_status`,
+    `get_code_paths`, `get_devtools_status`,
     `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
@@ -3318,6 +3364,7 @@ collapsible:
   - HTTP Exchanges.
   - HTTP Probe.
   - Code Inventory.
+  - Code Paths.
 - Developer tools:
   - MCP Server.
   - Command Line.

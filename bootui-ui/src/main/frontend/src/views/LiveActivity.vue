@@ -9,6 +9,7 @@ import AiExportPreview from './components/AiExportPreview.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import {insightsUsable} from '../utils/insightsPanel.js'
+import RequestCodePath from './components/RequestCodePath.vue'
 import RequestJournalProfile from './components/RequestJournalProfile.vue'
 import RuntimeJournalStatus from './components/RuntimeJournalStatus.vue'
 import RuntimeResources from './components/RuntimeResources.vue'
@@ -1437,6 +1438,7 @@ function toggleFlow() {
               {{ profile.unavailableReason }}
             </div>
             <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
+            <RequestCodePath :request-id="journalProfile?.requestId || profileRequestId" />
           </div>
           <div v-else-if="profile">
             <section class="mb-3">
@@ -1469,6 +1471,7 @@ function toggleFlow() {
             </section>
 
             <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
+            <RequestCodePath :request-id="journalProfile?.requestId || profileRequestId" />
 
             <p v-if="profile.approximate" class="alert alert-secondary small py-2 mb-3" role="note">
               <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Parts of this profile are approximate: some

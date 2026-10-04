@@ -7,6 +7,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Code Paths panel, API, and tools.** With the BootUI agent's `code-paths` sensor, the new view-only Code Paths panel
+  (Diagnostics) ranks routes by their warm median and shows each route's call tree of application bean methods, merged
+  across its warm requests with the first recorded request kept apart: calls per request, total and self time, share of
+  the handler, and approximate (≈) percentiles per method from a compact log2 histogram, asynchronous work shown apart,
+  an Other node past each route's budget, callers and reaching routes per method, and the excluded methods. A handler
+  that ran on an event loop, returned a reactive or asynchronous result, or whose work BootUI could not place (Spring MVC
+  requests that start async processing, every Spring WebFlux request, Quarkus endpoints on the event loop or returning
+  `Uni`, `Multi`, or `CompletionStage`) is labelled **assembly only**. Runtime Insights' `route-time-breakdown` splits a
+  route's handler work into its top five methods by self time, with the rest as other handler time, while its recorded
+  calls take under 10 % of the handler phase. `GET {api}/code-paths`,
+  `/code-paths/route`, `/code-paths/requests/{id}`, `get_code_paths`, and `bootui code paths` on Spring MVC, Spring
+  WebFlux, and Quarkus; the samples gain a seeded slow route, `GET /api/quotes/{sku}`
+  ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14, M5-4b).
+- **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
+  protected methods of the application's beans per request, as call trees built on the request's own threads, with
+  executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
+  bounded memory that drops and counts rather than blocks. It shares one transformer with the `inventory` sensor; the
+  Java Agent panel shows its row and counters on Spring MVC, Spring WebFlux, and Quarkus. Spring sends its bean classes
+  when the context refreshes and Quarkus at build time. A debugger stepping into a timed method steps over the agent's
+  calls, whose bridge carries no line numbers. The Code Paths panel and tools that read the trees follow
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
+
 ### Changed
 
 - **Durable Live Activity history is journal-rendered.** With
@@ -28,11 +52,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
   hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
   [Runtime Insights](docs/features/overview.md#runtime-insights)).
+- **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
+  completion events now mark observations that examine those executions partial, while disabled optional evidence
+  does not. Collection and Code Inventory checks do not count unrelated execution drops.
+  A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
+  includes Hibernate flush counts changing to or from zero when both runs recorded the ORM source,
+  with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
+  event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
+  [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
+  [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
+- **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
+  pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
+  `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own
+  result just before its body returns now uses the same 2 ms response-clock slack as a nested promise, avoiding
+  false `work-after-response` evidence ([#1233](https://github.com/jdubois/boot-ui/pull/1233),
+  [#1223](https://github.com/jdubois/boot-ui/pull/1223); PLAN-v2 M5-2, D32).
+
+- **Source-panel policy gaps.** While HTTP Exchanges is disabled, a request's journal profile (panel and
+  `get_request_profile`) is unavailable, Runtime Insights lists no route as **Not exercised in this run**, and
+  **Profile resources** lists no per-route row; each says why. On Quarkus, Live Activity no longer adds Security Logs
+  principals, exception messages, email details, or buffered requests and SQL while their panel is disabled. Durable
+  history no longer shows a stored principal under `METADATA_ONLY`, and its search no longer matches text masked or
+  withheld on read, on Spring MVC, Spring WebFlux, and Quarkus ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
+
 - **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
   task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
   and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
   tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
+
 - **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the

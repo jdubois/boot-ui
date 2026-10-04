@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.codepaths.HandlerMethods;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
@@ -16,11 +17,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 
 /**
  * {@code route-time-breakdown} ({@code docs/PLAN-v2.md} §5.5): where a route's warm requests spend their time, as named
@@ -33,6 +36,12 @@ import java.util.TreeSet;
  * such requests is reported insufficient with its recorded calls. On Spring WebFlux, which marks no handler or
  * response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is
  * insufficient, since its breakdown would be one unattributed span.</p>
+ *
+ * <p>With the BootUI agent's {@code code-paths} sensor ({@code docs/PLAN-v2.md} §5.14, M5-4b), a route whose call tree
+ * is not assembly only has its handler's other work split into its top {@value HandlerMethods#TOP} application methods
+ * by self time, with the rest as other handler time. Until call sites are stamped on recorded calls, a method's self
+ * time includes the calls it waited on, so the split shares only the handler's other work, never the recorded calls
+ * already named, in proportion to each method's self time among the handler's methods, and never more than it.</p>
  */
 public final class RouteTimeBreakdown implements Observation {
 
@@ -63,6 +72,28 @@ public final class RouteTimeBreakdown implements Observation {
         Phase(String label) {
             this.label = label;
         }
+    }
+
+    /** The label of the handler's work left once its methods are named. */
+    static final String OTHER_HANDLER_TIME = "Other handler time";
+
+    /** The prefix of a handler method's row. */
+    static final String METHOD_PREFIX = "Handler: ";
+
+    /**
+     * The share of the handler phase that recorded calls may take for the handler to be split by method: until call
+     * sites are stamped (M5-4c), a method's self time includes the calls it waited on.
+     */
+    static final double MAX_SPLIT_CALL_SHARE = 0.10;
+
+    private volatile Function<String, HandlerMethods> handlerMethods;
+
+    /**
+     * Installs what each route's call tree says about its handler ({@code docs/PLAN-v2.md} §5.14), such as
+     * {@code CodePathsService::handlerMethods}; without it, or for a route without a tree, the handler is not split.
+     */
+    public void setCodePaths(Function<String, HandlerMethods> handlerMethods) {
+        this.handlerMethods = handlerMethods;
     }
 
     @Override
@@ -145,10 +176,89 @@ public final class RouteTimeBreakdown implements Observation {
                         .toList();
                 limitations.add(leftOut(unmarked, snapshot.stack()));
             }
+            if (marksPhases) {
+                split = splitHandler(route.getKey(), split, limitations);
+            }
             eligible += split.size();
             findings.add(finding(route.getKey(), split, cold, snapshot.stack(), limitations));
         }
         return new Evaluation(eligible, findings);
+    }
+
+    /**
+     * Splits each warm request's handler work, what the recorded calls left of it, into the route tree's top methods
+     * by self time: each method takes the share its self time per request has of the larger of the handler's methods'
+     * self time and the handler phase's mean length, so the parts never exceed the handler's work, and what is left is
+     * other handler time. A route whose tree is assembly only, or that has none, is not split; nor is one whose
+     * recorded calls take 10 % of its handler phase or more ({@link #MAX_SPLIT_CALL_SHARE}), since until call sites are
+     * stamped (M5-4c) a method's self time includes the calls it waited on, and would claim their caller's share of the
+     * handler's other work.
+     */
+    private List<Breakdown> splitHandler(String route, List<Breakdown> warm, List<String> limitations) {
+        Function<String, HandlerMethods> source = handlerMethods;
+        if (source == null || warm.isEmpty()) {
+            return warm;
+        }
+        HandlerMethods methods;
+        try {
+            methods = source.apply(route);
+        } catch (RuntimeException ex) {
+            return warm;
+        }
+        if (methods == null || methods.requests() <= 0) {
+            return warm;
+        }
+        if (methods.assemblyOnly()) {
+            limitations.add("The route's handler ran on an event loop, returned a reactive or asynchronous result, or"
+                    + " BootUI could not tell where its work ran, so Code Paths times only its assembly and its handler"
+                    + " is not split by method.");
+            return warm;
+        }
+        if (methods.handlerNanos() <= 0 || methods.methods().isEmpty()) {
+            return warm;
+        }
+        long handlerWindows = 0;
+        long handlerCalls = 0;
+        for (Breakdown breakdown : warm) {
+            handlerWindows += breakdown.handlerWindow();
+            handlerCalls += breakdown.handlerCalls();
+        }
+        if (handlerWindows <= 0) {
+            return warm;
+        }
+        String callShare = handlerCalls * 100 < handlerWindows ? "under 1 %" : percent(handlerCalls, handlerWindows);
+        if (handlerCalls >= handlerWindows * MAX_SPLIT_CALL_SHARE) {
+            // A method's self time still holds the recorded calls it waited on: with calls this large, a repository
+            // waiting on its SQL would take the handler's other work, so the handler is not split until calls carry
+            // their calling method.
+            limitations.add("The handler is not split by method: recorded calls take " + callShare + " of its time,"
+                    + " and a method's self time from the BootUI agent's code paths still includes the calls it waited"
+                    + " on until recorded calls are stamped with their calling method (call-site stamps, M5-4c).");
+            return warm;
+        }
+        double window = (double) handlerWindows / warm.size();
+        double perRequest = (double) methods.handlerNanos() / methods.requests();
+        double basis = Math.max(perRequest, window);
+        if (basis <= 0) {
+            return warm;
+        }
+        List<String> labels = new ArrayList<>();
+        double[] ratios = new double[methods.methods().size()];
+        for (int i = 0; i < ratios.length; i++) {
+            HandlerMethods.Method method = methods.methods().get(i);
+            labels.add(METHOD_PREFIX + method.label());
+            ratios[i] = Math.min(1.0, ((double) method.selfNanos() / methods.requests()) / basis);
+        }
+        limitations.add("The handler's other work is split by method from the BootUI agent's code paths over "
+                + InsightText.counted(methods.requests(), "warm request") + ": each method takes the share its self"
+                + " time has of the handler. "
+                + (handlerCalls == 0
+                        ? "No recorded call ran inside the handler, so that self time is the methods' own work."
+                        : "Recorded calls take only " + callShare + " of the handler's time, which a method's self"
+                                + " time still includes, as calls are not stamped with their calling method yet."));
+        return warm.stream()
+                .map(breakdown -> breakdown.splitHandler(labels, ratios))
+                .toList();
     }
 
     /** Whether the stack marks when a request's handler begins: Spring MVC and Quarkus do, Spring WebFlux does not. */
@@ -253,19 +363,24 @@ public final class RouteTimeBreakdown implements Observation {
                     totals.rows(),
                     limitations);
         }
-        List<Map.Entry<Phase, long[]>> ranked = totals.ranked();
+        List<Row> ranked = totals.rankedRows();
         List<String> top = new ArrayList<>();
-        for (Map.Entry<Phase, long[]> phase : ranked) {
-            if (top.size() == 3 || phase.getValue()[0] == 0) {
+        for (Row row : ranked) {
+            if (top.size() == 3 || row.values()[0] == 0) {
                 break;
             }
-            top.add(phase.getKey().label + " " + percent(phase.getValue()[0], totals.sum()));
+            top.add(row.label() + " " + percent(row.values()[0], totals.sum()));
         }
-        boolean dominant = !ranked.isEmpty() && ranked.get(0).getValue()[0] * 2 >= totals.total();
+        boolean dominant = !ranked.isEmpty() && ranked.get(0).values()[0] * 2 >= totals.total();
         String sentence = warmText + "; " + String.join(", ", top) + "." + resources(warm) + coldText;
         List<String> checks = new ArrayList<>();
         if (!ranked.isEmpty()) {
-            checks.add(check(ranked.get(0).getKey()));
+            Row first = ranked.get(0);
+            checks.add(
+                    first.phase() == null
+                            ? "Most of the time is in " + first.label().substring(METHOD_PREFIX.length())
+                                    + ": open Code Paths for this route to see what it calls and who calls it."
+                            : check(first.phase()));
         }
         if (median >= PROMINENT_MEDIAN_NANOS || dominant) {
             checks.add("Open the slowest exemplar request in Live Activity to see its timeline.");
@@ -400,10 +515,15 @@ public final class RouteTimeBreakdown implements Observation {
     private static final List<String> COLUMNS = List.of("Phase", "Total (ms)", "Share", "Median per request (ms)");
 
     /** Every phase's time over a route's requests: in total, and per request for its median. */
-    private record Totals(Map<Phase, long[]> phases, long total, long overlap, long[] durations) {
+    /** One evidence row: a phase, or a handler method with a {@code null} phase. */
+    private record Row(String label, Phase phase, long[] values) {}
+
+    private record Totals(
+            Map<Phase, long[]> phases, Map<String, long[]> methods, long total, long overlap, long[] durations) {
 
         static Totals of(List<Breakdown> breakdowns) {
             Map<Phase, long[]> totals = new EnumMap<>(Phase.class);
+            Map<String, long[]> methods = new LinkedHashMap<>();
             long total = 0;
             long overlap = 0;
             long[] durations = new long[breakdowns.size()];
@@ -417,8 +537,31 @@ public final class RouteTimeBreakdown implements Observation {
                     perPhase[0] += phase.getValue();
                     perPhase[i + 1] = phase.getValue();
                 }
+                for (Map.Entry<String, Long> method : breakdown.methods().entrySet()) {
+                    long[] perMethod = methods.computeIfAbsent(method.getKey(), m -> new long[breakdowns.size() + 1]);
+                    perMethod[0] += method.getValue();
+                    perMethod[i + 1] = method.getValue();
+                }
             }
-            return new Totals(totals, total, overlap, durations);
+            return new Totals(totals, methods, total, overlap, durations);
+        }
+
+        /** Every phase and handler method, most time first. */
+        List<Row> rankedRows() {
+            List<Row> rows = new ArrayList<>();
+            for (Map.Entry<Phase, long[]> phase : phases.entrySet()) {
+                rows.add(new Row(label(phase.getKey()), phase.getKey(), phase.getValue()));
+            }
+            for (Map.Entry<String, long[]> method : methods.entrySet()) {
+                rows.add(new Row(method.getKey(), null, method.getValue()));
+            }
+            rows.sort(Comparator.comparingLong((Row row) -> row.values()[0]).reversed());
+            return rows;
+        }
+
+        /** A phase's label: the handler's work left once its methods are named is other handler time. */
+        String label(Phase phase) {
+            return phase == Phase.HANDLER && !methods.isEmpty() ? OTHER_HANDLER_TIME : phase.label;
         }
 
         long sum() {
@@ -445,12 +588,24 @@ public final class RouteTimeBreakdown implements Observation {
         List<List<String>> rows() {
             List<List<String>> rows = new ArrayList<>();
             for (Phase phase : Phase.values()) {
+                if (phase == Phase.HANDLER) {
+                    for (Map.Entry<String, long[]> method : methods.entrySet()) {
+                        long[] perMethod = method.getValue();
+                        if (perMethod[0] > 0) {
+                            rows.add(List.of(
+                                    method.getKey(),
+                                    InsightText.millis(perMethod[0]),
+                                    percent(perMethod[0], sum()),
+                                    InsightText.millis(median(Arrays.copyOfRange(perMethod, 1, perMethod.length)))));
+                        }
+                    }
+                }
                 long[] perPhase = phases.get(phase);
                 if (perPhase == null || perPhase[0] == 0) {
                     continue;
                 }
                 rows.add(List.of(
-                        phase.label,
+                        label(phase),
                         InsightText.millis(perPhase[0]),
                         percent(perPhase[0], sum()),
                         InsightText.millis(median(Arrays.copyOfRange(perPhase, 1, perPhase.length)))));
@@ -533,7 +688,56 @@ public final class RouteTimeBreakdown implements Observation {
     }
 
     /** One request's time, split into phases that add up to its duration. */
-    record Breakdown(ProjectedRequest request, long duration, Map<Phase, Long> phases, long overlap) {
+    record Breakdown(
+            ProjectedRequest request, long duration, Map<Phase, Long> phases, long overlap, Map<String, Long> methods) {
+
+        Breakdown(ProjectedRequest request, long duration, Map<Phase, Long> phases, long overlap) {
+            this(request, duration, phases, overlap, Map.of());
+        }
+
+        /** The length of the request's handler phase, 0 when unmarked. */
+        long handlerWindow() {
+            RequestTiming timing = request.timing();
+            if (timing == null || !timing.phased()) {
+                return 0L;
+            }
+            long from = Math.min(duration, timing.handlerOffsetNanos());
+            long to = timing.responseOffsetNanos() >= 0 ? Math.min(duration, timing.responseOffsetNanos()) : duration;
+            return Math.max(0L, to - from);
+        }
+
+        /**
+         * The recorded calls' time inside the request's handler phase: what they took out of its work, its SQL, REST
+         * client, AI, message, flush, and method authorization time; 0 when unmarked.
+         */
+        long handlerCalls() {
+            long window = handlerWindow();
+            if (window == 0L) {
+                return 0L;
+            }
+            return Math.max(0L, window - phases.getOrDefault(Phase.HANDLER, 0L));
+        }
+
+        /**
+         * This breakdown with {@code ratios} of its handler work moved to the methods {@code labels}, in that order;
+         * the ratios add up to at most 1, so the handler work never goes negative.
+         */
+        Breakdown splitHandler(List<String> labels, double[] ratios) {
+            Long handler = phases.get(Phase.HANDLER);
+            if (handler == null || handler <= 0 || !request.timing().phased()) {
+                return this;
+            }
+            Map<Phase, Long> split = new EnumMap<>(phases);
+            Map<String, Long> named = new LinkedHashMap<>();
+            long left = handler;
+            for (int i = 0; i < labels.size(); i++) {
+                long part = Math.min(left, (long) Math.floor(handler * ratios[i]));
+                named.put(labels.get(i), part);
+                left -= part;
+            }
+            split.put(Phase.HANDLER, left);
+            return new Breakdown(request, duration, split, overlap, named);
+        }
 
         /** The request's breakdown, or {@code null} when it has no monotonic start. */
         static Breakdown of(ProjectedRequest request) {

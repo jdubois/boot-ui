@@ -142,15 +142,15 @@ function parseQuarkusAvailability() {
     'private static final Map<String, String> NOT_YET_AVAILABLE_REASONS = Map.of',
     constants
   )
-  // Detector-gated panels decide availability per call: GitHub from the working directory, Code Inventory from the
-  // BootUI agent's inventory sensor.
+  // Detector-gated panels decide availability per call: GitHub from the working directory, Code Inventory and Code
+  // Paths from the BootUI agent's sensors.
   const detectorMatches = [
     ...source.matchAll(
-      /BootUiPanels\.([A-Z_]+)\.equals\(panelId\)\s*&&\s*(?:githubAvailable\(\)|codeInventoryUnavailableReason\(\) == null)/g
+      /BootUiPanels\.([A-Z_]+)\.equals\(panelId\)\s*&&\s*(?:githubAvailable\(\)|codeInventoryUnavailableReason\(\) == null|codePathsUnavailableReason\(\) == null)/g
     )
   ]
-  if (detectorMatches.length !== 2 || detectorMatches.some((match) => !constants.has(match[1]))) {
-    throw new Error('Unable to parse the dynamic GitHub and Code Inventory panel detectors')
+  if (detectorMatches.length !== 3 || detectorMatches.some((match) => !constants.has(match[1]))) {
+    throw new Error('Unable to parse the dynamic GitHub, Code Inventory, and Code Paths panel detectors')
   }
   const detectorGated = new Set(detectorMatches.map((match) => constants.get(match[1])))
 
@@ -318,6 +318,7 @@ describe('routes', () => {
       'HTTP Exchanges',
       'HTTP Probe',
       'Code Inventory',
+      'Code Paths',
       'MCP Server',
       'Command Line',
       'Java Agent',
@@ -543,6 +544,7 @@ describe('routes', () => {
       groups.services,
       groups.services,
       groups.services,
+      groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,

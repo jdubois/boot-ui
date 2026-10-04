@@ -201,11 +201,15 @@ public final class RunComparison {
         List<RuntimeRunChangeDto> latency = new ArrayList<>();
         int compared = 0;
         int tooFew = 0;
-        // Hibernate's work is compared only when both runs recorded it, so a run without the orm source never reads as
-        // a route that stopped flushing (M4-9).
-        boolean ormInBoth = sharedSources.contains(JournalSource.ORM)
-                && then.run().events().getOrDefault(JournalSource.ORM, 0L) > 0
-                && now.run().events().getOrDefault(JournalSource.ORM, 0L) > 0;
+        // Shared sources use recorded settings, or event presence when start facts are missing (M4-9).
+        boolean ormInBoth = sharedSources.contains(JournalSource.ORM);
+        if (ormInBoth
+                && ((then.run().events().getOrDefault(JournalSource.ORM, 0L) == 0)
+                        != (now.run().events().getOrDefault(JournalSource.ORM, 0L) == 0))) {
+            limitations.add("A run recorded no ORM session events despite enabling the ORM source. Comparing zero"
+                    + " assumes its capture listener was active; an application-provided hibernate.session.events.auto"
+                    + " listener can prevent BootUI from recording sessions.");
+        }
         List<RouteStats> routes = new ArrayList<>();
         if (sharedSources.contains(JournalSource.HTTP)) {
             routes.addAll(now.routes());

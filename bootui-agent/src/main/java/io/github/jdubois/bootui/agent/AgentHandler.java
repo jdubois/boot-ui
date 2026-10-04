@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
+import io.github.jdubois.bootui.agent.bridge.CodePaths;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
@@ -18,10 +19,11 @@ import java.util.function.Function;
  * here. The bridge calls the agent after its compare-and-set, outside any lock, so calls can arrive out of order: every
  * transition carries a generation from one JVM-wide sequence, and a claim or release older than the last one applied is
  * ignored, as is a refine or disarm of another generation than the current claim's. A claim asking for the
- * {@code executors}, {@code threads}, or {@code inventory} sensor installs it once and self-tests it (PLAN-v2 M5-2,
- * M5-3), and a release removes it; a claim without a sensor installs nothing, unless {@link AgentTestHook} enables the
- * diagnostic probe. A claim without the {@code inventory} sensor also removes it, since its advice on every application
- * method would otherwise stay for a claim that never reads it.
+ * {@code executors}, {@code threads}, {@code inventory}, or {@code code-paths} sensor installs it once and self-tests
+ * it (PLAN-v2 M5-2, M5-3, M5-4a), and a release removes it; a claim without a sensor installs nothing, unless
+ * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
+ * transformer ({@link ApplicationMethodsSensor}): a claim asking for neither removes it, since its advice on every
+ * application method would otherwise stay for a claim that never reads it.
  */
 final class AgentHandler implements Function<Map<String, Object>, Map<String, Object>> {
 
@@ -34,9 +36,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private AgentInstaller installer;
     private ExecutorSensor executors;
     private ThreadSensor threads;
-    private InventorySensor inventory;
-    /** Whether the current claim asked for the inventory sensor: refines reach it only then. */
-    private boolean inventoryClaimed;
+    private ApplicationMethodsSensor applicationMethods;
+    /** Whether the current claim asked for the inventory or code-paths sensor: refines reach them only then. */
+    private boolean applicationMethodsClaimed;
 
     private long generation;
     private boolean armed;
@@ -82,12 +84,15 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (claimedSensors.contains(ThreadPropagation.SENSOR)) {
                     threads().claimed(generation, packages);
                 }
-                inventoryClaimed = strings(request.get("sensors")).contains(CodeInventory.SENSOR);
-                if (inventoryClaimed) {
-                    inventory().claimed(generation, packages);
-                } else if (inventory != null) {
+                boolean inventory = claimedSensors.contains(CodeInventory.SENSOR);
+                boolean codePaths = claimedSensors.contains(CodePaths.SENSOR);
+                applicationMethodsClaimed = inventory || codePaths;
+                if (applicationMethodsClaimed) {
+                    applicationMethods()
+                            .claimed(generation, packages, strings(request.get("beanClasses")), inventory, codePaths);
+                } else if (applicationMethods != null) {
                     // Its advice would otherwise stay on every method for a claim that never reads it.
-                    inventory.release();
+                    applicationMethods.release();
                 }
                 return answer("ok", null);
             case "refine":
@@ -96,8 +101,8 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                     if (threads != null) {
                         threads.refined(packages);
                     }
-                    if (inventory != null && inventoryClaimed) {
-                        inventory.refined(packages);
+                    if (applicationMethods != null && applicationMethodsClaimed) {
+                        applicationMethods.refined(packages, strings(request.get("beanClasses")));
                     }
                 }
                 return answer("ok", null);
@@ -122,9 +127,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (threads != null) {
                     threads.release();
                 }
-                inventoryClaimed = false;
-                if (inventory != null) {
-                    inventory.release();
+                applicationMethodsClaimed = false;
+                if (applicationMethods != null) {
+                    applicationMethods.release();
                 }
                 return answer("ok", null);
             case "status":
@@ -141,11 +146,11 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         return threads;
     }
 
-    private InventorySensor inventory() {
-        if (inventory == null) {
-            inventory = new InventorySensor(instrumentation, hook.privilegedInstall());
+    private ApplicationMethodsSensor applicationMethods() {
+        if (applicationMethods == null) {
+            applicationMethods = new ApplicationMethodsSensor(instrumentation, hook.privilegedInstall());
         }
-        return inventory;
+        return applicationMethods;
     }
 
     private ExecutorSensor executors() {
@@ -179,8 +184,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         if (threads != null) {
             sensors.add(active(threads.status()));
         }
-        if (inventory != null) {
-            sensors.add(inventory.status());
+        if (applicationMethods != null) {
+            sensors.add(active(applicationMethods.inventoryStatus()));
+            sensors.add(active(applicationMethods.codePathsStatus()));
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());

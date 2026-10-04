@@ -58,6 +58,8 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
+import io.github.jdubois.bootui.engine.codepaths.JournalRequestOutcomes;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
@@ -475,6 +477,37 @@ public class BootUiEngineConfiguration {
                 CodeInventoryHistory.shared());
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        return service;
+    }
+
+    /**
+     * Code Paths ({@code docs/PLAN-v2.md} §5.14, M5-4a): routes the agent's {@code code-paths} fragments of this run's
+     * claim into request trees and decides the sensor's adaptive exclusion. The {@link AgentClaimOwner} starts it once
+     * the context refreshed; it is closed with the context.
+     */
+    @Bean(destroyMethod = "close")
+    @Lazy
+    @ConditionalOnMissingBean
+    CodePathsService bootUiCodePathsService(
+            ObjectProvider<AgentClaimOwner> owner,
+            ObjectProvider<JavaAgentService> javaAgent,
+            ObjectProvider<JournalAggregates> aggregates,
+            ObjectProvider<RuntimeJournal> journal) {
+        CodePathsService service = new CodePathsService(
+                AgentBridgeAccess.locate(),
+                () -> {
+                    AgentClaimOwner current = owner.getIfUnique();
+                    return current == null ? null : current.claim();
+                },
+                () -> {
+                    JavaAgentService agent = javaAgent.getIfUnique();
+                    return agent == null
+                            ? JavaAgentService.CODE_PATHS_REQUIREMENT + "."
+                            : agent.codePathsUnavailableReason();
+                });
+        JournalAggregates journalAggregates = aggregates.getIfAvailable();
+        service.setRequestOutcomes(JournalRequestOutcomes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         return service;
     }

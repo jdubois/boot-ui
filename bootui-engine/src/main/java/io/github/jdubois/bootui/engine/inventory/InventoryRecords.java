@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.inventory;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;

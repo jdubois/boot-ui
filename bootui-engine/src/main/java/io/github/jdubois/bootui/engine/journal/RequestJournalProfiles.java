@@ -165,11 +165,19 @@ public final class RequestJournalProfiles {
                 children.add(call);
             }
         }
-        if (request == null || !(request.event().payload() instanceof HttpPayload) && !visible(request.event())) {
+        if (request == null) {
             return RequestJournalProfileDto.unavailable(
                     requestId,
                     "The runtime journal does not retain a visible completed request or execution " + requestId
                             + " (it may have been evicted or its source panel is disabled).");
+        }
+        // The opening event names the unit's route, status, timing, and resources: the evidence of the panel owning
+        // it, which every other surface withholds while that panel is off (docs/PLAN-v2.md §8).
+        if (!visible(request.event())) {
+            return RequestJournalProfileDto.unavailable(
+                    requestId,
+                    "The " + JournalActivityReports.panelOf(request.event()) + " panel is disabled or unavailable, so "
+                            + requestId + " is not shown.");
         }
         RuntimeEvent http = request.event();
         HttpPayload payload = http.payload() instanceof HttpPayload found ? found : null;

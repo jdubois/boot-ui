@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
@@ -74,6 +75,7 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cli.CliService;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
@@ -102,6 +104,7 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
@@ -297,6 +300,7 @@ import tools.jackson.databind.ObjectMapper;
     RuntimeInsightsController.class,
     JavaAgentController.class,
     CodeInventoryController.class,
+    CodePathsController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -368,6 +372,7 @@ public class BootUiReactiveAutoConfiguration {
             RuntimeInsightsController.class.getName(),
             JavaAgentController.class.getName(),
             CodeInventoryController.class.getName(),
+            CodePathsController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
@@ -445,7 +450,8 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
                 ObjectProvider<RuntimeInsightsController> runtimeInsights,
                 ObjectProvider<JavaAgentController> javaAgent,
-                ObjectProvider<CodeInventoryController> codeInventory) {
+                ObjectProvider<CodeInventoryController> codeInventory,
+                ObjectProvider<CodePathsController> codePaths) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -481,7 +487,8 @@ public class BootUiReactiveAutoConfiguration {
                     connectionPools,
                     runtimeInsights,
                     javaAgent,
-                    codeInventory);
+                    codeInventory,
+                    codePaths);
         }
 
         @Bean
@@ -792,6 +799,25 @@ public class BootUiReactiveAutoConfiguration {
                 sqlTrace.getReservedSharePercent());
         recorder.setThreadKindClassifier(threadKinds);
         return recorder;
+    }
+
+    /**
+     * Code Paths on WebFlux ({@code docs/PLAN-v2.md} §5.14, M5-4b): every handler only assembles its publisher, whose
+     * work runs later or on another thread, so every request's tree is assembly only. The stack says so once, when the
+     * engine's {@link CodePathsService} is created, rather than per request on the event loop. Must stay eager, as a
+     * {@link BeanPostProcessor}; it depends on nothing.
+     */
+    @Bean
+    static BeanPostProcessor bootUiReactiveCodePathsAssemblyOnly() {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessBeforeInitialization(Object bean, String beanName) {
+                if (bean instanceof CodePathsService codePaths) {
+                    codePaths.setAssemblyOnly(CodePathsService.EVERY_REQUEST);
+                }
+                return bean;
+            }
+        };
     }
 
     /**

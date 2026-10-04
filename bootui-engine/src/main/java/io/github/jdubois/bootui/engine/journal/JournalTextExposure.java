@@ -234,7 +234,8 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
      * {@link #masked()} — or raw, by a build before this rule existed — so the live policy holds for it too
      * ({@code PLAN-v2} §8). A stored row is never shown less masked than {@code MASKED}, even under {@code FULL}.
      * {@link ValueExposure#METADATA_ONLY} omits a log row's message, as the live feed does, and keeps every other row's
-     * structural summary ({@code GET /orders → 200}, a SQL shape, its path parameters masked) and its stored detail.
+     * structural summary ({@code GET /orders → 200}, a SQL shape, its path parameters masked) and its stored detail,
+     * but no stored principal, which the live feed withholds under that exposure too.
      */
     public ActivityEntryDto reapply(ActivityEntryDto row) {
         if (row == null) {
@@ -274,7 +275,7 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
                 row.thread(),
                 row.profileable(),
                 row.parentId(),
-                row.securedPrincipal(),
+                rule.omitsText() ? null : row.securedPrincipal(),
                 row.sqlNPlusOneSuspected(),
                 row.badges());
     }

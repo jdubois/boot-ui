@@ -11,20 +11,33 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
+import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /** Real sensor workers with controlled transformation operations, including the dequeued-but-not-reset window. */
 class SensorLifecycleTests {
+
+    @BeforeEach
+    @AfterEach
+    void resetThreadPropagation() throws Exception {
+        var reset = ThreadPropagation.class.getDeclaredMethod("reset");
+        reset.setAccessible(true);
+        reset.invoke(null);
+    }
 
     @Test
     void aFailedThreadResetPreventsAnAlreadyQueuedReinstall() throws Exception {
@@ -48,6 +61,10 @@ class SensorLifecycleTests {
         assertThat(get(harness.sensor, "transformer")).isNull();
         assertThat(get(harness.sensor, "selfTestPassed")).isEqualTo(false);
         assertThat(get(harness.sensor, "state")).isEqualTo("release-failed");
+        var disabled = ThreadPropagation.class.getDeclaredMethod("disabled", long.class);
+        disabled.setAccessible(true);
+        assertThat(disabled.invoke(null, 42L)).isEqualTo(true);
+        assertThat(disabled.invoke(null, 43L)).isEqualTo(true);
         harness.claim(3);
         assertThat(harness.worker()).isNull();
     }
@@ -201,6 +218,97 @@ class SensorLifecycleTests {
         assertThat(get(harness.sensor, "selfTestPassed")).isEqualTo(false);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void releaseDuringAPendingSelfTestLeavesTheSensorUnverified(boolean threads) throws Exception {
+        Harness harness = new Harness(threads);
+        set(harness.sensor, "selfTestPassed", false);
+        CountDownLatch testing = new CountDownLatch(1);
+        CountDownLatch allowTest = new CountDownLatch(1);
+        if (harness.sensor instanceof ThreadSensor sensor) {
+            doAnswer(call -> {
+                        sensor.beginSelfTest();
+                        Harness.gate(testing, allowTest);
+                        return harness.tested(call.getArgument(0));
+                    })
+                    .when(sensor)
+                    .selfTest(anyLong());
+        } else {
+            ExecutorSensor sensor = (ExecutorSensor) harness.sensor;
+            doAnswer(call -> {
+                        sensor.beginSelfTest();
+                        Harness.gate(testing, allowTest);
+                        return harness.tested(call.getArgument(0));
+                    })
+                    .when(sensor)
+                    .selfTest(anyLong());
+        }
+        Thread worker;
+        synchronized (harness.sensor) {
+            harness.claim(2);
+            worker = harness.worker();
+        }
+        try {
+            assertThat(testing.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(get(harness.sensor, "state")).isEqualTo("testing");
+            assertThat(get(harness.sensor, "selfTestPassed")).isEqualTo(false);
+            harness.release();
+        } finally {
+            allowTest.countDown();
+            join(worker);
+            TaskPropagation.enable();
+            ExecutorSensor.unverifyAsync();
+        }
+        assertThat(get(harness.sensor, "selfTestPassed")).isEqualTo(false);
+        assertThat(get(harness.sensor, "state")).isEqualTo("released");
+        assertThat(harness.operations).containsExactly("test:2", "reset");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anUnexpectedProbeFailureClearsReadinessAndDisablesTheGeneration(boolean threads) throws Exception {
+        Harness harness = new Harness(threads);
+        set(harness.sensor, "selfTestPassed", false);
+        if (harness.sensor instanceof ThreadSensor sensor) {
+            doAnswer(call -> {
+                        sensor.beginSelfTest();
+                        throw new IllegalStateException("probe setup failed");
+                    })
+                    .when(sensor)
+                    .selfTest(anyLong());
+        } else {
+            ExecutorSensor sensor = (ExecutorSensor) harness.sensor;
+            doAnswer(call -> {
+                        sensor.beginSelfTest();
+                        throw new IllegalStateException("probe setup failed");
+                    })
+                    .when(sensor)
+                    .selfTest(anyLong());
+        }
+        Thread worker;
+        synchronized (harness.sensor) {
+            harness.claim(42L);
+            worker = harness.worker();
+        }
+        try {
+            join(worker);
+            assertThat(get(harness.sensor, "state")).isEqualTo("failed");
+            assertThat(get(harness.sensor, "selfTestPassed")).isEqualTo(false);
+            assertThat(get(harness.sensor, "selfTestError")).asString().contains("probe setup failed");
+            if (threads) {
+                var disabled = ThreadPropagation.class.getDeclaredMethod("disabled", long.class);
+                disabled.setAccessible(true);
+                assertThat(disabled.invoke(null, 42L)).isEqualTo(true);
+                assertThat(disabled.invoke(null, 43L)).isEqualTo(false);
+            } else {
+                assertThat(executors().get("disabledReason")).asString().contains("probe setup failed");
+            }
+        } finally {
+            TaskPropagation.enable();
+            ExecutorSensor.unverifyAsync();
+        }
+    }
+
     private static void join(Thread worker) throws InterruptedException {
         worker.join(5000);
         assertThat(worker.isAlive()).as("sensor worker terminated").isFalse();
@@ -314,7 +422,21 @@ class SensorLifecycleTests {
 
         private Object tested(long generation) throws Exception {
             operations.add("test:" + generation);
-            set(sensor, "selfTestPassed", true);
+            Map<String, String> results = new LinkedHashMap<>();
+            if (sensor instanceof ThreadSensor threads) {
+                threads.beginSelfTest();
+                for (String[] hook : ThreadSensor.HOOKS) {
+                    results.put(hook[0], ExecutorSensor.present(hook[1]) ? "passed" : "unsupported");
+                }
+                threads.recordSelfTest(generation, results, Map.of());
+            } else {
+                ExecutorSensor executors = (ExecutorSensor) sensor;
+                executors.beginSelfTest();
+                for (String core : ExecutorSensor.CORE) {
+                    results.put(core, "passed");
+                }
+                executors.recordSelfTest(generation, results, Map.of());
+            }
             return null;
         }
 

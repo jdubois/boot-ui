@@ -1845,6 +1845,47 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(failures).as("code inventory contracts").isEmpty();
     }
 
+    /**
+     * Code Paths without the BootUI agent ({@code docs/PLAN-v2.md} §5.14): the panel is unavailable with the Java Agent
+     * panel's reason, and every read still answers its shape, {@code available: false} with that reason. The available
+     * shape is asserted with the agent attached, by the Spring sample's agent scenario.
+     */
+    @Test
+    void codePathsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent() {
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        JsonNode panel = panelFromLiveManifest("code-paths");
+        assertThat(panel).as("the code-paths panel is in the manifest").isNotNull();
+        assumeTrue(panel.path("enabled").asBoolean(true), "the code-paths panel is disabled here");
+        assertThat(panel.path("available").asBoolean())
+                .as("Code Paths needs the agent")
+                .isFalse();
+        assertThat(panel.path("unavailableReason").asText())
+                .startsWith("Requires the BootUI agent's code-paths sensor");
+
+        List<String> failures = new ArrayList<>();
+        List<ReadContract> contracts = new ArrayList<>();
+        contracts.add(BootUiApiContractCatalog.reads().stream()
+                .filter(contract -> contract.relativePath().equals("/code-paths"))
+                .findFirst()
+                .orElseThrow());
+        contracts.addAll(BootUiApiContractCatalog.codePathsTrees());
+        for (ReadContract contract : contracts) {
+            Response response = probe().get(api(contract.relativePath()));
+            assertThat(response.status())
+                    .as("GET %s status", contract.relativePath())
+                    .isEqualTo(200);
+            JsonNode body = response.json();
+            assertJsonContract(contract.relativePath(), contract, body, failures);
+            assertThat(body.path("available").asBoolean())
+                    .as("GET %s available", contract.relativePath())
+                    .isFalse();
+            assertThat(body.path("unavailableReason").asText())
+                    .as("GET %s unavailableReason", contract.relativePath())
+                    .startsWith("Requires the BootUI agent's code-paths sensor");
+        }
+        assertThat(failures).as("code paths contracts").isEmpty();
+    }
+
     @Test
     void runtimeResourcesReportOneShapeWithABalancedLedger() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
@@ -2844,7 +2885,12 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
-    private void assertJsonContract(String panelId, ReadContract contract, JsonNode root, List<String> failures) {
+    /**
+     * Adds to {@code failures} every way {@code root} breaks {@code contract}: its root type, each required field's type,
+     * the availability pair, and a non-negative total. Public, so an agent scenario outside this suite, such as the
+     * Spring sample's, asserts the available shapes it alone can reach against the same catalog.
+     */
+    public static void assertJsonContract(String panelId, ReadContract contract, JsonNode root, List<String> failures) {
         if (!matchesType(root, contract.rootType())) {
             failures.add(panelId + " -> root expected " + contract.rootType() + " but was " + root.getNodeType());
             return;
@@ -2892,6 +2938,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             case NULLABLE_STRING -> isNull(node) || node.isTextual();
             case NULLABLE_OBJECT -> isNull(node) || node.isObject();
             case NULLABLE_INTEGER -> isNull(node) || node.isIntegralNumber();
+            case NULLABLE_NUMBER -> isNull(node) || node.isNumber();
         };
     }
 

@@ -198,7 +198,7 @@ profile; default H2/Docker-free coverage remains independent.
 The Docker-required selector is `BootUiQuarkusMySqlLiveTest`, isolated under `src/mysql-live/java`.
 See [MySQL](features/database.md#mysql) for partial evidence, permissions, and execution bounds.
 
-### 5.1 Ported as-is — framework-agnostic or same library (24)
+### 5.1 Ported as-is — framework-agnostic or same library (25)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -217,6 +217,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Runtime Insights`                                    | The shared `RuntimeInsightsService` over the runtime journal; available while the journal is enabled. Quarkus records no transactions, so `split-transaction-writes` and `transaction-across-remote-call` report themselves not applicable, and lazy loads after the handler surface as `LazyInitializationException` in `exception-hotspots`. Without a JDBC (Agroal) data source, as with Hibernate Reactive or a reactive SQL client, the checks that read SQL report `UNAVAILABLE`, since BootUI records only JDBC statements. A request that reached no Quarkus REST resource method, such as a `/q/` endpoint, a Vert.x route, or a static resource, is not split into phases by `route-time-breakdown`. With the BootUI agent attached in dev or test mode, `work-after-response` applies as on Spring. Quarkus records which observers ran for an application event but not who published it, so the runtime model draws no `PUBLISHES` edge and a change impact that reaches code only through an event says so in its limitations. A panel this application cannot serve, such as Security Logs without `quarkus.security.events.enabled`, is reported as unavailable with that reason rather than as disabled |
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Code Inventory`                                      | The shared `CodeInventoryService`: the BootUI agent's inventory sensor, the scan of the application's class files (Quarkus dev mode's `target/classes` through the application class loader), and the run history kept across live reloads. Detector-gated: available while the agent's inventory sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. Declared dependencies come from the build-time application model (`QuarkusDependencyProvider`) |
+| `Code Paths`                                          | The shared `CodePathsService`: route trees from the BootUI agent's code-paths sensor. Detector-gated: available while the sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. A resource method on a worker that returns a plain value is timed as executed; one on the event loop, one returning `Uni`, `Multi`, `CompletionStage`, or a publisher, and one Quarkus cannot identify are marked assembly only and kept out of `route-time-breakdown`'s handler split. A blocking method's tree starts at its first bean call on the worker |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
 | `Pentesting`                                          | Shared 77-check engine (see below)                                                |
 | `MCP Server`                                          | **Implemented** — full JSON-RPC bridge (see below)                                |
@@ -242,8 +243,8 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
-no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 80 tools in the Quarkus
-catalog are a subset of the 96 Spring MVC declares, and a running application advertises only those whose backing
+no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 82 tools in the Quarkus
+catalog are a subset of the 98 Spring MVC declares, and a running application advertises only those whose backing
 panel is available, so the catalog a client reads at runtime is authoritative.
 
 **Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured by a static-init
@@ -273,7 +274,7 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 | `Architecture` advisor | Shared ArchUnit registry; generic rules run unchanged, Spring-only annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus semantics |
 | `Beans`               | **Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, with resolved injection edges captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring Conditions evidence remain unavailable |
 | `Scorecard`           | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
-| `Java Agent`          | **Implemented** — shared Java agent status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test with the build-time `bootui.agent.sensors` and `bootui.agent.executors.*`, refines and attaches the engine's executor propagation on startup, and disarms on shutdown; production launch mode never claims it. Vert.x threads (`vert.x-`) are skipped: Quarkus carries the request's context across them itself |
+| `Java Agent`          | **Implemented** — shared Java agent status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test with the build-time `bootui.agent.sensors` and `bootui.agent.executors.*`, and the application archive's bean-defining and `@Path` classes for the `code-paths` sensor, refines and attaches the engine's executor propagation on startup, and disarms on shutdown; production launch mode never claims it. Vert.x threads (`vert.x-`) are skipped: Quarkus carries the request's context across them itself |
 
 ::: details Fault Tolerance fidelity
 
@@ -564,10 +565,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 53 of the 63 panels ship on Quarkus: 28 are statically available and 25 are capability/detector-gated. The
+**Result:** 54 of the 64 panels ship on Quarkus: 28 are statically available and 26 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 53 supported entries comprise 24 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 54 supported entries comprise 25 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Scorecard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -783,6 +784,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Runtime Insights    | as-is       | Port    | `RuntimeInsightsService`         | Same journal projection; available while `bootui.runtime-journal.enabled`; transaction observations not applicable; no application-event publications; a panel the application cannot serve is reported unavailable with its reason |
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
 | Code Inventory      | as-is       | Port    | `CodeInventoryService`           | Available while the BootUI agent's inventory sensor records this start (dev/test) |
+| Code Paths          | as-is       | Port    | `CodePathsService`               | Available while the BootUI agent's code-paths sensor records this start (dev/test); reactive and event-loop endpoints are assembly only |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |

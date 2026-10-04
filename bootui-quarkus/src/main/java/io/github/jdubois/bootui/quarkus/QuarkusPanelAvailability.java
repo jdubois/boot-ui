@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
@@ -540,6 +541,10 @@ public class QuarkusPanelAvailability {
     @Inject
     Instance<CodeInventoryService> codeInventory;
 
+    /** Code Paths, whose availability is the BootUI agent's code-paths sensor's, computed fresh per call. */
+    @Inject
+    Instance<CodePathsService> codePaths;
+
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this(config, mySqlJdbcDriverPresent());
@@ -758,7 +763,8 @@ public class QuarkusPanelAvailability {
         return AVAILABLE_PANELS.contains(panelId)
                 || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
                 || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable())
-                || (BootUiPanels.CODE_INVENTORY.equals(panelId) && codeInventoryUnavailableReason() == null);
+                || (BootUiPanels.CODE_INVENTORY.equals(panelId) && codeInventoryUnavailableReason() == null)
+                || (BootUiPanels.CODE_PATHS.equals(panelId) && codePathsUnavailableReason() == null);
     }
 
     /** Why Code Inventory is unavailable: the BootUI agent's inventory sensor does not record this run. */
@@ -771,6 +777,19 @@ public class QuarkusPanelAvailability {
             return services.get().unavailableReason();
         } catch (RuntimeException ex) {
             return JavaAgentService.INVENTORY_REQUIREMENT + ".";
+        }
+    }
+
+    /** Why Code Paths is unavailable: the BootUI agent's code-paths sensor does not record this run. */
+    private String codePathsUnavailableReason() {
+        try {
+            Instance<CodePathsService> services = codePaths;
+            if (services == null || !services.isResolvable()) {
+                return JavaAgentService.CODE_PATHS_REQUIREMENT + ".";
+            }
+            return services.get().unavailableReason();
+        } catch (RuntimeException ex) {
+            return JavaAgentService.CODE_PATHS_REQUIREMENT + ".";
         }
     }
 
@@ -798,6 +817,10 @@ public class QuarkusPanelAvailability {
         if (BootUiPanels.CODE_INVENTORY.equals(panelId)) {
             String reason = codeInventoryUnavailableReason();
             return reason == null ? JavaAgentService.INVENTORY_REQUIREMENT + "." : reason;
+        }
+        if (BootUiPanels.CODE_PATHS.equals(panelId)) {
+            String reason = codePathsUnavailableReason();
+            return reason == null ? JavaAgentService.CODE_PATHS_REQUIREMENT + "." : reason;
         }
         return CAPABILITY_ABSENT.getOrDefault(
                 panelId,

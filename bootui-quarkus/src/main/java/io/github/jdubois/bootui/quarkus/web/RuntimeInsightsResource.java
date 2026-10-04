@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.insights.ChangeImpactService;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
@@ -65,6 +66,7 @@ public class RuntimeInsightsResource {
             Instance<BeanProvider> beans,
             Instance<JavaAgentService> javaAgent,
             Instance<CodeInventoryService> codeInventory,
+            Instance<CodePathsService> codePaths,
             Instance<SqlTraceRecorder> sqlTraceRecorder,
             QuarkusExposurePolicy exposure,
             Config config) {
@@ -93,7 +95,8 @@ public class RuntimeInsightsResource {
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
                 config.getOptionalValue("bootui.resources.jfr.max-duration", Duration.class)
-                        .orElse(ResourceSettings.DEFAULT_JFR_MAX_DURATION));
+                        .orElse(ResourceSettings.DEFAULT_JFR_MAX_DURATION),
+                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
         this.insights = new RuntimeInsightsService(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -117,6 +120,10 @@ public class RuntimeInsightsResource {
         this.insights.setCodeInventory(
                 () -> codeInventory.isResolvable() ? codeInventory.get().changedCode() : null,
                 () -> codeInventory.isResolvable() ? codeInventory.get().changesFingerprint() : 0L);
+        // route-time-breakdown's handler split by method, from the agent's code paths (docs/PLAN-v2.md §5.14).
+        this.insights.setCodePaths(
+                route -> codePaths.isResolvable() ? codePaths.get().handlerMethods(route) : null,
+                () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
     }
 
     /**

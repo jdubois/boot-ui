@@ -76,6 +76,10 @@ public final class RuntimeInsightsService {
     public static final String ROUTE_INVENTORY_UNAVAILABLE = "The application's declared routes could not be read, so"
             + " the routes no request reached are not listed: that does not mean every route was exercised.";
 
+    /** Why no route is listed as not exercised when the runtime journal does not record HTTP requests. */
+    public static final String ROUTE_EXERCISE_UNRECORDED = "The runtime journal does not record the http source"
+            + " (bootui.runtime-journal.sources), so the routes no request reached are not listed.";
+
     /**
      * Prefix of the limitation naming retained scheduled runs and consumed messages, which {@code requests} does not
      * count. The agent view matches this prefix rather than the counted totals.
@@ -96,6 +100,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<SqlCapture> sqlCapture;
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
+    private volatile LongSupplier codePathsFingerprint;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -213,6 +218,47 @@ public final class RuntimeInsightsService {
             }
         }
         this.cached = null;
+    }
+
+    /**
+     * Installs what Code Paths says about each route's handler ({@code docs/PLAN-v2.md} §5.14, M5-4b), such as
+     * {@code CodePathsService::handlerMethods}, which {@code route-time-breakdown} splits the handler's work by, and a
+     * cheap fingerprint of the route trees, such as {@code CodePathsService::routeTreesFingerprint}, since trees settle
+     * without a journal event. While the Code Paths panel is disabled, nothing is split.
+     */
+    public synchronized void setCodePaths(
+            java.util.function.Function<String, io.github.jdubois.bootui.engine.codepaths.HandlerMethods> handlers,
+            LongSupplier fingerprint) {
+        this.codePathsFingerprint = handlers == null || fingerprint == null
+                ? null
+                : () -> codePathsVisible() ? fingerprint.getAsLong() * 31 + 1 : 0L;
+        for (Observation observation : observations) {
+            if (observation instanceof RouteTimeBreakdown breakdown) {
+                breakdown.setCodePaths(
+                        handlers == null ? null : route -> codePathsVisible() ? handlers.apply(route) : null);
+            }
+        }
+        this.cached = null;
+    }
+
+    private boolean codePathsVisible() {
+        try {
+            return panelEnabled.test(BootUiPanels.CODE_PATHS);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private long codePathsFingerprint() {
+        LongSupplier cheap = codePathsFingerprint;
+        if (cheap == null) {
+            return 0L;
+        }
+        try {
+            return cheap.getAsLong();
+        } catch (RuntimeException ex) {
+            return 0L;
+        }
     }
 
     /**
@@ -360,6 +406,7 @@ public final class RuntimeInsightsService {
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of(),
                     0,
+                    Map.of(),
                     0);
         }
         JournalStatus status = journal.status();
@@ -371,13 +418,15 @@ public final class RuntimeInsightsService {
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
         // And so is what Code Inventory reports, which the agent's hit flags change without any journal event.
-        long inventory = codeInventoryFingerprint();
+        // And so are the Code Paths route trees, which settle a little after their requests' journal events.
+        long inventory = codeInventoryFingerprint() * 1_000_003L + codePathsFingerprint();
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
                 && cached.clears() == status.clears()
+                && cached.dropped().equals(status.dropped())
                 && text.equals(cached.exposure())
                 && cached.inventory() == inventory) {
             return cached;
@@ -658,7 +707,7 @@ public final class RuntimeInsightsService {
         if (nonHttp != null) {
             limitations.add(nonHttp);
         }
-        List<String> notExercised = notExercised(snapshot, limitations);
+        List<String> notExercised = notExercised(snapshot, visibility, limitations);
         RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
                 true,
                 null,
@@ -676,7 +725,8 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears(), 0L);
+        return new Cached(
+                watermark, evicted, visibility, capture, text, report, details, status.clears(), status.dropped(), 0L);
     }
 
     /**
@@ -703,10 +753,28 @@ public final class RuntimeInsightsService {
     /**
      * The declared routes no request of this run reached. The run's aggregates count every request, retained or
      * evicted, so an evicted request still counts as reaching its route.
+     *
+     * <p>Which routes were reached is HTTP Exchanges evidence ({@code docs/PLAN-v2.md} §8): while that panel is off, or
+     * the journal does not record HTTP, none is listed, and the report says why rather than reading hidden or
+     * unrecorded requests as absence.</p>
      */
-    private List<String> notExercised(InsightsSnapshot snapshot, List<String> limitations) {
+    private List<String> notExercised(InsightsSnapshot snapshot, PanelVisibility visibility, List<String> limitations) {
         Supplier<List<MappingDto>> mappings = declaredMappings;
         if (mappings == null) {
+            return List.of();
+        }
+        if (!snapshot.records(JournalSource.HTTP)) {
+            limitations.add(ROUTE_EXERCISE_UNRECORDED);
+            return List.of();
+        }
+        if (!visibility.visible(JournalSource.HTTP)) {
+            List<String> panels = JournalSourcePanels.panelsOf(JournalSource.HTTP);
+            limitations.add(
+                    visibility.disabled(JournalSource.HTTP).isEmpty()
+                            ? panelsLabel(panels)
+                                    + " is not available in this application, so the routes no request reached"
+                                    + " are not listed: " + visibility.reasonsFor(panels)
+                            : panelsLabel(panels) + " is disabled, so the routes no request reached are not listed.");
             return List.of();
         }
         try {
@@ -881,17 +949,30 @@ public final class RuntimeInsightsService {
         Set<JournalSource> sources = EnumSet.noneOf(JournalSource.class);
         sources.addAll(observation.reads());
         for (JournalSource source : observation.optionalReads()) {
-            if (snapshot.records(source)) {
+            if (snapshot.available(source)) {
                 sources.add(source);
             }
         }
         if (observation.unitKinds().contains(ProjectedRequest.Kind.HTTP)) {
-            sources.add(JournalSource.HTTP);
+            addAnchor(sources, JournalSource.HTTP, snapshot);
+        }
+        if (observation.unitKinds().contains(ProjectedRequest.Kind.SCHEDULED)) {
+            addAnchor(sources, JournalSource.SCHEDULED, snapshot);
+        }
+        if (observation.unitKinds().contains(ProjectedRequest.Kind.MESSAGE)) {
+            addAnchor(sources, JournalSource.MESSAGING, snapshot);
+            addAnchor(sources, JournalSource.WEBSOCKET, snapshot);
         }
         long dropped = sources.stream().mapToLong(snapshot::dropped).sum();
         return dropped == 0
                 ? null
                 : "The journal dropped " + dropped + " events this observation reads, so its counts are a floor.";
+    }
+
+    private static void addAnchor(Set<JournalSource> sources, JournalSource source, InsightsSnapshot snapshot) {
+        if (snapshot.available(source)) {
+            sources.add(source);
+        }
     }
 
     /** {@code The sql-trace panel}, or {@code The kafka, rabbitmq and jms panels} when several are named. */
@@ -997,11 +1078,21 @@ public final class RuntimeInsightsService {
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
             long clears,
+            Map<JournalSource, Long> dropped,
             long inventory) {
 
         Cached withInventory(long fingerprint) {
             return new Cached(
-                    watermark, evicted, visibility, sqlCapture, exposure, report, details, clears, fingerprint);
+                    watermark,
+                    evicted,
+                    visibility,
+                    sqlCapture,
+                    exposure,
+                    report,
+                    details,
+                    clears,
+                    dropped,
+                    fingerprint);
         }
     }
 }

@@ -233,7 +233,8 @@ class QuarkusMcpToolsTest {
                         mock(ClaudeCodeResource.class),
                         mock(RuntimeInsightsResource.class),
                         mock(JavaAgentResource.class),
-                        mock(CodeInventoryResource.class))
+                        mock(CodeInventoryResource.class),
+                        mock(CodePathsResource.class))
                 .tools();
     }
 

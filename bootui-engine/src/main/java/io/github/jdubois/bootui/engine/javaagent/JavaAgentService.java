@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.javaagent;
 
 import io.github.jdubois.bootui.core.dto.JavaAgentClaimDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentCodePathsCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentExecutorCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
@@ -42,6 +43,9 @@ public final class JavaAgentService {
 
     /** What Code Inventory and {@code changed-code-not-executed} need ({@code docs/PLAN-v2.md} §5.15). */
     public static final String INVENTORY_REQUIREMENT = "Requires the BootUI agent's inventory sensor";
+
+    /** What Code Paths and the request trees need ({@code docs/PLAN-v2.md} §5.14). */
+    public static final String CODE_PATHS_REQUIREMENT = "Requires the BootUI agent's code-paths sensor";
 
     /** The state the agent reports for a sensor whose hooks are in place. */
     static final String INSTALLED = "installed";
@@ -132,7 +136,7 @@ public final class JavaAgentService {
 
     /**
      * Whether the agent propagates the work a request hands to a JDK executor for this application: it is attached and
-     * armed for it ({@link #recording()}), its {@code executors} sensor is installed, the bridge has not disabled
+     * armed for it ({@link #recording()}), its {@code executors} sensor is installed and self-tested, the bridge has not disabled
      * propagation, and this application attached its handoffs to its claim. Reads only the bridge's status. Never
      * throws.
      */
@@ -187,6 +191,30 @@ public final class JavaAgentService {
     }
 
     /**
+     * Why the agent's {@code code-paths} sensor does not record this application's requests, starting with
+     * {@value #CODE_PATHS_REQUIREMENT}, or {@code null} when it does: the agent is attached and armed for this
+     * application, its bridge carries the sensor's entry points, the sensor is installed, and the bridge has not
+     * disabled it ({@code docs/PLAN-v2.md} §5.14). Reads only the bridge's status. Never throws.
+     */
+    public String codePathsUnavailableReason() {
+        try {
+            if (access.present() && access.compatible() && !access.codePathsSupported()) {
+                return CODE_PATHS_REQUIREMENT
+                        + ": the attached BootUI agent predates it; attach the bootui-agent jar of" + " BootUI "
+                        + settings.bootUiVersion() + ".";
+            }
+            return sensorUnavailableReason(
+                    access.status(),
+                    CODE_PATHS_REQUIREMENT,
+                    AgentSensorSettings.CODE_PATHS,
+                    AgentSensorSettings.CODE_PATHS,
+                    "the sensor");
+        } catch (RuntimeException ex) {
+            return CODE_PATHS_REQUIREMENT + ".";
+        }
+    }
+
+    /**
      * Why sensor {@code id} does not record for this application, starting with {@code requirement}, or {@code null}
      * when the agent is armed for it, the sensor is installed, and the bridge's counters under {@code countersKey}
      * carry no {@code disabledReason}.
@@ -215,10 +243,21 @@ public final class JavaAgentService {
             return requirement + ": the agent reports it inactive for this application's claim.";
         }
         String state = AgentBridgeAccess.text(sensor, "state");
+        String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, countersKey), "disabledReason");
+        if (AgentSensorSettings.EXECUTORS.equals(id)) {
+            if ("testing".equals(state)) {
+                return requirement + ": the executors sensor's core hooks have not passed their self-test yet.";
+            }
+            if (disabled != null) {
+                return requirement + ": the agent disabled " + disabledWhat + ": " + disabled;
+            }
+            if (INSTALLED.equals(state) && !Boolean.TRUE.equals(sensor.get("selfTestPassed"))) {
+                return requirement + ": the executors sensor's core hooks have not passed their self-test yet.";
+            }
+        }
         if (!INSTALLED.equals(state)) {
             return requirement + ": the sensor is " + (state == null ? "not installed" : state) + ".";
         }
-        String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, countersKey), "disabledReason");
         if (disabled != null) {
             return requirement + ": the agent disabled " + disabledWhat + ": " + disabled;
         }
@@ -364,6 +403,7 @@ public final class JavaAgentService {
                 String id = AgentBridgeAccess.text(sensor, "id");
                 Map<String, Object> counters = id == null ? Map.of() : AgentBridgeAccess.map(status, id);
                 boolean inventory = AgentSensorSettings.INVENTORY.equals(id);
+                boolean codePaths = AgentSensorSettings.CODE_PATHS.equals(id);
                 sensors.add(new JavaAgentSensorDto(
                         id,
                         AgentBridgeAccess.text(sensor, "state"),
@@ -382,8 +422,9 @@ public final class JavaAgentService {
                         count(sensor, "skipped"),
                         count(sensor, "transformed"),
                         count(sensor, "retransformed"),
-                        counters.isEmpty() || inventory ? null : executorCounters(counters),
-                        counters.isEmpty() || !inventory ? null : inventoryCounters(counters)));
+                        counters.isEmpty() || inventory || codePaths ? null : executorCounters(counters),
+                        counters.isEmpty() || !inventory ? null : inventoryCounters(counters),
+                        counters.isEmpty() || !codePaths ? null : codePathsCounters(counters)));
             }
         }
         return sensors;
@@ -455,6 +496,18 @@ public final class JavaAgentService {
                 AgentBridgeAccess.text(inventory, "disabledReason"));
     }
 
+    private static JavaAgentCodePathsCountersDto codePathsCounters(Map<String, Object> codePaths) {
+        return new JavaAgentCodePathsCountersDto(
+                longValue(codePaths, "fragmentsFlushed"),
+                longValue(codePaths, "fragmentsDropped"),
+                longValue(codePaths, "queueDropped"),
+                longValue(codePaths, "callsDropped"),
+                longValue(codePaths, "queueBytes"),
+                longValue(codePaths, "excludedMethods"),
+                longValue(codePaths, "errors"),
+                AgentBridgeAccess.text(codePaths, "disabledReason"));
+    }
+
     private static Map<String, String> texts(Map<String, Object> map) {
         Map<String, String> texts = new LinkedHashMap<>();
         map.forEach((key, value) -> {
@@ -496,7 +549,7 @@ public final class JavaAgentService {
                 String state = AgentBridgeAccess.text(sensor, "state");
                 running |= "installing".equals(state);
                 failure |= state != null && state.contains("failed");
-                installed |= INSTALLED.equals(state);
+                installed |= INSTALLED.equals(state) || "testing".equals(state);
             }
         }
         if (!any) {

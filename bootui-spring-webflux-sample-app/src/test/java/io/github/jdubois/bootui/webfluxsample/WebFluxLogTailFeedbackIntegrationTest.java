@@ -62,12 +62,14 @@ class WebFluxLogTailFeedbackIntegrationTest {
 
         String streamed = probe.readStreamUntil(
                 "/bootui/api/log-tail/stream",
+                "backlog line " + (LINES - 1),
                 () -> Logger.getLogger(logger).warning("live line"),
                 "live line",
-                Duration.ofSeconds(15));
+                Duration.ofSeconds(30));
+        // The live line is only logged once the whole backlog has been replayed, which proves the stream is subscribed.
         assertThat(streamed)
-                .as("the stream delivers the backlog and the live line")
-                .contains("live line");
+                .as("the stream delivers the backlog and the live line (received %d chars)", streamed.length())
+                .contains("backlog line " + (LINES - 1), "live line");
         Thread.sleep(500);
 
         JsonNode recent = probe.get("/bootui/api/log-tail/recent").json();
