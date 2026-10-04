@@ -9,19 +9,29 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
- * Reads an HPROF heap dump and answers which simulated runs the agent itself strongly reaches (PLAN-v2 M5-0 second
- * pass, extended by the M5-1 review). The walk starts from the statics and every instance of each class whose name
- * starts with the agent prefix, and from every thread whose name starts with {@code bootui-agent}; it follows instance
- * fields, array elements, instance-to-class and class-to-loader edges, but never {@code Reference.referent} or
- * {@code discovered}, nor the statics of a class outside the prefix (the application's and the JDK's own pins are not
- * the agent's). Each reached copy of the run class reports its static {@code SENTINEL.run}.
+ * Reads an HPROF heap dump and answers which application runs the agent itself strongly reaches (PLAN-v2 M5-0 second
+ * pass, extended by the M5-1 reviews). The walk starts from the statics and every instance of each class whose name
+ * starts with the agent prefix, and from every thread whose name starts with {@code bootui-agent} but the engine's
+ * (a thread running a BootUI task outside the agent's package, as the engine's drain thread); it follows instance
+ * fields, array elements, instance-to-class and class-to-loader edges, but never a reference's referent, queue, or
+ * pending links, nor the links of the cleaner's list of cleanables, nor the statics of a class outside the prefix
+ * (the application's and the JDK's own pins are not the agent's). Each reached copy of the run class reports its static
+ * {@code SENTINEL.run}.
+ *
+ * <p>A dependency-free test source root of its own, which the Spring sample's DevTools restart test and the Quarkus
+ * live reload test add with the build helper plugin, so every leak test walks the heap the same way and nothing
+ * test-only is published.
  */
-final class HeapWalk {
+public final class HeapWalk {
 
     private static final long CHUNK = 1L << 30;
 
@@ -35,10 +45,12 @@ final class HeapWalk {
     private final Map<Long, List<long[]>> statics = new HashMap<>();
     private final Map<Long, Long> offsets = new HashMap<>();
     private long referenceClass;
+    /** The thread objects the dump lists as roots: the threads alive when it was taken. */
+    private final Set<Long> threadRoots = new HashSet<>();
 
     private HeapWalk() {}
 
-    static HeapWalk read(Path dump) throws IOException {
+    public static HeapWalk read(Path dump) throws IOException {
         HeapWalk walk = new HeapWalk();
         walk.parse(dump);
         return walk;
@@ -48,7 +60,7 @@ final class HeapWalk {
      * Run number to the path by which the thread-locals of the threads named with one of {@code threadPrefixes} (JVM-wide
      * threads such as the common pool's workers) reach it: a propagated context left set after its task would.
      */
-    Map<Integer, String> runsReachedThroughThreadLocals(
+    public Map<Integer, String> runsReachedThroughThreadLocals(
             List<String> threadPrefixes, String agentPrefix, String runClass) {
         Map<Long, Long> parent = new HashMap<>();
         Map<Long, String> edge = new HashMap<>();
@@ -72,8 +84,51 @@ final class HeapWalk {
         return walk(parent, edge, queue, agentPrefix, runClass);
     }
 
+    /** How many threads named with {@code threadPrefix} were alive when the dump was taken. */
+    public int liveThreads(String threadPrefix) {
+        int count = 0;
+        for (Long thread : threadRoots) {
+            String name = threadName(thread, classOf(thread));
+            if (name != null && name.startsWith(threadPrefix)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** The run number of every copy of {@code runClass} the dump holds, reached by the agent or not. */
+    public SortedSet<Integer> runsPresent(String runClass) {
+        SortedSet<Integer> runs = new TreeSet<>();
+        for (Map.Entry<Long, String> entry : classNames.entrySet()) {
+            if (entry.getValue().equals(runClass) && classInfo.containsKey(entry.getKey())) {
+                runs.add(sentinelRun(entry.getKey()));
+            }
+        }
+        return runs;
+    }
+
+    /**
+     * Run number to the path by which the threads named with {@code threadPrefix}, whoever runs them, reach it: a
+     * control, so a leak test can show the walk does reach a run through the paths it follows.
+     */
+    public Map<Integer, String> runsReachedFromThreads(String threadPrefix, String agentPrefix, String runClass) {
+        Map<Long, Long> parent = new HashMap<>();
+        Map<Long, String> edge = new HashMap<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        for (Long object : offsets.keySet()) {
+            long type = classOf(object);
+            if (isThread(type)) {
+                String threadName = threadName(object, type);
+                if (threadName != null && threadName.startsWith(threadPrefix)) {
+                    root(object, parent, edge, queue, "thread " + threadName);
+                }
+            }
+        }
+        return walk(parent, edge, queue, agentPrefix, runClass);
+    }
+
     /** Run number to the path the agent reaches it by. */
-    Map<Integer, String> runsReachedByAgent(String agentPrefix, String runClass) {
+    public Map<Integer, String> runsReachedByAgent(String agentPrefix, String runClass) {
         Map<Long, Long> parent = new HashMap<>();
         Map<Long, String> edge = new HashMap<>();
         ArrayDeque<Long> queue = new ArrayDeque<>();
@@ -89,7 +144,9 @@ final class HeapWalk {
                 root(object, parent, edge, queue, "agent instance");
             } else if (isThread(type)) {
                 String threadName = threadName(object, type);
-                if (threadName != null && threadName.startsWith("bootui-agent")) {
+                if (threadName != null
+                        && threadName.startsWith("bootui-agent")
+                        && !engineTask(object, type, agentPrefix)) {
                     root(object, parent, edge, queue, "agent thread " + threadName);
                 }
             }
@@ -174,6 +231,28 @@ final class HeapWalk {
             current = classInfo.get(current)[0];
         }
         return false;
+    }
+
+    /**
+     * Whether the thread runs a task of BootUI outside the agent, as the engine's {@code bootui-agent-drain} thread
+     * does for its claim: the engine's, not the agent's, so not a root (a walk from it would follow the application run
+     * that owns it into whatever that run, or its framework, retains). JDK 19 and later keep the task in the thread's
+     * {@code holder}, earlier JDKs in {@code target}.
+     */
+    private boolean engineTask(long thread, long type, String agentPrefix) {
+        Object task = null;
+        Object holder = field(thread, type, "holder");
+        if (holder instanceof Long id && id != 0) {
+            task = field(id, classOf(id), "task");
+        }
+        if (!(task instanceof Long)) {
+            task = field(thread, type, "target");
+        }
+        if (!(task instanceof Long id) || id == 0) {
+            return false;
+        }
+        String name = classNames.getOrDefault(classOf(id), "");
+        return name.startsWith("io/github/jdubois/bootui/") && !name.startsWith(agentPrefix);
     }
 
     private String threadName(long thread, long type) {
@@ -290,9 +369,7 @@ final class HeapWalk {
                 for (int i = 0; i < types.length; i++) {
                     if (types[i] == 2) {
                         String name = strings.get(names[i]);
-                        boolean weak =
-                                current == referenceClass && ("referent".equals(name) || "discovered".equals(name));
-                        if (!weak) {
+                        if (!infrastructure(current, name)) {
                             out.add(new Object[] {id(position), name});
                         }
                     }
@@ -308,6 +385,24 @@ final class HeapWalk {
             }
         }
         return out;
+    }
+
+    /**
+     * Whether a reference field is the JDK's reference bookkeeping rather than a strong hold: a reference's referent
+     * and its queue and pending links, and the links of the cleaner's list of registered cleanables (a cleanable
+     * reached from a jar the agent opened links to every other cleanable in the JVM). A cleanable's own action is
+     * still followed.
+     */
+    private boolean infrastructure(long declaringClass, String field) {
+        if (declaringClass == referenceClass) {
+            return "referent".equals(field)
+                    || "discovered".equals(field)
+                    || "queue".equals(field)
+                    || "next".equals(field);
+        }
+        String owner = classNames.getOrDefault(declaringClass, "");
+        return owner.equals("jdk/internal/ref/PhantomCleanable")
+                || owner.startsWith("jdk/internal/ref/CleanerImpl$Cleanable");
     }
 
     private void parse(Path dump) throws IOException {
@@ -360,7 +455,11 @@ final class HeapWalk {
             switch (sub) {
                 case 0xFF, 0x05, 0x07 -> p += idSize;
                 case 0x01 -> p += 2L * idSize;
-                case 0x02, 0x03, 0x08 -> p += idSize + 8;
+                case 0x02, 0x03 -> p += idSize + 8;
+                case 0x08 -> {
+                    threadRoots.add(id(p));
+                    p += idSize + 8;
+                }
                 case 0x04, 0x06 -> p += idSize + 4;
                 case 0x20 -> p = classDump(p);
                 case 0x21 -> {

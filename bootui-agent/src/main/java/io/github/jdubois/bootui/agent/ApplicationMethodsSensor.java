@@ -1098,6 +1098,13 @@ final class ApplicationMethodsSensor {
                 return;
             }
             int[] array = ids == null ? new int[0] : ids.toArray();
+            int[] previous = loaded && !first ? idsByType.get(name) : null;
+            if (previous != null) {
+                // Transformed again in its class loader, as by a HotSwap: the JVM may still refuse a redefinition that
+                // adds methods after this transformer ran, so only the methods the class already had are tracked; the
+                // others are tracked from its next load.
+                array = retained(array, previous);
+            }
             idsByType.put(name, array);
             CodeInventory.tracked(name, array, loaded && first && !PROBE.equals(name));
         }
@@ -1143,6 +1150,26 @@ final class ApplicationMethodsSensor {
             pending.remove(typeName);
             visits.remove(typeName);
         }
+    }
+
+    /** The ids of {@code ids} also in {@code previous}, in their order. */
+    static int[] retained(int[] ids, int[] previous) {
+        int count = 0;
+        int[] kept = new int[ids.length];
+        for (int id : ids) {
+            for (int old : previous) {
+                if (id == old) {
+                    kept[count++] = id;
+                    break;
+                }
+            }
+        }
+        if (count == kept.length) {
+            return kept;
+        }
+        int[] trimmed = new int[count];
+        System.arraycopy(kept, 0, trimmed, 0, count);
+        return trimmed;
     }
 
     /** A retransformation the JVM rejected for one class: its methods are not instrumented after all. */

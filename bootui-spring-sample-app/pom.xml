@@ -246,6 +246,11 @@
                 <artifactId>maven-dependency-plugin</artifactId>
             </plugin>
             <plugin>
+                <!-- The agent's heap walk, for SpringAgentDevToolsRestartIT. -->
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <!--
@@ -293,6 +298,8 @@
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <!-- The classes, not the repackaged jar, whose BOOT-INF layout a plain class path cannot read. -->
                     <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                    <!-- SpringAgentDevToolsRestartIT walks a heap dump of eleven runs of the sample in this JVM. -->
+                    <argLine>@{argLine} -Xmx2g</argLine>
                     <systemPropertyVariables>
                         <sample.jar>${project.build.directory}/${project.build.finalName}.jar</sample.jar>
                         <host.asm.jar>${org.ow2.asm:asm:jar}</host.asm.jar>

@@ -234,16 +234,25 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public JavaAgentService javaAgentService(Instance<QuarkusAgentClaim> claim, Config config) {
-        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
-        return new JavaAgentService(
+    public JavaAgentService javaAgentService(Instance<QuarkusAgentClaim> claim) {
+        return javaAgentService(
                 AgentBridgeAccess.locate(),
-                current::claim,
+                claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none(),
+                LaunchMode.current());
+    }
+
+    /**
+     * The service for {@code claim}, with the build-time {@code bootui.agent.enabled} the static-init claim was decided
+     * with: a runtime value of that build-time property changes nothing, so the panel never reports it.
+     */
+    static JavaAgentService javaAgentService(AgentBridgeAccess access, QuarkusAgentClaim claim, LaunchMode launchMode) {
+        return new JavaAgentService(
+                access,
+                claim::claim,
                 JavaAgentSettings.of(
                         AgentSetupSnippets.QUARKUS,
-                        config.getOptionalValue("bootui.agent.enabled", Boolean.class)
-                                .orElse(true),
-                        LaunchMode.current() == LaunchMode.NORMAL ? "Quarkus production mode" : null));
+                        claim.enabled(),
+                        launchMode == LaunchMode.NORMAL ? "Quarkus production mode" : null));
     }
 
     /**

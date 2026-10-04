@@ -461,6 +461,9 @@ How it works:
   instrumented it), and never counted as executed or never executed. A method that executed but has no class file in
   the scanned roots, as in a generated class, is counted apart as **generated**. Methods called before BootUI claimed
   the agent are not seen.
+- A HotSwap (a debugger's **Reload Changed Classes**) keeps the agent tracking the edited methods, but the class files
+  are hashed only when a run starts: the edit shows in **Changed** after the next DevTools restart or Quarkus live
+  reload ([HotSwap](java-agent.md#hotswap)).
 
 API, all `GET`, paged with `offset` and `limit` where they list:
 
