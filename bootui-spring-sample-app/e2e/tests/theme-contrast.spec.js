@@ -131,3 +131,28 @@ test('keeps the theme picker opaque in every theme', async ({page}) => {
     await page.keyboard.press('Escape')
   }
 })
+
+test('keeps the request profile drawer opaque in every theme', async ({page, openView}) => {
+  const search = await page.request.get('/api/sample/product-search')
+  expect(search.ok()).toBeTruthy()
+
+  for (const theme of ['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95']) {
+    await page.goto('/bootui/')
+    await page.evaluate((value) => localStorage.setItem('bootui.theme', value), theme)
+    await openView('activity', 'Live Activity')
+    await expect(page.locator('html')).toHaveAttribute('data-bootui-theme', theme)
+
+    const searchRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/product-search'}).first()
+    await expect(searchRow).toBeVisible()
+    await searchRow.getByRole('button', {name: /Profile/}).click()
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+
+    const background = await drawer.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {color: style.backgroundColor, image: style.backgroundImage}
+    })
+    expect(parseColor(background.color).alpha, `${theme} request profile background: ${background.color}`).toBe(1)
+    expect(background.image, `${theme} request profile background image`).toBe('none')
+  }
+})
