@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,6 +69,8 @@ class JournalCaptureBudgetBenchmarkTest {
         row("Snapshot, envelope, and offer", 8, eight, "< 2 µs p99");
         long[] frames = frameCaptureLatencies();
         row("Application frames stack walk (call sites kept)", 1, frames, "not budgeted apart");
+        long[] duringClear = offerLatenciesWhileClearDrainIsPaused();
+        row("Offer while a detached-queue drain is pending", 1, duringClear, "report only");
 
         report.add("");
         report.add("| Dispatcher | Offered per second | Seconds | Accepted | Dropped | Recorded per second | Budget |");
@@ -171,6 +174,54 @@ class JournalCaptureBudgetBenchmarkTest {
         }
         Arrays.sort(timings);
         return timings;
+    }
+
+    /** Times offers into the replacement queue while a full detached queue is deliberately kept undrained. */
+    private long[] offerLatenciesWhileClearDrainIsPaused() throws Exception {
+        CountDownLatch beforeDrain = new CountDownLatch(1);
+        CountDownLatch releaseDrain = new CountDownLatch(1);
+        try (RuntimeJournal journal =
+                new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start(), false, null, ignored -> {
+                    beforeDrain.countDown();
+                    try {
+                        releaseDrain.await(30, TimeUnit.SECONDS);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                })) {
+            RuntimeEvent event = new RuntimeEvent(
+                    JournalSource.SQL,
+                    System.currentTimeMillis(),
+                    250_000,
+                    null,
+                    null,
+                    null,
+                    "http-nio-8080-exec-bench",
+                    ThreadKind.WORKER,
+                    false,
+                    new SqlPayload(SELECT, "OrderRepository.findByCustomer:42", "orders", false));
+            for (int i = 0; i < journal.settings().queueCapacity(); i++) {
+                journal.offer(event);
+            }
+            long acceptedBeforeClear = journal.status().accepted().values().stream()
+                    .mapToLong(Long::longValue)
+                    .sum();
+            CompletableFuture<Long> clearing = CompletableFuture.supplyAsync(journal::offloadRetainedData);
+            assertThat(beforeDrain.await(30, TimeUnit.SECONDS)).isTrue();
+            long[] timings = new long[journal.settings().routineQueueLimit()];
+            for (int i = 0; i < timings.length; i++) {
+                long before = System.nanoTime();
+                boolean accepted = journal.offer(event);
+                timings[i] = System.nanoTime() - before;
+                assertThat(accepted).isTrue();
+            }
+            releaseDrain.countDown();
+            assertThat(clearing.get(30, TimeUnit.SECONDS)).isEqualTo(acceptedBeforeClear);
+            Arrays.sort(timings);
+            return timings;
+        } finally {
+            releaseDrain.countDown();
+        }
     }
 
     /** Walks the stack {@code depth} frames below this test, about as deep as a servlet request's repository call. */
