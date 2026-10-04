@@ -27,7 +27,7 @@ public record CachePayload(String cacheName, String operation, ApplicationFrames
         return new CachePayload(
                 dictionary.shared(cacheName),
                 dictionary.shared(operation),
-                frames == null ? null : frames.interned(dictionary),
+                ApplicationFrames.interned(frames, dictionary),
                 codePathStamp);
     }
 

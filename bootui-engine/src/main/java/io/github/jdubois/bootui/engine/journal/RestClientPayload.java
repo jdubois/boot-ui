@@ -67,7 +67,7 @@ public record RestClientPayload(
                 status,
                 dictionary.shared(clientType),
                 failed,
-                frames == null ? null : frames.interned(dictionary),
+                ApplicationFrames.interned(frames, dictionary),
                 completedNanos,
                 codePathStamp);
     }

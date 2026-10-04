@@ -531,6 +531,112 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void offersRacingClearsAreNeitherLostNorReorderedAndEveryOneIsCounted() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                settings(100_000, 100_000_000, 256, 10, JournalSource.all()), RunIdentity.start(), true, null, null, 5);
+        journals.add(journal);
+        List<long[]> seen = new ArrayList<>();
+        journal.addListener(entries -> {
+            for (JournalEntry entry : entries) {
+                seen.add(new long[] {entry.sequence(), entry.event().epochMillis()});
+            }
+        });
+        int producers = 4;
+        int perProducer = 20_000;
+        AtomicLong acceptedOffers = new AtomicLong();
+        List<Thread> threads = new ArrayList<>();
+        CountDownLatch start = new CountDownLatch(1);
+        for (int p = 0; p < producers; p++) {
+            long base = p * 1_000_000L;
+            Thread producer = new Thread(() -> {
+                try {
+                    start.await();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                for (int i = 0; i < perProducer; i++) {
+                    if (journal.offer(
+                            RuntimeEvent.of(JournalSource.SQL, base + i, 1, null, null, null, i % 7 == 0, () -> 64))) {
+                        acceptedOffers.incrementAndGet();
+                    }
+                }
+            });
+            producer.start();
+            threads.add(producer);
+        }
+        start.countDown();
+        int clears = 0;
+        while (threads.stream().anyMatch(Thread::isAlive)) {
+            journal.clear();
+            clears++;
+            Thread.onSpinWait();
+        }
+        for (Thread thread : threads) {
+            thread.join(30_000);
+        }
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10)))
+                .as("every accepted offer is processed or cleared, none stranded on a detached queue")
+                .isTrue();
+        JournalStatus status = journal.status();
+        long accepted =
+                status.accepted().values().stream().mapToLong(Long::longValue).sum();
+        assertThat(accepted).isEqualTo(acceptedOffers.get());
+        assertThat(accepted + status.droppedTotal()).isEqualTo((long) producers * perProducer);
+        assertThat(status.clears()).isEqualTo(clears);
+        long lastSequence = 0;
+        long[] lastPerProducer = {-1, -1, -1, -1};
+        for (long[] entry : seen) {
+            assertThat(entry[0]).isGreaterThan(lastSequence);
+            lastSequence = entry[0];
+            int producer = (int) (entry[1] / 1_000_000L);
+            assertThat(entry[1])
+                    .as("each producer's events stay in offer order")
+                    .isGreaterThan(lastPerProducer[producer]);
+            lastPerProducer[producer] = entry[1];
+        }
+    }
+
+    @Test
+    void anEventOfferedAfterTheRunEndedIsDroppedAndCountedEvenAfterAClear() throws Exception {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+
+        journal.close();
+        assertThat(journal.entries()).as("processed as the run ended").hasSize(1);
+
+        assertThat(journal.offer(sql(2, true))).isFalse();
+        journal.clear();
+        assertThat(journal.offer(sql(3, false))).isFalse();
+        assertThat(journal.status().droppedTotal()).isEqualTo(2);
+        assertThat(journal.status().queueDepth()).isZero();
+        assertThat(journal.awaitDrained(Duration.ZERO)).isTrue();
+    }
+
+    @Test
+    void aSmallQueueKeepsUpWithRepeatedBurstsDespiteTheDispatchersPause() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                settings(100_000, 100_000_000, 100, 10, JournalSource.all()), RunIdentity.start(), true, null, null, 5);
+        journals.add(journal);
+        int offered = 0;
+        for (int burst = 0; burst < 200; burst++) {
+            for (int i = 0; i < 60; i++) {
+                journal.offer(sql(offered++, false));
+            }
+            // A burst of 60 into a routine share of 90 drops nothing as long as the dispatcher keeps up.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (journal.status().queueDepth() > 30 && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+        }
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.status().droppedTotal()).isZero();
+        assertThat(journal.lastSequence()).isEqualTo(offered);
+    }
+
+    @Test
     void theRunningDispatcherContinuesWithTheReplacementQueueAfterAClear() throws Exception {
         RuntimeJournal journal = new RuntimeJournal(
                 settings(100, 1_000_000, 100, 10, JournalSource.all()), RunIdentity.start(), true, null, null, 30_000);
@@ -540,9 +646,13 @@ class RuntimeJournalTests {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         boolean waiting = false;
         while (!waiting && System.nanoTime() < deadline) {
-            waiting = Thread.getAllStackTraces().keySet().stream()
-                    .filter(thread -> thread.getName().equals(RuntimeJournal.DISPATCHER_THREAD))
-                    .anyMatch(thread -> thread.getState() == Thread.State.TIMED_WAITING);
+            // Waiting in the queue's poll, not in the pause after its batch.
+            waiting = Thread.getAllStackTraces().entrySet().stream()
+                    .filter(thread -> thread.getKey().getName().equals(RuntimeJournal.DISPATCHER_THREAD))
+                    .anyMatch(thread -> thread.getKey().getState() == Thread.State.TIMED_WAITING
+                            && java.util.Arrays.stream(thread.getValue())
+                                    .anyMatch(frame -> frame.getClassName().equals(JournalQueue.class.getName())
+                                            && frame.getMethodName().equals("poll")));
             Thread.onSpinWait();
         }
         assertThat(waiting)
