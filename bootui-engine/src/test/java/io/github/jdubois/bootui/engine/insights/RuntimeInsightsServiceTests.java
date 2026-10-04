@@ -759,7 +759,8 @@ class RuntimeInsightsServiceTests {
         assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
         assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("INSUFFICIENT");
         assertThat(checks(report).get(SafeMethodDml.KIND).reason())
-                .isEqualTo("No eligible work was recorded for this check.");
+                .contains("No eligible work")
+                .doesNotContain("scheduled");
     }
 
     @Test
@@ -858,7 +859,8 @@ class RuntimeInsightsServiceTests {
                 .report();
         assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("INSUFFICIENT");
         assertThat(checks(report).get(RepeatedSelects.KIND).reason())
-                .isEqualTo("No eligible work was recorded for this check.");
+                .contains("No eligible work")
+                .doesNotContain("jms", "scheduled");
     }
 
     @Test
