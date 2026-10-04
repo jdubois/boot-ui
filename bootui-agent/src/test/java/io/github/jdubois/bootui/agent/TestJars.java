@@ -66,6 +66,40 @@ final class TestJars {
         return jar("codepaths-app.jar", "bootuicodepathsapp", List.of()).toString();
     }
 
+    static Path inventoryReloadJar(int value, String packageName) throws IOException {
+        String name = packageName.replace('.', '/') + "/Reloaded";
+        Files.createDirectories(ChildJvm.WORK);
+        Path jar = ChildJvm.WORK.resolve("inventory-reload-" + packageName + "-" + value + ".jar");
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
+            for (String type : List.of(name, "bootuiinventoryapp/Lazy")) {
+                out.putNextEntry(new JarEntry(type + ".class"));
+                out.write(inventoryReloadClass(type, value));
+                out.closeEntry();
+            }
+        }
+        return jar;
+    }
+
+    private static byte[] inventoryReloadClass(String name, int value) {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_SUPER, name, null, "java/lang/Object", null);
+        MethodVisitor constructor = writer.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        constructor.visitMaxs(0, 0);
+        constructor.visitEnd();
+        MethodVisitor run = writer.visitMethod(Opcodes.ACC_PUBLIC, "run", "()I", null, null);
+        run.visitCode();
+        run.visitLdcInsn(value);
+        run.visitInsn(Opcodes.IRETURN);
+        run.visitMaxs(0, 0);
+        run.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
     /** A claimed class whose method {@code big()} is so close to the JVM's 64 KB limit that no advice fits in it. */
     static final String HUGE = "bootuiinventoryapp/Huge";
 

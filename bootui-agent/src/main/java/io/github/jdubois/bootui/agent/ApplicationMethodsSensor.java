@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +120,8 @@ final class ApplicationMethodsSensor {
     private final Instrumentation instrumentation;
     private final boolean privileged;
     private final TransformStats stats = new TransformStats();
+    private final InventoryDefinitions inventoryDefinitions = new InventoryDefinitions();
+    private final ConcurrentHashMap<Integer, Advice> inventoryAdviceByDefinition = new ConcurrentHashMap<>();
     /** Method ids matched while a type is transformed, until its outcome is known. */
     private final ConcurrentHashMap<String, IdList> pending = new ConcurrentHashMap<String, IdList>();
     /** Method ids of each instrumented type, so a retransformation the JVM rejects marks them failed. */
@@ -214,6 +217,18 @@ final class ApplicationMethodsSensor {
             boolean inventory,
             boolean codePaths) {
         generation = claimGeneration;
+        if (inventory) {
+            Set<ClassLoader> existing = Collections.newSetFromMap(new IdentityHashMap<ClassLoader, Boolean>());
+            for (Class<?> type : instrumentation.getAllLoadedClasses()) {
+                existing.add(type.getClassLoader());
+            }
+            for (ClassLoader loader : existing) {
+                inventoryDefinitions.observed(loader, true);
+            }
+            inventoryDefinitions.claimed(claimGeneration);
+            CodeInventory.activateDefinition(
+                    inventoryDefinitions.token(ApplicationMethodsSensor.class.getClassLoader()), claimGeneration);
+        }
         packages = Collections.unmodifiableList(new ArrayList<String>(claimedPackages));
         retransformedPackages = Collections.emptyList();
         if (stuck) {
@@ -825,9 +840,6 @@ final class ApplicationMethodsSensor {
     }
 
     private AgentBuilder builder() {
-        Advice inventoryAdvice = Advice.withCustomMapping()
-                .bind(InventoryAdvice.MethodId.class, new MethodIdMapping())
-                .to(InventoryAdvice.class);
         Advice codePathsAdvice = Advice.withCustomMapping()
                 .bind(InventoryAdvice.MethodId.class, new MethodIdMapping())
                 .to(CodePathsAdvice.class);
@@ -836,7 +848,7 @@ final class ApplicationMethodsSensor {
                 .assureReadEdgeTo(instrumentation, CodeInventory.class)
                 .ignore(new Unclaimed())
                 .type(new Claimed())
-                .transform(new Transform(inventoryAdvice, codePathsAdvice));
+                .transform(new Transform(codePathsAdvice));
     }
 
     // ---- matching --------------------------------------------------------------------------------------------------
@@ -1032,11 +1044,9 @@ final class ApplicationMethodsSensor {
      */
     final class Transform implements AgentBuilder.Transformer {
 
-        private final Advice inventoryAdvice;
         private final Advice codePathsAdvice;
 
-        Transform(Advice inventoryAdvice, Advice codePathsAdvice) {
-            this.inventoryAdvice = inventoryAdvice;
+        Transform(Advice codePathsAdvice) {
             this.codePathsAdvice = codePathsAdvice;
         }
 
@@ -1055,7 +1065,14 @@ final class ApplicationMethodsSensor {
             int applied = 0;
             DynamicType.Builder<?> visited = builder;
             if (inventoryOn && !codePathsProbe) {
-                visited = visited.visit(inventoryAdvice.on(new Methods()));
+                int definition = inventoryDefinitions.token(classLoader);
+                Advice definitionAdvice = inventoryAdviceByDefinition.computeIfAbsent(
+                        definition,
+                        token -> Advice.withCustomMapping()
+                                .bind(InventoryAdvice.MethodId.class, new MethodIdMapping())
+                                .bind(InventoryAdvice.DefinitionToken.class, token)
+                                .to(InventoryAdvice.class));
+                visited = visited.visit(definitionAdvice.on(new Methods()));
                 applied |= VISIT_INVENTORY;
             }
             if (codePathsOn
@@ -1074,6 +1091,13 @@ final class ApplicationMethodsSensor {
 
     /** Tells the bridge which methods of each claimed class were instrumented, or failed to be. */
     final class Tracking extends AgentBuilder.Listener.Adapter {
+
+        @Override
+        public void onDiscovery(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
+            if (inventoryOn) {
+                inventoryDefinitions.observed(classLoader, loaded);
+            }
+        }
 
         @Override
         public void onTransformation(
@@ -1099,7 +1123,8 @@ final class ApplicationMethodsSensor {
             }
             int[] array = ids == null ? new int[0] : ids.toArray();
             idsByType.put(name, array);
-            CodeInventory.tracked(name, array, loaded && first && !PROBE.equals(name));
+            int definition = inventoryDefinitions.token(classLoader);
+            CodeInventory.tracked(name, array, loaded && first && !PROBE.equals(name), definition);
         }
 
         @Override

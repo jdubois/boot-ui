@@ -41,6 +41,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Code Inventory after reload.** Work retaining an old application object across a DevTools restart or Quarkus
+  live reload no longer marks the changed method in the new run executed, or attributes its first hit to the new
+  run. Defining-loader tokens stay stable across retransformation, and hit flags belong to one run, so old advice
+  cannot satisfy `changed-code-not-executed` or `verify_after_change` (M52-01; PLAN-v2 §5.15, §5.17).
 - **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
   chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
   the request as soon as Quarkus completes that request on it, instead of staying charged to it for the whole

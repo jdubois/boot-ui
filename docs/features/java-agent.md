@@ -294,13 +294,24 @@ and its counters.
 | `class load` | counts loaded classes | every class definition with a code source, outside the JDK, BootUI, and Byte Buddy |
 
 **Executed methods.** The agent adds one entry check to each instrumented method: a method that already ran in this
-run costs one array read and one volatile read. Its first call in a run marks it executed and, when the call belongs to
+run costs one array read and volatile reads. Its first call in a run marks it executed and, when the call belongs to
 a request or another BootUI execution, records the request id, the route, and the time. A first call with nothing to
 attribute, as at startup, is marked executed without a record. Each claim starts a new run, so a DevTools restart or a
 Quarkus live reload counts executions afresh, while a method keeps the same id for the agent's lifetime, in every class
 loader that defines its class. While nothing records (the claim disarmed, or the sensor stopped), a method's first call
 still marks it, without a record, so it never stays on the slower first-call path; a claim that does not ask for the
 sensor removes its instrumentation.
+
+Execution also checks a primitive defining-loader token. Each claim admits its calling thread's context class loader
+and ancestors, and loaders first seen defining new classes beneath them; retained sibling loaders from earlier runs
+and loaders first encountered during retransformation stay ineligible, even if
+another agent retransforms their classes. Classes the new context loader defined before claiming become eligible at
+the claim without retransformation. Old application objects and their tasks cannot mark a changed method executed
+in the replacement run. Hit flags belong to the run, so a hit racing a restart or the byte epoch wrapping cannot
+write into the replacement run's flags. Applications claiming with an unrelated or null context loader must supply
+the application loader as their thread context loader to admit its already-defined classes.
+The claim enumerates the JVM's loaded classes to identify pre-existing loaders before admitting fresh definitions;
+an old loader defining a lazy class after an inventory-off run cannot become a new-run loader that way.
 
 Instrumented packages only grow while the sensor is installed: a package a refine added stays instrumented when a later
 claim asks only for its base packages, as after a DevTools restart, so its classes are instrumented in the new class
@@ -333,6 +344,9 @@ dropped and counted, and since the executed flags are kept apart, a dropped reco
 and time, never the fact that the method ran. Routes are interned per run, at most 16,384 of them; past that they are
 recorded as unknown. At most 262,144 methods and 4,096 code sources are tracked for the agent's lifetime; past that,
 methods are left uninstrumented and counted.
+Defining-loader tokens use weak identity keys in the isolated agent, never held by the bootstrap bridge, and are bounded at
+16,383 non-bootstrap loaders for the agent's lifetime. Further loaders cannot mark methods executed; the sensor's
+`definitionOverflow` counter reports this conservative limit.
 
 | Counter | What it counts |
 | --- | --- |
@@ -352,8 +366,7 @@ is `null`, as the inventory sensor's `executors` is.
 
 Accepted limits: calls made before BootUI claims the agent (typically the main class's, or a restarted context's
 startup code before its claim) are not seen, though in the agent's first run the classes already loaded are marked
-late; a thread of the previous run still running after a DevTools restart marks its methods executed in the new run; a
-method HotSwapped without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
+late; a method HotSwapped without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
 sensor's check, so a stubbed method does not count as executed, while a spy's real call does. The `inventory` sensor
 shares its transformer with the [`code-paths` sensor](#the-code-paths-sensor).
 

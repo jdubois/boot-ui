@@ -359,6 +359,8 @@ public final class InventoryBehaviors {
                         + " instrumented",
                 !executed(extraSecond)
                         && "second".equals(second.getMethod("second").invoke(null))
+                        && !executed(extraSecond)
+                        && "second".equals(third0.getMethod("second").invoke(null))
                         && executed(extraSecond)
                         && !late(runId));
         // Narrower again, with no refine: the release must still restore every class instrumented.

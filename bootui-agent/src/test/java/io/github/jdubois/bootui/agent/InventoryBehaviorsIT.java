@@ -70,6 +70,41 @@ class InventoryBehaviorsIT {
     }
 
     @Test
+    void anOldObjectCannotExecuteItsChangedReplacementAfterReloadEvenWhenRetransformed() throws Exception {
+        assertReload("tracked");
+    }
+
+    @Test
+    void previouslyUntrackedOldLoadersStayIneligibleWhenInventoryStartsAfterReload() throws Exception {
+        assertReload("unseen");
+    }
+
+    @Test
+    void equalButDistinctLoadersDoNotShareDefinitionEligibility() throws Exception {
+        assertReload("equal");
+    }
+
+    @Test
+    void anUnseenOldLoaderDefiningALazyClassBeforeItsFirstRetransformationStaysIneligible() throws Exception {
+        assertReload("unseen-lazy");
+    }
+
+    private static void assertReload(String mode) throws Exception {
+        String buddy = System.getProperty("bytebuddy.agent.jar");
+        String packageName = "unseen-lazy".equals(mode) ? "bootuiinventoryhidden" : "bootuiinventoryapp";
+        ChildJvm.Output output = ChildJvm.runWithClassPath(
+                List.of(ChildJvm.javaAgent(ChildJvm.AGENT), "-javaagent:" + buddy),
+                buddy,
+                "inventory-reload",
+                TestJars.inventoryReloadJar(1, packageName).toAbsolutePath().toString(),
+                TestJars.inventoryReloadJar(2, packageName).toAbsolutePath().toString(),
+                mode);
+        assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertThat(output.value("RELOAD")).as(output.toString()).isEqualTo("ok");
+        assertThat(output.value("STATUS")).as(output.toString()).contains("errors=0");
+    }
+
+    @Test
     void everyInventoryBehaviorPassesAfterOpenTelemetry() throws Exception {
         List<String> jvm = new ArrayList<>(List.of("-javaagent:" + OPENTELEMETRY, ChildJvm.javaAgent(ChildJvm.AGENT)));
         jvm.addAll(OPENTELEMETRY_OPTIONS);
