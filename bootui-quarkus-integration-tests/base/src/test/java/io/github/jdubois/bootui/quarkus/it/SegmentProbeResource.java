@@ -6,8 +6,6 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.container.ContainerRequestContext;
-import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import java.io.File;
 import java.io.IOException;
@@ -17,7 +15,7 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.jboss.resteasy.reactive.server.spi.ResteasyReactiveContainerRequestContext;
+import org.jboss.resteasy.reactive.server.core.CurrentRequestManager;
 
 /**
  * Endpoints used only by {@link BootUiQuarkusWorkerSegmentReleaseTest}: each reports what its own worker thread is
@@ -40,16 +38,16 @@ public class SegmentProbeResource {
     @Path("/entity")
     @Blocking
     @Produces(MediaType.TEXT_PLAIN)
-    public String entity(@Context ContainerRequestContext request) {
-        return observe("entity", request);
+    public String entity() {
+        return observe("entity");
     }
 
     @GET
     @Path("/file")
     @Blocking
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
-    public File file(@Context ContainerRequestContext request) {
-        observe("file", request);
+    public File file() {
+        observe("file");
         return payload();
     }
 
@@ -65,11 +63,10 @@ public class SegmentProbeResource {
      * Records what this worker is metered for now, and what it is metered for once Quarkus completes the request on
      * it, as {@code <inMethod>|<atCompletion>|<completedOnTheSameThread>}.
      */
-    private static String observe(String probe, ContainerRequestContext request) {
+    private static String observe(String probe) {
         Thread worker = Thread.currentThread();
         String inMethod = metered();
-        ((ResteasyReactiveContainerRequestContext) request)
-                .getServerRequestContext()
+        CurrentRequestManager.get()
                 .registerCompletionCallback(throwable ->
                         OBSERVED.put(probe, inMethod + "|" + metered() + "|" + (Thread.currentThread() == worker)));
         return inMethod;
