@@ -539,6 +539,55 @@ class JournalFactObservationsTests {
         assertThat(hotspots.indexOf(counted)).isEqualTo(hotspots.size() - 1);
     }
 
+    /** A completed run's exception is listed when the previous run ran the same job without it. */
+    @Test
+    void anExceptionNewInACompletedScheduledRunIsListed() {
+        RuntimeJournal previousJournal = journal;
+        scheduledRun(previousJournal, "x-0", "Jobs.retry", null, null);
+        RunSummary previous = summaryOf(previousJournal);
+        journal = journal(JournalSource.all());
+        scheduledRun(journal, "x-1", "Jobs.retry", "fresh", null);
+
+        assertThat(byKind(service(null, previous).report(), ExceptionHotspots.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.subject()).isEqualTo("@Scheduled Jobs.retry");
+                    assertThat(observation.sentence()).contains("not observed in the previous run");
+                    assertThat(observation.listed()).isTrue();
+                });
+    }
+
+    private void scheduledRun(
+            RuntimeJournal target, String executionId, String task, String signature, String failure) {
+        CorrelationContext run = CorrelationContext.forExecution(executionId);
+        if (signature != null) {
+            target.offer(RuntimeEvent.of(
+                    JournalSource.EXCEPTION,
+                    1_000,
+                    0,
+                    run,
+                    "sched-1",
+                    null,
+                    false,
+                    new ExceptionPayload("g-" + signature, "java.lang.IllegalStateException", signature)));
+        }
+        target.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                1_000,
+                1_000_000,
+                run,
+                "sched-1",
+                null,
+                failure != null,
+                new ScheduledPayload(task, failure)));
+        try {
+            assertThat(target.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+    }
+
     @Test
     void anExceptionInAFailedScheduledRunIsListedAndOneItCaughtIsNot() {
         CorrelationContext failedRun = CorrelationContext.forExecution("x-failed");

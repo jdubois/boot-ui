@@ -361,10 +361,34 @@ public final class ExceptionHotspots implements Observation {
             // Scheduled runs and consumed messages are kept apart from routes, by the same names as their units.
             if (summary.aggregates().executionsRecorded()) {
                 for (ExecutionStats execution : summary.aggregates().executions()) {
-                    routes.merge(execution.stats().route(), execution.stats().requests(), Long::sum);
+                    String name = unitName(execution);
+                    if (name != null) {
+                        routes.merge(name, execution.stats().requests(), Long::sum);
+                    }
                 }
             }
             return new Previous(true, signatures, routes, null);
+        }
+
+        /**
+         * A kept execution's name as the snapshot names its unit ({@link InsightsSnapshot#executionName}), such as
+         * {@code @Scheduled Jobs.sync} for {@code scheduled Jobs.sync} or {@code consume orders} for {@code messaging
+         * ?:orders}, or {@code null} when its source is not a kind of execution the snapshot projects.
+         */
+        static String unitName(ExecutionStats execution) {
+            String name = execution.stats().route();
+            JournalSource source = execution.source();
+            if (name == null || source == null || !name.startsWith(source.propertyName() + " ")) {
+                return null;
+            }
+            String key = name.substring(source.propertyName().length() + 1);
+            if (source == JournalSource.SCHEDULED) {
+                return "@Scheduled " + key;
+            }
+            if (source == JournalSource.MESSAGING) {
+                return "consume " + (key.startsWith("?:") ? key.substring(2) : key);
+            }
+            return source == JournalSource.WEBSOCKET ? "consume " + key : null;
         }
 
         /** How many times the previous run served {@code route} without raising {@code signature}, or {@code null}. */
