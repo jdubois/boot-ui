@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.telemetry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.journal.AiCallEvents;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -138,13 +139,45 @@ class TelemetryStoreTests {
             }
         });
 
-        store.addImported(aiSpan("trace-imported", "span-imported", "orders-service"), false);
-        store.addImported(aiSpan("trace-self", "span-self", "sample"), true);
-        store.addImported(aiSpan("trace-self", "span-self-child", "sample"), false);
+        store.addImported(aiSpan("trace-imported", "span-imported", "sample"), false, true);
+        store.addImported(aiSpan("trace-self", "span-self", "sample"), true, true);
+        store.addImported(aiSpan("trace-self", "span-self-child", "sample"), false, true);
         store.add(aiSpan("trace-local", "span-local", "sample"));
 
         assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly("trace-imported");
         assertThat(regular).extracting(RuntimeEvent::traceId).containsExactly("trace-local");
+    }
+
+    @Test
+    void anotherServicesImportedAiSpanIsStoredButNeverJournaledUnlessThisApplicationStartedIt() {
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
+        List<RuntimeEvent> imported = new ArrayList<>();
+        store.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                return true;
+            }
+
+            @Override
+            public boolean offerImported(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+        });
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            store.spanStarted("trace-owned", "span-owned");
+        }
+
+        assertThat(store.addImported(aiSpan("trace-foreign", "span-foreign", "other-service"), false, false))
+                .isTrue();
+        store.addImported(aiSpan("trace-owned", "span-owned", "other-service"), false, false);
+
+        assertThat(store.findTrace("trace-foreign")).isNotNull();
+        assertThat(imported).singleElement().satisfies(event -> {
+            assertThat(event.traceId()).isEqualTo("trace-owned");
+            assertThat(event.requestId()).isEqualTo("0123456789abcdef");
+        });
     }
 
     @Test

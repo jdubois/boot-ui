@@ -102,6 +102,25 @@ public final class AiCallOwners {
         return owner;
     }
 
+    /**
+     * Whether no learned request of {@code traceId} spans a call that started at {@code epochMillis}, while attribution
+     * for that trace has not expired.
+     */
+    boolean unowned(String traceId, long epochMillis) {
+        if (evicted(traceId)) {
+            return false;
+        }
+        List<Window> windows = windowsByTrace.get(traceId);
+        if (windows != null) {
+            for (Window window : windows) {
+                if (window.contains(epochMillis)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     /** Whether the time span of the request {@code http} records contains a call that started at {@code epochMillis}. */
     static boolean windowContains(RuntimeEvent http, long epochMillis) {
         return Window.of(http).contains(epochMillis);

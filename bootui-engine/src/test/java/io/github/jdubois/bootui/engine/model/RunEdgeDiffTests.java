@@ -300,10 +300,22 @@ class RunEdgeDiffTests {
 
         assertThat(RunEdgeDiff.compare(previous, current, null).limitations())
                 .containsExactly(
-                        "Run 4 could not attribute 2 late events to their request once its bounded record expired, so"
-                                + " an edge reported as added may have occurred in it.",
-                        "This run could not attribute 3 late events to their request once its bounded record expired,"
-                                + " so an edge reported as removed may still occur.");
+                        "Run 4 could not attribute 2 late events to a single request, since their request's bounded"
+                                + " record expired or several requests of their trace spanned them, so an edge reported"
+                                + " as added may have occurred in it.",
+                        "This run could not attribute 3 late events to a single request, since their request's"
+                                + " bounded record expired or several requests of their trace spanned them, so an edge"
+                                + " reported as removed may still occur.");
+    }
+
+    @Test
+    void aTraceOnlyAiCallThatNoRequestSpannedIsNotALimitation() {
+        AggregatesSnapshot recorded = run(journal ->
+                journal.request("GET", "/api/orders", child(JournalSource.SQL, sql("select * from orders"))));
+        RunSummary previous = summary(4, 0, unattributed(recorded, JournalAggregates.TRACE_AI_UNOWNED, 2));
+        AggregatesSnapshot current = unattributed(recorded, JournalAggregates.TRACE_AI_UNOWNED, 3);
+
+        assertThat(RunEdgeDiff.compare(previous, current, null).limitations()).isEmpty();
     }
 
     private static AggregatesSnapshot unattributed(AggregatesSnapshot aggregates, String key, long count) {

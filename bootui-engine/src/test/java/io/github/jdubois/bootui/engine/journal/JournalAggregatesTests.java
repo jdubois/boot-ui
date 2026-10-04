@@ -485,7 +485,7 @@ class JournalAggregatesTests {
     }
 
     @Test
-    void aTraceOnlyAiEdgeLeavingTheBoundedBufferSettlesUnderItsOwnerOrIsReportedExpired() {
+    void aTraceOnlyAiEdgeLeavingTheBoundedBufferSettlesUnderItsOwnerOrIsReportedUnowned() {
         publish(tracedHttp("r1", "trace-1", 1_000));
         publish(traceOnlyAi("trace-1", 1_050));
         for (int i = 0; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
@@ -499,7 +499,73 @@ class JournalAggregatesTests {
             assertThat(edge.edge().toKey()).isEqualTo("openai:gpt-4o");
             assertThat(edge.count()).isEqualTo(1);
         });
-        assertThat(snapshot.overflowed()).containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L);
+        assertThat(snapshot.overflowed())
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
+                .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, (long) JournalAggregates.MAX_PENDING_REQUESTS + 1);
+    }
+
+    @Test
+    void aTraceOnlyAiCallOutsideEveryRequestOfItsTraceIsUnownedRatherThanExpired() {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        publish(traceOnlyAi("trace-1", 9_000));
+        publish(traceOnlyAi("no-request", 1_050));
+
+        AggregatesSnapshot held = aggregates.snapshot();
+        for (int i = 0; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+        AggregatesSnapshot settled = aggregates.snapshot();
+
+        assertThat(held.edges()).isEmpty();
+        assertThat(held.overflowed())
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
+                .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, 2L);
+        assertThat(settled.edges()).isEmpty();
+        assertThat(settled.overflowed())
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
+                .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, (long) JournalAggregates.MAX_PENDING_REQUESTS + 2);
+    }
+
+    @Test
+    void anUnownedTraceOnlyAiEdgeIsReclaimedByItsRequestArrivingAfterItLeftTheBoundedBuffer() {
+        publish(traceOnlyAi("trace-1", 1_050));
+        for (int i = 0; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+        assertThat(aggregates.snapshot().overflowed())
+                .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, (long) JournalAggregates.MAX_PENDING_REQUESTS + 1);
+
+        publish(tracedHttp("r1", "trace-1", 1_000));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+        assertThat(snapshot.edges()).singleElement().satisfies(edge -> {
+            assertThat(edge.edge().fromKey()).isEqualTo("GET /api/chat");
+            assertThat(edge.edge().toKey()).isEqualTo("openai:gpt-4o");
+            assertThat(edge.count()).isEqualTo(1);
+        });
+        assertThat(snapshot.overflowed())
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
+                .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, (long) JournalAggregates.MAX_PENDING_REQUESTS);
+    }
+
+    @Test
+    void aTraceOnlyAiCallThatSeveralRequestsOfItsTraceSpanIsUnattributableNotUnowned() {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        publish(tracedHttp("r2", "trace-1", 1_020));
+        publish(traceOnlyAi("trace-1", 1_050));
+
+        AggregatesSnapshot held = aggregates.snapshot();
+        for (int i = 0; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+        AggregatesSnapshot settled = aggregates.snapshot();
+
+        assertThat(held.edges()).isEmpty();
+        assertThat(held.overflowed())
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L)
+                .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, 0L);
+        assertThat(settled.edges()).isEmpty();
+        assertThat(settled.overflowed()).containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L);
     }
 
     @Test
@@ -515,7 +581,9 @@ class JournalAggregatesTests {
 
         AggregatesSnapshot snapshot = aggregates.snapshot();
         assertThat(snapshot.edges()).isEmpty();
-        assertThat(snapshot.overflowed()).containsEntry(JournalAggregates.EDGES, 0L);
+        assertThat(snapshot.overflowed())
+                .containsEntry(JournalAggregates.EDGES, 0L)
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L);
     }
 
     @Test

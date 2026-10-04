@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.google.protobuf.ByteString;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
@@ -25,9 +26,12 @@ import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.proto.trace.v1.Status;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -168,7 +172,9 @@ class OtlpReceiverControllerTests {
         properties.getTelemetry().setEnabled(true);
         store = new TelemetryStore(new SpringTelemetrySettings(properties));
         OtlpSpanDecoder decoder = new OtlpSpanDecoder(properties.getTelemetry());
-        mvc = standaloneSetup(new OtlpReceiverController(store, decoder, properties))
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.application.name", "sample");
+        mvc = standaloneSetup(new OtlpReceiverController(
+                        store, decoder, properties, BootUiSelfDataFilter.defaults(), environment))
                 .build();
     }
 
@@ -186,7 +192,8 @@ class OtlpReceiverControllerTests {
     }
 
     @Test
-    void importedApplicationAiSpansReachTheJournalFromTheReceiversBootUiScopeButSelfTracesDoNot() throws Exception {
+    void importedApplicationAiSpansReachTheJournalFromTheReceiversBootUiScopeButOtherServicesAndSelfTracesDoNot()
+            throws Exception {
         List<RuntimeEvent> imported = new ArrayList<>();
         List<RuntimeEvent> offered = new ArrayList<>();
         store.setRuntimeEventSink(new RuntimeEventSink() {
@@ -209,7 +216,7 @@ class OtlpReceiverControllerTests {
                             .contentType("application/x-protobuf")
                             .content(request(hostSpan()).toByteArray()))
                     .andExpect(status().isOk());
-            // A cooperating local process exports under its own service name.
+            // A cooperating local process exports under its own service name: its AI call is not this application's.
             mvc.perform(post("/bootui/api/otlp/v1/traces")
                             .contentType("application/x-protobuf")
                             .content(request("other-service", aiSpan(TRACE_ID_2, SPAN_ID_2))
@@ -224,7 +231,42 @@ class OtlpReceiverControllerTests {
         }
 
         assertThat(offered).isEmpty();
-        assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly(HOST_TRACE_ID, TRACE_ID_2);
+        assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly(HOST_TRACE_ID);
+        assertThat(store.findTrace(TRACE_ID_2))
+                .as("still stored for the Traces panel")
+                .isNotNull();
+    }
+
+    @Test
+    void theApplicationsServiceNameIsResolvedAsSpringBootResolvesItsOpenTelemetryResource() {
+        Map<String, String> variables = new HashMap<>();
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.application.name", "orders")
+                .withProperty("OTEL_SERVICE_NAME", "ignored-as-a-property");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders");
+
+        variables.put("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=dev, service.name = orders%20attributes");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders attributes");
+
+        variables.put("OTEL_SERVICE_NAME", "orders-env");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders-env");
+
+        environment.setProperty("management.opentelemetry.resource-attributes.service.name", "orders-api");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders-api");
+
+        environment.setProperty("management.opentelemetry.resource-attributes.service.name", "");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .as("an explicitly empty name wins, as in Boot, and fails closed")
+                .isNull();
+
+        assertThat(OtlpReceiverController.applicationServiceName(new MockEnvironment(), name -> null))
+                .as("Boot's unknown_service default names no application")
+                .isNull();
+        assertThat(OtlpReceiverController.applicationServiceName(null)).isNull();
     }
 
     @Test

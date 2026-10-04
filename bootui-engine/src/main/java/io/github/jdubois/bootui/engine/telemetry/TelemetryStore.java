@@ -122,7 +122,7 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
      * @return {@code true} when the span was stored, {@code false} when it was dropped
      */
     public boolean add(NormalizedSpan span, boolean selfSpan) {
-        return add(span, selfSpan, false);
+        return add(span, selfSpan, false, true);
     }
 
     /**
@@ -131,28 +131,37 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
      * {@link RuntimeEventSink#offerImported}, which ignores that request's scope: the span was already classified as
      * the application's rather than BootUI's own by {@code selfSpan} and the trace it joins ({@code docs/PLAN-v2.md}
      * §5.2, M3-9).
+     *
+     * <p>In the aggregator topology, other services export their spans to this receiver too, so an imported AI span
+     * reaches this application's journal only when it is this application's: a span this application started, or one
+     * whose resource {@code service.name} is this application's ({@code applicationSpan}). Another service's AI call
+     * is still stored for the Traces panel, but never joins a request of this application by trace and time.</p>
+     *
+     * @param applicationSpan whether the span's resource names this application's service
      */
-    public boolean addImported(NormalizedSpan span, boolean selfSpan) {
-        return add(span, selfSpan, true);
+    public boolean addImported(NormalizedSpan span, boolean selfSpan, boolean applicationSpan) {
+        return add(span, selfSpan, true, applicationSpan);
     }
 
-    private boolean add(NormalizedSpan span, boolean selfSpan, boolean imported) {
+    private boolean add(NormalizedSpan span, boolean selfSpan, boolean imported, boolean applicationSpan) {
         if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
             return false;
         }
         CorrelationContext owner =
                 span.spanId() == null ? null : spanOwners.remove(spanKey(span.traceId(), span.spanId()));
+        // Another service's imported span is never this application's AI call.
+        boolean journaled = !imported || owner != null || applicationSpan;
         if (idleSuspended) {
             // The store is suspended while BootUI is idle, but the runtime journal keeps recording AI calls
             // (docs/PLAN-v2.md §5.2), so an application span is still recognized and published without being stored.
-            if (publishesWhileIdle(span, selfSpan)) {
+            if (publishesWhileIdle(span, selfSpan) && journaled) {
                 publish(span, owner, imported);
             }
             return false;
         }
         // The store may be suspended while this span waits for the lock, so whether it is published is decided there.
         Outcome outcome = store(span, selfSpan);
-        if (outcome != Outcome.DROPPED) {
+        if (outcome != Outcome.DROPPED && journaled) {
             publish(span, owner, imported);
         }
         return outcome == Outcome.STORED;
