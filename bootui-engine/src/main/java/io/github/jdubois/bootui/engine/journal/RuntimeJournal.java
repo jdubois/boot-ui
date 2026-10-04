@@ -13,6 +13,8 @@ import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.lang.System.Logger.Level;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.IntConsumer;
 
 /**
@@ -59,8 +60,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /**
      * How long the dispatcher pauses after a batch smaller than {@link #BATCH_SIZE} before it takes the next, so under
      * load it drains events in batches rather than being woken, by the offering thread, for each one. An event is
-     * recorded about this much later at most, as the operating system's timer allows; an offer that brings the queue to
-     * half its routine share ends the pause early, so a burst never waits for it.
+     * recorded about this much later at most, rounded up to the operating system's timer resolution: on Windows, whose
+     * default timer tick is about 15.6 ms, the pause can last that long. An offer that brings the queue to half its
+     * routine share ends the pause early ({@link JournalQueue#awaitFilling}), so a burst never waits for it.
      */
     static final long DISPATCH_LINGER_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
 
@@ -91,6 +93,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final Runnable beforeQueueOffer;
     private final IntConsumer beforeQueueDrain;
     private final long dispatcherPollMillis;
+    private final long dispatchLingerNanos;
 
     /**
      * Serializes processing a batch with clearing the recording, so a batch is either processed before the clear, and
@@ -101,9 +104,20 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /**
      * The queue of the current recording generation, the one application threads offer to now. A clear replaces it
      * and detaches the old one in constant time ({@link JournalQueue#detach()}), so an offer never waits for work
-     * proportional to the old queue's depth.
+     * proportional to the old queue's depth. A clear replaces it only by compare-and-set, so it never replaces the closed
+     * journal's queue that a {@link #close()} installs without {@link #processing} when the dispatcher is stuck.
      */
     private volatile JournalQueue admission;
+
+    private static final VarHandle ADMISSION;
+
+    static {
+        try {
+            ADMISSION = MethodHandles.lookup().findVarHandle(RuntimeJournal.class, "admission", JournalQueue.class);
+        } catch (ReflectiveOperationException ex) {
+            throw new ExceptionInInitializerError(ex);
+        }
+    }
 
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
@@ -142,11 +156,30 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             Runnable beforeQueueOffer,
             IntConsumer beforeQueueDrain,
             long dispatcherPollMillis) {
+        this(
+                settings,
+                run,
+                startDispatcher,
+                beforeQueueOffer,
+                beforeQueueDrain,
+                dispatcherPollMillis,
+                DISPATCH_LINGER_NANOS);
+    }
+
+    RuntimeJournal(
+            RuntimeJournalSettings settings,
+            RunIdentity run,
+            boolean startDispatcher,
+            Runnable beforeQueueOffer,
+            IntConsumer beforeQueueDrain,
+            long dispatcherPollMillis,
+            long dispatchLingerNanos) {
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
         this.run = Objects.requireNonNull(run, "run must not be null");
         this.beforeQueueOffer = beforeQueueOffer;
         this.beforeQueueDrain = beforeQueueDrain;
         this.dispatcherPollMillis = dispatcherPollMillis;
+        this.dispatchLingerNanos = dispatchLingerNanos;
         this.routineQueueLimit = settings.routineQueueLimit();
         this.admission = newQueue();
         this.dictionary =
@@ -213,14 +246,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             do {
                 outcome = admission.offer(event, failedOrSlow);
             } while (outcome == JournalQueue.DETACHED);
-            if (outcome == JournalQueue.ACCEPTED || outcome == JournalQueue.ACCEPTED_FILLING) {
-                accepted[source].increment();
-                acceptedTotal.increment();
-                if (outcome == JournalQueue.ACCEPTED_FILLING && dispatcher != null) {
-                    // A burst filling the queue ends the dispatcher's pause between batches, so a small queue
-                    // configured with queue-capacity does not drop routine events while it waits.
-                    LockSupport.unpark(dispatcher);
-                }
+            if (outcome == JournalQueue.ACCEPTED) {
+                // Counted by the queue as it took the event, before the dispatcher could process it.
                 return true;
             }
         } catch (RuntimeException ex) {
@@ -228,6 +255,12 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         }
         dropped[source].increment();
         return false;
+    }
+
+    /** Counts an accepted event; the queue calls it with its lock held, before the dispatcher can take the event. */
+    private void countAccepted(int source) {
+        accepted[source].increment();
+        acceptedTotal.increment();
     }
 
     /**
@@ -332,8 +365,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 }
                 if (batch.size() < BATCH_SIZE) {
                     // Lets the next events gather instead of waking the dispatcher for each one: an offer that wakes
-                    // it pays for the unpark on the application thread (M4-18d).
-                    LockSupport.parkNanos(DISPATCH_LINGER_NANOS);
+                    // it pays for the unpark on the application thread (M4-18d). A burst ends the pause early.
+                    queue.awaitFilling(dispatchLingerNanos);
                 }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
@@ -538,8 +571,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         synchronized (processing) {
             JournalQueue detached = admission;
             int queued = 0;
-            if (!detached.refusing()) {
-                admission = newQueue();
+            // A closed journal's queue stays: compare-and-set, since a close with a stuck dispatcher installs it
+            // without holding processing.
+            if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue())) {
                 // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
                 // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
                 JournalQueue.Detached cleared = detached.detach();
@@ -598,7 +632,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     }
 
     private JournalQueue newQueue() {
-        return new JournalQueue(settings.enabled() ? settings.queueCapacity() : 1, routineQueueLimit, beforeQueueOffer);
+        return new JournalQueue(
+                settings.enabled() ? settings.queueCapacity() : 1,
+                routineQueueLimit,
+                beforeQueueOffer,
+                this::countAccepted);
     }
 
     /**
@@ -628,14 +666,20 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             }
         }
         if (dispatcher != null && dispatcher.isAlive()) {
-            // A dispatcher stuck past the join still processes its batch: its listeners are not told the run ended.
+            // A dispatcher stuck past the join still processes its batch, but its listeners are not told the run
+            // ended. Without waiting for processing, which it holds: later offers are refused and counted as dropped,
+            // and the events still queued are dropped with their frames, counted as processed as a clear counts them.
+            JournalQueue last = (JournalQueue) ADMISSION.getAndSet(this, JournalQueue.closed());
+            JournalQueue.Detached discarded = last.detach();
+            processed.addAndGet(discarded.count());
+            // Counted as processed, not dropped, so no check is made partial by them: their work lost them instead.
+            discarded.forEach(ring::lost);
             return;
         }
         if (settings.enabled()) {
             synchronized (processing) {
                 // Later offers are refused and counted as dropped; those already admitted are processed now.
-                JournalQueue last = admission;
-                admission = JournalQueue.closed();
+                JournalQueue last = (JournalQueue) ADMISSION.getAndSet(this, JournalQueue.closed());
                 last.seal();
                 drain(last);
             }

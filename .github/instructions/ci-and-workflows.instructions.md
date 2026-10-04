@@ -9,9 +9,10 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   and extending that list is a deliberate decision. Local actions keep relative paths. Check locally with
   `bash .github/scripts/check-action-references.sh`; `build.yml` runs it on every build.
 - `.github/scripts/check-release-integrity.sh` pins literal strings and their ordering inside `release.yml` — the
-  publication-only reactor, signed-tag verification, atomic push, the CLI uber-jar check, the per-major version policy,
-  and the newest-major documentation gate among them. Changing either file without the other fails the build, so update
-  the workflow and its guard in the same change, and run
+  publication-only reactor, signed-tag verification, atomic push, the CLI uber-jar check, the per-major and
+  release-line version policy, and the newest-major documentation gate among them. It also pins the release-line gate
+  (`release-line-gate.sh`) in `pages.yml` and ahead of every publishing job in `docker-publish.yml`. Changing any of
+  these files without the guard fails the build, so update the workflow and its guard in the same change, and run
   `python3 -B -m unittest discover -s .github/scripts -p 'test_release_*.py'`, which `build.yml` also runs.
 - `pages.yml` runs `.github/scripts/check-docs-downloads.sh` against the built site. Every install-script URL referenced
   from `README.md` or `docs/` must exist in `docs/.vuepress/public/` and in the built output, and the installers must

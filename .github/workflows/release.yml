@@ -93,13 +93,22 @@ jobs:
           CURRENT_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
 
           # Versions advance within the source branch's major, so a maintained older major can
-          # still ship patches after a newer major exists. The policy script owns the arithmetic
+          # still ship patches after a newer major exists, and only within the branch's release
+          # line: `main` after `v2` merges still carries a 1.x project version but releases 2.x only,
+          # and a 1.x maintenance branch never opens 2.0.0. The policy script owns the arithmetic
           # and is unit-tested by .github/scripts/test_release_version_policy.py.
+          RELEASE_LINE="$(bash .github/scripts/release-version-policy.sh line-major "$CURRENT_VERSION" .github/release-line)"
           git tag --list 'v*' |
-            bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION"
+            bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"
 
           if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
             echo "::error::Preparing a release requires running this workflow from a branch, not $GITHUB_REF_TYPE"
+            exit 1
+          fi
+
+          # Releases come from `main`, or from the maintenance branch of an older major (D40).
+          if [[ "$SOURCE_BRANCH" != "main" && "$SOURCE_BRANCH" != "${VERSION%%.*}.x" ]]; then
+            echo "::error::Release $VERSION must be prepared from main or ${VERSION%%.*}.x, not $SOURCE_BRANCH"
             exit 1
           fi
 
@@ -355,6 +364,34 @@ jobs:
            echo "::error::Release tag $RELEASE_TAG no longer resolves to $RELEASE_SHA"
            exit 1
          fi
+
+         # Whatever triggered this run, a tag push included, the tagged contents must belong to the
+         # version's own release line, so 2.x contents never publish under a 1.x coordinate.
+         TAGGED_RELEASE_LINE="$(bash .github/scripts/release-version-policy.sh line-major "$VERSION" .github/release-line)"
+         if [[ "$TAGGED_RELEASE_LINE" != "${VERSION%%.*}" ]]; then
+           echo "::error::$RELEASE_TAG's contents declare release line $TAGGED_RELEASE_LINE in .github/release-line, not ${VERSION%%.*}"
+           exit 1
+         fi
+
+         # Releases come only from `main` or from the version's maintenance branch (`1.x` for 1.x
+         # patches once `main` carries 2.x), so a signed tag pushed on `v2` or any other branch cannot
+         # publish before that branch is merged.
+         RELEASE_MAJOR="${VERSION%%.*}"
+         git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+         git fetch --no-tags origin "+refs/heads/${RELEASE_MAJOR}.x:refs/remotes/origin/${RELEASE_MAJOR}.x" 2>/dev/null || true
+         RELEASE_BRANCH=""
+         for candidate in main "${RELEASE_MAJOR}.x"; do
+           if git rev-parse -q --verify "refs/remotes/origin/$candidate" >/dev/null &&
+             git merge-base --is-ancestor "$RELEASE_SHA" "refs/remotes/origin/$candidate"; then
+             RELEASE_BRANCH="$candidate"
+             break
+           fi
+         done
+         if [[ -z "$RELEASE_BRANCH" ]]; then
+           echo "::error::$RELEASE_TAG ($RELEASE_SHA) is on neither origin/main nor origin/${RELEASE_MAJOR}.x; releases are published only from those branches"
+           exit 1
+         fi
+         echo "$RELEASE_TAG is on origin/$RELEASE_BRANCH."
 
          for npm_dir in . bootui-ui/src/main/frontend bootui-spring-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             node -e '
@@ -815,6 +852,14 @@ jobs:
 
           if [[ "$CONCLUSION" != "success" ]]; then
             echo "::error::Documentation deployment run concluded with '$CONCLUSION': $RUN_URL"
+            exit 1
+          fi
+
+          # pages.yml's release-line gate can skip the deploy and still conclude `success`, so the
+          # deploy job itself must have succeeded.
+          DEPLOY_CONCLUSION="$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.name == "Deploy documentation site") | .conclusion')"
+          if [[ "$DEPLOY_CONCLUSION" != "success" ]]; then
+            echo "::error::The documentation run did not deploy the site (deploy job: '${DEPLOY_CONCLUSION:-missing}'); check its release-line gate: $RUN_URL"
             exit 1
           fi
 

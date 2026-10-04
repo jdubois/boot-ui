@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Known limitations of 2.0.** A [Known limitations](docs/KNOWN-LIMITATIONS.md) page lists what 2.0 does not do, per
+  stack (R2DBC statements not recorded on WebFlux, no transaction capture on Quarkus, and the panels each stack lacks),
+  the BootUI Java agent's shipped and still-planned scope, and the overhead budget. The validation report gains a
+  [release sign-off](docs/V2-VALIDATION-REPORT.md#release-sign-off) template recording each success measure against
+  its target, the per-kind gates, and every exception (PLAN-v2 M4-23).
 - **One help call instead of many, and answers that name the next call.** `bootui --help` lists every command with
   its arguments, what it returns, where its `<id>` comes from, the words its `--query` understands, and one example,
   and `bootui <group> --help` lists a group the same way; every example is generated from the MCP tool registry and run
@@ -265,15 +270,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The documentation site and the Docker Hub sample images follow the released major.** Every branch declares its
+  release line in `.github/release-line`, and `pages.yml` and `docker-publish.yml` publish a branch only when its line
+  has a release on Maven Central and no newer major does, so merging `v2` into `main` publishes no 2.0 site or image
+  before 2.0.0 is out. The Release workflow releases only versions of the branch's own line, so `main` after the merge
+  cannot release 1.x and a `1.x` maintenance branch cannot release 2.0.0 (a branch containing the 2.0-only `bootui-agent`
+  must declare at least line 2); it releases only from `main` or an `N.x`
+  maintenance branch, and fails when its documentation run skipped the deploy. `rehearse_v2_merge.py` rehearses the merge
+  on a candidate that is never published, and [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the merge and the
+  `1.x` branch (PLAN-v2 M4-23, D40).
 - **Less runtime-journal work on request threads.** A recorded statement, REST client call, or cache access now only
   selects its application frames on the application thread; the journal's dispatcher formats them, with the same
   `Class.method(File.java:42)` text and masking as before. An offer to the journal takes one lock instead of three,
   checks the queue's reserved share and inserts atomically, and no longer wakes the dispatcher for every event: the
-  dispatcher drains in batches, recording an event at most about a millisecond later. On the Spring MVC sample under
-  load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about 8.4 % to 3.5 %.
-  An event offered after the run ended is now counted as dropped rather than accepted. A frame whose class is
-  redefined, by the BootUI agent or a hot swap, while its event waits for the dispatcher reads `(Unknown Source)`
-  (PLAN-v2 M4-18d).
+  dispatcher drains in batches, recording an event at most about a millisecond later, or one timer tick on systems
+  with a coarser timer (about 15.6 ms on Windows by default). A burst that fills half the queue's routine share ends
+  that pause at once, so a small `queue-capacity` does not drop events while the dispatcher waits. On the Spring MVC
+  sample under load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about
+  8.4 % to 3.5 %. An event offered after the run ended is now counted as dropped rather than accepted, even when a
+  listener keeps the dispatcher from stopping. A frame whose class is redefined, by the BootUI agent or a hot swap,
+  while its event waits for the dispatcher reads `(Unknown Source)` (PLAN-v2 M4-18d).
 - **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
   Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
   attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,

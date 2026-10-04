@@ -700,6 +700,96 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void aBurstEndsTheDispatchersPauseEvenWhenAListenerParkedMeanwhile() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                settings(100_000, 100_000_000, 100, 10, JournalSource.all()),
+                RunIdentity.start(),
+                true,
+                null,
+                null,
+                5,
+                TimeUnit.SECONDS.toNanos(30));
+        journals.add(journal);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            if (entered.getCount() > 0) {
+                entered.countDown();
+                try {
+                    // A listener parking, as on a contended lock, while the burst arrives.
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        journal.offer(sql(0, false));
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Half the routine share of 90: the dispatcher's 30-second pause after its one-event batch must end at once.
+        for (int i = 1; i <= 45; i++) {
+            assertThat(journal.offer(sql(i, false))).isTrue();
+        }
+        release.countDown();
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.status().droppedTotal()).isZero();
+    }
+
+    @Test
+    void aCloseWithAStuckDispatcherRefusesLaterOffersAndReleasesTheQueuedEvents() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                settings(100, 1_000_000, 100, 10, JournalSource.all()), RunIdentity.start(), true, null, null, 5);
+        journals.add(journal);
+        CountDownLatch entered = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean release = new java.util.concurrent.atomic.AtomicBoolean();
+        AtomicInteger closes = new AtomicInteger();
+        journal.addListener(new JournalListener() {
+            @Override
+            public void onEntries(List<JournalEntry> entries) {
+                entered.countDown();
+                // Stuck past close()'s two-second join, deaf to its interrupt.
+                while (!release.get()) {
+                    Thread.interrupted();
+                    java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+                }
+            }
+
+            @Override
+            public void onClose() {
+                closes.incrementAndGet();
+            }
+        });
+        try {
+            journal.offer(sql(0, false));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            for (int i = 1; i <= 3; i++) {
+                assertThat(journal.offer(sql(i, false))).isTrue();
+            }
+
+            journal.close();
+
+            assertThat(journal.status().queueDepth())
+                    .as("the queued events are released")
+                    .isZero();
+            assertThat(journal.lossHorizonMillis())
+                    .as("released, not dropped, so the work they belonged to lost them")
+                    .isEqualTo(1_003L);
+            assertThat(journal.offer(sql(4, true))).isFalse();
+            assertThat(journal.offer(sql(5, false))).isFalse();
+            assertThat(journal.status().droppedTotal()).isEqualTo(2);
+        } finally {
+            release.set(true);
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5)))
+                .as("the stuck batch and the released events are all accounted for")
+                .isTrue();
+        assertThat(closes)
+                .as("listeners are not told a run ended while its batch is stuck")
+                .hasValue(0);
+    }
+
+    @Test
     void theRunningDispatcherContinuesWithTheReplacementQueueAfterAClear() throws Exception {
         RuntimeJournal journal = new RuntimeJournal(
                 settings(100, 1_000_000, 100, 10, JournalSource.all()), RunIdentity.start(), true, null, null, 30_000);

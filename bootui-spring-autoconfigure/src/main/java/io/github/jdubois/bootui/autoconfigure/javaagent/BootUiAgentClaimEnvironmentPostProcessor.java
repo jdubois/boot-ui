@@ -30,7 +30,8 @@ import org.springframework.core.env.ConfigurableEnvironment;
  * {@link AgentClaimOwner}, which this run's initializers and listeners keep, and which refines and disarms it.
  *
  * <p>DevTools runs every {@code EnvironmentPostProcessor} again in each restart's class loader, so a restart claims
- * again in the same slot, replacing the previous run's claim; nothing static keeps a run's objects.
+ * again in the same slot, replacing the previous run's claim; nothing static keeps a run's objects. A
+ * {@code SpringApplication} run inside another one, as Spring Cloud's bootstrap context, neither claims nor releases.
  */
 public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
@@ -38,6 +39,15 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
 
     static final List<String> TEST_FRAMEWORKS =
             List.of("org.junit.", "org.springframework.boot.test.", "org.testng.", "io.cucumber.");
+
+    private static final String SPRING_APPLICATION = SpringApplication.class.getName();
+
+    /** {@code SpringApplication.run(String...)}, the instance method each run goes through once. */
+    private static final String RUN_DESCRIPTOR =
+            "([Ljava/lang/String;)Lorg/springframework/context/ConfigurableApplicationContext;";
+
+    /** Spring Cloud's {@code BootstrapApplicationListener.BOOTSTRAP_PROPERTY_SOURCE_NAME}, without its dependency. */
+    private static final String SPRING_CLOUD_BOOTSTRAP = "bootstrap";
 
     private final Supplier<AgentBridgeAccess> bridge;
 
@@ -65,6 +75,15 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
             if (!access.present()) {
                 return;
             }
+            if (nestedRun()) {
+                LOGGER.debug("Not claiming or releasing the BootUI agent from a SpringApplication run inside another");
+                return;
+            }
+            if (springCloudBootstrap(environment)) {
+                LOGGER.debug("Not claiming or releasing the BootUI agent from an environment with a property source"
+                        + " named '" + SPRING_CLOUD_BOOTSTRAP + "' (Spring Cloud's bootstrap context)");
+                return;
+            }
             String name = applicationName(environment, application);
             String mode = mode(environment);
             boolean bootUiEnabled = BootUiActivationCondition.resolve(environment, application.getClassLoader())
@@ -81,6 +100,28 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         } catch (RuntimeException | LinkageError ex) {
             LOGGER.debug("Could not claim the BootUI agent", ex);
         }
+    }
+
+    /**
+     * Whether this {@code SpringApplication} runs inside another one's {@code run}, as Spring Cloud's bootstrap context
+     * does while the application prepares its environment, and again for each legacy refresh: such a run is not the
+     * application, so it neither claims (its sources' packages would stay instrumented) nor releases (it would remove
+     * the application's claim, or the claim a DevTools restart keeps armed, D34).
+     */
+    static boolean nestedRun() {
+        // The descriptor tells the instance run(String...) from the static run methods, and needs class references.
+        return StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
+                        .walk(frames -> frames.filter(frame -> SPRING_APPLICATION.equals(frame.getClassName())
+                                        && "run".equals(frame.getMethodName())
+                                        && RUN_DESCRIPTOR.equals(frame.getDescriptor()))
+                                .limit(2)
+                                .count())
+                > 1;
+    }
+
+    /** Spring Cloud's bootstrap context, whose environment carries a property source named {@code bootstrap}. */
+    static boolean springCloudBootstrap(ConfigurableEnvironment environment) {
+        return environment.getPropertySources().contains(SPRING_CLOUD_BOOTSTRAP);
     }
 
     private static boolean agentEnabled(ConfigurableEnvironment environment) {

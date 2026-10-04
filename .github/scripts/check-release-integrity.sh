@@ -2,9 +2,17 @@
 
 set -euo pipefail
 
+# Usage: check-release-integrity.sh [release.yml] [pages.yml] [docker-publish.yml]
+# RELEASE_INTEGRITY_ROOT is a test seam for the repository checked by the release-line rules; no
+# workflow may set it.
+readonly REPOSITORY_ROOT="${RELEASE_INTEGRITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 readonly WORKFLOW="${1:-.github/workflows/release.yml}"
-readonly ROOT_POM="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/pom.xml"
+readonly PAGES_WORKFLOW="${2:-$REPOSITORY_ROOT/.github/workflows/pages.yml}"
+readonly DOCKER_WORKFLOW="${3:-$REPOSITORY_ROOT/.github/workflows/docker-publish.yml}"
+readonly ROOT_POM="$REPOSITORY_ROOT/pom.xml"
+readonly RELEASE_LINE_FILE="$REPOSITORY_ROOT/.github/release-line"
 readonly VERSION_POLICY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-version-policy.sh"
+readonly LINE_GATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-line-gate.sh"
 
 if [[ ! -r "$WORKFLOW" ]]; then
   printf 'Cannot read release workflow: %s\n' "$WORKFLOW" >&2
@@ -14,10 +22,12 @@ if [[ ! -r "$ROOT_POM" ]]; then
   printf 'Cannot read root POM: %s\n' "$ROOT_POM" >&2
   exit 2
 fi
-if [[ ! -r "$VERSION_POLICY" ]]; then
-  printf 'Cannot read release version policy: %s\n' "$VERSION_POLICY" >&2
-  exit 2
-fi
+for required in "$VERSION_POLICY" "$LINE_GATE" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW"; do
+  if [[ ! -r "$required" ]]; then
+    printf 'Cannot read %s\n' "$required" >&2
+    exit 2
+  fi
+done
 
 errors=0
 
@@ -65,8 +75,21 @@ require_literal 'git verify-tag "$EXPECTED_TAG"' 'existing tag signature verific
 require_literal 'ref: ${{ env.RELEASE_SHA }}' 'immutable release checkout'
 require_literal "if: env.RESUME_AFTER_PUBLISH != 'true'" 'deploy skip for publication continuation'
 require_literal 'gh workflow run pages.yml --ref "$RELEASE_TAG"' 'tag-pinned documentation deployment'
-require_literal 'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION"' \
+require_literal 'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"' \
   'per-major next-version policy'
+require_literal 'RELEASE_LINE="$(bash .github/scripts/release-version-policy.sh line-major "$CURRENT_VERSION" .github/release-line)"' \
+  'release line of the source branch'
+require_literal 'TAGGED_RELEASE_LINE="$(bash .github/scripts/release-version-policy.sh line-major "$VERSION" .github/release-line)"' \
+  'release line of the tagged contents'
+require_literal 'if [[ "$TAGGED_RELEASE_LINE" != "${VERSION%%.*}" ]]; then' \
+  'tagged contents restricted to their own release line'
+require_literal 'git merge-base --is-ancestor "$RELEASE_SHA" "refs/remotes/origin/$candidate"' \
+  'release restricted to main or its maintenance branch'
+require_literal 'for candidate in main "${RELEASE_MAJOR}.x"; do' 'release branch candidates'
+require_literal 'if [[ "$SOURCE_BRANCH" != "main" && "$SOURCE_BRANCH" != "${VERSION%%.*}.x" ]]; then' \
+  'release preparation restricted to main or its maintenance branch'
+require_literal 'if [[ "$DEPLOY_CONCLUSION" != "success" ]]; then' \
+  'documentation deployment confirmed from the deploy job, not the run'
 require_literal 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"' \
   'newest-major documentation redeploy decision'
 require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
@@ -178,8 +201,16 @@ require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \
   'consumer smoke tests must follow Maven Central availability'
+require_order 'if [[ "$SOURCE_BRANCH" != "main"' './mvnw -B -ntp versions:set' \
+  'the source branch must be checked before any project file is rewritten'
 require_order 'release-version-policy.sh next-version' './mvnw -B -ntp versions:set' \
   'the release version must be validated against its major before any project file is rewritten'
+require_order 'TAGGED_RELEASE_LINE=' '- name: Publish to Maven Central' \
+  'the tagged contents must be checked against their release line before Maven Central publication'
+require_order '- name: Checkout immutable release' 'TAGGED_RELEASE_LINE=' \
+  'the release line must be read from the immutable release checkout'
+require_order 'git merge-base --is-ancestor "$RELEASE_SHA"' '- name: Publish to Maven Central' \
+  'the release branch must be checked before Maven Central publication'
 require_order '- name: Smoke test published distributions' '- name: Decide documentation redeploy' \
   'the documentation redeploy decision must follow the consumer smoke tests'
 require_order 'rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"' '-f "$AGENT_SMOKE_DIR/pom.xml"' \
@@ -216,9 +247,117 @@ if grep -Eq -- '(-Dgpg[.]passphrase=|--passphrase([=[:space:]]))' "$WORKFLOW"; t
   report_error 'GPG passphrases must not be exposed in process arguments'
 fi
 
+# The documentation site and the Docker Hub images build from a branch, so they follow the newest
+# released major through release-line-gate.sh rather than through a release tag: merging `v2` into
+# `main` must publish neither before v2.0.0 and its Maven Central artifacts exist.
+report_workflow_error() {
+  printf '%s: %s\n' "$1" "$2" >&2
+  errors=$((errors + 1))
+}
+
+require_workflow_literal() {
+  local file="$1" literal="$2" description="$3"
+  if ! grep -Fq -- "$literal" "$file"; then
+    report_workflow_error "$file" "missing $description ('$literal')"
+  fi
+}
+
+# Prints the lines of one job under `jobs:`, from its `  name:` key to the next job.
+job_block() {
+  awk -v job="  $2:" '
+    /^jobs:/ { jobs = 1; next }
+    jobs && $0 == job { inside = 1; print; next }
+    inside && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { exit }
+    inside { print }
+  ' "$1"
+}
+
+job_names() {
+  awk '/^jobs:/ { jobs = 1; next } jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { gsub(/[ :]/, ""); print }' "$1"
+}
+
+readonly GATE_RUN='run: bash .github/scripts/release-line-gate.sh'
+for file in "$WORKFLOW" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW"; do
+  if grep -Eq 'BOOTUI_RELEASE_TAGS_FILE|BOOTUI_CENTRAL_URL|RELEASE_INTEGRITY_ROOT' "$file"; then
+    report_workflow_error "$file" 'release-line-gate.sh test seams must never be set by a workflow'
+  fi
+done
+
+# Whole-line matches, so a gate step that appends a forced answer (`...gate.sh; echo publish=true`)
+# does not pass.
+readonly GATE_STEP_LINE="        $GATE_RUN"
+if ! grep -Fxq -- "$GATE_STEP_LINE" "$PAGES_WORKFLOW"; then
+  report_workflow_error "$PAGES_WORKFLOW" "missing documentation site release-line gate ('$GATE_RUN' on a line of its own)"
+fi
+require_workflow_literal "$PAGES_WORKFLOW" 'publish: ${{ steps.gate.outputs.publish }}' \
+  'documentation site gate output'
+pages_build="$(job_block "$PAGES_WORKFLOW" build)"
+pages_deploy="$(job_block "$PAGES_WORKFLOW" deploy)"
+if ! grep -Fxq -- "$GATE_STEP_LINE" <<<"$pages_build"; then
+  report_workflow_error "$PAGES_WORKFLOW" 'the release-line gate must run in the build job'
+fi
+if ! grep -Fq -- "if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'" \
+  <<<"$(sed -n '/- name: Upload Pages artifact/,/uses:/p' "$PAGES_WORKFLOW")"; then
+  report_workflow_error "$PAGES_WORKFLOW" 'the Pages artifact must be uploaded only when the release-line gate allows it'
+fi
+if [[ "$(grep -Fc 'actions/deploy-pages' "$PAGES_WORKFLOW" || true)" -ne 1 ]] ||
+  ! grep -Fq 'actions/deploy-pages' <<<"$pages_deploy"; then
+  report_workflow_error "$PAGES_WORKFLOW" 'the site must be deployed from exactly one deploy job'
+fi
+# release.yml confirms the deployment by selecting this job by its name.
+if ! grep -Fxq '    name: Deploy documentation site' <<<"$pages_deploy"; then
+  report_workflow_error "$PAGES_WORKFLOW" "the deploy job must keep the name 'Deploy documentation site', which release.yml selects"
+fi
+if ! grep -Eq "^    if: github.event_name != 'pull_request' && needs.build.outputs.publish == 'true'$" \
+  <<<"$pages_deploy"; then
+  report_workflow_error "$PAGES_WORKFLOW" 'the deploy job must run only when the release-line gate allows it'
+fi
+if [[ "$(grep -c 'upload-pages-artifact' "$PAGES_WORKFLOW" || true)" -ne 1 ]]; then
+  report_workflow_error "$PAGES_WORKFLOW" 'the site must be uploaded from exactly one gated step'
+fi
+
+docker_gate="$(job_block "$DOCKER_WORKFLOW" gate)"
+docker_config="$(job_block "$DOCKER_WORKFLOW" docker-config)"
+docker_build="$(job_block "$DOCKER_WORKFLOW" build)"
+docker_merge="$(job_block "$DOCKER_WORKFLOW" merge)"
+if ! grep -Fxq -- "$GATE_STEP_LINE" <<<"$docker_gate" ||
+  ! grep -Fq 'publish: ${{ steps.gate.outputs.publish }}' <<<"$docker_gate"; then
+  report_workflow_error "$DOCKER_WORKFLOW" 'missing the gate job running release-line-gate.sh'
+fi
+if ! grep -Eq '^    needs: gate$' <<<"$docker_config" ||
+  [[ "$(grep -E '^    if:' <<<"$docker_config" || true)" != "    if: \${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}" ]]; then
+  report_workflow_error "$DOCKER_WORKFLOW" 'docker-config must run only when the release-line gate allows it'
+fi
+if ! grep -Eq '^    needs: docker-config$' <<<"$docker_build" || ! grep -Eq '^    needs: build$' <<<"$docker_merge"; then
+  report_workflow_error "$DOCKER_WORKFLOW" 'image builds and tags must follow the gated docker-config job'
+fi
+# A status function such as always() would run a job after a skipped docker-config, so the image
+# jobs keep exactly the repository condition and nothing else.
+readonly DOCKER_JOB_CONDITION="    if: github.repository == 'jdubois/boot-ui'"
+for job in build merge; do
+  block="$(job_block "$DOCKER_WORKFLOW" "$job")"
+  if [[ "$(grep -E '^    if:' <<<"$block" || true)" != "$DOCKER_JOB_CONDITION" ]]; then
+    report_workflow_error "$DOCKER_WORKFLOW" \
+      "the $job job must keep exactly \"if: github.repository == 'jdubois/boot-ui'\" so it never runs after a skipped docker-config"
+  fi
+done
+for job in $(job_names "$DOCKER_WORKFLOW"); do
+  case "$job" in
+    gate | docker-config | build | merge | prune) ;;
+    *) report_workflow_error "$DOCKER_WORKFLOW" "unexpected job '$job' outside the release-line gate" ;;
+  esac
+done
+
+# Every branch declares its release line, consistent with its project version.
+project_version="$(perl -0ne 'print $1 and exit if m{<artifactId>bootui-parent</artifactId>\s*<version>([^<]+)</version>}' "$ROOT_POM")"
+if ! bash "$VERSION_POLICY" line-major "$project_version" "$RELEASE_LINE_FILE" >/dev/null; then
+  printf '%s: invalid release line for project version %s\n' "$RELEASE_LINE_FILE" "$project_version" >&2
+  errors=$((errors + 1))
+fi
+
 if [[ $errors -gt 0 ]]; then
   printf 'Release integrity policy failed with %s error(s).\n' "$errors" >&2
   exit 1
 fi
 
-printf 'Release integrity policy passed for %s.\n' "$WORKFLOW"
+printf 'Release integrity policy passed for %s, %s, and %s.\n' "$WORKFLOW" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW"

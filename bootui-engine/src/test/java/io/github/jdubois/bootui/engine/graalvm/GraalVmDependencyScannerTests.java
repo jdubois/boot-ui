@@ -80,6 +80,26 @@ class GraalVmDependencyScannerTests {
     }
 
     @Test
+    void theBootUiAgentJarIsNeverListedAsADependency(@TempDir Path dir) throws IOException {
+        Path library = jar(dir, "library.jar", Map.of("com/example/Library.class", "data"));
+        Path agent = dir.resolve("bootui-agent-1.0.0.jar");
+        java.util.jar.Manifest manifest = new java.util.jar.Manifest();
+        manifest.getMainAttributes().put(java.util.jar.Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("BootUI-Agent-Protocol", "1");
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(agent), manifest)) {
+            out.putNextEntry(new JarEntry("io/github/jdubois/bootui/agent/AgentLauncher.class"));
+            out.closeEntry();
+        }
+        String classPath = agent + File.pathSeparator + library;
+
+        DependencySurvey survey = new GraalVmDependencyScanner(() -> classPath).scan();
+
+        assertThat(survey.dependencies())
+                .singleElement()
+                .satisfies(dependency -> assertThat(dependency.name()).startsWith("library"));
+    }
+
+    @Test
     void repositoryMetadataCoverageIsReportedForMatchingTestedVersion(@TempDir Path dir) throws IOException {
         Path jar = jar(
                 dir,

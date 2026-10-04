@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -16,7 +17,7 @@ class JournalQueueTests {
 
     @Test
     void keepsTheReservedShareForFailedOrSlowEventsAndTakesEventsInOrder() throws Exception {
-        JournalQueue queue = new JournalQueue(4, 2, null);
+        JournalQueue queue = new JournalQueue(4, 2, null, null);
 
         assertThat(accepted(queue.offer(event(1, false), false))).isTrue();
         assertThat(accepted(queue.offer(event(2, false), false))).isTrue();
@@ -38,21 +39,122 @@ class JournalQueueTests {
     }
 
     @Test
-    void reachingHalfTheRoutineShareAsksForTheDispatcherOnce() {
-        JournalQueue queue = new JournalQueue(10, 8, null);
+    void aPauseEndsAsSoonAsTheQueueHoldsHalfItsRoutineShare() throws Exception {
+        JournalQueue queue = new JournalQueue(10, 8, null, null);
+        for (int i = 0; i < 3; i++) {
+            queue.offer(event(i, false), false);
+        }
+        AtomicReference<Long> pausedNanos = new AtomicReference<>();
+        Thread dispatcher = new Thread(() -> {
+            long started = System.nanoTime();
+            try {
+                queue.awaitFilling(TimeUnit.SECONDS.toNanos(30));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            pausedNanos.set(System.nanoTime() - started);
+        });
+        dispatcher.start();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (dispatcher.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(dispatcher.getState())
+                .as("three of a routine share of eight do not end the pause")
+                .isEqualTo(Thread.State.TIMED_WAITING);
+
+        queue.offer(event(3, false), false);
+
+        dispatcher.join(5_000);
+        assertThat(dispatcher.isAlive())
+                .as("the fourth offer signals the waiting dispatcher")
+                .isFalse();
+        assertThat(pausedNanos.get()).isLessThan(TimeUnit.SECONDS.toNanos(5));
+        long started = System.nanoTime();
+        queue.offer(event(4, false), false);
+        queue.awaitFilling(TimeUnit.SECONDS.toNanos(30));
+        assertThat(System.nanoTime() - started)
+                .as("a queue already past half its share is not waited on")
+                .isLessThan(TimeUnit.SECONDS.toNanos(5));
+    }
+
+    @Test
+    void aPauseEndsWhenTheQueueIsDetachedOrTheWaiterInterrupted() throws Exception {
+        JournalQueue queue = new JournalQueue(10, 8, null, null);
+        CompletableFuture<Void> paused = CompletableFuture.runAsync(() -> {
+            try {
+                queue.awaitFilling(TimeUnit.SECONDS.toNanos(30));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        Thread.sleep(50);
+        queue.detach();
+        paused.get(5, TimeUnit.SECONDS);
+
+        JournalQueue other = new JournalQueue(10, 8, null, null);
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        Thread waiter = new Thread(() -> {
+            try {
+                other.awaitFilling(TimeUnit.SECONDS.toNanos(30));
+            } catch (InterruptedException ex) {
+                thrown.set(ex);
+            }
+        });
+        waiter.start();
+        Thread.sleep(50);
+        waiter.interrupt();
+        waiter.join(5_000);
+        assertThat(thrown.get()).isInstanceOf(InterruptedException.class);
+    }
+
+    @Test
+    void anAcceptedEventIsCountedBeforeTheDispatcherCanTakeIt() throws Exception {
+        AtomicReference<JournalQueue> self = new AtomicReference<>();
+        AtomicReference<CompletableFuture<Integer>> dispatcher = new AtomicReference<>();
+        AtomicReference<Boolean> takenWhileCounting = new AtomicReference<>();
+        List<Integer> counted = new ArrayList<>();
+        JournalQueue queue = new JournalQueue(4, 4, null, source -> {
+            counted.add(source);
+            if (dispatcher.get() == null) {
+                CompletableFuture<Integer> taking =
+                        CompletableFuture.supplyAsync(() -> self.get().drainTo(new ArrayList<>(), 10));
+                dispatcher.set(taking);
+                try {
+                    taking.get(100, TimeUnit.MILLISECONDS);
+                    takenWhileCounting.set(true);
+                } catch (java.util.concurrent.TimeoutException ex) {
+                    takenWhileCounting.set(false);
+                } catch (Exception ex) {
+                    takenWhileCounting.set(true);
+                }
+            }
+        });
+        self.set(queue);
 
         assertThat(queue.offer(event(1, false), false)).isEqualTo(JournalQueue.ACCEPTED);
-        assertThat(queue.offer(event(2, false), false)).isEqualTo(JournalQueue.ACCEPTED);
-        assertThat(queue.offer(event(3, false), false)).isEqualTo(JournalQueue.ACCEPTED);
-        assertThat(queue.offer(event(4, false), false)).isEqualTo(JournalQueue.ACCEPTED_FILLING);
-        assertThat(queue.offer(event(5, false), false)).isEqualTo(JournalQueue.ACCEPTED);
+
+        assertThat(takenWhileCounting.get())
+                .as("the dispatcher cannot take the event until it is counted")
+                .isFalse();
+        assertThat(dispatcher.get().get(5, TimeUnit.SECONDS))
+                .as("then takes it")
+                .isEqualTo(1);
+        for (int i = 2; i <= 5; i++) {
+            assertThat(queue.offer(event(i, false), false)).isEqualTo(JournalQueue.ACCEPTED);
+        }
+        assertThat(queue.offer(event(6, true), true)).isEqualTo(JournalQueue.FULL);
+        assertThat(counted)
+                .as("a refused event is not counted as accepted")
+                .hasSize(5)
+                .containsOnly(JournalSource.SQL.ordinal());
     }
 
     @Test
     void routineEventsNeverOvershootTheirShareUnderConcurrentOffers() throws Exception {
         int producers = 8;
         int perProducer = 2_000;
-        JournalQueue queue = new JournalQueue(1_000, 600, null);
+        JournalQueue queue = new JournalQueue(1_000, 600, null, null);
         ExecutorService pool = Executors.newFixedThreadPool(producers);
         try {
             CountDownLatch start = new CountDownLatch(1);
@@ -63,7 +165,7 @@ class JournalQueueTests {
                     int accepted = 0;
                     for (int i = 0; i < perProducer; i++) {
                         int outcome = queue.offer(event(i, false), false);
-                        if (outcome == JournalQueue.ACCEPTED || outcome == JournalQueue.ACCEPTED_FILLING) {
+                        if (outcome == JournalQueue.ACCEPTED) {
                             accepted++;
                         }
                     }
@@ -84,7 +186,7 @@ class JournalQueueTests {
 
     @Test
     void aDetachedQueueDropsWhatItHeldAndTakesNothingMore() throws Exception {
-        JournalQueue queue = new JournalQueue(4, 4, null);
+        JournalQueue queue = new JournalQueue(4, 4, null, null);
         queue.offer(event(1, false), false);
         queue.offer(event(2, false), false);
         queue.offer(event(3, false), false);
@@ -112,7 +214,7 @@ class JournalQueueTests {
 
     @Test
     void aSealedQueueTakesNothingMoreButKeepsWhatItHeldForTheLastDrain() throws Exception {
-        JournalQueue queue = new JournalQueue(4, 4, null);
+        JournalQueue queue = new JournalQueue(4, 4, null, null);
         queue.offer(event(1, false), false);
 
         queue.seal();
@@ -137,7 +239,7 @@ class JournalQueueTests {
 
     @Test
     void detachingWakesADispatcherWaitingOnTheQueue() throws Exception {
-        JournalQueue queue = new JournalQueue(4, 4, null);
+        JournalQueue queue = new JournalQueue(4, 4, null, null);
         AtomicReference<RuntimeEvent> polled = new AtomicReference<>(event(0, false));
         Thread dispatcher = new Thread(() -> {
             try {
@@ -159,7 +261,7 @@ class JournalQueueTests {
     }
 
     private static boolean accepted(int outcome) {
-        return outcome == JournalQueue.ACCEPTED || outcome == JournalQueue.ACCEPTED_FILLING;
+        return outcome == JournalQueue.ACCEPTED;
     }
 
     private static RuntimeEvent event(long epochMillis, boolean failedOrSlow) {

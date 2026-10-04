@@ -14,6 +14,7 @@ import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -141,12 +142,16 @@ final class ApplicationMethodsSensor {
 
     /**
      * Per class loader (weakly), the names of the classes the transformer instrumented with the inventory visit or
-     * failed to, so a claim or a refine retransforms only the loaded classes it never saw; {@link #seenInBootstrap}
-     * stands for the bootstrap loader.
+     * failed to, so a claim or a refine retransforms only the loaded classes it never saw, each with the method ids it
+     * last tracked in that class loader ({@link #NO_IDS} until it tracked any); {@link #seenInBootstrap} stands for the
+     * bootstrap loader.
      */
-    private final Map<ClassLoader, Set<String>> seen = new WeakHashMap<ClassLoader, Set<String>>();
+    private final Map<ClassLoader, Map<String, int[]>> seen = new WeakHashMap<ClassLoader, Map<String, int[]>>();
 
-    private final Set<String> seenInBootstrap = new HashSet<String>();
+    private final Map<String, int[]> seenInBootstrap = new HashMap<String, int[]>();
+
+    /** A seen class's ids before it tracked any. */
+    private static final int[] NO_IDS = new int[0];
 
     private final ClassLoadRecorder recorder = new ClassLoadRecorder();
     /** The current claim's packages. */
@@ -768,29 +773,50 @@ final class ApplicationMethodsSensor {
     /** Records that the transformer instrumented, or failed to, the class {@code typeName} of {@code loader}. */
     private boolean markSeen(ClassLoader loader, String typeName) {
         synchronized (seen) {
-            Set<String> names = loader == null ? seenInBootstrap : seen.get(loader);
+            Map<String, int[]> names = loader == null ? seenInBootstrap : seen.get(loader);
             if (names == null) {
-                names = new HashSet<String>();
+                names = new HashMap<String, int[]>();
                 seen.put(loader, names);
             }
-            return names.add(typeName);
+            return names.putIfAbsent(typeName, NO_IDS) == null;
+        }
+    }
+
+    /** The method ids the class {@code typeName} last tracked in {@code loader}, or {@code null}. */
+    private int[] trackedIds(ClassLoader loader, String typeName) {
+        synchronized (seen) {
+            Map<String, int[]> names = loader == null ? seenInBootstrap : seen.get(loader);
+            int[] ids = names == null ? null : names.get(typeName);
+            return ids == NO_IDS ? null : ids;
+        }
+    }
+
+    /** Records the method ids the class {@code typeName} tracks in {@code loader}, which {@link #markSeen} saw. */
+    private void trackIds(ClassLoader loader, String typeName, int[] ids) {
+        synchronized (seen) {
+            Map<String, int[]> names = loader == null ? seenInBootstrap : seen.get(loader);
+            if (names != null) {
+                names.put(typeName, ids);
+            }
         }
     }
 
     /** Links what {@link #markSeen} uses, before the transformer's listener calls it inside class loading. */
     private static void warmSeen() {
-        Map<ClassLoader, Set<String>> map = new WeakHashMap<ClassLoader, Set<String>>();
-        Set<String> names = new HashSet<String>();
-        names.add("warm.Up");
+        Map<ClassLoader, Map<String, int[]>> map = new WeakHashMap<ClassLoader, Map<String, int[]>>();
+        Map<String, int[]> names = new HashMap<String, int[]>();
+        names.putIfAbsent("warm.Up", NO_IDS);
+        names.put("warm.Up", new int[] {1});
         map.put(ApplicationMethodsSensor.class.getClassLoader(), names);
-        map.get(ApplicationMethodsSensor.class.getClassLoader()).contains("warm.Up");
+        map.get(ApplicationMethodsSensor.class.getClassLoader()).containsKey("warm.Up");
+        retained(new int[] {1, 2}, new int[] {1});
         map.clear();
     }
 
     private boolean wasSeen(ClassLoader loader, String typeName) {
         synchronized (seen) {
-            Set<String> names = loader == null ? seenInBootstrap : seen.get(loader);
-            return names != null && names.contains(typeName);
+            Map<String, int[]> names = loader == null ? seenInBootstrap : seen.get(loader);
+            return names != null && names.containsKey(typeName);
         }
     }
 
@@ -1146,6 +1172,14 @@ final class ApplicationMethodsSensor {
                 return;
             }
             int[] array = ids == null ? new int[0] : ids.toArray();
+            int[] previous = loaded && !first ? trackedIds(classLoader, name) : null;
+            if (previous != null) {
+                // Transformed again in its class loader, as by a HotSwap: the JVM may still refuse a redefinition that
+                // adds methods after this transformer ran, so only the methods the class already had there are
+                // tracked; the others are tracked from its next load.
+                array = retained(array, previous);
+            }
+            trackIds(classLoader, name, array);
             idsByType.put(name, array);
             int definition = inventoryDefinitions.token(classLoader);
             CodeInventory.tracked(name, array, loaded && first && !PROBE.equals(name), definition);
@@ -1192,6 +1226,26 @@ final class ApplicationMethodsSensor {
             pending.remove(typeName);
             visits.remove(typeName);
         }
+    }
+
+    /** The ids of {@code ids} also in {@code previous}, in their order. */
+    static int[] retained(int[] ids, int[] previous) {
+        int count = 0;
+        int[] kept = new int[ids.length];
+        for (int id : ids) {
+            for (int old : previous) {
+                if (id == old) {
+                    kept[count++] = id;
+                    break;
+                }
+            }
+        }
+        if (count == kept.length) {
+            return kept;
+        }
+        int[] trimmed = new int[count];
+        System.arraycopy(kept, 0, trimmed, 0, count);
+        return trimmed;
     }
 
     /** A retransformation the JVM rejected for one class: its methods are not instrumented after all. */
