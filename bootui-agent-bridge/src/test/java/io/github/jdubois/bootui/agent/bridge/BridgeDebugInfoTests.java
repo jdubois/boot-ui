@@ -81,12 +81,15 @@ class BridgeDebugInfoTests {
         arguments.get("main").setValue(DEBUGGEE);
         VirtualMachine vm = connector.launch(arguments);
         List<String> stops = new ArrayList<>();
+        String output = "";
         try {
             EventRequestManager requests = vm.eventRequestManager();
             ClassPrepareRequest prepare = requests.createClassPrepareRequest();
             prepare.addClassFilter(DEBUGGEE);
             prepare.enable();
-            vm.resume();
+            // The launched VM is suspended once, for its VMStartEvent: resuming that event set below starts it. A
+            // separate vm.resume() here would let a later resume of the start set release the VM while the class
+            // prepare event that sets the breakpoint is still pending, so the debuggee could finish unstopped.
             boolean done = false;
             long deadline = System.nanoTime() + 60_000_000_000L;
             while (!done && System.nanoTime() < deadline) {
@@ -124,8 +127,7 @@ class BridgeDebugInfoTests {
                 events.resume();
             }
         } finally {
-            String output =
-                    read(vm.process().getInputStream()) + read(vm.process().getErrorStream());
+            output = read(vm.process().getInputStream()) + read(vm.process().getErrorStream());
             try {
                 vm.exit(0);
             } catch (RuntimeException ex) {
@@ -134,6 +136,7 @@ class BridgeDebugInfoTests {
             assertThat(output).doesNotContain("Exception");
         }
 
+        assertThat(stops).as("debuggee output: " + output).isNotEmpty();
         // Every line of steps(), the line-numbered helper it steps into, then back in main: never in the bridge.
         assertThat(stops).as(stops.toString()).noneMatch(stop -> stop.startsWith("io.github.jdubois.bootui"));
         assertThat(stops.get(stops.size() - 1)).startsWith(DEBUGGEE + ".main:");
