@@ -967,6 +967,38 @@ Unreadable `pom.properties` resources, a malformed or unreadable SBOM, and unrea
 and skipped instead of failing the whole inventory.
 :::
 
+### Runtime reach
+
+With the [BootUI agent](java-agent.md)'s `inventory` sensor recording this run, the dependency table gains a **Runtime
+reach** column and filter: whether each dependency's jar loaded classes in this JVM, and whether a class an advisory
+names did. It is a prioritization hint read when the panel loads, from evidence already in memory, and it never changes
+a finding's severity, score, counts, or Scorecard penalty: a class not loaded yet may load later in this run, or in
+another. Without the agent, or while the Code Inventory panel, whose evidence it is, is disabled, the column is absent
+and the table says why.
+
+| Reach | Meaning |
+| --- | --- |
+| **Named class loaded** | A class the advisory names loaded from this dependency's own jar. Names come from the advisory's structured OSV fields when it has any, else from fully qualified class names in its summary and details, marked *from the advisory text*: those may name a proof of concept's classes, so this is "a class the advisory mentions loaded", never "the vulnerable code ran". |
+| **Loaded** | Classes of the jar loaded, with how many in this run and the route of the request that first loaded one (while HTTP Exchanges is visible). A jar loaded only before this run (an earlier DevTools or live-reload run, or before the agent's claim), or only by BootUI's own work, still reads as loaded, with that said. |
+| **Not loaded yet** | No class of the jar loaded in this JVM, and the evidence could have shown it. |
+| **Unknown** | The evidence cannot tell, with why: the agent's class-load recorder is not running or has not finished walking the classes already loaded, it saw more jars than it counts, the jar was not found or holds no classes (a starter, native code), classes of one of its packages were defined without a code-source location, a loaded jar with no Maven metadata and the artifact's name, or a shaded jar, may be this dependency, the jar serves web resources (WebJars, mvnpm), or the agent never records the artifact's classes (Byte Buddy, BootUI's own). |
+
+::: details How reach is decided
+The agent keeps, per jar, a bounded set of 64-bit hashes of the class names it defined (8,192 per jar, 65,536 in all;
+past that, a class the advisory names reads as unknown, never as not loaded) with the run of each class's last load,
+JDK types only, so no class loader is pinned. Dependencies are matched to jars as the Code Inventory panel matches them
+(Maven metadata, shaded coordinates, then file name), the same version first. **Not loaded yet** needs every gate:
+the agent keeps class-name evidence, its recorder started before walking the classes already loaded and was never
+stopped since (a restarted recorder walks them again), no code source was past the agent's limit, the dependency's jar
+was found and holds classes, no class of one of its packages was defined without a code-source location (as Quarkus's
+generated beans are, in their library's package), and no loaded jar may be this dependency without saying so.
+A reason that applies to every row, such as the recorder not running, is said once above the table. Names mined from
+an advisory's text are looked for only in the dependency's own jar, so their absence says nothing (the text often names
+other artifacts' classes); a structured name not found there is also looked for in every other jar.
+OSV's Maven advisories carry no structured symbols today (none of 357 advisories sampled for 44 common packages did),
+and about one in five names a class in its text.
+:::
+
 ### Coverage
 
 A coordinate-based inventory can only scan what it can name, so the panel also reports what it *couldn't*. Alongside the

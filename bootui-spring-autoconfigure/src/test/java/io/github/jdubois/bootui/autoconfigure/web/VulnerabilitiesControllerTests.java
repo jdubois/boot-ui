@@ -101,6 +101,38 @@ class VulnerabilitiesControllerTests {
     }
 
     @Test
+    void bothAnswersSayWhyRowsCarryNoRuntimeReach() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
+                        properties,
+                        () -> List.of(vulnerableDependency("org.example", "sample", "1.0.0", "GHSA-1", "HIGH")),
+                        inventory -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, inventory.dependencies()),
+                        emptyDismissedRulesStore()))
+                .build();
+
+        mvc.perform(get("/bootui/api/vulnerabilities"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runtimeReach.available").value(false))
+                .andExpect(jsonPath("$.runtimeReach.unavailableReason")
+                        .value(io.github.jdubois.bootui.engine.inventory.VulnerabilityReach.NO_CODE_INVENTORY))
+                .andExpect(jsonPath("$.dependencies[0].runtimeReach").value(org.hamcrest.Matchers.nullValue()));
+        mvc.perform(post("/bootui/api/vulnerabilities/scan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runtimeReach.available").value(false))
+                .andExpect(jsonPath("$.dependencies[0].vulnerabilities[0].severity")
+                        .value("HIGH"))
+                .andExpect(jsonPath("$.dependencies[0].vulnerabilities[0].runtimeReach")
+                        .value(org.hamcrest.Matchers.nullValue()));
+
+        BootUiProperties.Panel disabled = new BootUiProperties.Panel();
+        disabled.setEnabled(false);
+        properties.getPanels().put("code-inventory", disabled);
+        mvc.perform(get("/bootui/api/vulnerabilities"))
+                .andExpect(jsonPath("$.runtimeReach.unavailableReason")
+                        .value(io.github.jdubois.bootui.engine.inventory.VulnerabilityReach.CODE_INVENTORY_DISABLED));
+    }
+
+    @Test
     void scanUsesScannerWhenEnabled() throws Exception {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),

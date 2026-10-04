@@ -501,26 +501,36 @@ final class ApplicationMethodsSensor {
         state = "installed";
     }
 
-    /** Adds the class-load recorder, counting the classes already loaded once. */
+    /**
+     * Adds the class-load recorder, then walks the classes already loaded: added first, so no class defined during the
+     * walk goes unseen, and walked twice, so a class whose definition raced the recorder's addition is found by the
+     * second walk. The first walk ever counts them as loaded before the claim (a class the recorder already counted is
+     * not counted again); every later walk, as after the recorder was stopped, only keeps their names.
+     */
     private void startRecorder() {
         if (recording) {
             return;
         }
-        if (!countedBeforeClaim) {
-            // Counted before the recorder is added, so no class is counted both as loaded before and after the claim.
-            countedBeforeClaim = true;
-            long counting = System.nanoTime();
-            countLoadedBeforeClaim();
-            beforeClaimMillis = (System.nanoTime() - counting) / 1_000_000L;
-        }
         instrumentation.addTransformer(recorder, false);
         recording = true;
+        CodeInventory.recorderStarted();
+        long counting = System.nanoTime();
+        if (!countedBeforeClaim) {
+            countedBeforeClaim = true;
+            countLoadedBeforeClaim(true);
+            beforeClaimMillis = (System.nanoTime() - counting) / 1_000_000L;
+        } else {
+            countLoadedBeforeClaim(false);
+        }
+        countLoadedBeforeClaim(false);
+        CodeInventory.recorderWalked();
     }
 
     private void stopRecorder() {
         if (recording) {
             instrumentation.removeTransformer(recorder);
             recording = false;
+            CodeInventory.recorderStopped();
         }
     }
 
@@ -680,8 +690,11 @@ final class ApplicationMethodsSensor {
         }
     }
 
-    /** Classes already loaded when the sensor installs: counted once per code source, as loaded before the claim. */
-    private void countLoadedBeforeClaim() {
+    /**
+     * The classes already loaded: with {@code count}, counted once per code source as loaded before the claim, else only
+     * their names kept. A class defined without a code-source location is reported as such either way.
+     */
+    private void countLoadedBeforeClaim(boolean count) {
         long counted = 0;
         for (Class<?> type : instrumentation.getAllLoadedClasses()) {
             try {
@@ -690,16 +703,25 @@ final class ApplicationMethodsSensor {
                 if (type.isArray() || name.indexOf('/') >= 0 || ClassLoadRecorder.skipped(name.replace('.', '/'))) {
                     continue;
                 }
-                String location = ClassLoadRecorder.location(type.getProtectionDomain());
+                ProtectionDomain domain = type.getProtectionDomain();
+                String location = ClassLoadRecorder.location(domain);
                 if (location != null) {
-                    CodeInventory.loadedBeforeClaim(location, name);
-                    counted++;
+                    if (count) {
+                        CodeInventory.loadedBeforeClaim(location, name);
+                        counted++;
+                    } else {
+                        CodeInventory.loadedWhileUnrecorded(location, name);
+                    }
+                } else if (ClassLoadRecorder.unlocated(type.getClassLoader(), domain)) {
+                    CodeInventory.classLoadedWithoutLocation(name);
                 }
             } catch (Throwable ex) {
                 // A class whose protection domain cannot be read: not counted.
             }
         }
-        beforeClaimClasses = counted;
+        if (count) {
+            beforeClaimClasses = counted;
+        }
     }
 
     /**
@@ -1390,7 +1412,7 @@ final class ApplicationMethodsSensor {
                 Class<?> classBeingRedefined,
                 ProtectionDomain protectionDomain,
                 byte[] classfileBuffer) {
-            if (classBeingRedefined != null || className == null || protectionDomain == null) {
+            if (classBeingRedefined != null || className == null) {
                 return null;
             }
             try {
@@ -1398,6 +1420,8 @@ final class ApplicationMethodsSensor {
                     String location = location(protectionDomain);
                     if (location != null) {
                         CodeInventory.classLoaded(location, className);
+                    } else if (unlocated(loader, protectionDomain)) {
+                        CodeInventory.classLoadedWithoutLocation(className);
                     }
                 }
             } catch (Throwable ex) {
@@ -1429,10 +1453,24 @@ final class ApplicationMethodsSensor {
             return location.startsWith("jrt:") ? null : location;
         }
 
+        /**
+         * Whether a class with no code-source location is one no code source can account for: defined by a class loader
+         * (the bootstrap loader's are the JDK's) without a location, never the JDK's {@code jrt:} image.
+         */
+        static boolean unlocated(ClassLoader loader, ProtectionDomain domain) {
+            if (loader == null) {
+                return false;
+            }
+            CodeSource source = domain == null ? null : domain.getCodeSource();
+            URL url = source == null ? null : source.getLocation();
+            return url == null || !"jrt".equals(url.getProtocol());
+        }
+
         /** Links the recorder's own code before it is registered. */
         static void warm() {
             skipped("warm/Up");
             location(null);
+            unlocated(null, null);
         }
     }
 }

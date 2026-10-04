@@ -670,4 +670,160 @@ describe('Vulnerabilities', () => {
     expect(cveLink.attributes('href')).toBe('https://nvd.nist.gov/vuln/detail/CVE-2021-44228')
     expect(ghsaLink.attributes('href')).toBe('https://github.com/advisories/GHSA-aliased-0001')
   })
+
+  describe('runtime reach', () => {
+    function reach(status, overrides = {}) {
+      return {
+        status,
+        reason: null,
+        classesLoaded: 0,
+        classesLoadedTotal: 0,
+        loadedThisRun: false,
+        firstRoute: null,
+        loadedClasses: [],
+        ...overrides
+      }
+    }
+
+    const available = {
+      available: true,
+      unavailableReason: null,
+      generation: 3,
+      note: 'Runtime reach never changes a severity, score, or Scorecard penalty.'
+    }
+
+    function reachedDependencies() {
+      const named = dependency(
+        'org.yaml:snakeyaml',
+        '1.26',
+        [
+          vulnerability('GHSA-named', 'HIGH', false, {
+            advisorySymbols: ['org.yaml.snakeyaml.Yaml'],
+            advisorySymbolSource: 'ADVISORY_TEXT',
+            runtimeReach: reach('AFFECTED_CLASS_LOADED', {
+              classesLoaded: 12,
+              classesLoadedTotal: 12,
+              loadedThisRun: true,
+              loadedClasses: ['org.yaml.snakeyaml.Yaml']
+            })
+          })
+        ],
+        'HIGH'
+      )
+      named.runtimeReach = reach('AFFECTED_CLASS_LOADED', {
+        classesLoaded: 12,
+        classesLoadedTotal: 12,
+        loadedThisRun: true,
+        firstRoute: '/owners',
+        loadedClasses: ['org.yaml.snakeyaml.Yaml']
+      })
+      const idle = dependency(
+        'org.apache.commons:commons-text',
+        '1.9',
+        [vulnerability('GHSA-idle', 'CRITICAL')],
+        'CRITICAL'
+      )
+      idle.runtimeReach = reach('NOT_LOADED')
+      idle.vulnerabilities[0].runtimeReach = reach('NOT_LOADED')
+      const unknown = dependency('org.webjars:jquery', '3.4.0', [vulnerability('GHSA-web', 'MEDIUM')], 'MEDIUM')
+      unknown.runtimeReach = reach('UNKNOWN', {reason: 'A web-resource jar: its use is serving files.'})
+      unknown.vulnerabilities[0].runtimeReach = unknown.runtimeReach
+      return [named, idle, unknown]
+    }
+
+    it('shows a runtime reach column, its evidence, and a filter when the agent provides it', async () => {
+      const {wrapper} = await mountWithReports([report(reachedDependencies(), 3, 'SCANNED', {runtimeReach: available})])
+
+      expect(wrapper.findAll('th').map((th) => th.text())).toContain('Runtime reach')
+      expect(wrapper.text()).toContain(available.note)
+      const cells = wrapper.findAll('td.runtime-reach').map((td) => td.text())
+      expect(cells).toHaveLength(3)
+      expect(cells.join('|')).toContain('Named class loaded')
+      expect(cells.join('|')).toContain('12 classes this run')
+      expect(cells.join('|')).toContain('/owners')
+      expect(cells.join('|')).toContain('Not loaded yet')
+      expect(cells.join('|')).toContain('A web-resource jar')
+      expect(wrapper.find('.runtime-reach__named').text()).toContain('Yaml')
+      expect(wrapper.find('.runtime-reach__named').text()).toContain('from the advisory text')
+
+      const filter = wrapper.find('select[aria-label="Filter by runtime reach"]')
+      await filter.setValue('NOT_LOADED')
+      expect(wrapper.findAll('td.runtime-reach').map((td) => td.text())).toEqual(['Not loaded yet'])
+      await filter.setValue('LOADED_ANY')
+      expect(wrapper.text()).toContain('org.yaml:snakeyaml')
+      expect(wrapper.text()).not.toContain('org.apache.commons:commons-text')
+      await filter.setValue('UNKNOWN')
+      expect(wrapper.text()).toContain('org.webjars:jquery')
+      expect(wrapper.text()).not.toContain('org.yaml:snakeyaml')
+    })
+
+    it('says once why no dependency can be shown as not loaded, and uses it for unknown rows', async () => {
+      const dependencies = reachedDependencies()
+      dependencies[1].runtimeReach = reach('UNKNOWN')
+      dependencies[1].vulnerabilities[0].runtimeReach = reach('UNKNOWN')
+      const {wrapper} = await mountWithReports([
+        report(dependencies, 3, 'SCANNED', {
+          runtimeReach: {...available, incompleteReason: 'The recorder is not running.'}
+        })
+      ])
+
+      expect(wrapper.find('.runtime-reach-incomplete').text()).toContain(
+        'No dependency can be shown as not loaded yet: The recorder is not running.'
+      )
+      const cells = wrapper.findAll('td.runtime-reach')
+      const idle = cells.find((cell) => cell.text().startsWith('Unknown') && cell.text().includes('recorder'))
+      expect(idle).toBeDefined()
+    })
+
+    it('hides the column and says why when rows carry no reach', async () => {
+      const {wrapper} = await mountWithReports([
+        report(reachedDependencies(), 3, 'SCANNED', {
+          runtimeReach: {
+            available: false,
+            unavailableReason: 'Requires the BootUI agent: not attached.',
+            generation: null,
+            note: null
+          }
+        })
+      ])
+
+      expect(wrapper.findAll('th').map((th) => th.text())).not.toContain('Runtime reach')
+      expect(wrapper.find('select[aria-label="Filter by runtime reach"]').exists()).toBe(false)
+      expect(wrapper.find('.runtime-reach__named').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Runtime reach is not shown: Requires the BootUI agent: not attached.')
+    })
+
+    it('renders a report from a server without runtime reach unchanged', async () => {
+      const {wrapper} = await mountWithReports([report(reachedDependencies(), 3)])
+
+      expect(wrapper.findAll('th').map((th) => th.text())).not.toContain('Runtime reach')
+      expect(wrapper.find('.runtime-reach-note').exists()).toBe(false)
+    })
+
+    it('scores the same report identically with and without runtime reach', async () => {
+      const counts = [
+        {severity: 'CRITICAL', count: 1},
+        {severity: 'HIGH', count: 1},
+        {severity: 'MEDIUM', count: 1},
+        {severity: 'LOW', count: 0}
+      ]
+      const withReach = await mountWithReports([
+        report(reachedDependencies(), 3, 'SCANNED', {runtimeReach: available, severityCounts: counts})
+      ])
+      const withReachScore = withReach.wrapper.find('.advisor-score-card').text()
+      vi.unstubAllGlobals()
+      const stripped = reachedDependencies().map((dependency) => ({
+        ...dependency,
+        runtimeReach: undefined,
+        vulnerabilities: dependency.vulnerabilities.map((vulnerability) => ({
+          ...vulnerability,
+          runtimeReach: undefined
+        }))
+      }))
+      const withoutReach = await mountWithReports([report(stripped, 3, 'SCANNED', {severityCounts: counts})])
+
+      expect(withReach.wrapper.find('.advisor-summary__score').exists()).toBe(true)
+      expect(withoutReach.wrapper.find('.advisor-score-card').text()).toBe(withReachScore)
+    })
+  })
 })

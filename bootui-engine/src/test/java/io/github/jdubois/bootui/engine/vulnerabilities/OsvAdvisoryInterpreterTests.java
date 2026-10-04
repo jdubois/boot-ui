@@ -33,6 +33,17 @@ class OsvAdvisoryInterpreterTests {
     }
 
     @Test
+    void carriesTheSymbolsOfThisPackagesEntriesOnly() {
+        Affected own = new Affected(
+                "Maven", PACKAGE, List.of("1.5"), List.of(), List.of(LOW), List.of("org.example.Parser#parse"));
+        Affected other = new Affected(
+                "Maven", "org.example:other", List.of("1.5"), List.of(), List.of(LOW), List.of("org.other.Gadget"));
+
+        assertThat(interpret("1.5", own, other).symbols()).containsExactly("org.example.Parser#parse");
+        assertThat(interpret("1.5", entry("1", "2", LOW)).symbols()).isEmpty();
+    }
+
+    @Test
     void takesTheMaximumSupportedScoreAcrossEveryApplicableEntryAndAssessment() {
         Affected assessments = new Affected("Maven", PACKAGE, List.of("1.5"), List.of(), List.of(ZERO, CRITICAL, LOW));
 

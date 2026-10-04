@@ -231,7 +231,10 @@ the classpath) are simply not advertised.
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last
-  completed report without starting another scan.
+  completed report without starting another scan. With the BootUI agent, the vulnerabilities report's `runtimeReach`
+  says whether each dependency's classes, or a class its advisory names, loaded in this JVM; it is read when answered,
+  never changes a severity, and `NOT_LOADED` means not loaded yet, not unreachable
+  ([Runtime reach](features/advisors.md#runtime-reach)).
 - **Cached per-rule violations (reads):** `get_architecture_rule_violations`, `get_hibernate_rule_violations`,
   `get_spring_rule_violations`, `get_rest_api_rule_violations`, `get_memory_rule_violations`,
   `get_security_rule_violations`, and `get_database_advisor_rule_violations` page the retained details from that

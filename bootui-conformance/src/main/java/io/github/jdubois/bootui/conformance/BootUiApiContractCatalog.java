@@ -228,7 +228,9 @@ public final class BootUiApiContractCatalog {
                             "vulnerable", JsonType.INTEGER,
                             "severityCounts", JsonType.ARRAY,
                             "scan", JsonType.OBJECT,
-                            "dependencies", JsonType.ARRAY)),
+                            "dependencies", JsonType.ARRAY,
+                            // Runtime reach (PLAN-v2 §5.15): unavailable, with why, without the agent.
+                            "runtimeReach", JsonType.NULLABLE_OBJECT)),
             read(
                     "dev-services",
                     "/dev-services",
