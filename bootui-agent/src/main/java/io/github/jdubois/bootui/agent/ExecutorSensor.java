@@ -49,6 +49,8 @@ final class ExecutorSensor {
     static final String THREAD_PER_TASK = "java.util.concurrent.CompletableFuture$ThreadPerTaskExecutor";
     static final String ASYNC_SUPPLY = "java.util.concurrent.CompletableFuture$AsyncSupply";
     static final String ASYNC_RUN = "java.util.concurrent.CompletableFuture$AsyncRun";
+    static final String FUTURE_TASK = "java.util.concurrent.FutureTask";
+    static final String COMPLETABLE_FUTURE = "java.util.concurrent.CompletableFuture";
 
     /** Every hook: its id, the type it transforms, and whether it keys or applies. */
     static final String[][] HOOKS = {
@@ -240,7 +242,16 @@ final class ExecutorSensor {
                 .type(ElementMatchers.named(FJT))
                 .transform(new Visit(Advice.to(ExecutorAdvice.DoExec.class).on(ElementMatchers.named("doExec")))
                         .and(Advice.to(ExecutorAdvice.Fork.class)
-                                .on(ElementMatchers.named("fork").and(ElementMatchers.takesArguments(0)))))
+                                .on(ElementMatchers.named("fork").and(ElementMatchers.takesArguments(0))))
+                        .and(Advice.to(ExecutorAdvice.BodyCompleted.class)
+                                .on(ElementMatchers.namedOneOf(
+                                        "setDone", "trySetThrown", "trySetException", "setExceptionalCompletion"))))
+                .type(ElementMatchers.named(FUTURE_TASK))
+                .transform(new Visit(Advice.to(ExecutorAdvice.BodyCompleted.class)
+                        .on(ElementMatchers.namedOneOf("set", "setException"))))
+                .type(ElementMatchers.named(COMPLETABLE_FUTURE))
+                .transform(new Visit(Advice.to(ExecutorAdvice.BodyCompleted.class)
+                        .on(ElementMatchers.namedOneOf("completeValue", "completeNull", "completeThrowable"))))
                 .type(ElementMatchers.nameStartsWith(ADAPTED).or(ElementMatchers.named(RUNNABLE_EXECUTE_ACTION)))
                 .transform(new Visit(Advice.to(ExecutorAdvice.Adapter.class).on(ElementMatchers.isConstructor())))
                 .type(ElementMatchers.named(DELAYED))
@@ -256,7 +267,17 @@ final class ExecutorSensor {
 
     static ElementMatcher.Junction<TypeDescription> executorTypes() {
         return ElementMatchers.<TypeDescription>namedOneOf(
-                        TPE, STPE, FJP, FJT, RUNNABLE_EXECUTE_ACTION, DELAYED, THREAD_PER_TASK, ASYNC_SUPPLY, ASYNC_RUN)
+                        TPE,
+                        STPE,
+                        FJP,
+                        FJT,
+                        RUNNABLE_EXECUTE_ACTION,
+                        DELAYED,
+                        THREAD_PER_TASK,
+                        ASYNC_SUPPLY,
+                        ASYNC_RUN,
+                        FUTURE_TASK,
+                        COMPLETABLE_FUTURE)
                 .or(ElementMatchers.nameStartsWith(ADAPTED));
     }
 

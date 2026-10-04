@@ -17,6 +17,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
+  task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
+  computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
+  and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
+  tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
+
 - **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
   messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
   after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled

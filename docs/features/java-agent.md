@@ -177,12 +177,36 @@ reopening their snapshots. A handoff already opened before recording stopped is 
 
 Work still running after its request answered shows in Live Activity as a running `ASYNC` entry with an **after
 response** badge, and Runtime Insights reports it as `work-after-response` when it ran SQL, called a REST service, sent a
-message, or failed. A task is after the response when it ends after its request's response started: a task its
-handler waited for ended before, and a request that marked no response, as when its handler failed, is compared with its
-end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response. Only the SQL, REST,
-and message work that ended at least two milliseconds after the response started counts, or the task's failure: a waited-for
-task releases its handler before its handoff closes, so that handoff may end just after the response although its work
-ended before. That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
+message, or failed. A task is after the response when its body ends after its request's response started: a normal
+JDK body whose handler waited for its result ended before, and a request that marked no response, as when its handler failed, is compared with its
+end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response.
+For plain `Runnable` tasks the agent marks the body's return, before closing the handoff.
+Completing a promise inside that body is not its return: the body can keep computing after the handler answers.
+This boundary includes a decorator's code and synchronous completion callbacks the runnable invokes; a handler
+waiting for a hidden future or promise does not necessarily wait for the submitted runnable's whole body.
+If that nested publication preceded the response, raw body-return evidence uses 2 ms of clock slack to avoid counting
+a near-response decorator return as a long continuation. A response already present at the first nested publication
+is a causal ordering fact, so fast bodies already running after the response do not need that slack.
+For JDK `FutureTask`, fork/join tasks, and asynchronous `CompletableFuture` stages, the agent marks body completion
+before normal JDK result publication releases waiters. If the body explicitly publishes its own result early, its
+later return remains the body boundary, including a `CountedCompleter` whose `exec()` returns false. An externally
+completed or cancelled task whose computation is skipped does not acquire a body-return marker.
+A body that ends after the response counts all of its
+attributed SQL, REST, and message evidence, including an earlier write followed by computation and a fast task that
+started after the response. A waited-for body is not reported merely because its handoff closes late.
+The full handoff lifetime remains visible: `FutureTask.done()` and synchronous dependent stages can still do real
+work after result publication. A failure observed escaping the task's result-publication tail is timed separately
+from a body failure stored in its future, using the same 2 ms clock slack as unconfirmed late I/O; the escaping
+failure's class takes precedence if both body and tail fail.
+When the body ended before the response, or its completion could not be confirmed, only I/O ending at least two milliseconds past the
+actual response boundary counts. With no retained request timeline, the request's end is the conservative boundary;
+pure computation after earlier I/O cannot be distinguished from closure bookkeeping without a body marker.
+Explicitly publishing a failure early preserves that outcome's original response ordering, separately from the
+body's later return when the publication hook is observed. Self-cancellation and `CompletableFuture` operations
+using `internalComplete` (`completeExceptionally`, `cancel`, and `obtrude*`) have no early-publication hook; their body
+or early-failure timing can remain unconfirmed. Latches and foreign futures do not define a submitted runnable's
+return either.
+That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
 and armed for the application, its `executors` sensor is installed and not disabled by a failed self-test, and BootUI
 attached its handoffs to the claim; otherwise they say which of these is missing.
 
