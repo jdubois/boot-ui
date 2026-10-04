@@ -16,7 +16,7 @@ public final class Exclusions {
         "io.github.jdubois.bootui.spi.",
         "io.github.jdubois.bootui.autoconfigure.",
         "io.github.jdubois.bootui.quarkus.",
-        "net.bytebuddy.",
+        byteBuddyPrefix('.'),
         "java.",
         "javax.",
         "jdk.",
@@ -34,6 +34,19 @@ public final class Exclusions {
     private static final String[] SUFFIXES = {"_Subclass", "_ClientProxy", "_Bean"};
 
     private Exclusions() {}
+
+    /**
+     * Byte Buddy's real package prefix, built at run time: the agent jar's shade plugin relocates every string constant
+     * starting with {@code net.bytebuddy} to the agent's own shaded package, which would leave the application's Byte
+     * Buddy (Mockito's, Hibernate's) instrumented.
+     */
+    public static String byteBuddyPrefix(char separator) {
+        return new StringBuilder("net")
+                .append(separator)
+                .append("bytebuddy")
+                .append(separator)
+                .toString();
+    }
 
     /** Whether the agent never instruments the class {@code binaryName} ({@code com.example.Outer$Inner}). */
     public static boolean excluded(String binaryName) {

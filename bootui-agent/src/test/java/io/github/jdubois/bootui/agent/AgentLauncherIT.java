@@ -2,6 +2,10 @@ package io.github.jdubois.bootui.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -49,6 +53,33 @@ class AgentLauncherIT {
             assertThat(main.getValue("BootUI-Agent-Protocol")).isEqualTo("1");
             assertThat(main.getValue("Implementation-Version")).isNotBlank();
         }
+    }
+
+    @Test
+    void thePackagedExclusionsSkipTheApplicationsByteBuddyNotOnlyTheShadedOne() throws Exception {
+        try (URLClassLoader loader =
+                new URLClassLoader(new URL[] {ChildJvm.AGENT.toUri().toURL()}, null)) {
+            Class<?> exclusions = loader.loadClass("io.github.jdubois.bootui.agent.bridge.Exclusions");
+            Method excluded = exclusions.getMethod("excluded", String.class);
+            assertThat((Boolean) excluded.invoke(null, "net.bytebuddy.ByteBuddy"))
+                    .as("the shade plugin must not relocate the excluded Byte Buddy prefix")
+                    .isTrue();
+            assertThat((String[]) exclusions.getMethod("prefixes").invoke(null))
+                    .contains(new StringBuilder("net").append(".bytebuddy.").toString());
+        }
+        try (JarFile jar = new JarFile(ChildJvm.AGENT.toFile())) {
+            byte[] sensor = jar.getInputStream(jar.getEntry(
+                            "inst/io/github/jdubois/bootui/agent/ApplicationMethodsSensor$ClassLoadRecorder.classdata"))
+                    .readAllBytes();
+            assertThat(new String(sensor, StandardCharsets.ISO_8859_1))
+                    .as("the class-load recorder's skipped prefixes name the application's Byte Buddy")
+                    .doesNotContain(utf8Constant("io/github/jdubois/bootui/agent/shaded/bytebuddy/"));
+        }
+    }
+
+    /** A class file's CONSTANT_Utf8 entry for an ASCII string: its two-byte length, then its bytes. */
+    private static String utf8Constant(String ascii) {
+        return "" + (char) (ascii.length() >> 8) + (char) (ascii.length() & 0xFF) + ascii;
     }
 
     @Test

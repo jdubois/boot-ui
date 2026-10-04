@@ -333,7 +333,7 @@ slice depends on M5-1, and on the milestone named:
 | M5-6 | Caught exceptions, then security sinks, as panel rows first (D36). A caught exception whose handler outcome or log coverage is incomplete is reported as unknown, never as swallowed. Sink matching waits for a reviewed request-bound value holder: values never enter executor snapshots or outlive the response, with caps on their count, length, and matching work, and sink matching stays opt-in (D37) | M5-5, M5-11 | 10–12 | 📋 Planned |
 | M5-7 | M5-7a: change impact by method and run comparison led by code changes (§5.17), whose observed routes come from route-specific trees, never from global `invokes` edges composed across requests, and whose route aggregates are amended by late fragments or marked partial. M5-7b: new hosts, file patterns, processes, and variables in the comparison (D37) | M5-3, M5-4, M4; M5-7b also M5-5 | 6–8 | 🚧 In progress: M5-7a delivered (#1258): change impact accepts a method (`class#method`, with its descriptor for overloads), its observed routes taken from route-specific trees at any depth, never from global `INVOKES` edges, and amended by late fragments or marked partial; run comparison leads with changed, added, and removed methods, each executed or not in this run with the routes that reached it, and is unchanged without the agent. Left: methods at bean boundaries no longer executed on routes exercised in both runs (needs the previous run's route trees in the run history), and linking the inventory's previous generation to the journal's run id. M5-7b waits for M5-5 |
 | M5-8 | Method probes, in the UI and as agent tools (§5.14, §5.17): metadata first (invocations, durations, outcomes, and request ids), shipped with their approval guidance in `assess_application` and the tool descriptions; argument shapes later, from an allowlist of safe types, never through an arbitrary `toString()` (D37) | M5-4 | 8–10 | 🚧 In progress: metadata-only probes delivered (#1260): **Probe this method** on a Code Paths node retransforms that one method (`DECORATE`) and records the next 20 invocations or 60 seconds, bounded in the bridge (five slots, ids never reused): duration, thread kind, request id, outcome (return or exception type), and the calling frame, never an argument or a return value; probes end with their run, a release, or a stop, and a restart only deregisters the transformer, leaving inert advice on the old copy; start and stop are actions blocked by read-only policy and XSRF-checked, `start_method_probe` respects D24; hits are an agent evidence store (Code Paths panel, request ids hidden with HTTP Exchanges, Clear recording, memory, export rules); agent-attached probe legs on Spring MVC, WebFlux, and Quarkus. Left: argument and return shapes from an allowlist of safe types (D37) |
-| M5-9 | M5-9a: vulnerable code reach (§5.15), once the inventory keeps bounded class-name evidence and advisories are normalized to class or method symbols, an unknown reach never reading as `NOT_LOADED`. M5-9b: a spike on dynamic access recording and its reachability-metadata export, estimated after it (D37) | M5-3 | 8–10 | 🚧 In progress: M5-9a delivered (#1257): the bridge keeps per jar a lock-free table of class-name hashes (8,192 a jar, 65,536 overall); the Vulnerabilities panel gains **Runtime reach**: `LOADED`, `AFFECTED_CLASS_LOADED`, `UNKNOWN`, and `NOT_LOADED` only when the recorder walked every class, no table overflowed, the dependency's jar was found and holds classes, and nothing unlocated, unidentified, or shading shares its packages; reach never changes a score (tested). OSV Maven advisories carry no structured symbols (0 of 357 sampled), so advisory class names are mined from the text, labelled `ADVISORY_TEXT`, and never give a negative answer. M5-9b (a dynamic access recording spike) next |
+| M5-9 | M5-9a: vulnerable code reach (§5.15), once the inventory keeps bounded class-name evidence and advisories are normalized to class or method symbols, an unknown reach never reading as `NOT_LOADED`. M5-9b, dynamic access recording, is cut (D41) | M5-3 | 8–10 | ✅ Delivered: M5-9a delivered (#1257): the bridge keeps per jar a lock-free table of class-name hashes (8,192 a jar, 65,536 overall); the Vulnerabilities panel gains **Runtime reach**: `LOADED`, `AFFECTED_CLASS_LOADED`, `UNKNOWN`, and `NOT_LOADED` only when the recorder walked every class, no table overflowed, the dependency's jar was found and holds classes, and nothing unlocated, unidentified, or shading shares its packages; reach never changes a score (tested). OSV Maven advisories carry no structured symbols (0 of 357 sampled), so advisory class names are mined from the text, labelled `ADVISORY_TEXT`, and never give a negative answer. M5-9b's spike (#1265, closed unmerged) measured a raw recording as noise and estimated a useful one at 19–24 days, so dynamic access recording is cut (D41) |
 | M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5, M5-6, M5-8, M5-9 | 5–7 | 📋 Planned |
 | M5-11 | The agent evidence contract (D37): one engine projection for evidence kept outside the journal (Code Paths trees and Code Inventory exemplars, then Side Effects rows and probe hits) applying the live exposure policy, source-panel visibility, **Clear recording**, export rules, and one memory accounting; §5.13, §5.14, and §5.17 aligned with the delivered stores, which carry no `CODE_PATH` journal event | M5-4b | 3–5 | ✅ Delivered (#1254): `AgentEvidence` with one store per agent-backed panel (Code Paths, Code Inventory), a `Read` resolving each panel's and HTTP Exchanges' visibility once per public read; **Clear recording** and **Free BootUI memory** clear every store under the journal's processing lock, with watermarks for records still queued and tombstones for requests that lost a fragment; an export-rules test listing every field reachable from the stores' read DTOs; per-store memory in the journal status under `bootui.runtime-journal.agent-evidence-max-bytes`. Left: per-run hit flags survive a clear (a bridge protocol change), so after a clear "executed" covers the whole run, as the panel says |
 | M5-12 | The agent acceptance matrix in CI: Quarkus and WebFlux browser legs with the agent attached, the JDK 21 and 25 compatibility lanes on `v2`, a real Spring Boot fat jar, and cumulative overhead with every default sensor on, extended with each new sensor | M5-4b | 4–7 | ✅ Delivered (#1252): agent-attached browser legs for Spring MVC, Spring WebFlux, and Quarkus; the JDK 21, 25, and 27 lanes on `v2` with `SpringAgent*IT`; `SpringAgentExecutableJarIT` on the repackaged sample (`jar:nested:`), with Code Inventory mapping `BOOT-INF/lib` jars and Code Paths naming the seeded slow method; `AgentOverheadBenchmarkIT` in an `agent-overhead` job, warning above 10 % and failing above 30 %. Measured median overhead with the default sensors: 11 to 17.5 % on a 4-vCPU runner, of which `code-paths` alone is 15.5 %, executors and inventory within noise; M5-13 brings `code-paths` inside the budget. Not yet: the OpenTelemetry and JaCoCo legs of §5.13, browser legs on JDK 21 and 25, the whole MVC suite with the agent |
@@ -594,13 +594,11 @@ shapes later, from an allowlist of safe types and never through an arbitrary `to
 masked, and never returned to MCP or the CLI; blocked by read-only policy;
 started from a Code Paths node, an exception frame, or a bean; `start_method_probe` and `get_method_probe`.
 
-**M5-9 — Vulnerable code reach and dynamic access recording** (8–10 days, in two parts since D37). M5-9a: the
+**M5-9 — Vulnerable code reach** (8–10 days; dynamic access recording cut by D41). M5-9a: the
 Vulnerabilities panel's **Runtime reach** column and filter (`NOT_LOADED`, `LOADED`, `AFFECTED_CLASS_LOADED`), with
 scores, severities, and Scorecard penalties identical with the agent on and off, once the inventory keeps bounded
-class-name evidence and advisories are normalized to symbols; an unknown reach never reads as `NOT_LOADED`. M5-9b, a
-spike first, estimated after it: a bounded recording session of reflection, proxies, resources, and deserialized
-classes, which can start with the claim so startup's reflection is seen, under the GraalVM panel, compared with the
-Spring AOT hints evaluated at runtime, and exported as a `reachability-metadata.json` fragment of what they do not cover.
+class-name evidence and advisories are normalized to symbols; an unknown reach never reads as `NOT_LOADED`. M5-9b,
+dynamic access recording for the GraalVM panel, was cut after its spike (D41).
 
 **M5-10 — Agent tools, prompts, benchmark, and documentation** (5–7 days): the remaining tools of §5.17 with their CLI
 commands and manifest, `diagnose_runtime_issue` suggesting `get_code_paths` and wording reach and verbatim-match facts
@@ -625,8 +623,7 @@ the nested `SpringApplication` that releases the main run's claim, Quarkus's rep
 reading the build-time `bootui.agent.enabled`, the GraalVM scan listing the agent jar, and the leak tests through a real
 DevTools restart and Quarkus live reload. M5-11 and M5-12 follow to align the evidence contract and acceptance matrix
 with the shipped stamps: one owner submitting the same task from two methods has no single submitter, and a stamp is
-captured where the operation starts. M5-5 to M5-9 then follow as D37 reshapes them: M5-7a builds on M5-4c, M5-7b after the relevant M5-5 groups, and M5-9b's
-recorder only after its spike. M5-11 and M5-12 bring M5 to about 118–152 engineer-days.
+captured where the operation starts. M5-5 to M5-9 then follow as D37 reshapes them: M5-7a builds on M5-4c, M5-7b after the relevant M5-5 groups; M5-9b is cut (D41). M5-11 and M5-12 bring M5 to about 118–152 engineer-days.
 
 ```mermaid
 graph LR
@@ -1337,6 +1334,7 @@ Acceptance criteria:
 | Live class patching and structural hot reload | ❌ Cut | JRebel, DCEVM, and Arthas's `redefine`: DevTools and Quarkus live reload own this loop, and redefinition cannot change a class's shape on a stock JVM |
 | Full taint tracking (IAST) | ❌ Cut | Contrast-style propagation through every string operation costs too much for an always-on development tool. `request-input-in-sink` checks verbatim matches at sinks instead (§5.16) |
 | Time-tunnel replay and local-variable capture | ❌ Cut | Arthas's `tt` and Lightrun snapshots retain object graphs, which pins memory and holds data the exposure policy cannot mask reliably. Probes record shapes only (§5.14) |
+| Dynamic access recording | ❌ Cut (D41) | Recording reflection, proxies, resources, and deserialization for a `reachability-metadata.json` export. The M5-9b spike (#1265) found it safe and cheap, but a Spring Boot and JPA startup gave 1,313 accesses with none from application code, most already covered by Spring AOT or bundled metadata, and Jackson 3's record binding never appeared. A useful version was estimated at 19–24 days, gated on native ground truth, for value the GraalVM panel's static scan and the GraalVM tracing agent already approach |
 | Native sampling profiler | ❌ Cut | async-profiler needs a native library and platform permissions; opt-in JFR attribution (§5.11) covers hot frames by route |
 | Decompiling loaded classes | ❌ Cut | Arthas's `jad`: developers have the source in their IDE |
 | `noisy-neighbours` | ❌ Cut | Measures laptop contention (IDE, GC, local models), not the application |
@@ -1753,14 +1751,8 @@ Scope:
   active: `NOT_LOADED`, `LOADED` (with the class count and first route), or, where an OSV advisory names affected
   classes or methods, `AFFECTED_CLASS_LOADED`. Reach never changes a finding's severity, score, or Scorecard penalty:
   a class not loaded in this run may load in another.
-- **Dynamic access recording** (user-triggered, bounded session). While recording, the agent records reflection
-  (`Class.forName`, `getDeclared*`, `Method.invoke`, `Constructor.newInstance`, and field access), `Proxy` creation,
-  resource lookups, and deserialized classes, keeping only those whose calling frame is in the application or its
-  dependencies, not in the JDK. The GraalVM panel shows those not already covered by the application's Spring AOT hints
-  or reachability metadata, and exports them as a `reachability-metadata.json` fragment. This is what GraalVM's tracing
-  agent does, on any JDK, filtered to what the developer has to act on.
 - `GET {api}/code-inventory` returns the run's summary; `GET {api}/code-inventory/changes`, `/methods`, and
-  `/dependencies` return paged lists; recording is an action under the GraalVM panel.
+  `/dependencies` return paged lists.
 
 The UI:
 
@@ -1953,8 +1945,7 @@ Agent tools (§5.6), on existing schemas only, each moving in lockstep as PLAN.m
   answerable at all, instead of discovering `NOT_APPLICABLE` one tool call at a time.
 - `assess_application`'s "Discover and collect" step names `start_method_probe` beside `memory_scan`, `pentest_scan`,
   `vulnerabilities_scan`, and `database_advisor_scan` as needing separate approval before it starts, since it is the
-  one M5 agent tool that acts, even gated by read-only policy; M5-9's dynamic access recording session needs the same
-  approval once it ships.
+  one M5 agent tool that acts, even gated by read-only policy.
 - The consumer skill (`skills/bootui/SKILL.md`, mirrored into the Claude Code plugin payload) documents the
   verify-then-probe workflow as a named step, not just the tool list, so skill-based agents gain the same "did my
   change run" workflow MCP-native agents get from the prompt text.
@@ -2344,6 +2335,7 @@ lands on `v2` and before 2.0.0:
 | D38 | Does M5 pause until the 2.0.0 gates pass? | **Maintainer decision** (2026-10-04): no. M5 continues beside M4-18 to M4-23; the audit's proposal to freeze new M5 features after M5-4c and M5-7 was rejected |
 | D39 | Is R2DBC capture pulled into 2.0? | **Maintainer decision** (2026-10-04): no. It stays with §5.10's data-store commands; M4-22 states the gap in the WebFlux documentation and in Runtime Insights |
 | D40 | How are 1.x patches released once `main` carries 2.x? | **Maintainer decision** (2026-10-04): from a `1.x` maintenance branch cut from `main`'s last 1.x commit before `v2` merges (M4-23); the release workflow's per-major version policy (M4-16) already allows them |
+| D41 | Does dynamic access recording (M5-9b) ship, in 2.0 or later? | **Maintainer decision** (2026-10-04), after the M5-9b spike: no, cut, not deferred. The raw recording was noise for application developers and missed real native failures, and a useful version cost 2–3× M5-9's whole budget for unproven value. The spike PR (#1265) was closed unmerged and its prototype discarded; only its Byte Buddy exclusion finding was fixed |
 
 ## Appendix A. Review log
 
