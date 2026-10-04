@@ -521,7 +521,8 @@ How it works:
 
 - The agent times the public and protected methods of the application's bean classes (Spring beans, ArC beans) and
   builds a per-thread fragment of each request's call tree; the engine merges a request's fragments into its request
-  tree, then, about two seconds after its last fragment, merges the settled tree into its **route tree**: per node, the
+  tree, then, about two seconds after its last fragment, or sooner under sustained load, when more than 512 request
+  trees are open and the eldest quarter settle together, merges the settled tree into its **route tree**: per node, the
   requests that reached it, its calls, total and self time, and a log2 histogram of the time each request spent in it
   with its least and most, from which an approximate (≈) median and 95th percentile are read: interpolated within a
   bucket and clamped to that least and most. Each route's first recorded request, the first whose tree settled, is kept

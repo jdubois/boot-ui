@@ -15,9 +15,10 @@ import java.util.function.Function;
 /**
  * The request trees of one run ({@code docs/PLAN-v2.md} §5.14, M5-4a), never in the journal: fragments merge into an
  * open tree per request until it settles, when the calls its request recorded with a code-paths stamp are attached under
- * the nodes that issued them (M5-4c), {@value #SETTLE_NANOS} ns after its last fragment or when more than
- * {@value #MAX_OPEN} are open; a settled tree is kept among the {@value #RECENT} most recent, and as an exemplar of its
- * route when it is among the {@value #EXEMPLARS} slowest or the {@value #EXEMPLARS} latest failed, for at most
+ * the nodes that issued them (M5-4c), {@value #SETTLE_NANOS} ns after its last fragment or, when more than
+ * {@value #MAX_OPEN} are open, with the eldest quarter in one journal read (M5-13); a settled tree is kept among the
+ * {@value #RECENT} most recent, and as an exemplar of its route when it is among the {@value #EXEMPLARS} slowest or the
+ * {@value #EXEMPLARS} latest failed, for at most
  * {@value #MAX_ROUTES} routes. A fragment arriving after its request settled, as a late handoff's, merges into the kept
  * recent tree, and into its exemplar too, or into the tree still waiting for its request's exchange, even one no longer
  * among the recent ones; one arriving after its tree left the recent ones, but is still an exemplar or among the
@@ -39,6 +40,13 @@ public final class RequestTreeStore {
 
     public static final long SETTLE_NANOS = 2_000_000_000L;
     public static final int MAX_OPEN = 512;
+
+    /**
+     * The eldest open trees settled together, in one journal read, when more than {@link #MAX_OPEN} are open: a
+     * quarter of the most open trees, so {@code MAX_OPEN - OVERFLOW_BATCH} younger ones stay open.
+     */
+    public static final int OVERFLOW_BATCH = MAX_OPEN / 4;
+
     public static final int RECENT = 256;
     public static final int EXEMPLARS = 3;
     public static final int MAX_ROUTES = 100;
@@ -99,6 +107,7 @@ public final class RequestTreeStore {
 
     private final RequestOutcomeReader outcomes;
     private final int maxOpen;
+    private final int overflowBatch;
     private final int maxKeptNodes;
     private final LinkedHashMap<String, Boolean> tombstones = new LinkedHashMap<>();
     private boolean cleared;
@@ -147,6 +156,7 @@ public final class RequestTreeStore {
             Function<Set<String>, Map<String, RequestOutcome>> outcomes, int maxOpen, int maxKeptNodes) {
         this.outcomes = RequestOutcomeReader.of(outcomes);
         this.maxOpen = Math.max(1, Math.min(MAX_OPEN, maxOpen));
+        this.overflowBatch = Math.max(1, this.maxOpen / 4);
         this.maxKeptNodes = Math.max(RequestTreeBuilder.MAX_NODES, Math.min(MAX_KEPT_NODES, maxKeptNodes));
     }
 
@@ -242,7 +252,14 @@ public final class RequestTreeStore {
         openNodes += nodes - entry.nodes;
         entry.nodes = nodes;
         if (open.size() > maxOpen) {
-            settle(List.of(open.keySet().iterator().next()), nowNanos, false);
+            // One journal read for the eldest batch, not one per request (M5-13): above maxOpen requests a settle
+            // period, settling one tree per fragment read the whole journal for every request.
+            List<String> eldest = new ArrayList<>(overflowBatch);
+            Iterator<String> keys = open.keySet().iterator();
+            while (keys.hasNext() && eldest.size() < overflowBatch) {
+                eldest.add(keys.next());
+            }
+            settle(eldest, nowNanos, false);
         }
     }
 
