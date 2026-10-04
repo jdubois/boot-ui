@@ -23,6 +23,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `get_runtime_run_comparison` leads with `codeChanges`, and the `verify_after_change` prompt checks each changed
   method's impact. Without the agent, only handler methods are checked and the comparison says code changes need it
   ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.7, §5.8, §5.17, M5-7a).
+- **The agent evidence contract (M5-11).** Code Paths' request and route trees and Code Inventory's first calls, which
+  the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on Spring MVC, Spring
+  WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible, so a disabled
+  Code Paths or Code Inventory panel hides its evidence from its reads, MCP tool, CLI command, Beans at runtime, the
+  runtime model, and the Runtime Insights observations that read it, with the reason; **Clear recording** and **Free
+  BootUI memory** clear it with the journal, the records still queued in the agent's ring included, leaving a request
+  that lost a fragment out of Code Paths whole; and Live Activity's journal status reports its estimated bytes as
+  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 55 MB by default, which
+  changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
+  through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
+  in primitive slots per method id, bounded by the agent's method limit.
+
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
@@ -456,6 +468,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Runtime Insights write evidence and plan accuracy.** On Quarkus, `safe-method-dml` labels Hibernate statements as
+  preparations, separate from timed JDBC executions of the same SQL shape; the evidence and limitations no longer claim
+  a prepared write ran. The v2 plan now describes persisted `METADATA_ONLY` reads and the in-progress Code Paths, Code
+  Inventory, and agent evidence work accurately ([#1240](https://github.com/jdubois/boot-ui/pull/1240);
+  PLAN-v2 §§5.5, 5.14, 5.15, 5.17, 8; FIN2-01–03).
 - **Code Inventory after reload.** Work retaining an old application object across a DevTools restart or Quarkus
   live reload no longer marks the changed method in the new run executed, or attributes its first hit to the new
   run. Defining-loader tokens stay stable across retransformation, and hit flags belong to one run, so old advice

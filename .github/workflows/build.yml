@@ -321,6 +321,16 @@ jobs:
             report-name: Agent end-to-end tests (Playwright)
             report-dir: playwright-report-agent
             results-dir: test-results-agent
+            agent: true
+          # The whole WebFlux suite with the BootUI agent attached (PLAN-v2 M5-12): every spec holds with the agent, and
+          # the Java Agent, Code Inventory, and Code Paths specs assert the armed claim and the recorded run instead.
+          - id: webflux-agent
+            name: WebFlux with the BootUI agent
+            script: test:webflux:agent
+            report-name: WebFlux agent end-to-end tests (Playwright)
+            report-dir: playwright-report-webflux-agent
+            results-dir: test-results-webflux-agent
+            agent: true
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -347,10 +357,10 @@ jobs:
           -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app
           -am -DskipTests install
 
-      # The agent leg attaches bootui-agent/target/bootui-agent-*.jar, which the -am build above produces as the Spring
+      # The agent legs attach bootui-agent/target/bootui-agent-*.jar, which the -am build above produces as the Spring
       # sample's test-scope dependency: fail here, clearly, rather than with a raw ENOENT from Playwright's config.
       - name: Check the BootUI agent jar
-        if: ${{ matrix.suite.id == 'agent' }}
+        if: ${{ matrix.suite.agent }}
         run: |
           if ! ls bootui-agent/target/bootui-agent-*.jar > /dev/null 2>&1; then
             echo "::error::bootui-agent/target/bootui-agent-*.jar is missing: the Spring sample build must build bootui-agent (-am)."
@@ -404,9 +414,95 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  quarkus-e2e:
-    name: Quarkus end-to-end (Java 17)
+  # The BootUI agent's cumulative overhead (PLAN-v2 §5.13, §8, M5-12): the Spring sample's executable jar without the
+  # agent and with every default sensor claimed, BootUI on in both, in five alternating pairs. The budget is 10 %: the
+  # job records the report in its summary and warns above the budget, but fails only above 30 %, so a noisy shared
+  # runner never fails a build while a clear regression does. The first CI runs measured about 17 % (pairs from 9 to
+  # 22 %), above the budget, so a gate any closer to it would fail on noise alone (see CONTRIBUTING.md).
+  agent-overhead:
+    name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      # The sample's -am build includes bootui-agent, its test-scope dependency.
+      - name: Build the Spring sample app and the BootUI agent
+        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
+
+      - name: Measure the agent's overhead
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=5 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Publish the overhead report
+        if: ${{ !cancelled() }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          if [ ! -f "$directory/spring-mvc-agent.md" ]; then
+            echo "::warning::The agent overhead benchmark wrote no report."
+            exit 0
+          fi
+          cat "$directory/spring-mvc-agent.md" >> "$GITHUB_STEP_SUMMARY"
+          overhead=$(sed -n 's/^overheadPercent=//p' "$directory/summary.properties")
+          budget=$(sed -n 's/^budgetPercent=//p' "$directory/summary.properties")
+          if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
+            echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
+          fi
+
+      - name: Upload the overhead report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-overhead
+          path: |
+            bootui-spring-sample-app/target/agent-overhead/
+            bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*
+          if-no-files-found: ignore
+          retention-days: 30
+
+  quarkus-e2e:
+    name: Quarkus end-to-end (${{ matrix.suite.name }}, Java 17)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - id: default
+            name: default
+            script: test
+            modules: bootui-quarkus-sample-app
+            report-name: Quarkus end-to-end tests (Playwright)
+            report-dir: playwright-report
+            results-dir: test-results
+            artifact: quarkus-playwright-report
+          # The whole suite against quarkus:dev with the BootUI agent attached (PLAN-v2 M5-12): every spec holds with
+          # the agent, and the Java Agent, Code Inventory, and Code Paths specs assert the armed claim and the recorded
+          # run instead. The Quarkus sample does not depend on bootui-agent, so this leg builds it too.
+          - id: agent
+            name: with the BootUI agent
+            script: test:agent
+            modules: bootui-quarkus-sample-app,bootui-agent
+            report-name: Quarkus agent end-to-end tests (Playwright)
+            report-dir: playwright-report-agent
+            results-dir: test-results-agent
+            artifact: quarkus-playwright-report-agent
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -440,13 +536,22 @@ jobs:
       # @QuarkusTest classloading race is possible, and -am's ordering relies only on the same explicit
       # provided-scope bootui-quarkus-deployment dependency called out above.
       - name: Build BootUI Quarkus extension and sample app
-        run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install
+        run: ./mvnw -T 1C -B -ntp -pl "${{ matrix.suite.modules }}" -am -DskipTests install
+
+      - name: Check the BootUI agent jar
+        if: ${{ matrix.suite.id == 'agent' }}
+        run: |
+          if ! ls bootui-agent/target/bootui-agent-*.jar > /dev/null 2>&1; then
+            echo "::error::bootui-agent/target/bootui-agent-*.jar is missing: the agent leg must build bootui-agent."
+            exit 1
+          fi
 
       - name: Install Playwright dependencies
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm ci --ignore-scripts
 
       - name: Check Playwright formatting
+        if: ${{ matrix.suite.id == 'default' }}
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm run format:check
 
@@ -458,14 +563,14 @@ jobs:
       # PostgreSQL container the sample app boots against.
       - name: Run Quarkus Playwright end-to-end tests
         working-directory: bootui-quarkus-sample-app/e2e
-        run: npm test
+        run: npm run "${{ matrix.suite.script }}"
 
       - name: Publish Quarkus end-to-end test report
         if: ${{ !cancelled() }}
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
-          name: Quarkus end-to-end tests (Playwright)
-          path: bootui-quarkus-sample-app/e2e/test-results/junit/results.xml
+          name: ${{ matrix.suite.report-name }}
+          path: bootui-quarkus-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
           reporter: jest-junit
           fail-on-error: false
           fail-on-empty: false
@@ -474,9 +579,9 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: quarkus-playwright-report
+          name: ${{ matrix.suite.artifact }}
           path: |
-            bootui-quarkus-sample-app/e2e/playwright-report/
-            bootui-quarkus-sample-app/e2e/test-results/
+            bootui-quarkus-sample-app/e2e/${{ matrix.suite.report-dir }}/
+            bootui-quarkus-sample-app/e2e/${{ matrix.suite.results-dir }}/
           if-no-files-found: ignore
           retention-days: 7

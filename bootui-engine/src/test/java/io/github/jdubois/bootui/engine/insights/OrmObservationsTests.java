@@ -221,8 +221,52 @@ class OrmObservationsTests {
                 .containsExactlyInAnyOrder("GET /api/orders/{id}", "GET /api/unmetered");
     }
 
+    @Test
+    void onQuarkusPreparationsAndTimedJdbcExecutionsOfTheSameWriteAreNotConflated() {
+        get("/api/orders/{id}", orm(1, 0, 1, 0, 0, MS, 3), true);
+        RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null);
+        List<RuntimeObservationDto> writes = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(SafeMethodDml.KIND))
+                .toList();
+
+        assertThat(writes).hasSize(2);
+        assertThat(writes).extracting(RuntimeObservationDto::id).doesNotHaveDuplicates();
+        assertThat(writes)
+                .extracting(RuntimeObservationDto::sentence)
+                .containsExactlyInAnyOrder(
+                        "`GET /api/orders/{id}` prepared `insert into audit (what) values (?)` in 1 of 1 request:"
+                                + " an incidental write, such as an audit or a counter, or a change the caller asked"
+                                + " for?",
+                        "`GET /api/orders/{id}` executed `insert into audit (what) values (?)` in 1 of 1 request:"
+                                + " an incidental write, such as an audit or a counter, or a change the caller asked"
+                                + " for?");
+        assertThat(writes)
+                .extracting(observation ->
+                        service.insight(observation.id()).columns().get(2))
+                .containsExactlyInAnyOrder("Prepared statements", "Executions");
+        assertThat(writes)
+                .allSatisfy(observation -> assertThat(
+                                service.insight(observation.id()).rows())
+                        .singleElement()
+                        .satisfies(row -> assertThat(row.cells().get(2)).isEqualTo("1")));
+        assertThat(writes)
+                .filteredOn(observation -> observation.sentence().contains(" prepared "))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.limitations())
+                        .anyMatch(limitation -> limitation.contains("cannot prove this particular statement ran")));
+        assertThat(writes)
+                .filteredOn(observation -> observation.sentence().contains(" executed "))
+                .singleElement()
+                .satisfies(observation ->
+                        assertThat(observation.limitations()).noneMatch(limitation -> limitation.contains("prepared")));
+    }
+
     /** A GET that prepared a SELECT and an audit INSERT, as Quarkus's statement inspector records them. */
     private void get(String route, OrmPayload orm) {
+        get(route, orm, false);
+    }
+
+    private void get(String route, OrmPayload orm, boolean timedJdbc) {
         CorrelationContext context = CorrelationContext.forRequest("r" + (++requests));
         for (String sql : List.of("select * from orders where id = ?", "insert into audit (what) values (?)")) {
             journal.offer(RuntimeEvent.of(
@@ -234,6 +278,18 @@ class OrmObservationsTests {
                     null,
                     false,
                     new io.github.jdubois.bootui.engine.journal.SqlPayload(sql, null, "<default>", false)));
+        }
+        if (timedJdbc) {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    1_000,
+                    MS,
+                    context,
+                    "executor-thread-1",
+                    null,
+                    false,
+                    new io.github.jdubois.bootui.engine.journal.SqlPayload(
+                            "insert into audit (what) values (?)", null, "<default>", false)));
         }
         journal.offer(
                 RuntimeEvent.of(JournalSource.ORM, 1_000, 10 * MS, context, "executor-thread-1", null, false, orm));

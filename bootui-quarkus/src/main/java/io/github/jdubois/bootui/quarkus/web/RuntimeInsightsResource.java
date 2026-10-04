@@ -119,9 +119,9 @@ public class RuntimeInsightsResource {
                 () -> agent == null ? ProfileCapabilities.PROPAGATION_REASON : agent.propagationUnavailableReason(),
                 config.getOptionalValue("bootui.agent.executors.max-handoff", Duration.class)
                         .orElse(AgentHandoffs.DEFAULT_MAX_HANDOFF));
-        this.insights.setCodeInventory(
-                () -> codeInventory.isResolvable() ? codeInventory.get().changedCode() : null,
-                () -> codeInventory.isResolvable() ? codeInventory.get().changesFingerprint() : 0L);
+        // Read under one read of the Code Inventory and HTTP Exchanges panels per projection (docs/PLAN-v2.md §8,
+        // M5-11).
+        this.insights.setCodeInventoryService(() -> codeInventory.isResolvable() ? codeInventory.get() : null);
         // route-time-breakdown's handler split by method and repeated-selects' issuing method, from the agent's code
         // paths (docs/PLAN-v2.md §5.14).
         models.setInvocations(
@@ -136,11 +136,7 @@ public class RuntimeInsightsResource {
                 limit -> codeInventory.isResolvable() ? codeInventory.get().changes(0, limit) : null,
                 keys -> codeInventory.isResolvable() ? codeInventory.get().accessFlags(keys) : Map.of(),
                 wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
-        this.insights.setCodePaths(
-                route -> codePaths.isResolvable() ? codePaths.get().handlerMethods(route) : null,
-                () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L,
-                id -> codePaths.isResolvable() ? codePaths.get().methodKey(id) : null,
-                (route, id) -> codePaths.isResolvable() ? codePaths.get().issuingMethod(route, id) : null);
+        this.insights.setCodePathsService(() -> codePaths.isResolvable() ? codePaths.get() : null);
     }
 
     /**

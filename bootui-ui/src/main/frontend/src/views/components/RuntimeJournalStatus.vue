@@ -23,6 +23,37 @@ const error = ref('')
 const recorded = computed(() => Object.entries(status.value?.recorded ?? {}))
 const dropped = computed(() => Object.entries(status.value?.dropped ?? {}))
 const previousRuns = computed(() => status.value?.previousRuns ?? [])
+// The BootUI agent's evidence kept outside the journal (docs/PLAN-v2.md §5.17, M5-11), null without the agent.
+const agentEvidence = computed(() => status.value?.agentEvidence ?? null)
+const EVIDENCE_STORES = {'code-paths': 'Code Paths', 'code-inventory': 'Code Inventory'}
+const EVIDENCE_COUNTS = {
+  requestTrees: ['request tree', 'request trees'],
+  routes: ['route', 'routes'],
+  routeNodes: ['route-tree node', 'route-tree nodes'],
+  firstCalls: ['first call', 'first calls'],
+  firstCallsWithRequest: ['with its request', 'with their request'],
+  firstLoads: ['first load', 'first loads']
+}
+
+function storeLabel(store) {
+  return EVIDENCE_STORES[store.store] ?? store.store
+}
+
+function storeCounts(store) {
+  return Object.entries(store.counts ?? {})
+    .filter(([name]) => EVIDENCE_COUNTS[name])
+    .map(([name, count]) => {
+      const [one, many] = EVIDENCE_COUNTS[name]
+      return `${formatNumber(count)} ${count === 1 ? one : many}`
+    })
+    .join(', ')
+}
+
+// The method names a store keeps beside its evidence, which a clear keeps too.
+function storeIndex(store) {
+  const bytes = store.counts?.indexBytes ?? 0
+  return bytes > 0 ? `${formatBytes(bytes)} of method names kept apart` : ''
+}
 const boundLabel = computed(() => {
   if (status.value?.bindingBound === 'COUNT') return 'the event-count bound is reached'
   if (status.value?.bindingBound === 'BYTES') return 'the memory bound is reached'
@@ -52,7 +83,11 @@ async function clearRecording() {
     title: 'Clear recording?',
     message:
       'Drops every event the runtime journal recorded in this run, and the aggregates computed from them. The ' +
-      'counts of recorded, dropped, and evicted events are kept.',
+      'counts of recorded, dropped, and evicted events are kept.' +
+      (agentEvidence.value
+        ? " It also drops the BootUI agent's evidence recorded with them: Code Paths' request and route trees, and" +
+          " Code Inventory's first requests and routes. Which methods executed is kept."
+        : ''),
     confirmLabel: 'Clear recording',
     danger: true,
     irreversible: true
@@ -135,6 +170,24 @@ onMounted(load)
             slow events)
           </span>
         </dd>
+        <template v-if="agentEvidence">
+          <dt class="col-sm-3">Agent evidence</dt>
+          <dd class="col-sm-9 runtime-journal-agent-evidence">
+            {{ formatBytes(agentEvidence.retainedBytes) }} of {{ formatBytes(agentEvidence.maxBytes) }}, kept outside
+            the journal and cleared with it
+            <ul class="list-unstyled mb-0">
+              <li v-for="store in agentEvidence.stores" :key="store.store">
+                {{ storeLabel(store) }}:
+                <span v-if="!store.visible || store.retainedBytes == null" class="text-muted">{{ store.note }}</span>
+                <template v-else>
+                  {{ formatBytes(store.retainedBytes)
+                  }}<span v-if="storeCounts(store)" class="text-muted">, {{ storeCounts(store) }}</span
+                  ><span v-if="storeIndex(store)" class="text-muted">; {{ storeIndex(store) }}</span>
+                </template>
+              </li>
+            </ul>
+          </dd>
+        </template>
         <dt class="col-sm-3">Recorded this run</dt>
         <dd class="col-sm-9">
           <span v-if="recorded.length === 0" class="text-muted">Nothing yet.</span>

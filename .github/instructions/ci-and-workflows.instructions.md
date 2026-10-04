@@ -20,10 +20,12 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
 - `build.yml` is the Java 17 baseline: it is the gate for formatting, the full reactor with coverage, the SBOM, and the
   Spring and Quarkus Playwright suites. To keep it fast, the per-extension Quarkus integration-test modules run in a
   parallel `quarkus-extension-its` job (the main build passes `-Dbootui.skipQuarkusExtensionIts`; the `base` module
-  stays in the main build because it feeds the coverage aggregate), and each Spring Playwright suite is its own matrix
-  leg. `jdk-compatibility.yml` covers Java 21 and 25 with a focused build and the BootUI agent's forked-JVM tests, plus a
-  non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus document
-  support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
+  stays in the main build because it feeds the coverage aggregate), and each Spring and Quarkus Playwright suite,
+  including the agent-attached ones, is its own matrix leg. The `agent-overhead` job records the BootUI agent's
+  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. `jdk-compatibility.yml` runs on `main` and `v2` and covers
+  Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, and the Spring sample's agent integration
+  tests, plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
+  document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
 - Quarkus/Hibernate build-time augmentation is gated to the JDKs the shared Quarkus LTS platform supports. Preserve the
   JDK skip profile and the matrix gating rather than widening a job onto an unsupported JDK.
 - Keep workflow permissions least-privilege and never echo secrets into command arguments or logs.

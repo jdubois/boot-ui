@@ -92,6 +92,17 @@ Playwright boots both a deterministic loopback OSV fixture and the sample app wi
 then waits for `http://localhost:8082/bootui/api/overview`. Fixture-backed runs always own the Quarkus
 process so its test-only OSV base URI and limits are guaranteed to apply.
 
+### With the BootUI agent
+
+`playwright.agent.config.js` runs the whole suite plus `tests-agent/` against `quarkus:dev` started with
+`-Djvm.args=-javaagent:...`, the jar `./mvnw install -pl bootui-agent -am` built in `bootui-agent/target`, or
+`BOOTUI_AGENT_JAR`. It sets the `agentAttached` fixture option, so the Java Agent, Code Inventory, and Code Paths specs
+assert the armed claim, the run's inventory, and the seeded route's tree instead of the unavailable state:
+
+```bash
+npm run test:agent
+```
+
 ## Useful environment variables
 
 | Variable                   | Default                   | Purpose                                                    |
@@ -102,11 +113,12 @@ process so its test-only OSV base URI and limits are guaranteed to apply.
 | `BOOTUI_WEBSERVER_TIMEOUT` | `300000`                  | Startup timeout (ms); raise it on slow Dev Services pulls. |
 | `BOOTUI_OSV_FIXTURE_PORT`  | `18080`                   | Port for the deterministic loopback OSV fixture.           |
 | `BOOTUI_OSV_LIVE`          | _(unset)_                 | Set to `1` only for the focused live OSV smoke.            |
+| `BOOTUI_AGENT_JAR`         | `bootui-agent/target`     | The agent jar the agent suite attaches.                    |
 
 ## CI
 
 The `quarkus-e2e` job in [`.github/workflows/build.yml`](../../.github/workflows/build.yml) runs this
-suite on JDK 17 (Docker is available on the GitHub-hosted runner), after building the extension and the
+suite, and in a second leg the agent suite, on JDK 17 (Docker is available on the GitHub-hosted runner), after building the extension and the
 sample app. It always uses the deterministic fixture. [`.github/workflows/osv-live-smoke.yml`](../../.github/workflows/osv-live-smoke.yml)
 runs the separate live-only spec weekly and on manual dispatch; it is bounded and does not participate in
 pull-request status checks.

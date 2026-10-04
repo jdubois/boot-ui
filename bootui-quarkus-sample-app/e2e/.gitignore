@@ -1,5 +1,7 @@
 node_modules/
 playwright-report/
+playwright-report-agent/
 test-results/
+test-results-agent/
 blob-report/
 playwright/.cache/

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.core.dto.RuntimeAgentEvidenceDto;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
@@ -20,8 +21,8 @@ import java.util.Map;
  */
 public final class RuntimeJournalService {
 
-    static final String CONFIRMATION_REQUIRED =
-            "Clear recording requires confirm=true because it drops every recorded event and aggregate of this run.";
+    static final String CONFIRMATION_REQUIRED = "Clear recording requires confirm=true because it drops every recorded"
+            + " event and aggregate of this run, and the BootUI agent's evidence recorded with them.";
 
     static final String DISABLED = "The runtime journal is disabled (bootui.runtime-journal.enabled=false).";
 
@@ -31,6 +32,7 @@ public final class RuntimeJournalService {
     private final RuntimeJournal journal;
     private final JournalAggregates aggregates;
     private final RunHistory history;
+    private final AgentEvidence evidence;
 
     /**
      * A service reading this JVM's {@linkplain RunHistory#shared() shared} run history.
@@ -39,20 +41,56 @@ public final class RuntimeJournalService {
      * @param aggregates its aggregates, or {@code null}
      */
     public RuntimeJournalService(RuntimeJournal journal, JournalAggregates aggregates) {
-        this(journal, aggregates, RunHistory.shared());
+        this(journal, aggregates, (AgentEvidence) null);
+    }
+
+    /**
+     * A service that also reports and clears the BootUI agent's evidence kept outside the journal (M5-11).
+     *
+     * @param journal the journal, or {@code null} when the adapter created none
+     * @param aggregates its aggregates, or {@code null}
+     * @param evidence the agent evidence, which the adapter added to the journal as a listener so every clear clears
+     *     it, or {@code null}
+     */
+    public RuntimeJournalService(RuntimeJournal journal, JournalAggregates aggregates, AgentEvidence evidence) {
+        this(journal, aggregates, RunHistory.shared(), evidence);
     }
 
     RuntimeJournalService(RuntimeJournal journal, JournalAggregates aggregates, RunHistory history) {
+        this(journal, aggregates, history, null);
+    }
+
+    RuntimeJournalService(
+            RuntimeJournal journal, JournalAggregates aggregates, RunHistory history, AgentEvidence evidence) {
         this.journal = journal;
         this.aggregates = aggregates;
         this.history = history;
+        this.evidence = evidence;
     }
 
     /** The journal's status, or a disabled status when there is no journal. */
     public RuntimeJournalStatusDto status() {
         if (journal == null) {
             return new RuntimeJournalStatusDto(
-                    false, null, 0, 0, 0, 0, 0, 0, 0, null, null, 0, 0, Map.of(), Map.of(), 0, List.of(), null);
+                    false,
+                    null,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    null,
+                    null,
+                    0,
+                    0,
+                    Map.of(),
+                    Map.of(),
+                    0,
+                    List.of(),
+                    null,
+                    evidenceStatus());
         }
         JournalStatus status = journal.status();
         return new RuntimeJournalStatusDto(
@@ -73,7 +111,16 @@ public final class RuntimeJournalService {
                 byPropertyName(status.dropped()),
                 status.droppedTotal(),
                 previousRuns(status.runId()),
-                history.unavailableReason());
+                history.unavailableReason(),
+                evidenceStatus());
+    }
+
+    private RuntimeAgentEvidenceDto evidenceStatus() {
+        try {
+            return evidence == null ? null : evidence.status();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     /**
@@ -146,8 +193,9 @@ public final class RuntimeJournalService {
     }
 
     /**
-     * Drops every retained event and aggregate of the run, when confirmed. Counts since startup are kept, so drops and
-     * evictions stay visible.
+     * Drops every retained event and aggregate of the run, when confirmed, and with them the BootUI agent's evidence kept
+     * outside the journal, which the journal clears through its {@link AgentEvidence} listener in the same step. Counts
+     * since startup are kept, so drops and evictions stay visible.
      */
     public Response clear(RuntimeJournalClearRequest request) {
         if (journal == null || !journal.settings().enabled()) {
@@ -157,18 +205,22 @@ public final class RuntimeJournalService {
             return new Response(400, new RuntimeJournalClearResult("blocked", CONFIRMATION_REQUIRED, 0));
         }
         int cleared = journal.status().retainedEvents();
+        long clearsBefore = evidence == null ? 0 : evidence.clears();
         journal.clear();
         if (aggregates != null && !journal.notifies(aggregates)) {
             // A listening aggregate is cleared in step with the journal; clearing it again would drop the batches
             // the journal records in between.
             aggregates.clear();
         }
+        String agent = evidence != null && evidence.clears() != clearsBefore ? evidence.lastCleared() : null;
         return new Response(
                 200,
                 new RuntimeJournalClearResult(
                         "cleared",
                         "Cleared " + cleared + (cleared == 1 ? " recorded event" : " recorded events")
-                                + " and the aggregates of this run.",
+                                + " and the aggregates of this run"
+                                + (agent == null ? "" : ", and the BootUI agent's evidence: " + agent)
+                                + ".",
                         cleared));
     }
 

@@ -28,6 +28,14 @@ public final class RouteTrees {
     /** The methods every route's executed-method table, and the table of trees without a route, hold together. */
     public static final int MAX_METHODS = 200_000;
 
+    /** The estimated bytes of one executed-method entry: its id, count, and stamp, in a table at most half full. */
+    public static final int METHOD_BYTES = 32;
+    /** The estimated bytes of one route-tree node: its arrays' entries, its histogram, and its index entry. */
+    public static final int NODE_BYTES = 264;
+
+    /** The estimated bytes of one route beyond its nodes: its durations and counters. */
+    public static final int ROUTE_BYTES = 2_560;
+
     private final int maxNodesPerRoute;
     private final int maxNodes;
     private final int maxRoutes;
@@ -46,6 +54,17 @@ public final class RouteTrees {
 
     public RouteTrees() {
         this(MAX_NODES_PER_ROUTE, MAX_NODES, MAX_ROUTES);
+    }
+
+    /**
+     * Route trees bounded by {@code maxNodes} nodes and {@code maxRoutes} routes, at most {@value #MAX_NODES} and
+     * {@value #MAX_ROUTES}, as a configured agent evidence bound scales them (M5-11).
+     */
+    public RouteTrees(int maxNodes, int maxRoutes) {
+        this(
+                MAX_NODES_PER_ROUTE,
+                Math.max(100, Math.min(MAX_NODES, maxNodes)),
+                Math.max(1, Math.min(MAX_ROUTES, maxRoutes)));
     }
 
     RouteTrees(int maxNodesPerRoute, int maxNodes, int maxRoutes) {
@@ -168,6 +187,49 @@ public final class RouteTrees {
         return version;
     }
 
+    /**
+     * Empty route trees under the same bounds that keep {@code previous}'s counts since the claim, its version
+     * included, as <b>Clear recording</b> does (M5-11).
+     */
+    public RouteTrees cleared() {
+        RouteTrees next = new RouteTrees(maxNodesPerRoute, maxNodes, maxRoutes);
+        next.merged = merged;
+        next.unrouted = unrouted;
+        next.routesDropped = routesDropped;
+        next.version = version + 1;
+        return next;
+    }
+
+    /** How many routes have a tree. */
+    public int routeCount() {
+        return routes.size();
+    }
+
+    /** The most nodes across routes. */
+    public int maxNodes() {
+        return maxNodes;
+    }
+
+    /** The most routes. */
+    public int maxRoutes() {
+        return maxRoutes;
+    }
+
+    /** The estimated bytes of every route tree. */
+    public long estimatedBytes() {
+        return (long) nodes * NODE_BYTES + (long) routes.size() * ROUTE_BYTES + (long) methods * METHOD_BYTES;
+    }
+
+    /** The estimated bytes of the most these route trees hold. */
+    public long maxEstimatedBytes() {
+        return (long) maxNodes * NODE_BYTES + (long) maxRoutes * ROUTE_BYTES + (long) maxMethods() * METHOD_BYTES;
+    }
+
+    /** The executed-method entries across routes, shrunk in proportion with the node bound (M5-11). */
+    int maxMethods() {
+        return (int) Math.max(MAX_METHODS_PER_ROUTE, (long) MAX_METHODS * maxNodes / MAX_NODES);
+    }
+
     int maxNodesPerRoute() {
         return maxNodesPerRoute;
     }
@@ -178,7 +240,7 @@ public final class RouteTrees {
 
     /** Takes one entry of the run's executed-method budget, if any remain. */
     boolean reserveMethod() {
-        if (methods >= MAX_METHODS) {
+        if (methods >= maxMethods()) {
             return false;
         }
         methods++;

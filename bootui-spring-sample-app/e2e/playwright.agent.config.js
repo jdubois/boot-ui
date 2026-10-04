@@ -1,7 +1,6 @@
 // @ts-check
-import {existsSync, readdirSync} from 'node:fs'
-import {join, resolve} from 'node:path'
 import {defineConfig, devices} from '@playwright/test'
+import {agentJar} from './agent-jar.js'
 
 /**
  * Playwright configuration for the Spring MVC sample with the BootUI agent attached (docs/PLAN-v2.md M5-2).
@@ -18,28 +17,6 @@ const BASE_URL = process.env.BOOTUI_AGENT_BASE_URL || `http://localhost:${PORT}`
 const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
 const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
-
-const MISSING_JAR =
-  'run ./mvnw install -pl bootui-agent -am (the Spring sample builds it with -am), or set BOOTUI_AGENT_JAR'
-
-function agentJar() {
-  if (process.env.BOOTUI_AGENT_JAR) {
-    if (!existsSync(process.env.BOOTUI_AGENT_JAR)) {
-      throw new Error(`BOOTUI_AGENT_JAR names no file: ${process.env.BOOTUI_AGENT_JAR}`)
-    }
-    return process.env.BOOTUI_AGENT_JAR
-  }
-  const target = resolve('../../bootui-agent/target')
-  const jar = existsSync(target)
-    ? readdirSync(target).find(
-        (name) => /^bootui-agent-\d[\w.-]*\.jar$/.test(name) && !/-(tests|sources|javadoc)\.jar$/.test(name)
-      )
-    : undefined
-  if (!jar) {
-    throw new Error(`No bootui-agent-*.jar in ${target}: ${MISSING_JAR}`)
-  }
-  return join(target, jar)
-}
 
 const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false`
 
