@@ -237,7 +237,7 @@ Three design points shape how v2 reuses v1 foundations:
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | ✅ Delivered; §5.11's opt-in JFR attribution followed in M4-4 (D17) |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | ✅ Delivered |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12, §5.18) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, the journal sources they need, external validation, and the release path | M3; §3.18 | 33–45, plus 17–23 for M4-19 to M4-23 (D35) | 🚧 In progress: the post-M3 gate tripped (D35); M4-18's rest and M4-19 to M4-23 remain, with M4-17's maintainer tasks: pin the feedback discussion, record the demo after M4-19, and adjudicate the validation rerun |
-| **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 111–140, plus 7–12 for M5-11 and M5-12 | 🚧 In progress, beside M4 (D38): M5-0, M5-2, and M5-3 delivered, M5-1 delivered but for its open checks, M5-4a and M5-4b delivered; M5-1's open checks, M5-11, and M5-12 come before M5-4c; slices reshaped by D37 |
+| **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 111–140, plus 7–12 for M5-11 and M5-12 | 🚧 In progress, beside M4 (D38): M5-0, M5-2, M5-3, and M5-4a–c delivered, M5-1 delivered but for its open checks; M5-11, M5-12, and later slices remain; slices reshaped by D37 |
 
 M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
 Opt-in JFR attribution (§5.11, D17) adds 6–9 engineer-days to M4, so M0–M4 come to about 185–239 engineer-days with it.
@@ -618,12 +618,13 @@ M5-6 follow M5-3 (the transport ring), and M5-9 follows M5-3. M5-10 follows M5-6
 skill updates name `start_method_probe`, `request-input-in-sink`, and vulnerable code reach. Before 2.0.0 (D20), the
 target is M5-0 to M5-3. With the review's re-estimates, M5 comes to about 111–140 engineer-days.
 
-The remaining-plan audit of 2026-10-04 (Appendix A) reorders what follows M5-4b, which continues beside M4 (D38).
-M5-1's open checks close first: the nested `SpringApplication` that releases the main run's claim, Quarkus's report
+The remaining-plan audit of 2026-10-04 (Appendix A) reordered what follows M5-4b, beside M4 (D38).
+M5-4c shipped before the planned M5-1 open checks, M5-11, and M5-12; those remain. M5-1's open checks include
+the nested `SpringApplication` that releases the main run's claim, Quarkus's report
 reading the build-time `bootui.agent.enabled`, the GraalVM scan listing the agent jar, and the leak tests through a real
-DevTools restart and Quarkus live reload. M5-11 and M5-12 follow, then M5-4c, whose stamps need an attribution
-contract: one owner submitting the same task from two methods has no single submitter, and a stamp is captured where
-the operation starts. M5-5 to M5-9 then follow as D37 reshapes them: M5-7a after M5-4c, M5-7b after the relevant M5-5 groups, and M5-9b's
+DevTools restart and Quarkus live reload. M5-11 and M5-12 follow to align the evidence contract and acceptance matrix
+with the shipped stamps: one owner submitting the same task from two methods has no single submitter, and a stamp is
+captured where the operation starts. M5-5 to M5-9 then follow as D37 reshapes them: M5-7a builds on M5-4c, M5-7b after the relevant M5-5 groups, and M5-9b's
 recorder only after its spike. M5-11 and M5-12 bring M5 to about 118–152 engineer-days.
 
 ```mermaid
@@ -1050,7 +1051,7 @@ Scope:
 | `lazy-sql-after-handler` | SQL executed after the handler returned, while the response was written or the view rendered, outside a transaction (open session in view), by route and fingerprint | ≥ 3 requests, or 1 request with ≥ 10 statements | Spring MVC. On Quarkus these surface as `LazyInitializationException` in `exception-hotspots`; not applicable to WebFlux |
 | `connections-per-request` | One request holding two or more connections of one pool at the same time, for example `REQUIRES_NEW` inside a transaction, with the known pool maximum and a labelled estimate of the first concurrency that can exhaust it while waiting for another connection: ⌊(pool − 1) ÷ (held − 1)⌋ + 1 requests, using the observed maximum held per request. Unknown pool sizes keep the symbolic formula. This assumes nested hold-and-wait checkouts, not parallel independent work; other pool users can exhaust it sooner. It is not proof of a deadlock | ≥ 1 request; `REQUEST_ID` tier only | All three, for JDBC pools (HikariCP and Agroal) |
 | `split-transaction-writes` | One request committing its writes in two or more independent transactions or autocommit statements, with their boundaries. Worded "if these writes must succeed together…" | ≥ 1 request | Spring MVC and WebFlux blocking transactions; Quarkus is unavailable |
-| `safe-method-dml` | GET or HEAD requests that successfully executed an INSERT, UPDATE, or DELETE, by route, fingerprint, and call site. Worded as a question: an incidental audit write, or a state change the caller asked for? | ≥ 1 request | All three for executed JDBC; Quarkus ORM statements are unverified preparations |
+| `safe-method-dml` | GET or HEAD requests that executed or, on Quarkus, prepared an INSERT, UPDATE, DELETE, or MERGE, by route, fingerprint, and call site. Preparations and timed JDBC executions are separate findings; a metered session with executions does not prove a particular prepared statement ran. Worded as a question: an incidental audit write, or a state change the caller asked for? | ≥ 1 request | All three for executed JDBC; Quarkus ORM statements are unverified preparations |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers (Hibernate, Spring, HikariCP, Quarkus, Vert.x, Reactor, Jackson, and Tomcat) carrying a request id, grouped by logger, message template, and route, and marked new in the run. About ten known codes carry a specific check, such as Hibernate's in-memory pagination `HHH90003004`, Hikari's leak detection, and Vert.x's blocked-thread warning | ≥ 1 event | All three |
 
 - `gc-inflated-latency` and `heap-growth-after-gc` (§5.11) joined these checks in M4-3 (D18).
@@ -1654,7 +1655,7 @@ Acceptance criteria:
 - The overhead scenario (§2.2) with the agent's default sensors claimed stays within 10 % of the same scenario without
   the agent, on top of the BootUI-on baseline.
 
-### 5.14 Code Paths — Diagnostics 📋 Planned
+### 5.14 Code Paths — Diagnostics 🚧 In progress
 
 Business value: the handler is where developers spend their time, and today BootUI can only say how long it took. Code
 Paths names the application methods a route spends that time in, across all its warm requests, and shows which bean
@@ -1710,7 +1711,7 @@ Acceptance criteria:
 - A probe never outlives its bound, is blocked by read-only policy, and never returns argument shapes below `FULL`.
 - Without the agent, the panel is unavailable with the `-javaagent` line as its remedy.
 
-### 5.15 Code Inventory — Diagnostics 📋 Planned
+### 5.15 Code Inventory — Diagnostics 🚧 In progress
 
 Business value: this is the answer an AI agent needs most after an edit, and the one no BootUI signal gives today: **did
 the code I changed actually run, and on which routes?** The same evidence says which application code a run or a test
@@ -1819,7 +1820,7 @@ Acceptance criteria:
   a search route concatenating its parameter into SQL (and a parameterized one, which must not appear).
 - Sensor values never appear in any mode: no payload, file content, argument, environment value, or matched parameter.
 
-### 5.17 Agent evidence in the journal, Runtime Insights, and agent tools — Cross-cutting 📋 Planned
+### 5.17 Agent evidence in the journal, Runtime Insights, and agent tools — Cross-cutting 🚧 In progress
 
 The agent is only worth its setup if its evidence joins everything else by request id. This item wires §5.13–§5.16 into
 the v2 core, so the same observations, comparisons, and agent tools become more exact when the agent is present, and
@@ -2011,7 +2012,7 @@ How each source joins the rest of v2:
 | `lifecycle` | Header facts and startup steps, codec version bump | Top-level markers on the time axis and resource lane | — | §5.8's `NOT_COMPARABLE` and restart cost; a marker that touched an observation's subject becomes one of its limitations |
 | `authorization` | Per route, requests by authentication class and outcome; anonymous-success counts kept in the summary | A row only when denied; each decision on the profile's timeline | `SECURITY_RULE` node, `GUARDED_BY` edge, beside §3.18's declared rules | §5.9's two observations; an authorization phase in `route-time-breakdown`, which makes a route prominent at ≥ 20 % of warm time or ≥ 50 decisions a request (D36 replaced the `authorization-cost` kind); "route newly reachable anonymously" as a behavior row |
 | `app-event` | No per-event-type or per-listener counters; event types and edges are kept in the run's observed edge set | `APP_EVENT` rows under their request; listener intervals | `EVENT` node, `PUBLISHES` (Spring only) and `CONSUMES` edges, in `ReverseClosure`'s allowlist | `transactional-listener-skipped` (≥ 1 event); `after-commit-writes`: DML inside an `AFTER_COMMIT` or `AFTER_COMPLETION` listener outside every inferred transaction interval (≥ 1 request, Spring only); a failed listener as evidence of `errors-behind-2xx`; a listeners sub-phase; new event types and edges between runs |
-| `orm` | Per route, median flushes, auto-flushes, entities in context, and ORM time | An **ORM** block in the profile; flush intervals on the timeline | — | Measured Quarkus SQL time in `route-time-breakdown`, plus a Hibernate sub-phase; `orm-auto-flush` (≥ 3 partial flushes a request, or ≥ 20 % of ORM time flushing); `large-persistence-context` (≥ 500 entities in ≥ 3 requests of a route); executions instead of preparations in `safe-method-dml` on Quarkus; entities and flushes per request as behavior rows |
+| `orm` | Per route, median flushes, auto-flushes, entities in context, and ORM time | An **ORM** block in the profile; flush intervals on the timeline | — | Measured Quarkus SQL time in `route-time-breakdown`, plus a Hibernate sub-phase; `orm-auto-flush` (≥ 3 partial flushes a request, or ≥ 20 % of ORM time flushing); `large-persistence-context` (≥ 500 entities in ≥ 3 requests of a route); excluding preparations in `safe-method-dml` when metered sessions executed nothing, without claiming a particular statement ran; entities and flushes per request as behavior rows |
 | `websocket` | No per-destination message counts; sends pre-aggregated per execution; destination edges kept in the run's observed edge set | `WEBSOCKET` rows with their SQL nested | `DESTINATION` nodes of broker `websocket` | Every request-level observation, through executions projected as routes (M3-8) |
 
 Payload enrichments that need no new source, each additive:
@@ -2167,7 +2168,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Source-panel policy: what is left out | A unit of work is left out whole when the panel owning the event that opens it is disabled — a request, a scheduled run, a consumed message, a WebSocket handler — because that event names the route, destination, status, and timing the disabled panel publishes, and keeping it to carry its children would publish exactly that. Trace-only AI calls uniquely owned by a hidden request are left out with it. Checks needing only HTTP requests are `NOT_APPLICABLE` when HTTP exchanges are hidden; checks accepting other work units name only disabled panels whose hidden anchors opened kinds of work they examine, and are `NOT_APPLICABLE` when no units of those kinds remain visible. On Quarkus, `safe-method-dml` leaves out unverified preparations when recorded Hibernate sessions are hidden, but still counts timed JDBC executions, and names the limitation. A source's dropped events count only once for a check even when HTTP is required evidence. One projection reads each owning panel's state once and derives its cache key, the events it keeps, and the reason it gives from that single read, so a panel toggled mid-read cannot drop a source's events and then evaluate as though the source were visible. Change impact projects only visible entries and names relevant disabled sources when evidence was recorded; it is unavailable without HTTP visibility. Likewise, without HTTP visibility a request's journal profile is unavailable, Runtime Insights lists no not-exercised route, resource profiling lists no per-route row, Code Inventory and `changed-code-not-executed` leave out every first request and route, and Code Paths, its handler split included, is unavailable. Run comparison omits a disabled or unavailable panel's evidence and says so (configuration comparability and restart timings stay visible), and persisted `bootui_activity` rows are re-gated by `JournalSourcePanels` on every read with bounded paging, so a history page can come back empty while "Load older" remains |
 | Principals and sessions | Pseudonymized with a keyed hash under a per-process random key, never a plain hash. Run summaries and the baseline file hold only counts of anonymous and authenticated requests, never principals |
 | On disk: baseline file | Metadata only: route templates, statement fingerprints, exception-group ids, counts, histograms, and comparability facts |
-| On disk: `bootui_activity` rows | Opt-in Live Activity persistence stores the journal-rendered `MASKED` view even when the live policy is `FULL`. It writes no principals, bind values, exception or log messages, or email subjects; `METADATA_ONLY` omits summaries, details, and stored principals when rows are read, and a search of stored rows matches only the text the read shows, under every mode. This is a 2.0 behavior change, noted in `CHANGELOG.md` |
+| On disk: `bootui_activity` rows | Opt-in Live Activity persistence stores the journal-rendered `MASKED` view even when the live policy is `FULL`. It writes no principals, bind values, exception or log messages, or email subjects. Under `METADATA_ONLY`, persisted reads omit log messages, 1.x free text, and stored principals while keeping structural summaries (method, masked path and status, SQL shape, cache, destination, or task) and safe details. A search of stored rows matches only the text the read shows, under every mode. This is a 2.0 behavior change, noted in `CHANGELOG.md` |
 | Page load | Reads project aggregates within a time budget; nothing captures, scans, reads a database, or calls a network |
 | Production | Quarkus registers nothing in `LaunchMode.NORMAL`; Spring activation rules are unchanged |
 | Self-exclusion | BootUI's threads, paths, and JDBC never enter the journal |
