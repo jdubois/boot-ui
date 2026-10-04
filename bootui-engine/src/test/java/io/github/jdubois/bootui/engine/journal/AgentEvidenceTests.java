@@ -57,7 +57,7 @@ class AgentEvidenceTests {
             if (fail) {
                 throw new IllegalStateException("boom");
             }
-            return new AgentEvidence.Usage(bytes, 2_000, Map.of("trees", 3L));
+            return new AgentEvidence.Usage(bytes, 2_000, Map.of("requestTrees", 3L));
         }
 
         @Override
@@ -138,7 +138,7 @@ class AgentEvidenceTests {
         assertThat(status.stores()).hasSize(2);
         assertThat(status.stores().get(0).visible()).isTrue();
         assertThat(status.stores().get(0).retainedBytes()).isEqualTo(1_000);
-        assertThat(status.stores().get(0).counts()).containsEntry("trees", 3L);
+        assertThat(status.stores().get(0).counts()).containsEntry("requestTrees", 3L);
         assertThat(status.stores().get(1).visible()).isFalse();
         assertThat(status.stores().get(1).note()).isEqualTo("The Code Paths panel is disabled.");
         assertThat(status.stores().get(1).retainedBytes()).isNull();

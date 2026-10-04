@@ -246,6 +246,7 @@ public final class CodePathsService implements AutoCloseable {
                     run.close();
                 }
                 run = new Run(claim);
+                publish(run);
                 run.start();
             }
         } catch (RuntimeException ex) {
@@ -1130,7 +1131,7 @@ public final class CodePathsService implements AutoCloseable {
                 }
                 int trees = current.store.clear(nanoTime.getAsLong());
                 int routes = current.routes.routeCount();
-                current.routes = newRouteTrees();
+                current.routes = current.routes.cleared();
                 current.clears++;
                 publish(current);
                 if (trees == 0 && routes == 0) {

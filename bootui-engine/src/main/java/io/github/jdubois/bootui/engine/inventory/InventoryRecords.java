@@ -53,6 +53,18 @@ public final class InventoryRecords implements Consumer<long[]> {
     /** How many requests whose route is not found yet are remembered, the oldest forgotten first. */
     static final int MAX_PENDING_LOOKUPS = 8_192;
 
+    /** How many code sources' first loads are kept; past it, a source's first load is not recorded, and counted. */
+    static final int MAX_LOADS = 16_384;
+
+    /** How many requests' routes are remembered, the least recent forgotten first, for their records drained later. */
+    static final int MAX_REQUEST_ROUTES = 4_096;
+
+    /** How many distinct route names are kept; past it, a new route is not named, and counted. */
+    static final int MAX_ROUTE_NAMES = 4_096;
+
+    /** The estimated bytes of one remembered request route. */
+    static final int REQUEST_ROUTE_BYTES = 64;
+
     /**
      * When a method first ran, or a code source first loaded a class, in this run, and for which request.
      *
@@ -76,6 +88,9 @@ public final class InventoryRecords implements Consumer<long[]> {
     private final Map<String, Integer> routeIndex = new HashMap<>();
     private long routeChars;
     private final LinkedHashMap<Long, Integer> lookups = new LinkedHashMap<>(16, 0.75f, false);
+    // Each request's route slot, as a record or the journal named it, for its records drained in a later batch.
+    private final LinkedHashMap<Long, Integer> requestRoutes = new LinkedHashMap<>(16, 0.75f, true);
+    private long unrecorded;
     private String[] interns = new String[] {null};
     private long otherGenerations;
     private long outOfRange;
@@ -87,6 +102,7 @@ public final class InventoryRecords implements Consumer<long[]> {
     private volatile long firstCalls;
     private volatile long firstCallsWithRequest;
     private volatile long firstLoadCount;
+    private volatile long internBytes;
 
     /** How many times a request's route is looked up before it is given up, as one evicted from the journal. */
     static final int MAX_LOOKUPS = 30;
@@ -109,10 +125,14 @@ public final class InventoryRecords implements Consumer<long[]> {
         int type = (int) record[AgentRecordDrainer.TYPE];
         int id = (int) record[AgentRecordDrainer.PAYLOAD];
         long time = record[AgentRecordDrainer.TIME];
-        // Recorded before the latest clear, though drained after it: only its time is kept.
-        boolean cleared = time < clearedBefore;
+        // Recorded before the latest clear, or in its millisecond, though drained after it: only its time is kept.
+        boolean cleared = time <= clearedBefore;
         long request = cleared ? 0L : record[AgentRecordDrainer.PAYLOAD + 1];
         int route = cleared ? 0 : (int) record[AgentRecordDrainer.PAYLOAD + 2];
+        int slot = routeSlot(intern(route));
+        if (request != 0) {
+            slot = rememberRoute(request, slot);
+        }
         if (type == FIRST_HIT) {
             if (id < 0 || id >= MAX_METHODS) {
                 outOfRange++;
@@ -124,7 +144,7 @@ public final class InventoryRecords implements Consumer<long[]> {
             ensure(id);
             hitPresent[id >>> 6] |= 1L << id;
             hitRequest[id] = request;
-            hitRoute[id] = routeSlot(intern(route));
+            hitRoute[id] = slot;
             hitTime[id] = time;
             hitCount++;
             if (request != 0) {
@@ -132,8 +152,12 @@ public final class InventoryRecords implements Consumer<long[]> {
             }
             version++;
         } else if (type == CLASS_LOAD && !firstLoads.containsKey(id)) {
-            firstLoads.put(id, new long[] {request, routeSlot(intern(route)), time});
-            version++;
+            if (firstLoads.size() >= MAX_LOADS) {
+                unrecorded++;
+            } else {
+                firstLoads.put(id, new long[] {request, slot, time});
+                version++;
+            }
         }
         publish();
     }
@@ -154,13 +178,33 @@ public final class InventoryRecords implements Consumer<long[]> {
         hitPresent = Arrays.copyOf(hitPresent, (capacity + 63) >>> 6);
     }
 
-    /** The slot value of {@code route}: its index + 1, or 0 for none. */
+    /**
+     * {@code slot} when it names a route, remembered as {@code request}'s; else the route remembered for {@code request},
+     * as one a record of the same request carried in an earlier batch, or 0.
+     */
+    private int rememberRoute(long request, int slot) {
+        if (slot != 0) {
+            requestRoutes.put(request, slot);
+            while (requestRoutes.size() > MAX_REQUEST_ROUTES) {
+                requestRoutes.remove(requestRoutes.keySet().iterator().next());
+            }
+            return slot;
+        }
+        Integer known = requestRoutes.get(request);
+        return known == null ? 0 : known;
+    }
+
+    /** The slot value of {@code route}: its index + 1, or 0 for none or past {@value #MAX_ROUTE_NAMES} names. */
     private int routeSlot(String route) {
         if (route == null) {
             return 0;
         }
         Integer index = routeIndex.get(route);
         if (index == null) {
+            if (routeNames.size() >= MAX_ROUTE_NAMES) {
+                unrecorded++;
+                return 0;
+            }
             index = routeNames.size();
             routeNames.add(route);
             routeIndex.put(route, index);
@@ -211,7 +255,7 @@ public final class InventoryRecords implements Consumer<long[]> {
                 String route = found == null ? null : found.get(id);
                 if (route != null) {
                     lookups.remove(request);
-                    slots.put(request, routeSlot(route));
+                    slots.put(request, rememberRoute(request, routeSlot(route)));
                     known.put(id, route);
                 } else {
                     lookups.merge(request, 1, Integer::sum);
@@ -273,6 +317,7 @@ public final class InventoryRecords implements Consumer<long[]> {
         }
         withRequest = 0;
         lookups.clear();
+        requestRoutes.clear();
         routeNames.clear();
         routeIndex.clear();
         routeChars = 0;
@@ -301,14 +346,28 @@ public final class InventoryRecords implements Consumer<long[]> {
         retainedBytes = (long) hitRequest.length * SLOT_BYTES
                 + (long) firstLoads.size() * LOAD_BYTES
                 + (long) lookups.size() * LOOKUP_BYTES
+                + (long) requestRoutes.size() * REQUEST_ROUTE_BYTES
                 + (long) routeNames.size() * ROUTE_BYTES
-                + routeChars * 2
-                + (long) interns.length * ROUTE_BYTES;
+                + routeChars * 2;
+        internBytes = (long) interns.length * ROUTE_BYTES;
     }
 
     /** The estimated bytes these records retain, read without the lock. */
     public long retainedBytes() {
         return retainedBytes;
+    }
+
+    /**
+     * The estimated bytes of the agent's interned strings this reads its routes from, read without the lock: they name
+     * routes and code, kept through a clear, so they are counted apart.
+     */
+    public long internBytes() {
+        return internBytes;
+    }
+
+    /** How many first loads or route names were not recorded, past their bounds. */
+    public synchronized long unrecorded() {
+        return unrecorded;
     }
 
     /** The methods with a first call recorded, read without the lock. */

@@ -126,9 +126,10 @@ public final class RequestTreeStore {
         String key = RequestTreeBuilder.keyOf(fragment);
         if (cleared && (fragment.endNanos() - clearedBeforeNanos < 0 || tombstones.containsKey(key))) {
             // Flushed before the clear, though drained after it, or of a request that lost such a fragment: the
-            // request is left out whole, never kept partial.
+            // request is left out whole, never kept partial, though a fragment of it flushed after the clear was
+            // drained first. A tree already merged into its route tree stays there.
             tombstone(key);
-            removeOpen(key);
+            forget(key);
             clearedFragments++;
             return;
         }
@@ -537,10 +538,25 @@ public final class RequestTreeStore {
         return entry;
     }
 
+    /** Remembers {@code key} as cleared, as the most recent, so a long request's tombstone is the last forgotten. */
     private void tombstone(String key) {
+        tombstones.remove(key);
         tombstones.put(key, Boolean.TRUE);
         while (tombstones.size() > MAX_TOMBSTONES) {
             tombstones.remove(tombstones.keySet().iterator().next());
+        }
+    }
+
+    /** Drops every tree of {@code key}: open, recent, waiting for its exchange, or exemplar. */
+    private void forget(String key) {
+        removeOpen(key);
+        Kept kept = recent.remove(key);
+        if (kept != null) {
+            keptNodes -= kept.tree.nodeCount();
+        }
+        unresolved.remove(key);
+        for (Exemplars exemplars : routes.values()) {
+            keptNodes += exemplars.remove(key);
         }
     }
 
@@ -607,6 +623,7 @@ public final class RequestTreeStore {
     /** The estimated bytes of the most this store keeps: its kept and open nodes, and its tombstones. */
     public long maxEstimatedBytes() {
         return ((long) maxKeptNodes + (long) maxOpen * RequestTreeBuilder.MAX_NODES) * NODE_BYTES
+                + (long) (RECENT + MAX_UNRESOLVED + maxOpen) * TREE_BYTES
                 + (long) MAX_TOMBSTONES * TOMBSTONE_BYTES;
     }
 
@@ -707,6 +724,14 @@ public final class RequestTreeStore {
                 slowest.sort(
                         Comparator.comparingLong(RequestTree::durationNanos).reversed());
             }
+            return nodes() - before;
+        }
+
+        /** Removes the exemplars with {@code key}; returns the change in nodes kept. */
+        int remove(String key) {
+            int before = nodes();
+            slowest.removeIf(tree -> tree.key().equals(key));
+            failed.removeIf(tree -> tree.key().equals(key));
             return nodes() - before;
         }
 

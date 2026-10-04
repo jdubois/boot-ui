@@ -12,6 +12,11 @@ import io.github.jdubois.bootui.core.dto.CodePathsBeansReport;
 import io.github.jdubois.bootui.core.dto.CodePathsReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
+import io.github.jdubois.bootui.core.dto.RuntimeAgentEvidenceDto;
+import io.github.jdubois.bootui.engine.codepaths.HandlerMethods;
+import io.github.jdubois.bootui.engine.codepaths.IssuingMethod;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.model.ClassInvocation;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
@@ -42,10 +47,52 @@ class AgentEvidenceExportRulesTests {
             CodeInventoryAgentReport.class,
             CodeInventoryChangesReport.class,
             CodeInventoryMethodsReport.class,
-            CodeInventoryDependenciesReport.class);
+            CodeInventoryDependenciesReport.class,
+            RuntimeAgentEvidenceDto.class,
+            HandlerMethods.class,
+            IssuingMethod.class,
+            CodeInventoryService.ChangedCode.class,
+            ClassInvocation.class);
 
     /** Every field, each reviewed as metadata. */
     private static final Set<String> METADATA = Set.of(
+            "ChangedClass.className",
+            "ChangedClass.methods",
+            "ChangedClass.routes",
+            "ChangedCode.classes",
+            "ChangedCode.fingerprint",
+            "ChangedCode.note",
+            "ChangedCode.previousRun",
+            "ChangedCode.scanReason",
+            "ChangedCode.scanStatus",
+            "ChangedCode.unavailableReason",
+            "ClassInvocation.calleeClass",
+            "ClassInvocation.callerClass",
+            "ClassInvocation.calls",
+            "HandlerMethods.assemblyOnly",
+            "HandlerMethods.handlerNanos",
+            "HandlerMethods.methods",
+            "HandlerMethods.requests",
+            "HandlerMethods.route",
+            "HandlerMethods.stampedCalls",
+            "HandlerMethods.unstampedCalls",
+            "HandlerMethods.unstampedNanos",
+            "IssuingMethod.key",
+            "IssuingMethod.repository",
+            "IssuingMethod.repositoryKey",
+            "Method.key",
+            "Method.label",
+            "Method.ownNanos",
+            "RuntimeAgentEvidenceDto.maxBytes",
+            "RuntimeAgentEvidenceDto.retainedBytes",
+            "RuntimeAgentEvidenceDto.stores",
+            "RuntimeAgentEvidenceStoreDto.counts",
+            "RuntimeAgentEvidenceStoreDto.maxBytes",
+            "RuntimeAgentEvidenceStoreDto.note",
+            "RuntimeAgentEvidenceStoreDto.panel",
+            "RuntimeAgentEvidenceStoreDto.retainedBytes",
+            "RuntimeAgentEvidenceStoreDto.store",
+            "RuntimeAgentEvidenceStoreDto.visible",
             "CodePathsNodeDto.p50Millis",
             "CodePathsNodeDto.p95Millis",
             "CodePathsRouteDto.p50Millis",
@@ -271,6 +318,23 @@ class AgentEvidenceExportRulesTests {
             "PageMetadata.offset",
             "PageMetadata.returned",
             "PageMetadata.total");
+
+    @Test
+    void everyCountTheJournalStatusCanReportIsReviewedMetadata() {
+        assertThat(AgentEvidence.COUNTS)
+                .as("a count is a number of trees, routes, nodes, calls, or loads, or the bytes of an index")
+                .containsExactlyInAnyOrder(
+                        "requestTrees",
+                        "routes",
+                        "routeNodes",
+                        "indexBytes",
+                        "firstCalls",
+                        "firstCallsWithRequest",
+                        "firstLoads");
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> new AgentEvidence.Usage(0L, 0L, java.util.Map.of("targets", 1L)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
     @Test
     void everyFieldTheAgentEvidenceReadsCanExportIsReviewedMetadata() {

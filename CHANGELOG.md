@@ -16,7 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runtime model, and the Runtime Insights observations that read it, with the reason; **Clear recording** and **Free
   BootUI memory** clear it with the journal, the records still queued in the agent's ring included, leaving a request
   that lost a fragment out of Code Paths whole; and Live Activity's journal status reports its estimated bytes as
-  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 52 MB by default, which
+  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 55 MB by default, which
   changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
   through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
   in primitive slots per method id, bounded by the agent's method limit.

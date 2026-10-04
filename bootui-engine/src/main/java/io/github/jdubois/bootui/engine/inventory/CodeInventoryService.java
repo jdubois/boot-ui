@@ -1033,6 +1033,11 @@ public final class CodeInventoryService implements AutoCloseable {
             limitations.add("Incomplete: " + dropped + " first-call or class-load records were dropped, so some"
                     + " first requests and routes are missing; which methods executed is still exact.");
         }
+        long unrecorded = current.records.unrecorded();
+        if (unrecorded > 0) {
+            limitations.add(unrecorded + " first loads or route names were not kept past their bounds, so some first"
+                    + " routes are missing; which methods executed is still exact.");
+        }
         if (overflow > 0) {
             limitations.add(overflow + " methods were left uninstrumented past the agent's method limit.");
         }
@@ -1578,7 +1583,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 counts.put("firstLoads", current.records.firstLoads());
             }
             // The method-key index names code, not requests: counted apart, and kept through a clear.
-            counts.put("indexBytes", indexBytes);
+            counts.put("indexBytes", indexBytes + (current == null ? 0 : current.records.internBytes()));
             return new AgentEvidence.Usage(bytes, AgentEvidence.Part.CODE_INVENTORY_RECORDS.ceilingBytes(), counts);
         }
 

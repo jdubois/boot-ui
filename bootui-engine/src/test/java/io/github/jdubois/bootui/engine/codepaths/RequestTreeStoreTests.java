@@ -95,6 +95,33 @@ class RequestTreeStoreTests {
     }
 
     @Test
+    void aFragmentFlushedBeforeTheClearButDrainedAfterItsRequestsLaterOneDropsTheRequestWhole() {
+        RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids));
+        store.clear(3 * SECOND);
+        store.add(
+                Blobs.request(1L, 5L)
+                        .between(4 * SECOND, 4 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        store.settle(7 * SECOND);
+        assertThat(store.tree(CodePathFragment.hex(5L))).isNotNull();
+
+        // Another thread's fragment of the same request, flushed before the clear, drained only now.
+        store.add(
+                Blobs.request(1L, 5L)
+                        .between(2 * SECOND, 2 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                7 * SECOND);
+
+        assertThat(store.tree(CodePathFragment.hex(5L))).isNull();
+        assertThat(store.recent()).isEmpty();
+        assertThat(store.exemplars("GET /a")).isEmpty();
+        assertThat(store.keptNodes()).isZero();
+    }
+
+    @Test
     void configuredBoundsCapOpenTreesAndKeptNodesNeverAboveTheDefaults() {
         RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids), 2, 1);
         assertThat(store.maxKeptNodes()).as("at least one full tree").isEqualTo(RequestTreeBuilder.MAX_NODES);

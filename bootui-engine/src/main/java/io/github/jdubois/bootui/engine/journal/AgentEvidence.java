@@ -51,14 +51,18 @@ public final class AgentEvidence implements JournalListener {
      */
     public enum Part {
         /**
-         * Code Paths' request trees: 131,072 kept nodes at 48 bytes, 512 open trees of up to 512 nodes, and 4,096
-         * tombstones at 96 bytes.
+         * Code Paths' request trees: 131,072 kept nodes at 48 bytes, 512 open trees of up to 512 nodes, 1,024 trees'
+         * own 512 bytes (recent, waiting, and open), and 4,096 tombstones at 96 bytes.
          */
-        CODE_PATHS_REQUEST_TREES(131_072L * 48 + 512L * 512 * 48 + 4_096L * 96, true),
+        CODE_PATHS_REQUEST_TREES(131_072L * 48 + 512L * 512 * 48 + 1_024L * 512 + 4_096L * 96, true),
         /** Code Paths' route trees: 100,000 nodes at about 264 bytes and 500 routes at about 2.5 KB. */
         CODE_PATHS_ROUTE_TREES(100_000L * 264 + 500L * 2_560, true),
-        /** Code Inventory's first calls and loads: 2^18 method slots at about 21 bytes, the agent's method limit. */
-        CODE_INVENTORY_RECORDS((1L << 18) * 21, false);
+        /**
+         * Code Inventory's first calls and loads: 2^18 method slots at about 21 bytes, the agent's method limit, 16,384
+         * first loads at 160 bytes, 8,192 pending lookups and 4,096 request routes at 64 bytes, and 4,096 route names at
+         * about 192 bytes.
+         */
+        CODE_INVENTORY_RECORDS((1L << 18) * 21 + 16_384L * 160 + 8_192L * 64 + 4_096L * 64 + 4_096L * 192, false);
 
         private final long ceilingBytes;
         private final boolean scalable;
@@ -114,6 +118,13 @@ public final class AgentEvidence implements JournalListener {
     }
 
     /**
+     * Every name a store may report a count under, each reviewed as metadata for the journal status, which exports it:
+     * a new one fails {@link Usage} until it is listed here and reviewed.
+     */
+    public static final java.util.Set<String> COUNTS = java.util.Set.of(
+            "requestTrees", "routes", "routeNodes", "indexBytes", "firstCalls", "firstCallsWithRequest", "firstLoads");
+
+    /**
      * What a store holds.
      *
      * @param retainedBytes the estimated bytes of the evidence it retains
@@ -125,6 +136,11 @@ public final class AgentEvidence implements JournalListener {
 
         public Usage {
             counts = counts == null ? Map.of() : Map.copyOf(counts);
+            for (String name : counts.keySet()) {
+                if (!COUNTS.contains(name)) {
+                    throw new IllegalArgumentException("Unreviewed agent evidence count: " + name);
+                }
+            }
         }
     }
 
@@ -195,6 +211,16 @@ public final class AgentEvidence implements JournalListener {
     /** A new projection showing every panel under the default bound, for tests; never a shared instance. */
     public static AgentEvidence open() {
         return new AgentEvidence(null, null);
+    }
+
+    /**
+     * Adds this projection to {@code journal}'s listeners, once however often it is called, so every clear of the journal
+     * clears the stores too.
+     */
+    public void listenTo(RuntimeJournal journal) {
+        if (journal != null && !journal.notifies(this)) {
+            journal.addListener(this);
+        }
     }
 
     /** Registers {@code store}, replacing a store with the same id. */

@@ -2724,7 +2724,7 @@ public class BootUiProperties {
 
         /**
          * Maximum memory the BootUI agent's evidence kept outside the journal may use, estimated: Code Paths' request
-         * and route trees and Code Inventory's first calls. Unset means about 52 MB, the sum of their fixed caps; a
+         * and route trees and Code Inventory's first calls. Unset means about 55 MB, the sum of their fixed caps; a
          * smaller value shrinks Code Paths' trees in proportion, and Code Inventory's first calls, bounded by the
          * agent's method limit, are only counted.
          */

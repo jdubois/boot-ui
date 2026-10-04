@@ -437,6 +437,41 @@ class CodeInventoryServiceTests {
     }
 
     @Test
+    void aRequestsRouteIsRememberedForItsRecordsDrainedInALaterBatch() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            int[] ids = load(INIT, GREET, TOTAL, NEVER);
+            CodeInventoryService service = started(claim, loader);
+            CodeInventory.hit(ids[1]);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    5_000L,
+                    ids[1],
+                    Long.parseUnsignedLong("00000000000000ab", 16),
+                    AgentRing.intern("GET /orders"),
+                    0L);
+            assertThat(rows(service).get(GREET).firstRoute()).isEqualTo("GET /orders");
+            // The same request's next first call, drained later, carries no route: the framework matched it already.
+            CodeInventory.hit(ids[2]);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    5_001L,
+                    ids[2],
+                    Long.parseUnsignedLong("00000000000000ab", 16),
+                    0L,
+                    0L);
+            tick();
+
+            assertThat(rows(service).get(TOTAL).firstRoute()).isEqualTo("GET /orders");
+        }
+    }
+
+    @Test
     void lateAndFailedMethodsAreNotTrackedAndAClassNeverLoadedIsNeverExecuted() throws Exception {
         Path root = classes();
         try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {

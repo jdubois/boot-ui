@@ -304,7 +304,7 @@ public class BootUiEngineProducer {
                         config.getOptionalValue("bootui.runtime-journal.agent-evidence-max-bytes", String.class)
                                 .orElse(null),
                         "bootui.runtime-journal.agent-evidence-max-bytes"));
-        journal.addListener(evidence);
+        evidence.listenTo(journal);
         return evidence;
     }
 

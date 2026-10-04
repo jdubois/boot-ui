@@ -119,6 +119,19 @@ public final class RouteTrees {
         return version;
     }
 
+    /**
+     * Empty route trees under the same bounds that keep {@code previous}'s counts since the claim, its version
+     * included, as <b>Clear recording</b> does (M5-11).
+     */
+    public RouteTrees cleared() {
+        RouteTrees next = new RouteTrees(maxNodesPerRoute, maxNodes, maxRoutes);
+        next.merged = merged;
+        next.unrouted = unrouted;
+        next.routesDropped = routesDropped;
+        next.version = version + 1;
+        return next;
+    }
+
     /** How many routes have a tree. */
     public int routeCount() {
         return routes.size();

@@ -1869,7 +1869,7 @@ journal what the journal applies to its own events (§8), in one place:
   only what the stores' reads return under one read; no surface serializes a store, nothing of them is written to disk,
   and values that need `FULL` exposure, such as M5-8's argument shapes, never reach an export, MCP, or the CLI.
 - **Memory accounting.** The journal status reports the stores' estimated bytes, beside the journal's own, against
-  `bootui.runtime-journal.agent-evidence-max-bytes`: by default the sum of the stores' fixed caps, about 52 MB, so it
+  `bootui.runtime-journal.agent-evidence-max-bytes`: by default the sum of the stores' fixed caps, about 55 MB, so it
   changes nothing; a smaller bound shrinks the scalable stores (Code Paths' trees) in proportion, and a store bounded
   elsewhere, as Code Inventory's first calls by the agent's method limit, is only counted. A hidden store adds its bytes
   to the total without its own figures.

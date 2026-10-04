@@ -144,6 +144,7 @@ import org.springframework.aop.scope.ScopedObject;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
@@ -272,15 +273,28 @@ public class BootUiEngineConfiguration {
      * The agent evidence contract ({@code docs/PLAN-v2.md} §5.17, M5-11): Code Paths and Code Inventory read their
      * evidence through it under the panels' live state, it bounds their memory by
      * {@code bootui.runtime-journal.agent-evidence-max-bytes}, and, as a listener of the journal, every clear of the
-     * journal clears it too.
+     * journal clears it too ({@link #bootUiAgentEvidenceJournalListener}).
      */
     @Bean
     @ConditionalOnMissingBean
-    AgentEvidence bootUiAgentEvidence(BootUiProperties properties, RuntimeJournal journal) {
+    AgentEvidence bootUiAgentEvidence(BootUiProperties properties) {
         DataSize max = properties.getRuntimeJournal().getAgentEvidenceMaxBytes();
-        AgentEvidence evidence = new AgentEvidence(properties::isPanelEnabled, max == null ? null : max.toBytes());
-        journal.addListener(evidence);
-        return evidence;
+        return new AgentEvidence(properties::isPanelEnabled, max == null ? null : max.toBytes());
+    }
+
+    /**
+     * Adds the agent evidence, BootUI's or one the application supplies, to the journal's listeners once every singleton
+     * exists, so every clear of the journal clears it (M5-11).
+     */
+    @Bean
+    SmartInitializingSingleton bootUiAgentEvidenceJournalListener(
+            ObjectProvider<AgentEvidence> evidence, ObjectProvider<RuntimeJournal> journal) {
+        return () -> {
+            AgentEvidence current = evidence.getIfUnique();
+            if (current != null) {
+                current.listenTo(journal.getIfUnique());
+            }
+        };
     }
 
     /**

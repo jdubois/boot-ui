@@ -454,7 +454,7 @@ How it works:
   `get_code_inventory`, and Runtime Insights' `changed-code-not-executed` leave them out, with the reason, and say only
   which methods executed and when. While the Code Inventory panel itself is disabled, every read, the MCP tool, and
   `changed-code-not-executed` answer that it is disabled, and the journal status reports only its bytes.
-- First calls are kept per method id, bounded by the agent's method limit (about 5 MB), and counted in the journal
+- First calls are kept per method id, bounded by the agent's method limit (about 9 MB with their loads and routes), and counted in the journal
   status's **Agent evidence** with Code Paths' trees ([agent evidence](java-agent.md#agent-evidence-outside-the-journal)).
   **Clear recording** in Live Activity drops every first request and route recorded before it, those still queued in
   the agent's ring included; which methods executed, and when each first ran, still cover the whole run, since the
