@@ -43,7 +43,14 @@ public final class LatencyHistogram {
         if (nanos < 0) {
             return;
         }
-        long micros = nanos / 1_000;
+        recordValue(nanos / 1_000);
+    }
+
+    /** Records a non-negative raw value, such as allocated bytes, without converting its units. */
+    public void recordValue(long micros) {
+        if (micros < 0) {
+            return;
+        }
         counts[bucketOf(micros)]++;
         count++;
         totalMicros += micros;
@@ -77,6 +84,11 @@ public final class LatencyHistogram {
      * {@code null} when nothing was recorded.
      */
     public Long percentileMicros(int percentile) {
+        return percentileValue(percentile);
+    }
+
+    /** The nearest-rank percentile in the raw units supplied to {@link #recordValue(long)}. */
+    public Long percentileValue(int percentile) {
         if (count == 0) {
             return null;
         }

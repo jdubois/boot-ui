@@ -162,7 +162,12 @@ public final class McpToolCatalog {
             entry("get_runtime_insights", McpToolSchema.QUERY_LIMIT, BootUiPanels.RUNTIME_INSIGHTS, false, ALL_STACKS),
             entry("get_runtime_insight", McpToolSchema.ID, BootUiPanels.RUNTIME_INSIGHTS, false, ALL_STACKS),
             entry("get_runtime_impact", McpToolSchema.ID, BootUiPanels.RUNTIME_INSIGHTS, false, ALL_STACKS),
-            entry("get_runtime_run_comparison", McpToolSchema.ID, BootUiPanels.RUNTIME_INSIGHTS, false, ALL_STACKS),
+            entry(
+                    "get_runtime_run_comparison",
+                    McpToolSchema.OPTIONAL_ID,
+                    BootUiPanels.RUNTIME_INSIGHTS,
+                    false,
+                    ALL_STACKS),
             entry("get_exceptions", McpToolSchema.NONE, BootUiPanels.EXCEPTIONS, false, ALL_STACKS),
             entry("get_exception_detail", McpToolSchema.ID, BootUiPanels.EXCEPTIONS, false, ALL_STACKS),
             entry("clear_exceptions", McpToolSchema.NONE, BootUiPanels.EXCEPTIONS, true, ALL_STACKS),

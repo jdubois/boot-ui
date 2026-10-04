@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
@@ -46,6 +47,54 @@ class RuntimeInsightsServiceTests {
 
     private RuntimeJournal journal = journal(JournalSource.all());
     private int requests;
+
+    @Test
+    void anEmptySnapshotLeavesEveryCheckWithoutEligibleWork() {
+        assertThat(service().report().checks()).isNotEmpty().allSatisfy(check -> {
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.status()).isNotIn("EVALUATED", "PARTIAL");
+        });
+    }
+
+    @Test
+    void aZeroEligibleCheckPreservesTheExplanationOfUncountedWork() {
+        Observation observation = new Observation() {
+            @Override
+            public String kind() {
+                return "uncounted-work";
+            }
+
+            @Override
+            public String title() {
+                return "Uncounted work";
+            }
+
+            @Override
+            public CorrelationTier minimumTier() {
+                return CorrelationTier.REQUEST_ID;
+            }
+
+            @Override
+            public Set<JournalSource> reads() {
+                return Set.of(JournalSource.HTTP);
+            }
+
+            @Override
+            public Evaluation evaluate(InsightsSnapshot snapshot) {
+                return new Evaluation(0, List.of(), "Recorded work could not be placed against its transaction.");
+            }
+        };
+        RuntimeInsightsService service = new RuntimeInsightsService(
+                journal, null, panel -> true, InsightsStack.SPRING_MVC, List::of, List.of(observation));
+        assertThat(service.report().checks()).singleElement().satisfies(check -> {
+            assertThat(check.status()).isEqualTo("INSUFFICIENT");
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.reason())
+                    .contains(
+                            "No eligible work was recorded",
+                            "Recorded work could not be placed against its transaction.");
+        });
+    }
 
     @AfterEach
     void close() {
@@ -447,8 +496,15 @@ class RuntimeInsightsServiceTests {
                 .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND)
                         && !check.kind().equals(ProxyBypass.KIND)
                         && !check.kind().equals(WorkAfterResponse.KIND))
-                .extracting(RuntimeInsightCheckDto::status)
-                .containsOnly("EVALUATED");
+                .allSatisfy(check -> {
+                    assertThat(check.status()).as(check.kind()).isIn("INSUFFICIENT", "EVALUATED");
+                    if ("INSUFFICIENT".equals(check.status())) {
+                        assertThat(check.eligibleRequests()).isZero();
+                        assertThat(check.reason()).contains("No eligible work");
+                    } else if (!HeapGrowthAfterGc.KIND.equals(check.kind())) {
+                        assertThat(check.eligibleRequests()).isPositive();
+                    }
+                });
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(WorkAfterResponse.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
@@ -492,18 +548,24 @@ class RuntimeInsightsServiceTests {
                 .contains("not R2DBC");
         RuntimeInsightCheckDto breakdown = checks.get(RouteTimeBreakdown.KIND);
         assertThat(breakdown.status())
-                .as("an observation that only optionally reads SQL still runs")
-                .isEqualTo("EVALUATED");
-        assertThat(breakdown.reason()).contains(SqlCapture.R2DBC_ONLY);
+                .as("without request phase measurements, no breakdown is eligible")
+                .isEqualTo("INSUFFICIENT");
+        assertThat(breakdown.eligibleRequests()).isZero();
+        assertThat(breakdown.reason()).contains("No eligible work", SqlCapture.R2DBC_ONLY);
         assertThat(report.observations())
                 .filteredOn(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
-                .allSatisfy(observation -> assertThat(observation.limitations()).contains(breakdown.reason()));
+                .allSatisfy(observation -> {
+                    assertThat(observation.status()).isEqualTo("INSUFFICIENT");
+                    assertThat(observation.eligible()).isZero();
+                    assertThat(observation.limitations())
+                            .anySatisfy(limitation -> assertThat(limitation).contains(SqlCapture.R2DBC_ONLY));
+                });
 
         service.setSqlCapture(SqlCapture::capturing);
         assertThat(service.report().checks())
                 .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
-                .as("once a traced DataSource records statements, the check runs")
+                .as("the requests remain eligible for SELECT checks once SQL capture is available")
                 .containsExactly("EVALUATED");
     }
 
@@ -823,8 +885,10 @@ class RuntimeInsightsServiceTests {
                 .report();
         assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("NOT_APPLICABLE");
         assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
-        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
-        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).isNull();
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("INSUFFICIENT");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason())
+                .contains("No eligible work")
+                .doesNotContain("scheduled");
     }
 
     @Test
@@ -921,8 +985,10 @@ class RuntimeInsightsServiceTests {
                         InsightsStack.QUARKUS,
                         null)
                 .report();
-        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("EVALUATED");
-        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).isNull();
+        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("INSUFFICIENT");
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason())
+                .contains("No eligible work")
+                .doesNotContain("jms", "scheduled");
     }
 
     @Test

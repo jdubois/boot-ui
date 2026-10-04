@@ -68,7 +68,11 @@ public class RuntimeInsightsResource {
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.comparison = new RunComparisonService(
-                journal.isResolvable() ? journal.get() : null, journalAggregates, RunHistory.shared());
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates,
+                RunHistory.shared(),
+                panelAvailability::isPanelEnabled,
+                panelAvailability::isPanelAvailable);
         RuntimeModelService models = new RuntimeModelService(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -80,7 +84,8 @@ public class RuntimeInsightsResource {
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates,
                 models,
-                journalAggregates == null ? null : journalAggregates.declaredRoutes());
+                journalAggregates == null ? null : journalAggregates.declaredRoutes(),
+                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
         this.impact.setStack(InsightsStack.QUARKUS);
         this.profile = new ResourceProfileService(
                 journal.isResolvable() ? journal.get() : null,

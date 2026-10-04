@@ -7,6 +7,9 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
 import io.github.jdubois.bootui.engine.support.MessageExposure;
 import io.github.jdubois.bootui.engine.support.UriMasking;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -190,6 +193,20 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
      */
     public static String displayShape(String sql) {
         return MASKED.sql(sql);
+    }
+
+    /**
+     * Statement counts keyed only by their literal-free display shapes. Shapes that masking makes indistinguishable
+     * share a count; no value or recoverable hash of one is kept. The bounded-map overflow sentinel stays distinct.
+     */
+    public static Map<String, Long> statementCounts(Map<String, Long> fingerprints) {
+        Map<String, Long> shapes = new LinkedHashMap<>();
+        fingerprints.forEach((fingerprint, count) -> shapes.merge(statementShape(fingerprint), count, Long::sum));
+        return Collections.unmodifiableMap(shapes);
+    }
+
+    static String statementShape(String fingerprint) {
+        return "Other".equals(fingerprint) ? fingerprint : displayShape(fingerprint);
     }
 
     /** Hardens a normalized shape: the runs the normalizer keeps but cannot tell apart from a value become {@code ?}. */
