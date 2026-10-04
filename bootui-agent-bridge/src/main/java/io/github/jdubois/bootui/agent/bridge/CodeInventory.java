@@ -6,9 +6,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.LongAdder;
@@ -25,11 +27,12 @@ import java.util.function.Supplier;
  * ids exist; past that a method gets no id and no advice, counted.
  *
  * <p><b>Hit flags.</b> The advice the agent inlines at every instrumented method's entry is
- * {@code if (CodeInventory.HITS[id] != CodeInventory.epoch) CodeInventory.hit(id);}: once a method ran in this run, a
- * call costs one array read and one volatile read. A claim asking for the sensor moves {@link #epoch} to its next value
- * (1 to 255, all flags cleared when it wraps), so "executed in this run" is {@code HITS[id] == epoch} and a new run
- * costs no clearing. Before any such claim the epoch is 0, which every flag already equals: advice costs a read and
- * records nothing. {@link #hit} sets the flag of a method's first call in a run whatever the claim's state, so the
+ * a hit-flag check followed, on the first-call path, by a defining-loader token check: once a method ran in this run, a
+ * call costs an array read and volatile reads. Each run owns its flags; a hit racing a claim can write only its old
+ * run's array. A claim asking for the sensor moves {@link #epoch} to its next value (1 to 255).
+ * Before any such claim the epoch is 0, which every flag already equals: advice costs a read and
+ * records nothing. {@link #hit} accepts only eligible defining-loader tokens, then sets the first-call flag whatever
+ * the claim's state, so the
  * advice takes the fast path from then on even while the claim is disarmed, taken over by a claim without the sensor,
  * or disabled; only recording is gated on an armed claim of the run's generation. It records a method's first call in
  * an armed run once: unless the thread is already inside a capture or doing BootUI's own work, it captures the
@@ -75,11 +78,22 @@ public final class CodeInventory {
     public static final byte TRACKED = 1;
     public static final byte TRANSFORM_FAILED = 2;
 
+    public static final byte DEFINITION_UNTRACKED = 3;
+
     private static final int PAGE_BITS = 12;
     private static final int PAGE_SIZE = 1 << PAGE_BITS;
 
-    /** Per method id: the epoch of the run in which it last ran. Read by inlined advice: never replaced. */
-    public static final byte[] HITS = new byte[MAX_METHODS];
+    /** Current run's hit flags, read by inlined advice; old callers write only their captured run's flags. */
+    public static volatile byte[] HITS = new byte[MAX_METHODS];
+
+    /** Bounded primitive identities for defining loaders; 0 is reserved for the bootstrap loader and self-test. */
+    public static final int MAX_DEFINITIONS = 1 << 14;
+
+    private static final AtomicInteger NEXT_DEFINITION = new AtomicInteger(1);
+    private static final AtomicLongArray DEFINITION_TRACKING = new AtomicLongArray(MAX_METHODS);
+    private static final LongAdder DEFINITION_OVERFLOW = new LongAdder();
+    private static final AtomicIntegerArray DEFINITION_LEASES = new AtomicIntegerArray(MAX_DEFINITIONS);
+    private static final ConcurrentLinkedQueue<Integer> FREE_DEFINITIONS = new ConcurrentLinkedQueue<Integer>();
 
     /** The current run's epoch, 1 to 255; 0 before any claim asked for the sensor. Read by inlined advice. */
     public static volatile byte epoch;
@@ -184,6 +198,53 @@ public final class CodeInventory {
         return Math.min(NEXT_ID.get(), MAX_METHODS);
     }
 
+    /** Assigns a defining-loader token without retaining the loader; -1 at the bound, counted. */
+    public static int definitionToken() {
+        Integer recycled = FREE_DEFINITIONS.poll();
+        if (recycled != null && DEFINITION_LEASES.compareAndSet(recycled.intValue(), 0, 1)) {
+            return recycled.intValue();
+        }
+        while (true) {
+            int token = NEXT_DEFINITION.get();
+            if (token >= MAX_DEFINITIONS) {
+                definitionLimitReached();
+                return -1;
+            }
+            if (NEXT_DEFINITION.compareAndSet(token, token + 1)) {
+                DEFINITION_LEASES.set(token, 1);
+                return token;
+            }
+        }
+    }
+
+    /** A loader had no slot: readers must not infer never-executed from missing evidence in this run. */
+    public static void definitionLimitReached() {
+        DEFINITION_OVERFLOW.increment();
+        RUN.get().definitionOverflow.incrementAndGet();
+        VERSION.incrementAndGet();
+    }
+
+    /** Returns a token only after the agent's phantom reference proves its defining loader cannot run again. */
+    public static void releaseDefinitionToken(int token) {
+        if (token > 0 && token < MAX_DEFINITIONS && DEFINITION_LEASES.compareAndSet(token, 1, 0)) {
+            RUN.get().definitions.set(token, 0);
+            FREE_DEFINITIONS.offer(Integer.valueOf(token));
+        }
+    }
+
+    /** Makes an existing definition eligible for one run, never for a newer run racing this call. */
+    public static void activateDefinition(int token, long generation) {
+        Run run = RUN.get();
+        if (run.generation == generation && token > 0 && token < MAX_DEFINITIONS) {
+            run.definitions.set(token, 1);
+        }
+    }
+
+    /** Whether advice from this defining loader may mark a method in the current run. */
+    public static boolean eligibleDefinition(int token) {
+        return RUN.get().eligible(token);
+    }
+
     /** The keys of ids {@code from} to {@code from + max - 1}, as far as they exist: a copy, index 0 being {@code from}. */
     public static String[] methodKeys(int from, int max) {
         int count = methodCount();
@@ -218,13 +279,31 @@ public final class CodeInventory {
      * refine), so the current run may have missed its earlier calls. A failure named for the class before is forgotten.
      */
     public static void tracked(String className, int[] ids, boolean late) {
+        tracked(className, ids, late, 0);
+    }
+
+    /** Tracks only current-run definitions in this run, even when an old loader is retransformed. */
+    public static void tracked(String className, int[] ids, boolean late, int definition) {
         try {
-            if (className != null) {
+            Run run = RUN.get();
+            if (className != null && run.eligible(definition)) {
                 FAILED_CLASSES.remove(className);
             }
-            mark(ids, TRACKED);
-            byte current = RUN.get().epoch;
-            if (ids != null && current != 0) {
+            if (definition < 0) {
+                markDefinitions(ids, run.generation, true);
+                run.definitionOverflow.incrementAndGet();
+            } else if (run.eligible(definition)) {
+                markDefinitions(ids, run.generation, false);
+            } else if (ids != null) {
+                for (int i = 0; i < ids.length; i++) {
+                    int id = ids[i];
+                    if (id >= 0 && id < MAX_METHODS && TRACKING[id] == UNKNOWN) {
+                        TRACKING[id] = TRACKED;
+                    }
+                }
+            }
+            byte current = run.epoch;
+            if (ids != null && current != 0 && run.eligible(definition)) {
                 for (int i = 0; i < ids.length; i++) {
                     int id = ids[i];
                     if (id >= 0 && id < MAX_METHODS) {
@@ -238,6 +317,36 @@ public final class CodeInventory {
             VERSION.incrementAndGet();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
+        }
+    }
+
+    /** Negative generations are uncertain: failure wins within a run; only a newer valid transform clears it. */
+    private static void markDefinitions(int[] ids, long generation, boolean uncertain) {
+        if (ids == null) {
+            return;
+        }
+        for (int i = 0; i < ids.length; i++) {
+            int id = ids[i];
+            if (id < 0 || id >= MAX_METHODS) {
+                continue;
+            }
+            if (generation <= 0) {
+                TRACKING[id] = uncertain ? DEFINITION_UNTRACKED : TRACKED;
+                continue;
+            }
+            while (true) {
+                long previous = DEFINITION_TRACKING.get(id);
+                long latest = previous < 0 ? -previous : previous;
+                if (latest > generation || (latest == generation && previous < 0)) {
+                    TRACKING[id] = previous < 0 ? DEFINITION_UNTRACKED : TRACKED;
+                    break;
+                }
+                long next = uncertain ? -generation : generation;
+                if (DEFINITION_TRACKING.compareAndSet(id, previous, next)) {
+                    TRACKING[id] = uncertain ? DEFINITION_UNTRACKED : TRACKED;
+                    break;
+                }
+            }
         }
     }
 
@@ -321,10 +430,15 @@ public final class CodeInventory {
      * and records its first call once. Never throws.
      */
     public static void hit(int id) {
+        hit(id, 0);
+    }
+
+    /** Advice carries its defining-loader token, not the invoking thread's current ownership. */
+    public static void hit(int id, int definition) {
         try {
             Run run = RUN.get();
             byte current = run.epoch;
-            if (current == 0 || HITS[id] == current) {
+            if (current == 0 || !run.eligible(definition) || run.hits[id] == current) {
                 return;
             }
             SLOW_PATH.increment();
@@ -334,7 +448,7 @@ public final class CodeInventory {
                 return;
             }
             // Whatever the claim's state, so the method takes the fast path from now on: only recording is gated.
-            HITS[id] = current;
+            run.hits[id] = current;
             VERSION.incrementAndGet();
             Claim claim = AgentBridge.current();
             if (claim == null || !claim.armed || claim.generation != run.generation || disabled(run.generation)) {
@@ -376,9 +490,11 @@ public final class CodeInventory {
      * generation} and {@code epoch}; {@code methods}, how many ids exist; {@code executed}, the ids that ran in the run,
      * and {@code late}, the ids whose class was instrumented only after it loaded during the run, as bitsets (bit
      * {@code id % 64} of word {@code id / 64}); {@code trackedThisRun}, the ids whose class was instrumented in the
-     * run, as a bitset; {@code tracking}, per id {@link #UNKNOWN}, {@link #TRACKED}, or {@link #TRANSFORM_FAILED};
+     * run, as a bitset; {@code tracking}, per id {@link #UNKNOWN}, {@link #TRACKED}, {@link #TRANSFORM_FAILED},
+     * or {@link #DEFINITION_UNTRACKED};
      * {@code failedClasses} and {@code overLimitClasses}, the classes named as failed or over the limit, sorted;
-     * {@code methodOverflow}, {@code transformFailures}, and {@code namedClassOverflow}, the counters that say whether
+     * {@code definitionOverflow}, this run's defining-loader capacity failures; {@code methodOverflow},
+     * {@code transformFailures}, and {@code namedClassOverflow}, the counters that say whether
      * those names are complete; {@code version}, as {@link #version()}; and {@code disabled}, whether recording is
      * stopped for the run (its flags may still be set). {@code null} when the current run belongs to another
      * generation, before any claim asked for the sensor, or when a new run started while it was read. A copy of JDK
@@ -397,7 +513,7 @@ public final class CodeInventory {
             long[] late = new long[executed.length];
             long[] trackedThisRun = new long[executed.length];
             for (int id = 0; id < count; id++) {
-                if (HITS[id] == current) {
+                if (run.hits[id] == current) {
                     executed[id >>> 6] |= 1L << (id & 63);
                 }
                 if (LATE[id] == current) {
@@ -408,6 +524,14 @@ public final class CodeInventory {
                 }
             }
             byte[] tracking = Arrays.copyOf(TRACKING, count);
+            for (int id = 0; id < count; id++) {
+                long definitionState = DEFINITION_TRACKING.get(id);
+                if (definitionState < 0 && tracking[id] != TRANSFORM_FAILED) {
+                    tracking[id] = DEFINITION_UNTRACKED;
+                } else if (definitionState > 0 && tracking[id] == DEFINITION_UNTRACKED) {
+                    tracking[id] = TRACKED;
+                }
+            }
             String[] failedClasses = names(FAILED_CLASSES);
             String[] overLimitClasses = names(OVER_LIMIT_CLASSES);
             if (RUN.get() != run) {
@@ -425,6 +549,7 @@ public final class CodeInventory {
             map.put("failedClasses", failedClasses);
             map.put("overLimitClasses", overLimitClasses);
             map.put("methodOverflow", Long.valueOf(METHOD_OVERFLOW.sum()));
+            map.put("definitionOverflow", Long.valueOf(run.definitionOverflow.get()));
             map.put("transformFailures", Long.valueOf(TRANSFORM_FAILURES.sum()));
             map.put("namedClassOverflow", Long.valueOf(NAMED_CLASS_OVERFLOW.sum()));
             map.put("version", Long.valueOf(version));
@@ -640,7 +765,6 @@ public final class CodeInventory {
                 }
                 int next = (current.epoch & 0xFF) + 1;
                 if (next > 255) {
-                    Arrays.fill(HITS, (byte) 0);
                     Arrays.fill(LATE, (byte) 0);
                     Arrays.fill(TRACKED_EPOCH, (byte) 0);
                     next = 1;
@@ -650,11 +774,12 @@ public final class CodeInventory {
                     break;
                 }
             }
-            byte published;
+            Run published;
             do {
-                published = RUN.get().epoch;
-                epoch = published;
-            } while (RUN.get().epoch != published);
+                published = RUN.get();
+                HITS = published.hits;
+                epoch = published.epoch;
+            } while (RUN.get() != published);
             if (Reentrancy.enter()) {
                 try {
                     capture(claim);
@@ -678,6 +803,11 @@ public final class CodeInventory {
             AgentRing.status();
             status();
             codeSources();
+            ConcurrentLinkedQueue<Integer> warmedDefinitions = new ConcurrentLinkedQueue<Integer>();
+            warmedDefinitions.offer(Integer.valueOf(0));
+            warmedDefinitions.poll();
+            DEFINITION_LEASES.compareAndSet(0, 0, 0);
+            DEFINITION_TRACKING.compareAndSet(0, 0L, 0L);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -736,7 +866,7 @@ public final class CodeInventory {
                 byte state = TRACKING[id];
                 if (state == TRACKED) {
                     tracked++;
-                    if (run.epoch != 0 && HITS[id] == run.epoch) {
+                    if (run.epoch != 0 && run.hits[id] == run.epoch) {
                         executed++;
                     }
                     if (run.epoch != 0 && LATE[id] == run.epoch) {
@@ -757,6 +887,7 @@ public final class CodeInventory {
             map.put("classesOverLimit", Integer.valueOf(OVER_LIMIT_CLASSES.size()));
             map.put("namedClassOverflow", Long.valueOf(NAMED_CLASS_OVERFLOW.sum()));
             map.put("methodOverflow", Long.valueOf(METHOD_OVERFLOW.sum()));
+            map.put("definitionOverflow", Long.valueOf(DEFINITION_OVERFLOW.sum()));
             map.put("transformFailures", Long.valueOf(TRANSFORM_FAILURES.sum()));
             map.put("firstHits", Long.valueOf(FIRST_HITS.sum()));
             map.put("firstHitRecords", Long.valueOf(FIRST_HIT_RECORDS.sum()));
@@ -787,7 +918,16 @@ public final class CodeInventory {
             KEYS.set(i, null);
         }
         NEXT_ID.set(0);
-        Arrays.fill(HITS, (byte) 0);
+        HITS = new byte[MAX_METHODS];
+        NEXT_DEFINITION.set(1);
+        DEFINITION_OVERFLOW.reset();
+        FREE_DEFINITIONS.clear();
+        for (int i = 0; i < DEFINITION_LEASES.length(); i++) {
+            DEFINITION_LEASES.set(i, 0);
+        }
+        for (int i = 0; i < MAX_METHODS; i++) {
+            DEFINITION_TRACKING.set(i, 0L);
+        }
         Arrays.fill(TRACKING, UNKNOWN);
         Arrays.fill(LATE, (byte) 0);
         Arrays.fill(TRACKED_EPOCH, (byte) 0);
@@ -822,12 +962,19 @@ public final class CodeInventory {
 
         final byte epoch;
         final long generation;
+        final byte[] hits = new byte[MAX_METHODS];
+        final AtomicIntegerArray definitions = new AtomicIntegerArray(MAX_DEFINITIONS);
+        final AtomicLong definitionOverflow = new AtomicLong();
         private final AtomicIntegerArray firsts;
 
         Run(byte epoch, long generation) {
             this.epoch = epoch;
             this.generation = generation;
             this.firsts = new AtomicIntegerArray(epoch == 0 ? 0 : MAX_METHODS >>> 5);
+        }
+
+        boolean eligible(int token) {
+            return token == 0 || (token > 0 && token < MAX_DEFINITIONS && definitions.get(token) != 0);
         }
 
         /** Whether this caller is the first to record {@code id} in this run: exactly one caller is. */
