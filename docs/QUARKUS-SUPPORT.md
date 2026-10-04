@@ -198,7 +198,7 @@ profile; default H2/Docker-free coverage remains independent.
 The Docker-required selector is `BootUiQuarkusMySqlLiveTest`, isolated under `src/mysql-live/java`.
 See [MySQL](features/database.md#mysql) for partial evidence, permissions, and execution bounds.
 
-### 5.1 Ported as-is — framework-agnostic or same library (23)
+### 5.1 Ported as-is — framework-agnostic or same library (24)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -216,6 +216,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |
 | `Runtime Insights`                                    | The shared `RuntimeInsightsService` over the runtime journal; available while the journal is enabled. Quarkus records no transactions, so `split-transaction-writes` and `transaction-across-remote-call` report themselves not applicable, and lazy loads after the handler surface as `LazyInitializationException` in `exception-hotspots`. Hibernate SQL is recorded on preparation: `anonymous-data-reach` labels those targets as unverified rather than proving a write, and zero-duration DML does not produce observed model edges; timed JDBC writes remain judgeable. Without a JDBC (Agroal) data source, as with Hibernate Reactive or a reactive SQL client, the checks that read SQL report `UNAVAILABLE`, since BootUI records only JDBC statements. A request that reached no Quarkus REST resource method, such as a `/q/` endpoint, a Vert.x route, or a static resource, is not split into phases by `route-time-breakdown`. With the BootUI agent attached in dev or test mode, `work-after-response` applies as on Spring. Quarkus records which observers ran for an application event but not who published it, so the runtime model draws no `PUBLISHES` edge and a change impact that reaches code only through an event says so in its limitations. A panel this application cannot serve, such as Security Logs without `quarkus.security.events.enabled`, is reported as unavailable with that reason rather than as disabled |
 | `GitHub`                                              | `HttpClient`                                                                      |
+| `Code Inventory`                                      | The shared `CodeInventoryService`: the BootUI agent's inventory sensor, the scan of the application's class files (Quarkus dev mode's `target/classes` through the application class loader), and the run history kept across live reloads. Detector-gated: available while the agent's inventory sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. Declared dependencies come from the build-time application model (`QuarkusDependencyProvider`) |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
 | `Pentesting`                                          | Shared 77-check engine (see below)                                                |
 | `MCP Server`                                          | **Implemented** — full JSON-RPC bridge (see below)                                |
@@ -563,10 +564,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 52 of the 62 panels ship on Quarkus: 28 are statically available and 24 are capability/detector-gated. The
+**Result:** 53 of the 63 panels ship on Quarkus: 28 are statically available and 25 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 52 supported entries comprise 23 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 53 supported entries comprise 24 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Scorecard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -781,6 +782,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
 | Runtime Insights    | as-is       | Port    | `RuntimeInsightsService`         | Same journal projection; available while `bootui.runtime-journal.enabled`; transaction observations not applicable; no application-event publications; a panel the application cannot serve is reported unavailable with its reason |
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
+| Code Inventory      | as-is       | Port    | `CodeInventoryService`           | Available while the BootUI agent's inventory sensor records this start (dev/test) |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |

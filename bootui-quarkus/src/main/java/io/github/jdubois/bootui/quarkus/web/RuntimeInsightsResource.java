@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -63,6 +64,7 @@ public class RuntimeInsightsResource {
             Instance<MappingProvider> mappings,
             Instance<BeanProvider> beans,
             Instance<JavaAgentService> javaAgent,
+            Instance<CodeInventoryService> codeInventory,
             Instance<SqlTraceRecorder> sqlTraceRecorder,
             QuarkusExposurePolicy exposure,
             Config config) {
@@ -112,6 +114,9 @@ public class RuntimeInsightsResource {
                 () -> agent == null ? ProfileCapabilities.PROPAGATION_REASON : agent.propagationUnavailableReason(),
                 config.getOptionalValue("bootui.agent.executors.max-handoff", Duration.class)
                         .orElse(AgentHandoffs.DEFAULT_MAX_HANDOFF));
+        this.insights.setCodeInventory(
+                () -> codeInventory.isResolvable() ? codeInventory.get().changedCode() : null,
+                () -> codeInventory.isResolvable() ? codeInventory.get().changesFingerprint() : 0L);
     }
 
     /**

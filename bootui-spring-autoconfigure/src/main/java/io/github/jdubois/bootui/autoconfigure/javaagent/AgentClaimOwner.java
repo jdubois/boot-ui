@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import java.util.List;
@@ -107,7 +108,10 @@ public final class AgentClaimOwner
         claim.disarm();
     }
 
-    /** Hands the claim this run's engine side of executor propagation, now that the engine is ready. */
+    /**
+     * Hands the claim this run's engine side of executor propagation, now that the engine is ready, and starts Code
+     * Inventory for the run.
+     */
     private void attach(ConfigurableApplicationContext applicationContext) {
         if (!claim.armed()) {
             return;
@@ -116,6 +120,12 @@ public final class AgentClaimOwner
                 applicationContext.getBeanProvider(AgentHandoffs.class).getIfUnique();
         if (handoffs != null) {
             claim.attach(handoffs);
+        }
+        // Code Inventory's drainer and scan of this run's class files (PLAN-v2 §5.15); the bean stops them at close.
+        CodeInventoryService inventory =
+                applicationContext.getBeanProvider(CodeInventoryService.class).getIfUnique();
+        if (inventory != null) {
+            inventory.start();
         }
     }
 

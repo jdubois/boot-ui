@@ -29,6 +29,8 @@ final class Claim {
     final String[] skipTasks;
     /** Worker thread-name prefixes of executors that propagate BootUI's context themselves: never applied. */
     final String[] skipThreads;
+    /** The transport ring's capacity this application asked for; the ring keeps the first claim's ({@link AgentRing}). */
+    final int ringCapacity;
 
     final long armedAt;
     final boolean armed;
@@ -45,6 +47,7 @@ final class Claim {
             List<String> sensors,
             String[] skipTasks,
             String[] skipThreads,
+            int ringCapacity,
             long armedAt,
             boolean armed,
             WeakReference<Supplier<Object>> capture,
@@ -59,6 +62,7 @@ final class Claim {
         this.sensors = sensors;
         this.skipTasks = skipTasks;
         this.skipThreads = skipThreads;
+        this.ringCapacity = ringCapacity;
         this.armedAt = armedAt;
         this.armed = armed;
         this.capture = capture;
@@ -92,6 +96,7 @@ final class Claim {
                 sensors,
                 skipTasks,
                 skipThreads,
+                ringCapacity,
                 armedAt,
                 armed,
                 capture,
@@ -109,6 +114,7 @@ final class Claim {
                 sensors,
                 skipTasks,
                 skipThreads,
+                ringCapacity,
                 armedAt,
                 false,
                 capture,
@@ -153,6 +159,7 @@ final class Claim {
         executors.put("skipTasks", list(skipTasks));
         executors.put("skipThreads", list(skipThreads));
         map.put("executors", executors);
+        map.put("ringCapacity", Integer.valueOf(ringCapacity));
         map.put("armedAt", Long.valueOf(armedAt));
         map.put("armed", Boolean.valueOf(armed));
         map.put("abandoned", Boolean.valueOf(abandoned()));

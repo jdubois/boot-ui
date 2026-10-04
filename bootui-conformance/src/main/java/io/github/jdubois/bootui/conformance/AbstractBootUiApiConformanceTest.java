@@ -1746,7 +1746,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         JsonNode report = probe.get(api("/runtime-insights")).json();
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
-                .isEqualTo(22);
+                .isEqualTo(23);
         boolean httpCovered = false;
         for (JsonNode coverage : report.path("coverage")) {
             httpCovered |= "http".equals(coverage.path("source").asText())
@@ -1803,6 +1803,46 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(snippet.path("text").asText()).contains("bootui-agent");
         }
         assertThat(report.path("setup").path("jarPath").asText()).contains("bootui-agent");
+    }
+
+    /**
+     * Code Inventory without the BootUI agent ({@code docs/PLAN-v2.md} §5.15): the panel is unavailable with the Java
+     * Agent panel's reason, and every read still answers its shape, {@code available: false} with that reason. The
+     * available shape is asserted with the agent attached, by the Spring sample's agent scenario.
+     */
+    @Test
+    void codeInventoryIsUnavailableWithTheJavaAgentReasonWithoutTheAgent() {
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        JsonNode panel = panelFromLiveManifest("code-inventory");
+        assertThat(panel).as("the code-inventory panel is in the manifest").isNotNull();
+        assumeTrue(panel.path("enabled").asBoolean(true), "the code-inventory panel is disabled here");
+        assertThat(panel.path("available").asBoolean())
+                .as("Code Inventory needs the agent")
+                .isFalse();
+        assertThat(panel.path("unavailableReason").asText()).startsWith("Requires the BootUI agent's inventory sensor");
+
+        List<String> failures = new ArrayList<>();
+        List<ReadContract> contracts = new ArrayList<>();
+        contracts.add(BootUiApiContractCatalog.reads().stream()
+                .filter(contract -> contract.relativePath().equals("/code-inventory"))
+                .findFirst()
+                .orElseThrow());
+        contracts.addAll(BootUiApiContractCatalog.codeInventoryLists());
+        for (ReadContract contract : contracts) {
+            Response response = probe().get(api(contract.relativePath()));
+            assertThat(response.status())
+                    .as("GET %s status", contract.relativePath())
+                    .isEqualTo(200);
+            JsonNode body = response.json();
+            assertJsonContract(contract.relativePath(), contract, body, failures);
+            assertThat(body.path("available").asBoolean())
+                    .as("GET %s available", contract.relativePath())
+                    .isFalse();
+            assertThat(body.path("unavailableReason").asText())
+                    .as("GET %s unavailableReason", contract.relativePath())
+                    .startsWith("Requires the BootUI agent's inventory sensor");
+        }
+        assertThat(failures).as("code inventory contracts").isEmpty();
     }
 
     @Test

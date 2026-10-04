@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import io.github.jdubois.bootui.core.dto.CodeInventoryAgentReport;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.EnumSet;
@@ -284,7 +285,8 @@ public final class McpToolCatalog {
             entry("get_github_dashboard", McpToolSchema.NONE, BootUiPanels.GITHUB, false, ALL_STACKS),
             entry("get_copilot_sessions", McpToolSchema.NONE, BootUiPanels.COPILOT, false, ALL_STACKS),
             entry("get_claude_code_sessions", McpToolSchema.NONE, BootUiPanels.CLAUDE_CODE, false, ALL_STACKS),
-            entry("get_agent_status", McpToolSchema.NONE, BootUiPanels.JAVA_AGENT, false, ALL_STACKS));
+            entry("get_agent_status", McpToolSchema.NONE, BootUiPanels.JAVA_AGENT, false, ALL_STACKS),
+            entry("get_code_inventory", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_INVENTORY, false, ALL_STACKS));
 
     private static final Map<String, Entry> BY_NAME =
             ENTRIES.stream().collect(Collectors.toUnmodifiableMap(Entry::name, Function.identity()));
@@ -293,8 +295,11 @@ public final class McpToolCatalog {
      * The tools whose answer is compacted for agents: a call without {@code limit} gets this short page rather than
      * {@code max-results} rows ({@code docs/PLAN-v2.md} §5.6).
      */
-    private static final Map<String, Integer> DEFAULT_LIMITS =
-            Map.of("get_runtime_insights", RuntimeInsightsAgentReportDto.DEFAULT_LIMIT);
+    private static final Map<String, Integer> DEFAULT_LIMITS = Map.of(
+            "get_runtime_insights",
+            RuntimeInsightsAgentReportDto.DEFAULT_LIMIT,
+            "get_code_inventory",
+            CodeInventoryAgentReport.DEFAULT_LIMIT);
 
     private McpToolCatalog() {}
 

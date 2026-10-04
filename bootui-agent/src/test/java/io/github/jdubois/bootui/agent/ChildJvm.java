@@ -30,15 +30,26 @@ final class ChildJvm {
 
     static Output runWithClassPath(List<String> jvmOptions, String extraClassPath, String... programArguments)
             throws IOException, InterruptedException {
+        return runWithClassPaths(jvmOptions, null, extraClassPath, programArguments);
+    }
+
+    /** With {@code firstClassPath} before the test classes, so its classes win, and {@code extraClassPath} after. */
+    static Output runWithClassPaths(
+            List<String> jvmOptions, String firstClassPath, String extraClassPath, String... programArguments)
+            throws IOException, InterruptedException {
         Files.createDirectories(WORK);
         List<String> command = new ArrayList<>();
         command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         command.addAll(jvmOptions);
         command.add("-cp");
-        command.add(
-                extraClassPath == null
-                        ? TEST_CLASSES.toString()
-                        : TEST_CLASSES + java.io.File.pathSeparator + extraClassPath);
+        String classPath = TEST_CLASSES.toString();
+        if (firstClassPath != null) {
+            classPath = firstClassPath + java.io.File.pathSeparator + classPath;
+        }
+        if (extraClassPath != null) {
+            classPath = classPath + java.io.File.pathSeparator + extraClassPath;
+        }
+        command.add(classPath);
         command.add("bootuiagentit.ChildMain");
         command.addAll(List.of(programArguments));
         ProcessBuilder builder =

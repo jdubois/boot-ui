@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.quarkus.web.ArchitectureResource;
 import io.github.jdubois.bootui.quarkus.web.BeansResource;
 import io.github.jdubois.bootui.quarkus.web.CacheResource;
 import io.github.jdubois.bootui.quarkus.web.ClaudeCodeResource;
+import io.github.jdubois.bootui.quarkus.web.CodeInventoryResource;
 import io.github.jdubois.bootui.quarkus.web.ConfigResource;
 import io.github.jdubois.bootui.quarkus.web.ConnectionPoolsResource;
 import io.github.jdubois.bootui.quarkus.web.CopilotResource;
@@ -139,7 +140,8 @@ public class QuarkusMcpTools {
             CopilotResource copilot,
             ClaudeCodeResource claudeCode,
             RuntimeInsightsResource runtimeInsights,
-            JavaAgentResource javaAgent) {
+            JavaAgentResource javaAgent,
+            CodeInventoryResource codeInventory) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -334,6 +336,14 @@ public class QuarkusMcpTools {
                 registry,
                 availability,
                 tool("get_agent_status", McpToolDescriptions.quarkus("get_agent_status"), args -> javaAgent.report()));
+        // Code Inventory, advertised while the BootUI agent's inventory sensor records this start (§5.15).
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_code_inventory",
+                        McpToolDescriptions.quarkus("get_code_inventory"),
+                        args -> codeInventory.agentReport(args.query(), args.limit())));
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         addIfAvailable(
                 registry,

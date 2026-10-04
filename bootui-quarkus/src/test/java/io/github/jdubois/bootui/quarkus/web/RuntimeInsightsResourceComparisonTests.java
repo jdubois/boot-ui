@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -46,6 +47,9 @@ class RuntimeInsightsResourceComparisonTests {
 
     @Mock
     Instance<JavaAgentService> agents;
+
+    @Mock
+    Instance<CodeInventoryService> inventory;
 
     @Mock
     Instance<SqlTraceRecorder> sql;
@@ -96,6 +100,7 @@ class RuntimeInsightsResourceComparisonTests {
                     mappings,
                     beans,
                     agents,
+                    inventory,
                     sql,
                     exposure,
                     new SmallRyeConfigBuilder().build());

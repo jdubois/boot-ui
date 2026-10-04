@@ -59,6 +59,14 @@ public final class ConnectionsPerRequest implements Observation {
             }
             byDataSource.forEach((dataSource, rows) -> {
                 int held = mostHeld.get(dataSource);
+                Integer pool = snapshot.poolSize(dataSource).orElse(null);
+                String estimate = pool == null
+                        ? "With a pool of P connections, floor((P - 1) / " + (held - 1)
+                                + ") + 1 concurrent requests can exhaust the pool while waiting for another connection."
+                        : "With a pool of " + pool + " connections and the observed maximum of " + held
+                                + " held per request, " + ((pool - 1) / (held - 1) + 1)
+                                + " concurrent " + (pool <= held - 1 ? "request can" : "requests can")
+                                + " exhaust the pool while waiting for another connection.";
                 rows.sort(Comparator.comparingInt((String[] row) -> Integer.parseInt(row[1]))
                         .reversed());
                 findings.add(new Finding(
@@ -73,14 +81,18 @@ public final class ConnectionsPerRequest implements Observation {
                         List.of(
                                 "Check for a REQUIRES_NEW transaction, or a second call to the data source, inside"
                                         + " an open transaction (Transactions).",
-                                "With a pool of P connections, (P − 1) ÷ (" + (held - 1) + ") such requests at once can"
-                                        + " wait on each other until the pool times out: compare with the pool size"
+                                estimate + " This is a hold-and-wait estimate, not proof of a deadlock"
                                         + " (Database Connection Pools)."),
                         rows.stream().limit(3).map(row -> row[0]).toList(),
                         List.of("Request", "Connections held together"),
                         rows.stream().map(List::of).toList(),
-                        List.of("Counts logical connections the application obtained; the pool's size is not read"
-                                + " here.")));
+                        List.of(
+                                "Counts logical connections the application obtained. The estimate assumes nested"
+                                        + " checkouts, not parallel independent work; other pool users can exhaust it"
+                                        + " at lower concurrency.",
+                                pool == null
+                                        ? "The pool's maximum size is unavailable; the estimate uses P."
+                                        : "The estimate uses the pool's current maximum size.")));
             });
         }
         return new Evaluation(snapshot.requests().size(), findings);

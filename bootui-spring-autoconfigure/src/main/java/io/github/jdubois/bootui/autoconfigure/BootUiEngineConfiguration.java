@@ -48,6 +48,7 @@ import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvi
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
 import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
+import io.github.jdubois.bootui.autoconfigure.web.DependencyCatalog;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
@@ -79,6 +80,9 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
@@ -111,6 +115,7 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
@@ -425,6 +430,53 @@ public class BootUiEngineConfiguration {
                 BootUiCorrelation::current,
                 phases,
                 properties.getAgent().getExecutors().getMaxHandoff());
+    }
+
+    /**
+     * Code Inventory ({@code docs/PLAN-v2.md} §5.15): this run's executed and changed application methods and its
+     * dependency use, from the BootUI agent's inventory sensor. The run's {@link AgentClaimOwner} starts it once the
+     * context is refreshed and its claim is armed; it stops its drain and scan threads when the context closes. Without
+     * the agent it reports the Java Agent panel's reason and starts nothing.
+     */
+    @Bean(destroyMethod = "close")
+    @Lazy
+    @ConditionalOnMissingBean
+    CodeInventoryService bootUiCodeInventoryService(
+            BootUiProperties properties,
+            ApplicationContext context,
+            ObjectProvider<AgentClaimOwner> owner,
+            ObjectProvider<JavaAgentService> javaAgent,
+            ObjectProvider<BasePackageProvider> basePackages,
+            ObjectProvider<JournalAggregates> aggregates,
+            ObjectProvider<RuntimeJournal> journal) {
+        DependencyProvider declared = DependencyCatalog.forApplication(() -> {
+            BasePackageProvider provider = basePackages.getIfAvailable();
+            return provider == null ? List.of() : provider.basePackages();
+        });
+        CodeInventoryService service = new CodeInventoryService(
+                AgentBridgeAccess.locate(),
+                () -> {
+                    AgentClaimOwner current = owner.getIfUnique();
+                    return current == null ? null : current.claim();
+                },
+                () -> {
+                    JavaAgentService agent = javaAgent.getIfUnique();
+                    return agent == null
+                            ? JavaAgentService.INVENTORY_REQUIREMENT + "."
+                            : agent.inventoryUnavailableReason();
+                },
+                context::getClassLoader,
+                declared::inventory,
+                () -> {
+                    JournalAggregates current = aggregates.getIfAvailable();
+                    return current == null ? null : current.runReadyAtEpochMillis();
+                },
+                properties.getCodeInventory().toSettings(),
+                CodeInventoryHistory.shared());
+        JournalAggregates journalAggregates = aggregates.getIfAvailable();
+        service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        return service;
     }
 
     /**

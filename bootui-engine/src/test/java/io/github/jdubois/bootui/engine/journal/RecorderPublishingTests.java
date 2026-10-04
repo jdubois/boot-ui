@@ -89,6 +89,58 @@ class RecorderPublishingTests {
     }
 
     @Test
+    void exceptionMetadataIncludesDeepCausesAndSuperclassNamesWithoutMessages() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.setRuntimeEventSink(published::add);
+        IllegalStateException wrapper = new IllegalStateException("secret-wrapper", new PoolTimeout("secret-cause"));
+
+        inRequest(() -> store.record(wrapper, "worker", "GET", "/boom", null, "test"));
+
+        ExceptionPayload payload =
+                (ExceptionPayload) single(JournalSource.EXCEPTION).payload();
+        assertThat(payload.types())
+                .containsExactly(
+                        PoolTimeout.class.getName(),
+                        "java.sql.SQLTransientConnectionException",
+                        "java.sql.SQLTransientException",
+                        "java.sql.SQLException",
+                        "java.lang.IllegalStateException");
+        assertThat(payload.toString()).doesNotContain("secret");
+        assertThat(payload.interned(new JournalDictionary(100, 10_000))).isEqualTo(payload);
+        assertThat(payload.estimatedBytes())
+                .isGreaterThan(new ExceptionPayload(payload.groupId(), payload.exceptionClass(), payload.signature())
+                        .estimatedBytes());
+        assertThat(new ExceptionPayload(
+                                "g",
+                                "E",
+                                "s",
+                                java.util.stream.IntStream.range(0, 30)
+                                        .mapToObj(i -> "Type" + i)
+                                        .toList())
+                        .types())
+                .hasSize(ExceptionPayload.MAX_TYPES);
+    }
+
+    private static final class PoolTimeout extends java.sql.SQLTransientConnectionException {
+        PoolTimeout(String message) {
+            super(message);
+        }
+    }
+
+    @Test
+    void cyclicCauseChainsKeepTheStoresExistingDuplicateSuppression() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.setRuntimeEventSink(published::add);
+        IllegalStateException outer = new IllegalStateException("outer");
+        IllegalArgumentException inner = new IllegalArgumentException("inner");
+        outer.initCause(inner);
+        inner.initCause(outer);
+        inRequest(() -> store.record(outer, "worker", "GET", "/boom", null, "test"));
+        assertThat(published).isEmpty();
+        assertThat(store.groups()).isEmpty();
+    }
+
+    @Test
     void messagesPublishTheirBrokerDirectionAndDestinationButNeverTheirKey() {
         KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 16);
         RabbitActivityRecorder rabbit = new RabbitActivityRecorder(true, true, 10, 16);

@@ -16,8 +16,8 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 62-panel manifest the servlet adapter
-reports, including the view-only **Java Agent** panel, minus the one panel (**HTTP Sessions**, §6.7) that stays
+The WebFlux adapter serves the large majority of the panel surface — the same 63-panel manifest the servlet adapter
+reports, including the view-only **Java Agent** and **Code Inventory** panels, minus the one panel (**HTTP Sessions**, §6.7) that stays
 unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
@@ -157,7 +157,7 @@ WebFlux blocking-execution policy, and requests rejected by the preceding safety
 | `Not yet ported` | Deliberately deferred, no reactive implementation wired yet                      |
 | `Not applicable` | No faithful reactive analog exists for this panel's concept                      |
 
-### 6.1 Ported as-is (46 panels)
+### 6.1 Ported as-is (47 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these controllers
 were already framework-neutral in practice, not just in the engine underneath them.
@@ -169,11 +169,16 @@ were already framework-neutral in practice, not just in the engine underneath th
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
 | GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS, Runtime Insights[^runtime-insights-reactive], Java Agent |
+| Code Inventory[^code-inventory-reactive] |
 
 [^mappings-reactive]: The Actuator-backed provider reads WebFlux's `dispatcherHandlers` descriptions as well as Spring
     MVC's `dispatcherServlets`, each only when its web module is present: annotated controllers by their conditions,
     and functional routes by a predicate naming one method and one path, such as `(GET && /api/items/{id})`. Other
     functional predicates are listed whole.
+
+[^code-inventory-reactive]: The shared `CodeInventoryController` and engine service: available while the BootUI agent's
+    inventory sensor records the run, otherwise unavailable with the Java Agent panel's reason, as on Spring MVC. The
+    scan reads the class files the application context's class loader sees.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
     handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and

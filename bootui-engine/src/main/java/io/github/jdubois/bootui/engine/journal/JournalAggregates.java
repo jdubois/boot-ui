@@ -153,6 +153,7 @@ public final class JournalAggregates implements JournalListener {
     private volatile RunIdentity run;
     private volatile RunBaselineFile baseline;
     private RunStart runStart;
+    private Long runReadyAtEpochMillis;
 
     /**
      * Installs the application's declared routes, which name a request's route when the framework recorded no
@@ -228,6 +229,8 @@ public final class JournalAggregates implements JournalListener {
         if (payload instanceof LifecyclePayload lifecycle) {
             if (runStart == null && LifecyclePayload.RUN_STARTED.equals(lifecycle.kind())) {
                 runStart = lifecycle.runStart();
+                // The event lasts from the application's start until it was ready.
+                runReadyAtEpochMillis = event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000L;
             }
             return;
         }
@@ -708,6 +711,15 @@ public final class JournalAggregates implements JournalListener {
      */
     public synchronized RunStart runStart() {
         return runStart;
+    }
+
+    /**
+     * When this run's application was ready, in epoch milliseconds, from its {@link LifecyclePayload#RUN_STARTED}
+     * event, or {@code null} before it, or when the {@code lifecycle} source is off. Code Inventory tells startup from
+     * later with it ({@code docs/PLAN-v2.md} §5.15).
+     */
+    public synchronized Long runReadyAtEpochMillis() {
+        return runReadyAtEpochMillis;
     }
 
     /** The run's resource track and CPU ledger (§5.11), which the resource sampler fills. */
