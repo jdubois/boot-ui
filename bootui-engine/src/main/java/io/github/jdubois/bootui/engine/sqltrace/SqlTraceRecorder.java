@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -574,6 +575,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         // The stack is walked only for what keeps it: the panel's call sites, or the journal's application frames.
         ApplicationFrames frames =
                 ApplicationFrames.wanted(panel, captureCallSite, toJournal) ? ApplicationFrames.capture() : null;
+        // The issuing thread's innermost instrumented method, when the BootUI agent records code paths (§5.14).
+        long codePathStamp = toJournal ? AgentCodePaths.stamp() : 0L;
         String truncatedSql = truncate(sql, maxSqlLength);
         long nanos = Math.max(0, durationNanos);
         long micros = nanos / 1_000;
@@ -617,7 +620,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     frames,
                     phase,
                     completedNanos,
-                    dataSource);
+                    dataSource,
+                    codePathStamp);
         }
         if (panel) {
             totalCaptured.incrementAndGet();
@@ -640,7 +644,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             ApplicationFrames frames,
             RequestPhase phase,
             long completedNanos,
-            String dataSource) {
+            String dataSource,
+            long codePathStamp) {
         try {
             journal.offer(RuntimeEvent.of(
                     JournalSource.SQL,
@@ -658,7 +663,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                             !success,
                             frames,
                             phase,
-                            completedNanos)));
+                            completedNanos,
+                            codePathStamp)));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the statement it observes.
         }

@@ -704,7 +704,11 @@ Data sources:
   of application bean methods, merged by the engine into request trees and, once settled, into one route tree per route
   and run (per node: requests, calls, total and self time, and a 32-bucket log2 histogram of per-request time with its
   least and most).
-- The runtime journal's `http` events, which name each request's route and outcome.
+- The runtime journal's `http` events, which name each request's route and outcome, and its SQL, REST client, cache,
+  and AI events, which carry the code-paths stamp of the instrumented method innermost on their thread when they were
+  recorded there (0 when recorded on another thread).
+- The Beans panel's beans and their declared dependencies, and the bean classes the claim asked the sensor to
+  instrument, for Beans at runtime.
 - The adapters' marks of requests whose handler only assembled its result: a Spring MVC request that started async
   processing, and a Quarkus resource method on the event loop or returning `Uni`, `Multi`, `CompletionStage`, or a
   publisher, or one Quarkus could not identify, in a bounded lock-free set; Spring WebFlux marks every request once,
@@ -717,17 +721,34 @@ Features:
   result, or whose work BootUI could not place).
 - The selected route's tree as an indented table: method, calls per request, total, self, an approximate (≈) median from
   log2 buckets, share of the handler (of the request when no handler phase is known), and a share bar; asynchronous
-  children marked and kept apart; an Other node per parent past the budget (2,000 nodes a route, 100,000 and 500 routes
-  a run).
+  children marked and kept apart under the method that submitted them; an Other node per parent and phase past the
+  budget (2,000 nodes a route, 100,000 and 500 routes a run). A node is its caller, method, and request phase, so
+  handler and response-write time stay apart; a tree joins its route once its request's exchange is recorded, waiting
+  up to the executor handoff window for a slow reactive response's.
+- The SQL, REST client, cache, and AI calls each method issued, per request with their time, under it: stamped where
+  they were recorded with the innermost instrumented method open on their thread. A statement Hibernate flushes at
+  commit runs after the `@Transactional` method returned, in the transaction interceptor around it (Spring's
+  `TransactionInterceptor`, Quarkus's ArC interceptor), so it shows under the method that called the `@Transactional`
+  one. Calls issued while no instrumented method was open (filters, response write) and calls recorded on another thread
+  show under no method and are counted apart, each with why.
 - Selecting a method shows its callers within the tree and the routes that reach it.
+- **Beans at runtime**: the observed calls between beans with their counts beside the declared dependencies, with a
+  filter for declared dependencies not called in this run, never called "unused", first requests included. A
+  dependency is not called only when both beans' classes are instrumented and none of their methods was adaptively
+  excluded; otherwise it is **not observable**, with why, and never counted as not called. An inherited method maps to
+  the bean whose class extends its declaring class, preferring the one the caller declares. The runtime model gains observed `INVOKES` edges between
+  beans, which change impact's code closure never walks.
 - The methods adaptively excluded in this run, with why.
-- `route-time-breakdown` splits a route's handler work into its top five handler-phase methods by self time, the rest as
-  other handler time, unless its tree is assembly only or its recorded calls take 10 % of the handler phase or more
-  (until call sites are stamped, a method's self time includes the calls it waited on); the parts never exceed the
-  handler work, and a limitation says which applies.
-- `GET /bootui/api/code-paths`, `/code-paths/route?route=` (paged by `depth`, `offset`, and `limit`), and
-  `/code-paths/requests/{requestId}`; `get_code_paths` and `bootui code paths` take `query` (a route, or part of a route
-  or method) and `limit`.
+- `route-time-breakdown` splits a route's handler work into its top five handler-phase methods by own time (self time
+  minus the recorded calls stamped to the method), the rest as other handler time, unless its tree is assembly only;
+  the parts never exceed the handler work, and a limitation says how many recorded calls carried no stamp and stayed in
+  their method's own time; the handler is not split when none of its calls carried a stamp, or when calls without a
+  stamp take 10 % of its handler phase or more. `repeated-selects` names the method that issued the repeated statements:
+  for a repository or DAO method of the application's own, the first method above it that is not one, through the
+  repository method.
+- `GET /bootui/api/code-paths`, `/code-paths/route?route=` (paged by `depth`, `offset`, and `limit`),
+  `/code-paths/requests/{requestId}`, and `/code-paths/beans`; `get_code_paths` and `bootui code paths` take `query` (a
+  route, or part of a route or method) and `limit`.
 
 Acceptance criteria:
 
@@ -735,7 +756,9 @@ Acceptance criteria:
   records this run and otherwise unavailable with the Java Agent panel's reason, and every read answers the same
   `available: false` shape.
 - On the Spring sample with the agent, the seeded slow route's breakdown names `SlowPricingService.quote`, and the route
-  tree's handler-phase time reconciles with the handler phase within 5 %.
+  tree's handler-phase time reconciles with the handler phase within 5 %; the seeded N+1 route's `repeated-selects`
+  names `InsightOrderService.ordersLineByLine`, its statements show under that method, and Beans at runtime lists the
+  controller's calls into it.
 
 ### 5.8 Startup Timeline
 
@@ -2942,6 +2965,7 @@ Initial endpoints:
 | `/bootui/api/code-paths`                     | GET    | Code Paths summary: sensor status, routes ranked by warm median with top methods, excluded methods |
 | `/bootui/api/code-paths/route`               | GET    | One route's call tree, paged by `depth`, `offset`, and `limit`, with callers and reach per method |
 | `/bootui/api/code-paths/requests/{requestId}` | GET   | One request's call tree while the run keeps it                                           |
+| `/bootui/api/code-paths/beans`               | GET    | Beans at runtime: observed calls between beans beside the declared dependencies          |
 | `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
 | `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
 | `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |

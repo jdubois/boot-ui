@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
+import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
@@ -114,8 +115,18 @@ public class RuntimeInsightsController {
                     CodeInventoryService inventory = codeInventory.getIfUnique();
                     return inventory == null ? 0L : inventory.changesFingerprint();
                 });
-        // route-time-breakdown's handler split by method, from the agent's code paths (docs/PLAN-v2.md §5.14).
+        // route-time-breakdown's handler split by method and repeated-selects' issuing method, from the agent's code
+        // paths (docs/PLAN-v2.md §5.14).
         ObjectProvider<CodePathsService> codePaths = context.getBeanProvider(CodePathsService.class);
+        models.setInvocations(
+                () -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? List.of() : paths.invocations();
+                },
+                () -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? 0L : paths.routeTreesFingerprint();
+                });
         this.insights.setCodePaths(
                 route -> {
                     CodePathsService paths = codePaths.getIfUnique();
@@ -124,6 +135,14 @@ public class RuntimeInsightsController {
                 () -> {
                     CodePathsService paths = codePaths.getIfUnique();
                     return paths == null ? 0L : paths.routeTreesFingerprint();
+                },
+                id -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? null : paths.methodKey(id);
+                },
+                (route, id) -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? null : paths.issuingMethod(route, id);
                 });
     }
 

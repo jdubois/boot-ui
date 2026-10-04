@@ -87,7 +87,8 @@ public final class AiCallEvents {
                         payload.finishReason(),
                         payload.failed(),
                         span,
-                        completed);
+                        completed,
+                        payload.codePathStamp());
         remember(trace, withSpan.spanId(), withSpan.operation());
         return journal.offer(RuntimeEvent.of(
                 JournalSource.AI,

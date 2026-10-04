@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
@@ -416,7 +417,8 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                 thread,
                 currentTraceId(),
                 correlation.current(),
-                null);
+                null,
+                STAMP_HERE);
     }
 
     /**
@@ -541,6 +543,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             String traceId,
             CorrelationContext caller,
             ThreadKind threadKind) {
+        // Its context was captured at the interception boundary, so it may be recorded on another thread: unstamped.
         recordNanos(
                 method,
                 uri,
@@ -555,13 +558,17 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                 thread,
                 traceId,
                 caller,
-                threadKind);
+                threadKind,
+                0L);
     }
 
     /**
      * Records one outbound call timed in nanoseconds, with the trace id and BootUI correlation captured explicitly at
      * the interception boundary: the panel keeps milliseconds, and the runtime journal the nanoseconds
-     * ({@code docs/PLAN-v2.md} §5.2). A {@code null} thread kind is classified on the recording thread.
+     * ({@code docs/PLAN-v2.md} §5.2). A {@code null} thread kind is classified on the recording thread, which then
+     * issued the call: the call is stamped with the innermost instrumented method open on it, when the BootUI agent
+     * records code paths (§5.14). A call whose thread kind was captured elsewhere was recorded on another thread, and is
+     * not stamped.
      */
     public void recordNanos(
             String method,
@@ -578,6 +585,46 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             String traceId,
             CorrelationContext caller,
             ThreadKind threadKind) {
+        recordNanos(
+                method,
+                uri,
+                host,
+                path,
+                status,
+                durationNanos,
+                success,
+                errorMessage,
+                clientType,
+                headers,
+                thread,
+                traceId,
+                caller,
+                threadKind,
+                threadKind == null ? STAMP_HERE : 0L);
+    }
+
+    /**
+     * Records one outbound call as {@link #recordNanos(String, String, String, String, Integer, long, boolean, String,
+     * String, Map, String, String, CorrelationContext, ThreadKind)} does, with the code-paths stamp its client took on the
+     * thread that issued it ({@code AgentCodePaths.stamp()}, 0 when unknown), for a client whose response arrives on
+     * another thread.
+     */
+    public void recordNanos(
+            String method,
+            String uri,
+            String host,
+            String path,
+            Integer status,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            String clientType,
+            Map<String, String> headers,
+            String thread,
+            String traceId,
+            CorrelationContext caller,
+            ThreadKind threadKind,
+            long codePathStamp) {
         if (!shouldRecord()) {
             return;
         }
@@ -595,8 +642,12 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                 thread,
                 normalizeTraceId(traceId),
                 caller == null ? CorrelationContext.NONE : caller,
-                threadKind);
+                threadKind,
+                codePathStamp);
     }
+
+    /** Asks {@link #append} to stamp the call on the recording thread, which issued it. */
+    private static final long STAMP_HERE = Long.MIN_VALUE;
 
     /**
      * Whether a call is worth observing: the panel captures now, or, while it is paused or idle-suspended, the runtime
@@ -625,12 +676,15 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             String thread,
             String traceId,
             CorrelationContext caller,
-            ThreadKind threadKind) {
+            ThreadKind threadKind,
+            long codePathStamp) {
         boolean panel = capturesForPanel();
         boolean toJournal = journal.records(JournalSource.REST_CLIENT);
         // The stack is walked only for what keeps it: the panel's call sites, or the journal's application frames.
         ApplicationFrames frames =
                 ApplicationFrames.wanted(panel, captureCallSite, toJournal) ? ApplicationFrames.capture() : null;
+        // The issuing thread's innermost instrumented method, when the BootUI agent records code paths (§5.14).
+        long stamp = !toJournal ? 0L : codePathStamp == STAMP_HERE ? AgentCodePaths.stamp() : codePathStamp;
         long timestamp = System.currentTimeMillis();
         long nanos = Math.max(0, durationNanos);
         long duration = nanos / 1_000_000;
@@ -679,7 +733,8 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                                 clientType,
                                 !success,
                                 frames,
-                                System.nanoTime())));
+                                System.nanoTime(),
+                                stamp)));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the call it observes.
             }

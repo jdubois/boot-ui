@@ -111,9 +111,9 @@ class RouteTimeBreakdownTests {
     }
 
     /**
-     * The handler split ({@code docs/PLAN-v2.md} §5.14, M5-4b): the handler's other work, what the recorded SQL left of
-     * it, is shared among the route tree's top methods by self time, never more than it, the rest as other handler
-     * time, and the slow method is named first, as long as the recorded calls take under 10 % of the handler.
+     * The handler split ({@code docs/PLAN-v2.md} §5.14, M5-4b and M5-4c): the handler's other work, what the recorded
+     * SQL left of it, is shared among the route tree's top methods by own time, never more than it, the rest as other
+     * handler time, and the slow method is named first.
      */
     @Test
     void withCodePathsTheHandlersOtherWorkIsSplitIntoItsTopMethodsBySelfTime() {
@@ -129,7 +129,9 @@ class RouteTimeBreakdownTests {
                                 + " Other handler time 9 %, Handler: QuoteController.quote 9 %. First request 200 ms (cold).");
         assertThat(quote.whatToCheck().get(0)).contains("SlowPricingService.quote", "Code Paths");
         assertThat(quote.limitations())
-                .anyMatch(limitation -> limitation.contains("Recorded calls take only 6 % of the handler's time"));
+                .anyMatch(limitation -> limitation.contains(
+                                "its self time minus the SQL, REST client, cache, and AI" + " calls stamped to it")
+                        && !limitation.contains("no stamp"));
         // The handler window is 50 ms, the SQL takes 3 ms of it: 47 ms of other work, 80 % and 10 % of it named.
         assertThat(service.insight(quote.id()).rows())
                 .extracting(RuntimeObservationRowDto::cells)
@@ -143,27 +145,89 @@ class RouteTimeBreakdownTests {
     }
 
     /**
-     * Until call sites are stamped (M5-4c), a method's self time includes the recorded calls it waited on: when they
-     * take 10 % of the handler or more, as a repository waiting on its SQL, the handler is not split, and a limitation
-     * says why.
+     * With call-site stamps (M5-4c), a method's own time is its self time minus the recorded calls stamped to it, so
+     * however much of the handler the SQL takes, the methods share only the handler's other work: 10 ms of SQL in a
+     * 50 ms handler leaves 40 ms, of which the slow method's 30 ms of own time is three quarters. Calls without a stamp
+     * stay in their method's own time, and a limitation says so.
      */
     @Test
-    void theHandlerIsNotSplitWhileRecordedCallsTakeTenPercentOfItOrMore() {
+    void withStampedCallsTheHandlerIsSplitByOwnTimeHoweverMuchTheCallsTake() {
         quoteRequests(10 * MS);
         RuntimeInsightsService service =
                 new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
-        service.setCodePaths(route -> route.equals("GET /api/quote") ? quoteMethods() : null, () -> 1L);
+        HandlerMethods stamped = new HandlerMethods(
+                "GET /api/quote",
+                5,
+                5 * 40 * MS,
+                List.of(
+                        new HandlerMethods.Method(
+                                "shop.SlowPricingService#quote()I", "SlowPricingService.quote", 5 * 30 * MS),
+                        new HandlerMethods.Method(
+                                "shop.QuoteController#quote()I", "QuoteController.quote", 5 * 5 * MS)),
+                false,
+                5,
+                0);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? stamped : null, () -> 1L);
 
         RuntimeObservationDto quote = breakdown(service, "GET /api/quote");
-        assertThat(quote.sentence())
-                .contains("Handler, other work 73 %", "SQL 18 %")
-                .doesNotContain("SlowPricingService");
-        assertThat(quote.limitations())
-                .anyMatch(limitation -> limitation.contains("recorded calls take 20 % of its time")
-                        && limitation.contains("call-site stamps, M5-4c"));
+        assertThat(quote.sentence()).contains("Handler: SlowPricingService.quote", "SQL 18 %");
         assertThat(service.insight(quote.id()).rows())
-                .extracting(row -> row.cells().get(0))
-                .containsExactly("Other filters", "SQL", "Handler, other work", "Response write");
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Other filters", "10", "4 %", "2.0"),
+                        List.of("SQL", "50", "18 %", "10"),
+                        List.of("Handler: SlowPricingService.quote", "150", "55 %", "30"),
+                        List.of("Handler: QuoteController.quote", "25", "9 %", "5.0"),
+                        List.of("Other handler time", "25", "9 %", "5.0"),
+                        List.of("Response write", "15", "5 %", "3.0"));
+        assertThat(quote.limitations()).noneMatch(limitation -> limitation.contains("no stamp"));
+
+        // A few calls without a stamp, 1 ms of a 50 ms handler: still split, and said.
+        HandlerMethods few =
+                new HandlerMethods("GET /api/quote", 5, stamped.handlerNanos(), stamped.methods(), false, 5, 2, 5 * MS);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? few : null, () -> 2L);
+        RuntimeObservationDto split = breakdown(service, "GET /api/quote");
+        assertThat(split.sentence()).contains("Handler: SlowPricingService.quote");
+        assertThat(split.limitations())
+                .anyMatch(limitation -> limitation.contains("2 recorded calls carried no stamp")
+                        && limitation.contains("under 10 % of the handler's time"));
+    }
+
+    /**
+     * I3: calls recorded without a stamp stay in the own time of the method that waited for them, so a handler whose
+     * unstamped calls take a tenth of its phase or more is not split, nor one none of whose calls carried a stamp.
+     */
+    @Test
+    void theHandlerIsNotSplitWhenCallsWithoutAStampTakeATenthOfItOrNoneIsStamped() {
+        quoteRequests(10 * MS);
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        List<HandlerMethods.Method> methods = List.of(
+                new HandlerMethods.Method("shop.SlowPricingService#quote()I", "SlowPricingService.quote", 5 * 30 * MS),
+                new HandlerMethods.Method("shop.QuoteController#quote()I", "QuoteController.quote", 5 * 5 * MS));
+
+        // 10 ms of a 50 ms handler phase per request carried no stamp: 20 %.
+        HandlerMethods heavy = new HandlerMethods("GET /api/quote", 5, 5 * 40 * MS, methods, false, 5, 5, 5 * 10 * MS);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? heavy : null, () -> 1L);
+        RuntimeObservationDto quote = breakdown(service, "GET /api/quote");
+        assertThat(quote.sentence()).doesNotContain("Handler: SlowPricingService.quote");
+        assertThat(quote.limitations())
+                .anyMatch(limitation -> limitation.startsWith("The handler is not split by method: 5 recorded calls")
+                        && limitation.contains("take 20 % of its time"));
+
+        // No call carried a stamp, as with an agent predating them: never split, whatever their time.
+        HandlerMethods none = new HandlerMethods("GET /api/quote", 5, 5 * 40 * MS, methods, false, 0, 5, 0L);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? none : null, () -> 2L);
+        quote = breakdown(service, "GET /api/quote");
+        assertThat(quote.sentence()).doesNotContain("Handler: SlowPricingService.quote");
+        assertThat(quote.limitations())
+                .anyMatch(limitation -> limitation.startsWith(
+                        "The handler is not split by method: none of its 5 recorded calls carried a code-paths stamp"));
+
+        // Just under a tenth: split.
+        HandlerMethods under = new HandlerMethods("GET /api/quote", 5, 5 * 40 * MS, methods, false, 5, 5, 5 * 4 * MS);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? under : null, () -> 3L);
+        assertThat(breakdown(service, "GET /api/quote").sentence()).contains("Handler: SlowPricingService.quote");
     }
 
     /** A cold request, then five warm ones whose 50 ms handler runs {@code sql} of SQL. */
@@ -227,6 +291,52 @@ class RouteTimeBreakdownTests {
         RuntimeObservationDto quote = breakdown(service, "GET /api/quote");
         assertThat(quote.sentence()).contains("Handler, other work 100 %").doesNotContain("A.a");
         assertThat(quote.limitations()).anyMatch(limitation -> limitation.contains("assembly"));
+    }
+
+    /**
+     * M52-03: two overloads and two same-named classes in different packages keep a row each, labelled apart, and every
+     * part taken from the handler stays in a row: the rows add up to the requests' whole time.
+     */
+    @Test
+    void overloadsAndSameNamedClassesKeepTheirOwnRowsAndNoTimeIsLost() {
+        request("/api/quote", 200 * MS, new RequestTiming(0, -1, -1, -1));
+        for (int i = 0; i < 5; i++) {
+            request("/api/quote", 30 * MS, new RequestTiming(clock, -1, 0, 30 * MS));
+        }
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        HandlerMethods methods = new HandlerMethods(
+                "GET /api/quote",
+                5,
+                5 * 30 * MS,
+                List.of(
+                        new HandlerMethods.Method("shop.Service#work(Ljava/lang/String;)V", "Service.work", 5 * 7 * MS),
+                        new HandlerMethods.Method("shop.Service#work(I)V", "Service.work", 5 * 6 * MS),
+                        new HandlerMethods.Method("a.Util#run()V", "Util.run", 5 * 5 * MS),
+                        new HandlerMethods.Method("b.Util#run()V", "Util.run", 5 * 4 * MS)),
+                false);
+        service.setCodePaths(route -> methods, () -> 1L);
+
+        List<List<String>> rows = service
+                .insight(breakdown(service, "GET /api/quote").id())
+                .rows()
+                .stream()
+                .map(RuntimeObservationRowDto::cells)
+                .toList();
+
+        assertThat(rows)
+                .extracting(row -> row.get(0) + "=" + row.get(1))
+                .containsExactly(
+                        "Handler: Service.work(String)=35",
+                        "Handler: Service.work(int)=30",
+                        "Handler: a.Util.run()=25",
+                        "Handler: b.Util.run()=20",
+                        "Other handler time=40");
+        assertThat(rows.stream()
+                        .mapToDouble(row -> Double.parseDouble(row.get(1)))
+                        .sum())
+                .as("every part of the five 30 ms requests is in a row")
+                .isEqualTo(150.0);
     }
 
     @Test

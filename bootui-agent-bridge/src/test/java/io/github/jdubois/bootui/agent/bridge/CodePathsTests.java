@@ -499,6 +499,37 @@ class CodePathsTests {
         assertThat(CodePaths.depth()).isZero();
     }
 
+    /**
+     * M52-04: a method called under one parent in the handler and again in the response write is two nodes, each with
+     * its own calls and time, whichever phase came first, so the response's work never lands on the handler's node.
+     */
+    @Test
+    void theSameMethodInAnotherPhaseIsAnotherNode() {
+        long token = claim();
+        int helper = id("Helper");
+        int inner = id("Inner");
+
+        context.set(owner(REQUEST, null));
+        CodePaths.begin();
+        CodePaths.phase(CodePaths.PHASE_RESPONSE);
+        call(helper, () -> call(inner, null));
+        CodePaths.phase(CodePaths.PHASE_HANDLER);
+        call(helper, () -> call(inner, null));
+        call(helper, null);
+        CodePaths.phase(CodePaths.PHASE_RESPONSE);
+        call(helper, null);
+        CodePaths.end();
+        context.set(null);
+
+        long[] blob = drain(token).get(0);
+        assertThat(nodes(blob)).containsExactly("-1:Helper:2", "0:Inner:1", "-1:Helper:2", "2:Inner:1");
+        assertThat(node(blob, 0, CodePaths.N_PHASE)).isEqualTo(CodePaths.PHASE_RESPONSE);
+        assertThat(node(blob, 1, CodePaths.N_PHASE)).isEqualTo(CodePaths.PHASE_RESPONSE);
+        assertThat(node(blob, 2, CodePaths.N_PHASE)).isEqualTo(CodePaths.PHASE_HANDLER);
+        assertThat(node(blob, 3, CodePaths.N_PHASE)).isEqualTo(CodePaths.PHASE_HANDLER);
+        assertInvariants(blob);
+    }
+
     @Test
     void endClosesCallsStillOpenAndMarksTheFragmentCut() {
         long token = claim();
@@ -629,6 +660,259 @@ class CodePathsTests {
         CodePaths.end();
         assertThat(CodePaths.status()).containsEntry("poolCreated", 0).containsEntry("poolFree", 0);
         // Its fragment was still queued for the next drainer, as the earlier generation's.
+        assertThat(drain(token)).hasSize(1);
+    }
+
+    @Test
+    void aStampNamesTheInnermostOpenNodeOfTheFragment() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int a = id("A");
+        int b = id("B");
+        int c = id("C");
+        List<Long> stamps = new ArrayList<>();
+
+        assertThat(CodePaths.stamp()).isZero();
+        call(a, () -> {
+            stamps.add(CodePaths.stamp());
+            call(b, () -> {
+                stamps.add(CodePaths.stamp());
+                call(c, () -> stamps.add(CodePaths.stamp()));
+                stamps.add(CodePaths.stamp());
+            });
+            call(b, () -> stamps.add(CodePaths.stamp()));
+        });
+        assertThat(CodePaths.stamp()).isZero();
+
+        long[] blob = drain(token).get(0);
+        long sequence = blob[CodePaths.H_SEQUENCE];
+        assertThat(sequence).isPositive();
+        assertThat(blob[CodePaths.H_SUBMITTER]).isZero();
+        assertThat(nodes(blob)).containsExactly("-1:A:1", "0:B:2", "1:C:1");
+        assertThat(stamps)
+                .allSatisfy(stamp -> assertThat(CodePaths.stampSequence(stamp)).isEqualTo(sequence));
+        assertThat(stamps.stream().map(CodePaths::stampNode).toList()).containsExactly(0, 1, 2, 1, 1);
+        assertThat(stamps.stream().map(CodePaths::stampMethod).toList()).containsExactly(a, b, c, b, b);
+    }
+
+    @Test
+    void eachFragmentTakesTheNextSequence() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int a = id("A");
+        long[] stamps = new long[2];
+
+        call(a, () -> stamps[0] = CodePaths.stamp());
+        call(a, () -> stamps[1] = CodePaths.stamp());
+
+        List<long[]> blobs = drain(token);
+        assertThat(blobs).hasSize(2);
+        assertThat(blobs.get(1)[CodePaths.H_SEQUENCE]).isEqualTo(blobs.get(0)[CodePaths.H_SEQUENCE] + 1);
+        assertThat(CodePaths.stampSequence(stamps[0])).isEqualTo(blobs.get(0)[CodePaths.H_SEQUENCE]);
+        assertThat(CodePaths.stampSequence(stamps[1])).isEqualTo(blobs.get(1)[CodePaths.H_SEQUENCE]);
+    }
+
+    @Test
+    void aCallPastTheDepthCapStampsTheDeepestRecordedNode() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int[] chain = new int[CodePaths.MAX_DEPTH + 3];
+        for (int i = 0; i < chain.length; i++) {
+            chain[i] = id("D" + i);
+        }
+        long[] deepest = new long[1];
+
+        nestThen(chain, 0, () -> deepest[0] = CodePaths.stamp());
+
+        long[] blob = drain(token).get(0);
+        assertThat(CodePaths.stampNode(deepest[0])).isEqualTo(CodePaths.MAX_DEPTH - 1);
+        assertThat(CodePaths.stampMethod(deepest[0])).isEqualTo(chain[CodePaths.MAX_DEPTH - 1]);
+        assertThat(CodePaths.stampSequence(deepest[0])).isEqualTo(blob[CodePaths.H_SEQUENCE]);
+    }
+
+    @Test
+    void anOtherNodeStampsWithoutAMethod() {
+        assertThat(CodePaths.stampMethod(CodePaths.pack(7L, 3, CodePaths.OTHER)))
+                .isEqualTo(CodePaths.OTHER);
+        assertThat(CodePaths.stampNode(CodePaths.pack(7L, 511, 5))).isEqualTo(511);
+        long largest = CodePaths.pack(CodePaths.MAX_SEQUENCE, 511, CodeInventory.MAX_METHODS - 1);
+        assertThat(largest).isPositive();
+        assertThat(CodePaths.stampSequence(largest)).isEqualTo(CodePaths.MAX_SEQUENCE);
+        assertThat(CodePaths.stampMethod(largest)).isEqualTo(CodeInventory.MAX_METHODS - 1);
+    }
+
+    @Test
+    void anotherThreadStampsNothing() throws Exception {
+        claim();
+        context.set(owner(REQUEST, null));
+        AtomicReference<Long> other = new AtomicReference<>();
+        call(id("A"), () -> {
+            Thread thread = new Thread(() -> other.set(CodePaths.stamp()));
+            thread.start();
+            try {
+                thread.join(5_000);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            assertThat(CodePaths.stamp()).isNotZero();
+        });
+        assertThat(other.get()).isZero();
+    }
+
+    @Test
+    void aStampIsZeroWhileTheSensorIsOffOrWithoutAnOwner() {
+        int a = id("A");
+        long[] stamp = new long[1];
+        call(a, () -> stamp[0] = CodePaths.stamp());
+        assertThat(stamp[0]).isZero();
+
+        claim(List.of("inventory"), null);
+        context.set(owner(REQUEST, null));
+        call(a, () -> stamp[0] = CodePaths.stamp());
+        assertThat(stamp[0]).isZero();
+
+        claim();
+        context.set(null);
+        call(a, () -> stamp[0] = CodePaths.stamp());
+        assertThat(stamp[0]).isZero();
+    }
+
+    @Test
+    void theSequenceWrapsToOneAndNeverStampsZero() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int a = id("A");
+        long[] stamps = new long[2];
+        CodePaths.sequence(CodePaths.MAX_SEQUENCE - 1);
+
+        call(a, () -> stamps[0] = CodePaths.stamp());
+        call(a, () -> stamps[1] = CodePaths.stamp());
+
+        List<long[]> blobs = drain(token);
+        assertThat(blobs.get(0)[CodePaths.H_SEQUENCE]).isEqualTo(CodePaths.MAX_SEQUENCE);
+        assertThat(blobs.get(1)[CodePaths.H_SEQUENCE]).isEqualTo(1L);
+        assertThat(CodePaths.stampSequence(stamps[0])).isEqualTo(CodePaths.MAX_SEQUENCE);
+        assertThat(stamps[0]).isPositive();
+        assertThat(CodePaths.stampSequence(stamps[1])).isEqualTo(1L);
+        assertThat(stamps[1]).isNotZero();
+    }
+
+    @Test
+    void aHandoffFragmentRecordsItsSubmitterUntilTheWorkEnds() {
+        long token = claim();
+        int a = id("A");
+        long submitter = CodePaths.pack(42L, 3, a);
+
+        context.set(owner(REQUEST, "async-00000000000000cd"));
+        CodePaths.handoff(submitter);
+        call(a, null);
+        CodePaths.handoffDone();
+        call(a, null);
+        // The request's own work never records a submitter, even when one is set.
+        context.set(owner(REQUEST, null));
+        CodePaths.handoff(submitter);
+        call(a, null);
+        CodePaths.handoffDone();
+
+        List<long[]> blobs = drain(token);
+        assertThat(blobs).hasSize(3);
+        assertThat(blobs.get(0)[CodePaths.H_SUBMITTER]).isEqualTo(submitter);
+        assertThat(blobs.get(1)[CodePaths.H_SUBMITTER]).isZero();
+        assertThat(blobs.get(2)[CodePaths.H_SUBMITTER]).isZero();
+    }
+
+    @Test
+    void workAnExecutorRanOnTheSubmittingThreadRestoresTheOuterSubmitter() {
+        long token = claim();
+        int a = id("A");
+        long outer = CodePaths.pack(42L, 3, a);
+        long inner = CodePaths.pack(43L, 1, a);
+        context.set(owner(REQUEST, "async-00000000000000cd"));
+
+        CodePaths.handoff(outer);
+        call(a, null);
+        // A caller-runs or direct executor runs nested work on this thread, inside the outer work.
+        CodePaths.handoff(inner);
+        call(a, null);
+        CodePaths.handoffDone();
+        call(a, null);
+        CodePaths.handoffDone();
+        call(a, null);
+        // An unmatched end never leaves a stale submitter.
+        CodePaths.handoffDone();
+        call(a, null);
+
+        List<long[]> blobs = drain(token);
+        assertThat(blobs).hasSize(5);
+        assertThat(blobs.stream().map(blob -> blob[CodePaths.H_SUBMITTER]).toList())
+                .containsExactly(outer, inner, outer, 0L, 0L);
+    }
+
+    @Test
+    void nestedHandoffsPastTheBoundEndWithoutASubmitter() {
+        long token = claim();
+        int a = id("A");
+        context.set(owner(REQUEST, "async-00000000000000cd"));
+        for (int i = 1; i <= CodePaths.MAX_HANDOFFS + 1; i++) {
+            CodePaths.handoff(CodePaths.pack(i, 0, a));
+        }
+        CodePaths.handoffDone();
+        call(a, null);
+        for (int i = 0; i < CodePaths.MAX_HANDOFFS; i++) {
+            CodePaths.handoffDone();
+        }
+        call(a, null);
+
+        List<long[]> blobs = drain(token);
+        // Past the bound, the replaced submitter is not kept; within it, every one is restored.
+        assertThat(blobs.get(0)[CodePaths.H_SUBMITTER]).isZero();
+        assertThat(blobs.get(1)[CodePaths.H_SUBMITTER]).isZero();
+    }
+
+    /**
+     * I5: a transaction interceptor commits after the {@code @Transactional} method returned, so a statement Hibernate
+     * flushes at commit is stamped to the method that called it, not to the transactional method.
+     */
+    @Test
+    void aStatementFlushedAtCommitIsStampedToTheCallerOfTheTransactionalMethod() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int controller = id("Controller");
+        int transactional = id("Service");
+        long[] stamps = new long[2];
+
+        call(controller, () -> {
+            // The interceptor proceeds into the target, which issues its own statements there...
+            call(transactional, () -> stamps[0] = CodePaths.stamp());
+            // ...then commits once it returned: the flush runs with only the caller open.
+            stamps[1] = CodePaths.stamp();
+        });
+
+        drain(token);
+        assertThat(CodePaths.stampMethod(stamps[0])).isEqualTo(transactional);
+        assertThat(CodePaths.stampMethod(stamps[1])).isEqualTo(controller);
+    }
+
+    @Test
+    void aCallOutsideEveryInstrumentedMethodOfAnOpenFragmentStampsOutside() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int a = id("A");
+        long[] stamps = new long[3];
+
+        CodePaths.begin();
+        // A filter, before the handler: the begun fragment is open, no instrumented call is.
+        stamps[0] = CodePaths.stamp();
+        call(a, () -> stamps[1] = CodePaths.stamp());
+        // The response write, or a commit after the outermost instrumented method returned.
+        stamps[2] = CodePaths.stamp();
+        CodePaths.end();
+
+        assertThat(stamps[0]).isEqualTo(CodePaths.STAMP_OUTSIDE);
+        assertThat(stamps[1]).isPositive();
+        assertThat(stamps[2]).isEqualTo(CodePaths.STAMP_OUTSIDE);
+        // Without a fragment on the thread, as on another thread, the stamp is 0, not outside.
+        assertThat(CodePaths.stamp()).isZero();
         assertThat(drain(token)).hasSize(1);
     }
 
@@ -817,6 +1101,14 @@ class CodePathsTests {
             return;
         }
         call(chain[at], () -> nest(chain, at + 1));
+    }
+
+    private static void nestThen(int[] chain, int at, Runnable innermost) {
+        if (at == chain.length) {
+            innermost.run();
+            return;
+        }
+        call(chain[at], () -> nestThen(chain, at + 1, innermost));
     }
 
     private static void call(int id, Runnable body) {

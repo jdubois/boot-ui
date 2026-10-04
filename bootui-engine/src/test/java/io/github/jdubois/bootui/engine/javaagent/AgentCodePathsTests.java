@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -116,6 +117,106 @@ class AgentCodePathsTests {
                 .satisfies(blob ->
                         assertThat(blob[CodePaths.HEADER + CodePaths.N_PHASE]).isEqualTo(CodePaths.PHASE_UNKNOWN));
         claim.disarm();
+    }
+
+    @Test
+    void withoutTheAgentOrWithOnePredatingStampsEveryStampIsZero() {
+        AgentCodePaths.bind(null);
+        assertThat(AgentCodePaths.stamp()).isZero();
+
+        AgentCodePaths.bind(PreStampCodePaths.class);
+        assertThat(AgentCodePaths.bound())
+                .as("begin, end, and phase still bind")
+                .isTrue();
+        assertThat(AgentCodePaths.stamp()).isZero();
+    }
+
+    /**
+     * M5-4c: SQL, REST client, and cache recorders stamp what they record on the issuing thread with the innermost
+     * open node; a REST call whose thread kind was captured elsewhere, as a WebClient response, and anything recorded
+     * outside a fragment, carry none.
+     */
+    @Test
+    void recordersStampTheirCallsWithTheInnermostOpenNodeOnTheIssuingThread() {
+        AgentCodePaths.bind(CodePaths.class);
+        AgentClaim claim = AgentClaim.claim(Bridges.access(), "shop", "shop@1", "dev", List.of("shop"));
+        CorrelationContext request = CorrelationContext.forRequest("00000000000000ab");
+        claim.attach(new AgentHandoffs(() -> request, null, null));
+        int repository = CodeInventory.methodId("shop.OwnerService#findAll()V");
+        List<io.github.jdubois.bootui.engine.journal.RuntimeEvent> published = new ArrayList<>();
+        io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder sql =
+                new io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder(
+                        true, true, false, false, 10, 500, 2000, 200, 5);
+        sql.setRuntimeEventSink(published::add);
+        io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder rest =
+                new io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder(
+                        true, true, true, false, 8, 500, 2000, 200, 5);
+        rest.setRuntimeEventSink(published::add);
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cache =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        cache.setRuntimeEventSink(published::add);
+        long[] open = new long[1];
+
+        int token = CodePaths.enter(repository);
+        try {
+            open[0] = AgentCodePaths.stamp();
+            recordSql(sql);
+            rest.recordNanos(
+                    "GET",
+                    "http://h/x",
+                    "h",
+                    "/x",
+                    200,
+                    1L,
+                    true,
+                    null,
+                    "RestClient",
+                    Map.of(),
+                    "main",
+                    null,
+                    request,
+                    null);
+            rest.recordNanos(
+                    "GET",
+                    "http://h/x",
+                    "h",
+                    "/x",
+                    200,
+                    1L,
+                    true,
+                    null,
+                    "WebClient",
+                    Map.of(),
+                    "loop",
+                    null,
+                    request,
+                    io.github.jdubois.bootui.spi.ThreadKind.EVENT_LOOP);
+            cache.recordHit("caffeine", "owners", "k");
+        } finally {
+            CodePaths.exit(token);
+        }
+        recordSql(sql);
+
+        assertThat(open[0]).isEqualTo(CodePaths.pack(CodePaths.stampSequence(open[0]), 0, repository));
+        assertThat(published)
+                .extracting(event -> io.github.jdubois.bootui.engine.codepaths.CodePathStamps.of(event))
+                .containsExactly(open[0], open[0], 0L, open[0], 0L);
+        claim.disarm();
+    }
+
+    private static void recordSql(io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder sql) {
+        sql.recordNanos(
+                io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType.STATEMENT,
+                io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category.SELECT,
+                "select * from owners",
+                List.of(),
+                1_000L,
+                true,
+                null,
+                null,
+                0,
+                "c1",
+                "main");
     }
 
     @Test

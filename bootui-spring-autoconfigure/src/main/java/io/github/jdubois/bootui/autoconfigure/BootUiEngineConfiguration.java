@@ -104,6 +104,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -496,7 +497,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<AgentClaimOwner> owner,
             ObjectProvider<JavaAgentService> javaAgent,
             ObjectProvider<JournalAggregates> aggregates,
-            ObjectProvider<RuntimeJournal> journal) {
+            ObjectProvider<RuntimeJournal> journal,
+            ObjectProvider<BeanProvider> beans) {
         CodePathsService service = new CodePathsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -514,6 +516,8 @@ public class BootUiEngineConfiguration {
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         // Route trees and request outcomes are HTTP Exchanges evidence (docs/PLAN-v2.md §8).
         service.setRoutesVisible(() -> properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES));
+        // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
+        service.setStructure(() -> StructureSnapshots.read(null, beans.getIfUnique(), null));
         return service;
     }
 

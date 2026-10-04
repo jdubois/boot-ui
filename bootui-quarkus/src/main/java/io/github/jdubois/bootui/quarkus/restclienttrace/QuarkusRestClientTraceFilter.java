@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.restclienttrace;
 
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import io.github.jdubois.bootui.engine.support.SensitiveNames;
@@ -46,7 +47,9 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
                             System.nanoTime(),
                             recorder.currentTraceId(),
                             recorder.currentCorrelation(),
-                            recorder.currentThreadKind()));
+                            recorder.currentThreadKind(),
+                            // The request filter runs where the call is issued; its response may arrive elsewhere.
+                            AgentCodePaths.stamp()));
         } catch (RuntimeException failure) {
             logCaptureFailure(failure);
         }
@@ -76,7 +79,8 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
                     Thread.currentThread().getName(),
                     capture.traceId(),
                     capture.caller(),
-                    capture.threadKind());
+                    capture.threadKind(),
+                    capture.codePathStamp());
         } catch (RuntimeException failure) {
             // Capture must not change the response observed by the application.
             logCaptureFailure(failure);
@@ -86,7 +90,7 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
     private static RequestCapture requestCapture(Object capture) {
         return capture instanceof RequestCapture requestCapture
                 ? requestCapture
-                : new RequestCapture(System.nanoTime(), null, CorrelationContext.NONE, null);
+                : new RequestCapture(System.nanoTime(), null, CorrelationContext.NONE, null, 0L);
     }
 
     private static long elapsedNanos(RequestCapture capture) {
@@ -198,5 +202,6 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
 
     record CapturedUri(String value, String host, String path) {}
 
-    private record RequestCapture(long startNanos, String traceId, CorrelationContext caller, ThreadKind threadKind) {}
+    private record RequestCapture(
+            long startNanos, String traceId, CorrelationContext caller, ThreadKind threadKind, long codePathStamp) {}
 }

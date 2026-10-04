@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.cache;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.CachePayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -135,7 +136,10 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
             }
             RuntimeEventSink sink = journal;
             // Walk the stack only when the journal records cache accesses, since the cache panel needs no frames.
-            ApplicationFrames frames = sink.records(JournalSource.CACHE) ? ApplicationFrames.capture() : null;
+            boolean toJournal = sink.records(JournalSource.CACHE);
+            ApplicationFrames frames = toJournal ? ApplicationFrames.capture() : null;
+            // The accessing thread's innermost instrumented method, when the BootUI agent records code paths (§5.14).
+            long codePathStamp = toJournal ? AgentCodePaths.stamp() : 0L;
             sink.offer(RuntimeEvent.of(
                     JournalSource.CACHE,
                     event.timestampMillis(),
@@ -145,7 +149,7 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
                     event.thread(),
                     null,
                     false,
-                    new CachePayload(cacheName, operation.name(), frames)));
+                    new CachePayload(cacheName, operation.name(), frames, codePathStamp)));
             notifyListeners();
         } catch (RuntimeException ex) {
             // Recording must never disrupt the cache access it observes.

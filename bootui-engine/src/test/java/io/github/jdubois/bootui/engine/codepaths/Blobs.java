@@ -14,6 +14,8 @@ final class Blobs {
     private long end;
     private long dropped;
     private int flags;
+    private long sequence;
+    private long submitter;
     private final List<long[]> nodes = new ArrayList<>();
 
     private Blobs(long generation, long request, long execution, int kind) {
@@ -47,6 +49,18 @@ final class Blobs {
         return this;
     }
 
+    /** The fragment's sequence, which its nodes' stamps carry. */
+    Blobs sequence(long value) {
+        sequence = value;
+        return this;
+    }
+
+    /** The stamp of the node that submitted a handoff's work. */
+    Blobs submitter(long stamp) {
+        submitter = stamp;
+        return this;
+    }
+
     /** A node: parent index, method id, phase, calls, total, children's total. */
     Blobs node(int parent, int method, int phase, long calls, long total, long child) {
         nodes.add(new long[] {parent, method, phase, calls, total, child});
@@ -65,8 +79,22 @@ final class Blobs {
         blob[CodePathFragment.H_NODES] = nodes.size();
         blob[CodePathFragment.H_DROPPED] = dropped;
         blob[CodePathFragment.H_START_MILLIS] = 1_000L + start / 1_000_000L;
+        blob[CodePathFragment.H_SEQUENCE] = sequence;
+        blob[CodePathFragment.H_SUBMITTER] = submitter;
         for (int i = 0; i < nodes.size(); i++) {
             System.arraycopy(nodes.get(i), 0, blob, CodePathFragment.HEADER + i * CodePathFragment.NODE, 6);
+        }
+        return blob;
+    }
+
+    /** The blob as an agent predating stamps flushed it: version 1, without a sequence or submitter. */
+    long[] blobVersion1() {
+        long[] blob = new long[CodePathFragment.HEADER_1 + nodes.size() * CodePathFragment.NODE];
+        long[] current = blob();
+        System.arraycopy(current, 0, blob, 0, CodePathFragment.HEADER_1);
+        blob[CodePathFragment.H_VERSION] = CodePathFragment.VERSION_1;
+        for (int i = 0; i < nodes.size(); i++) {
+            System.arraycopy(nodes.get(i), 0, blob, CodePathFragment.HEADER_1 + i * CodePathFragment.NODE, 6);
         }
         return blob;
     }

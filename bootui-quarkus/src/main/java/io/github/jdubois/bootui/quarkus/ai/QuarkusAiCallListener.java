@@ -8,6 +8,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import dev.langchain4j.model.output.TokenUsage;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.AiCallEvents;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -49,7 +50,9 @@ public class QuarkusAiCallListener implements ChatModelListener {
                                     System.nanoTime(),
                                     System.currentTimeMillis(),
                                     correlation.current(),
-                                    Thread.currentThread().getName()));
+                                    Thread.currentThread().getName(),
+                                    Thread.currentThread(),
+                                    AgentCodePaths.stamp()));
         } catch (RuntimeException | LinkageError ex) {
             // Recording never disturbs the call it observes.
         }
@@ -119,7 +122,18 @@ public class QuarkusAiCallListener implements ChatModelListener {
                 completed - started.nanos(),
                 completed,
                 started.thread(),
-                new AiPayload(AiPayload.CHAT, provider, model, inputTokens, outputTokens, finishReason, failed));
+                new AiPayload(
+                        AiPayload.CHAT,
+                        provider,
+                        model,
+                        inputTokens,
+                        outputTokens,
+                        finishReason,
+                        failed,
+                        null,
+                        -1,
+                        // Stamped only when the call ended where it started: a streaming call ends elsewhere (§5.14).
+                        Thread.currentThread() == started.starter() ? started.codePathStamp() : 0L));
     }
 
     /** A provider's name as GenAI spans name it, such as {@code openai} for {@code OPEN_AI}. */
@@ -133,5 +147,11 @@ public class QuarkusAiCallListener implements ChatModelListener {
                 : request.parameters().modelName();
     }
 
-    private record Started(long nanos, long epochMillis, CorrelationContext correlation, String thread) {}
+    private record Started(
+            long nanos,
+            long epochMillis,
+            CorrelationContext correlation,
+            String thread,
+            Thread starter,
+            long codePathStamp) {}
 }

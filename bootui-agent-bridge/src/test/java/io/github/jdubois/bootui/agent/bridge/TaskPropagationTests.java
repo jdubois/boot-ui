@@ -62,6 +62,109 @@ class TaskPropagationTests {
     }
 
     @Test
+    void anOwnedTaskCarriesTheSubmittingNodesStampToItsFragment() {
+        AgentBridge.reset();
+        AgentBridge.install(request -> Map.of("status", "ok"));
+        Object[] execution = new Object[] {"00000000000000ab", "async-00000000000000cd", null, null};
+        capture = owner::get;
+        reopen = argument -> {
+            owner.set(execution);
+            return (AutoCloseable) owner::remove;
+        };
+        long token = (Long) AgentBridge.claim(
+                        request(List.of(), List.of(TaskPropagation.SENSOR, CodePaths.SENSOR)), capture, reopen)
+                .get("token");
+        int service = CodeInventory.methodId("com.example.Shop#order()V");
+        int worker = CodeInventory.methodId("com.example.Mailer#send()V");
+        Runnable task = () -> {};
+        Runnable other = () -> {};
+        long[] submitter = new long[1];
+
+        owner.set(new Object[] {"00000000000000ab", null, null, null});
+        int open = CodePaths.enter(service);
+        submitter[0] = CodePaths.stamp();
+        TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL);
+        CodePaths.exit(open);
+        // The same task submitted by the same owner from two nodes keeps no stamp.
+        open = CodePaths.enter(service);
+        TaskPropagation.submitted(other, TaskPropagation.KEY_THREAD_POOL);
+        int nested = CodePaths.enter(worker);
+        TaskPropagation.submitted(other, TaskPropagation.KEY_THREAD_POOL);
+        CodePaths.exit(nested);
+        CodePaths.exit(open);
+        owner.remove();
+
+        Object handle = TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER);
+        CodePaths.exit(CodePaths.enter(worker));
+        TaskPropagation.exit(handle, null);
+        handle = TaskPropagation.enter(other, TaskPropagation.APPLY_RUN_WORKER);
+        CodePaths.exit(CodePaths.enter(worker));
+        TaskPropagation.exit(handle, null);
+        TaskPropagation.exit(TaskPropagation.enter(other, TaskPropagation.APPLY_RUN_WORKER), null);
+
+        List<long[]> blobs = new ArrayList<>();
+        CodePaths.drain(token, blobs::add);
+        assertThat(blobs).hasSize(4);
+        long[] request = blobs.get(0);
+        long[] handoff = blobs.get(2);
+        assertThat(handoff[CodePaths.H_EXECUTION]).isEqualTo(0xcdL);
+        assertThat(handoff[CodePaths.H_SUBMITTER]).isEqualTo(submitter[0]).isNotZero();
+        assertThat(CodePaths.stampSequence(submitter[0])).isEqualTo(request[CodePaths.H_SEQUENCE]);
+        assertThat(CodePaths.stampMethod(submitter[0])).isEqualTo(service);
+        assertThat(blobs.get(3)[CodePaths.H_SUBMITTER]).isZero();
+        // Once the work is over, the thread's next fragment has no submitter.
+        assertThat(CodePaths.stamp()).isZero();
+    }
+
+    @Test
+    void workRunOnTheSubmittingThreadInsideOtherWorkRestoresItsSubmitter() {
+        AgentBridge.reset();
+        AgentBridge.install(request -> Map.of("status", "ok"));
+        Object[] execution = new Object[] {"00000000000000ab", "async-00000000000000cd", null, null};
+        capture = owner::get;
+        reopen = argument -> {
+            Object previous = owner.get();
+            owner.set(execution);
+            return (AutoCloseable) () -> owner.set(previous);
+        };
+        long token = (Long) AgentBridge.claim(
+                        request(List.of(), List.of(TaskPropagation.SENSOR, CodePaths.SENSOR)), capture, reopen)
+                .get("token");
+        int service = CodeInventory.methodId("com.example.Shop#order()V");
+        int worker = CodeInventory.methodId("com.example.Mailer#send()V");
+        Runnable outer = () -> {};
+        Runnable inner = () -> {};
+        long[] stamps = new long[2];
+
+        owner.set(new Object[] {"00000000000000ab", null, null, null});
+        int open = CodePaths.enter(service);
+        stamps[0] = CodePaths.stamp();
+        TaskPropagation.submitted(outer, TaskPropagation.KEY_THREAD_POOL);
+        CodePaths.exit(open);
+        owner.remove();
+
+        Object outerHandle = TaskPropagation.enter(outer, TaskPropagation.APPLY_RUN_WORKER);
+        // The outer work submits more work, which a caller-runs executor runs right here.
+        open = CodePaths.enter(worker);
+        stamps[1] = CodePaths.stamp();
+        TaskPropagation.submitted(inner, TaskPropagation.KEY_THREAD_POOL);
+        CodePaths.exit(open);
+        Object innerHandle = TaskPropagation.enter(inner, TaskPropagation.APPLY_RUN_WORKER);
+        CodePaths.exit(CodePaths.enter(service));
+        TaskPropagation.exit(innerHandle, null);
+        // Back in the outer work: its next fragment still names the outer submitter.
+        CodePaths.exit(CodePaths.enter(worker));
+        TaskPropagation.exit(outerHandle, null);
+
+        List<long[]> blobs = new ArrayList<>();
+        CodePaths.drain(token, blobs::add);
+        assertThat(stamps[0]).isPositive();
+        assertThat(stamps[1]).isPositive();
+        assertThat(blobs.stream().map(blob -> blob[CodePaths.H_SUBMITTER]).toList())
+                .containsExactly(0L, stamps[0], stamps[1], stamps[0]);
+    }
+
+    @Test
     void theSameOwnerSubmittingTwiceAtDifferentTimesIsNotAmbiguous() {
         Runnable task = () -> {};
         owner.set(new Object[] {"r1", null, null, null, null, null, null, 1L, 10L});
@@ -569,11 +672,15 @@ class TaskPropagationTests {
     }
 
     private static Map<String, Object> request(List<String> skipTasks) {
+        return request(skipTasks, List.of(TaskPropagation.SENSOR));
+    }
+
+    private static Map<String, Object> request(List<String> skipTasks, List<String> sensors) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("application", "shop");
         request.put("mode", "dev");
         request.put("packages", List.of("com.example"));
-        request.put("sensors", List.of(TaskPropagation.SENSOR));
+        request.put("sensors", sensors);
         request.put("executors", Map.of("skipTasks", skipTasks, "skipThreads", List.of("vert.x-")));
         return request;
     }

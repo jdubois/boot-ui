@@ -188,9 +188,13 @@ unknown tool): `bootui agent status --json` says why.
 
 With the agent attached, run `bootui code paths --json` (`get_code_paths`): routes ranked by their warm median, each
 with its top application methods by self time per request. Pass a route as `--query` (for example
-`"GET /api/orders/{id}"`) to get that route's method nodes with the most self time. A method's self time still includes
-the SQL and REST calls it waited on, so read it beside `bootui insights list --json`, whose `route-time-breakdown` names
-the same methods in the handler split. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or
+`"GET /api/orders/{id}"`) to get that route's method nodes with the most self time, each with `calls`: the SQL, REST
+client, cache, and AI calls it issued per request. Those calls are part of its self time, so read it beside
+`bootui insights list --json`, whose `route-time-breakdown` splits the handler by each method's own time, without its
+stamped calls, and whose `repeated-selects` names the method that issued a repeated statement. A statement Hibernate
+flushes at commit shows under the method that called the `@Transactional` one, since the commit runs after it returned.
+A call recorded on another thread than the one that issued it, as a streaming AI call, carries no stamp and shows under
+no method. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or
 asynchronous result, or BootUI could not tell where its work ran: its tree times assembly, not the work, so do not
 optimize from it.
 

@@ -205,6 +205,38 @@ class AgentClaimTests {
         assertThat(bridgeClaim).doesNotContainKey("beanClasses");
     }
 
+    /** I4: bean classes count as instrumented only once the agent accepted them, at the claim or a refine. */
+    @Test
+    void beanClassesAreRecordedOnlyOnceTheAgentAcceptedThem() {
+        AgentClaim first = AgentClaim.claim(
+                access,
+                "app",
+                "app@1",
+                "dev",
+                List.of("com.example"),
+                AgentSensorSettings.defaults(),
+                List.of("com.example.OrderService"));
+        assertThat(first.beanClasses()).containsExactly("com.example.OrderService");
+        AgentClaim second = AgentClaim.claim(access, "app", "app@2", "dev", List.of("com.example"));
+
+        // The replaced run's refine reaches the bridge, which refuses its stale token.
+        assertThat(first.refine(List.of(), List.of("com.example.Cart"))).containsEntry("status", "stale");
+        assertThat(first.beanClasses()).containsExactly("com.example.OrderService");
+
+        AgentClaim held = AgentClaim.claim(
+                access,
+                "other",
+                "other@1",
+                "test",
+                List.of("org.other"),
+                AgentSensorSettings.defaults(),
+                List.of("org.other.Service"));
+        assertThat(held.armed()).isFalse();
+        assertThat(held.beanClasses()).as("never accepted").isEmpty();
+        assertThat(second.refine(List.of(), List.of("com.example.Cart"))).containsEntry("status", "armed");
+        assertThat(second.beanClasses()).containsExactly("com.example.Cart");
+    }
+
     @Test
     void theClaimOwnsOneDrainerUntilItIsDisarmed() {
         AgentClaim claim = AgentClaim.claim(access, "app", "app@1", "dev", List.of());

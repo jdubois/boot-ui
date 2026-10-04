@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.codepaths.CodePathStamps;
 import io.github.jdubois.bootui.engine.codepaths.HandlerMethods;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
@@ -37,11 +38,12 @@ import java.util.function.Function;
  * response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is
  * insufficient, since its breakdown would be one unattributed span.</p>
  *
- * <p>With the BootUI agent's {@code code-paths} sensor ({@code docs/PLAN-v2.md} §5.14, M5-4b), a route whose call tree
- * is not assembly only has its handler's other work split into its top {@value HandlerMethods#TOP} application methods
- * by self time, with the rest as other handler time. Until call sites are stamped on recorded calls, a method's self
- * time includes the calls it waited on, so the split shares only the handler's other work, never the recorded calls
- * already named, in proportion to each method's self time among the handler's methods, and never more than it.</p>
+ * <p>With the BootUI agent's {@code code-paths} sensor ({@code docs/PLAN-v2.md} §5.14, M5-4b and M5-4c), a route whose
+ * call tree is not assembly only has its handler's other work split into its top {@value HandlerMethods#TOP}
+ * application methods by own time, with the rest as other handler time. A method's own time is its self time minus the
+ * recorded calls stamped to it, which the breakdown already names, so the split shares only the handler's other work,
+ * in proportion to each method's own time, and never more than it; a call recorded without a stamp stays in its
+ * method's own time.</p>
  */
 public final class RouteTimeBreakdown implements Observation {
 
@@ -81,10 +83,11 @@ public final class RouteTimeBreakdown implements Observation {
     static final String METHOD_PREFIX = "Handler: ";
 
     /**
-     * The share of the handler phase that recorded calls may take for the handler to be split by method: until call
-     * sites are stamped (M5-4c), a method's self time includes the calls it waited on.
+     * The share of the handler phase that recorded calls without a stamp may take for the handler to be split by
+     * method: such a call, recorded on another thread than the one that issued it, stays in the own time of the method
+     * that waited for it, which would then claim the handler's other work.
      */
-    static final double MAX_SPLIT_CALL_SHARE = 0.10;
+    static final double MAX_UNSTAMPED_SHARE = 0.10;
 
     private volatile Function<String, HandlerMethods> handlerMethods;
 
@@ -187,12 +190,13 @@ public final class RouteTimeBreakdown implements Observation {
 
     /**
      * Splits each warm request's handler work, what the recorded calls left of it, into the route tree's top methods
-     * by self time: each method takes the share its self time per request has of the larger of the handler's methods'
-     * self time and the handler phase's mean length, so the parts never exceed the handler's work, and what is left is
-     * other handler time. A route whose tree is assembly only, or that has none, is not split; nor is one whose
-     * recorded calls take 10 % of its handler phase or more ({@link #MAX_SPLIT_CALL_SHARE}), since until call sites are
-     * stamped (M5-4c) a method's self time includes the calls it waited on, and would claim their caller's share of the
-     * handler's other work.
+     * by own time, a method's self time minus the recorded calls stamped to it (M5-4c): each method takes the share its
+     * own time per request has of the larger of the handler's methods' own time and the handler's mean other work, so the
+     * parts never exceed the handler's work, and what is left is other handler time. A route whose tree is assembly only,
+     * or that has none, is not split; nor is one whose recorded calls all lack a stamp, or whose calls without a stamp
+     * take {@link #MAX_UNSTAMPED_SHARE 10 %} of its handler phase or more: such a call, recorded on another thread than
+     * the one that issued it, stays in the own time of the method that waited for it, which would claim the handler's
+     * other work. Fewer, they still do, which the limitation says.
      */
     private List<Breakdown> splitHandler(String route, List<Breakdown> warm, List<String> limitations) {
         Function<String, HandlerMethods> source = handlerMethods;
@@ -217,45 +221,61 @@ public final class RouteTimeBreakdown implements Observation {
         if (methods.handlerNanos() <= 0 || methods.methods().isEmpty()) {
             return warm;
         }
+        long handlerWork = 0;
         long handlerWindows = 0;
-        long handlerCalls = 0;
         for (Breakdown breakdown : warm) {
+            handlerWork += breakdown.phases().getOrDefault(Phase.HANDLER, 0L);
             handlerWindows += breakdown.handlerWindow();
-            handlerCalls += breakdown.handlerCalls();
         }
-        if (handlerWindows <= 0) {
-            return warm;
+        if (methods.unstampedCalls() > 0) {
+            double unstamped = (double) methods.unstampedNanos() / methods.requests();
+            double window = (double) handlerWindows / warm.size();
+            String calls = InsightText.counted(methods.unstampedCalls(), "recorded call");
+            if (methods.stampedCalls() == 0) {
+                // No call carries a stamp, as with an agent predating call-site stamps: nothing is subtracted.
+                limitations.add("The handler is not split by method: none of its " + calls + " carried a code-paths"
+                        + " stamp, as when they were recorded on another thread than the one that issued them or by an"
+                        + " agent without call-site stamps, so the methods that waited for them would keep their time"
+                        + " and take the handler's other work.");
+                return warm;
+            }
+            if (window <= 0 || unstamped >= window * MAX_UNSTAMPED_SHARE) {
+                String share = window <= 0
+                        ? "an unknown share"
+                        : unstamped * 100 < window ? "under 1 %" : Math.round(unstamped * 100.0 / window) + " %";
+                limitations.add("The handler is not split by method: " + calls + " carried no code-paths stamp, as"
+                        + " recorded on another thread than the one that issued them, and take " + share + " of its"
+                        + " time, which the methods that waited for them would keep and so take the handler's other"
+                        + " work.");
+                return warm;
+            }
         }
-        String callShare = handlerCalls * 100 < handlerWindows ? "under 1 %" : percent(handlerCalls, handlerWindows);
-        if (handlerCalls >= handlerWindows * MAX_SPLIT_CALL_SHARE) {
-            // A method's self time still holds the recorded calls it waited on: with calls this large, a repository
-            // waiting on its SQL would take the handler's other work, so the handler is not split until calls carry
-            // their calling method.
-            limitations.add("The handler is not split by method: recorded calls take " + callShare + " of its time,"
-                    + " and a method's self time from the BootUI agent's code paths still includes the calls it waited"
-                    + " on until recorded calls are stamped with their calling method (call-site stamps, M5-4c).");
-            return warm;
-        }
-        double window = (double) handlerWindows / warm.size();
+        double work = (double) handlerWork / warm.size();
         double perRequest = (double) methods.handlerNanos() / methods.requests();
-        double basis = Math.max(perRequest, window);
+        double basis = Math.max(perRequest, work);
         if (basis <= 0) {
             return warm;
         }
         List<String> labels = new ArrayList<>();
         double[] ratios = new double[methods.methods().size()];
+        // Rows are labelled per method key: overloads and same-named classes in different packages stay apart.
+        List<String> display = CodePathStamps.labels(
+                methods.methods().stream().map(HandlerMethods.Method::key).toList());
         for (int i = 0; i < ratios.length; i++) {
             HandlerMethods.Method method = methods.methods().get(i);
-            labels.add(METHOD_PREFIX + method.label());
-            ratios[i] = Math.min(1.0, ((double) method.selfNanos() / methods.requests()) / basis);
+            labels.add(METHOD_PREFIX + display.get(i));
+            ratios[i] = Math.min(1.0, ((double) method.ownNanos() / methods.requests()) / basis);
         }
-        limitations.add("The handler's other work is split by method from the BootUI agent's code paths over "
-                + InsightText.counted(methods.requests(), "warm request") + ": each method takes the share its self"
-                + " time has of the handler. "
-                + (handlerCalls == 0
-                        ? "No recorded call ran inside the handler, so that self time is the methods' own work."
-                        : "Recorded calls take only " + callShare + " of the handler's time, which a method's self"
-                                + " time still includes, as calls are not stamped with their calling method yet."));
+        String text = "The handler's other work is split by method from the BootUI agent's code paths over "
+                + InsightText.counted(methods.requests(), "warm request")
+                + ": each method takes the share its own time has of the handler, its self time minus the SQL, REST"
+                + " client, cache, and AI calls stamped to it, which are already named.";
+        if (methods.unstampedCalls() > 0) {
+            text += " " + InsightText.counted(methods.unstampedCalls(), "recorded call")
+                    + " carried no stamp, as recorded on another thread than the one that issued them: under 10 % of the"
+                    + " handler's time, which stays in the own time of a method that waited for them.";
+        }
+        limitations.add(text);
         return warm.stream()
                 .map(breakdown -> breakdown.splitHandler(labels, ratios))
                 .toList();
@@ -707,18 +727,6 @@ public final class RouteTimeBreakdown implements Observation {
         }
 
         /**
-         * The recorded calls' time inside the request's handler phase: what they took out of its work, its SQL, REST
-         * client, AI, message, flush, and method authorization time; 0 when unmarked.
-         */
-        long handlerCalls() {
-            long window = handlerWindow();
-            if (window == 0L) {
-                return 0L;
-            }
-            return Math.max(0L, window - phases.getOrDefault(Phase.HANDLER, 0L));
-        }
-
-        /**
          * This breakdown with {@code ratios} of its handler work moved to the methods {@code labels}, in that order;
          * the ratios add up to at most 1, so the handler work never goes negative.
          */
@@ -732,7 +740,8 @@ public final class RouteTimeBreakdown implements Observation {
             long left = handler;
             for (int i = 0; i < labels.size(); i++) {
                 long part = Math.min(left, (long) Math.floor(handler * ratios[i]));
-                named.put(labels.get(i), part);
+                // Merged, never replaced: every part taken from the handler stays in a row.
+                named.merge(labels.get(i), part, Long::sum);
                 left -= part;
             }
             split.put(Phase.HANDLER, left);

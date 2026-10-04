@@ -9,6 +9,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
+  sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
+  instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
+  (a statement Hibernate flushes at commit runs after the `@Transactional` method returned, so it shows under the
+  method that called it), and work an executor ran under the method that submitted it; calls issued while no
+  instrumented method was open, as in a filter or while the response is written, are counted apart from calls recorded
+  on another thread. A new **Beans at runtime** tab lists the calls observed between beans, first requests included,
+  beside the dependencies they declare, with a filter for declared dependencies not called in this run, said only when
+  both beans' classes are instrumented and none of their methods was excluded, else *not observable*; and the runtime
+  model gains observed `INVOKES` edges, which change impact never walks. Runtime Insights' `repeated-selects` names the
+  method that issued the repeats, past an application repository or DAO method to the method that called it, and
+  `route-time-breakdown` splits the handler by each method's own time, its self time minus its stamped calls, unless
+  calls without a stamp take a tenth of the handler or none is stamped. `GET {api}/code-paths/beans` on Spring MVC,
+  Spring WebFlux, and Quarkus; WebClient calls are stamped where they are subscribed, while calls recorded on another
+  thread, as streaming AI calls, carry no stamp. A
+  method entered in another request phase under the same caller is now another node, so response-write time is never
+  split as handler time; overloads and same-named classes keep their own rows in the handler split, and no part of the
+  handler is lost between them; and a slow reactive response's tree, settled before its response completed, now joins
+  its route once the response is recorded ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14,
+  M5-4c).
 - **Code Paths panel, API, and tools.** With the BootUI agent's `code-paths` sensor, the new view-only Code Paths panel
   (Diagnostics) ranks routes by their warm median and shows each route's call tree of application bean methods, merged
   across its warm requests with the first recorded request kept apart: calls per request, total and self time, share of
@@ -17,8 +37,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that ran on an event loop, returned a reactive or asynchronous result, or whose work BootUI could not place (Spring MVC
   requests that start async processing, every Spring WebFlux request, Quarkus endpoints on the event loop or returning
   `Uni`, `Multi`, or `CompletionStage`) is labelled **assembly only**. Runtime Insights' `route-time-breakdown` splits a
-  route's handler work into its top five methods by self time, with the rest as other handler time, while its recorded
-  calls take under 10 % of the handler phase. `GET {api}/code-paths`,
+  route's handler work into its top five methods, with the rest as other handler time. `GET {api}/code-paths`,
   `/code-paths/route`, `/code-paths/requests/{id}`, `get_code_paths`, and `bootui code paths` on Spring MVC, Spring
   WebFlux, and Quarkus; the samples gain a seeded slow route, `GET /api/quotes/{sku}`
   ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14, M5-4b).

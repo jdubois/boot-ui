@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.restclienttrace;
 
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
@@ -24,6 +25,11 @@ import reactor.core.publisher.Mono;
  * can never disrupt the outbound call. Query parameter and header values are passed through raw (only
  * truncated for size); the recorder itself applies exposure-aware masking by name at display time, never at
  * capture time.</p>
+ *
+ * <p>The filter runs when the exchange is subscribed, on the subscribing thread, which issued the call when the caller
+ * blocks on it or subscribes in place: the caller's code-paths stamp ({@code docs/PLAN-v2.md} §5.14, M5-4c) is taken
+ * there, with its correlation, so the call shows under the method that issued it. A call subscribed on another thread,
+ * as with {@code subscribeOn}, takes that thread's stamp, usually none.</p>
  */
 public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
 
@@ -49,9 +55,9 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
 
     private Caller caller() {
         try {
-            return new Caller(recorder.currentCorrelation(), recorder.currentThreadKind());
+            return new Caller(recorder.currentCorrelation(), recorder.currentThreadKind(), AgentCodePaths.stamp());
         } catch (RuntimeException ex) {
-            return new Caller(CorrelationContext.NONE, null);
+            return new Caller(CorrelationContext.NONE, null, 0L);
         }
     }
 
@@ -86,14 +92,15 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
                     Thread.currentThread().getName(),
                     recorder.currentTraceId(),
                     caller.correlation(),
-                    caller.threadKind());
+                    caller.threadKind(),
+                    caller.codePathStamp());
         } catch (RuntimeException ignored) {
             // The response/error has already been emitted downstream by the time this runs - a capture
             // failure must never disrupt the outbound call.
         }
     }
 
-    private record Caller(CorrelationContext correlation, ThreadKind threadKind) {}
+    private record Caller(CorrelationContext correlation, ThreadKind threadKind, long codePathStamp) {}
 
     private static long elapsedNanos(long startNanos) {
         return Math.max(0, System.nanoTime() - startNanos);

@@ -26,6 +26,16 @@ const tree = ref(null)
 const treeError = ref(null)
 const selectedMethod = ref(null)
 
+const TABS = [
+  {id: 'routes', label: 'Routes', icon: 'bi-signpost-split'},
+  {id: 'beans', label: 'Beans at runtime', icon: 'bi-diagram-3'}
+]
+const activeTab = ref(route?.query?.tab === 'beans' ? 'beans' : 'routes')
+const beans = ref(null)
+const beansError = ref(null)
+const beansLoading = ref(false)
+const notCalledOnly = ref(false)
+
 const available = computed(() => summary.value?.available === true)
 // Disabling HTTP Exchanges hides Code Paths' route-keyed trees; attaching the agent would not help.
 const httpExchangesDisabled = computed(
@@ -47,6 +57,9 @@ async function fetchSummary() {
         await loadTree(selectedRoute.value)
       } else {
         tree.value = null
+      }
+      if (activeTab.value === 'beans') {
+        await loadBeans()
       }
     }
   } catch (e) {
@@ -131,6 +144,68 @@ function callerLabel(caller) {
   return methodLabel(caller)
 }
 
+/** What a node's recorded calls of one kind are called, singular or plural by calls per request. */
+const CALL_LABELS = {
+  SQL: ['SQL statement', 'SQL statements', 'bi-database'],
+  REST: ['REST client call', 'REST client calls', 'bi-arrow-left-right'],
+  CACHE: ['Cache access', 'Cache accesses', 'bi-lightning-charge'],
+  AI: ['AI call', 'AI calls', 'bi-stars']
+}
+
+function callLabel(call) {
+  const labels = CALL_LABELS[call.kind] ?? [call.kind, call.kind]
+  return call.callsPerRequest === 1 ? labels[0] : labels[1]
+}
+
+function callIcon(call) {
+  return CALL_LABELS[call.kind]?.[2] ?? 'bi-dot'
+}
+
+function callTitle(node) {
+  return `Issued while ${nodeLabel(node)} was the innermost instrumented method open on their thread`
+}
+
+const hasCalls = computed(() => (tree.value?.nodes ?? []).some((node) => node.calls?.length))
+
+async function loadBeans() {
+  beansError.value = null
+  beansLoading.value = true
+  try {
+    beans.value = await getJson('api/code-paths/beans')
+  } catch (e) {
+    beans.value = null
+    beansError.value = formatLoadError(e, 'Unable to load Beans at runtime')
+  } finally {
+    beansLoading.value = false
+  }
+}
+
+function selectTab(id) {
+  if (activeTab.value === id) return
+  activeTab.value = id
+  if (id === 'beans' && !beans.value) {
+    loadBeans()
+  }
+}
+
+function onTabKeydown(event, index) {
+  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const count = TABS.length
+  let next = index
+  if (event.key === 'ArrowRight') next = (index + 1) % count
+  if (event.key === 'ArrowLeft') next = (index - 1 + count) % count
+  if (event.key === 'Home') next = 0
+  if (event.key === 'End') next = count - 1
+  selectTab(TABS[next].id)
+  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus()
+}
+
+const beanEdges = computed(() => {
+  const edges = beans.value?.edges ?? []
+  return notCalledOnly.value ? edges.filter((edge) => edge.declared && !edge.observed && edge.observable) : edges
+})
+
 function moreNodes(report) {
   const page = report?.page
   return page && page.hasMore ? page.matched - page.offset - page.returned : 0
@@ -190,229 +265,379 @@ function moreNodes(report) {
         </div>
       </section>
 
-      <UnavailableState v-if="!routes.length" icon="bi-hourglass" class="code-paths-empty">
-        No route has a call tree yet. Send requests to the application's routes; each tree settles about two seconds
-        after its request.
-      </UnavailableState>
+      <ul class="nav nav-tabs mb-3" role="tablist" aria-label="Code Paths views">
+        <li v-for="(tab, index) in TABS" :key="tab.id" class="nav-item" role="presentation">
+          <button
+            :id="`code-paths-tab-${tab.id}`"
+            :aria-controls="`code-paths-panel-${tab.id}`"
+            :aria-selected="activeTab === tab.id"
+            :class="{active: activeTab === tab.id}"
+            :tabindex="activeTab === tab.id ? 0 : -1"
+            class="nav-link"
+            role="tab"
+            type="button"
+            @click="selectTab(tab.id)"
+            @keydown="onTabKeydown($event, index)"
+          >
+            <i :class="['bi', tab.icon, 'me-1']" aria-hidden="true"></i>{{ tab.label }}
+          </button>
+        </li>
+      </ul>
 
-      <template v-else>
-        <section class="mb-4" aria-labelledby="code-paths-routes-heading">
-          <h3 id="code-paths-routes-heading" class="h6 text-muted mb-2">Routes by warm median</h3>
-          <div class="table-responsive">
-            <table class="table table-sm align-middle code-paths-table code-paths-routes">
-              <caption class="visually-hidden">
-                Routes with a call tree, slowest warm median first
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Route</th>
-                  <th scope="col" class="text-end">Warm requests</th>
-                  <th scope="col" class="text-end">Median (ms)</th>
-                  <th scope="col" class="text-end">p95 (ms)</th>
-                  <th scope="col" class="text-end">First request (ms)</th>
-                  <th scope="col">Top method by self time</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in routes" :key="row.route" :class="{'table-active': row.route === selectedRoute}">
-                  <td>
-                    <button
-                      :aria-pressed="row.route === selectedRoute"
-                      class="btn btn-link p-0 text-start code-paths-route"
-                      type="button"
-                      @click="selectRoute(row.route)"
-                    >
-                      <code class="bootui-break-anywhere">{{ row.route }}</code>
-                    </button>
-                    <span v-if="row.assemblyOnly" class="badge text-bg-secondary ms-2 code-paths-assembly">
-                      Assembly only
-                    </span>
-                  </td>
-                  <td class="text-end">{{ formatNumber(row.warmRequests) }}</td>
-                  <td class="text-end">{{ row.warmRequests ? formatMillis(row.p50Millis) : '—' }}</td>
-                  <td class="text-end">{{ row.warmRequests ? formatMillis(row.p95Millis) : '—' }}</td>
-                  <td class="text-end">{{ formatMillis(row.firstRequestMillis) }}</td>
-                  <td>
-                    <template v-if="row.topMethods?.length">
-                      <code>{{ methodLabel(row.topMethods[0].method) }}</code>
-                      <span class="small text-muted ms-1">
-                        {{ formatMillis(row.topMethods[0].selfMillis) }} ms · {{ row.topMethods[0].share }} %
-                      </span>
-                    </template>
-                    <span v-else class="text-muted">—</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+      <section
+        v-if="activeTab === 'routes'"
+        id="code-paths-panel-routes"
+        aria-labelledby="code-paths-tab-routes"
+        role="tabpanel"
+        tabindex="0"
+      >
+        <UnavailableState v-if="!routes.length" icon="bi-hourglass" class="code-paths-empty">
+          No route has a call tree yet. Send requests to the application's routes; each tree settles about two seconds
+          after its request.
+        </UnavailableState>
 
-        <section v-if="selectedRoute" class="mb-4" aria-labelledby="code-paths-tree-heading">
-          <h3 id="code-paths-tree-heading" class="h5 fw-semibold mb-2">
-            <code class="bootui-break-anywhere">{{ selectedRoute }}</code>
-          </h3>
-          <div v-if="treeError" class="alert alert-danger" role="alert">{{ treeError }}</div>
-          <p v-else-if="!tree" class="small text-muted">Loading…</p>
-          <template v-else>
-            <div v-if="tree.assemblyOnly" class="alert alert-secondary small code-paths-assembly-note" role="note">
-              <strong>Assembly only.</strong> This route's handler ran on an event loop, returned a reactive or
-              asynchronous result, or BootUI could not tell where its work ran, so its tree times the handler's
-              assembly, not the work that ran later or elsewhere, and Runtime Insights does not split its handler by
-              method.
-            </div>
-            <p class="small mb-2 code-paths-tree-summary">
-              <strong>{{ formatNumber(tree.warmRequests) }}</strong> warm requests, mean
-              <strong>{{ formatMillis(tree.ownMillis) }} ms</strong> of their own time<template
-                v-if="tree.handlerMillis != null"
-              >
-                , <strong>{{ formatMillis(tree.handlerMillis) }} ms</strong> of it in the handler's application methods
-              </template>
-              <template v-if="tree.firstRequestMillis != null">
-                · first recorded request {{ formatMillis(tree.firstRequestMillis) }} ms, kept apart</template
-              >. Times are per warm request; medians are approximate (≈), from log2 buckets.
-            </p>
-            <p v-if="!tree.nodes.length" class="text-muted small">
-              Only the route's first recorded request, kept apart, was recorded: send it again to build its warm tree.
-            </p>
-            <div v-else class="table-responsive">
-              <table class="table table-sm align-middle code-paths-table code-paths-tree">
+        <template v-else>
+          <section class="mb-4" aria-labelledby="code-paths-routes-heading">
+            <h3 id="code-paths-routes-heading" class="h6 text-muted mb-2">Routes by warm median</h3>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle code-paths-table code-paths-routes">
                 <caption class="visually-hidden">
-                  The call tree of
-                  {{
-                    selectedRoute
-                  }}, each method under its caller
+                  Routes with a call tree, slowest warm median first
                 </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Method</th>
-                    <th scope="col" class="text-end">Calls per request</th>
-                    <th scope="col" class="text-end">Total (ms)</th>
-                    <th scope="col" class="text-end">Self (ms)</th>
-                    <th scope="col" class="text-end">
-                      <span title="Approximate: interpolated within log2 buckets of per-request time"
-                        >Median (≈ ms)</span
-                      >
-                    </th>
-                    <th scope="col" class="code-paths-share-column">{{ shareLabel }}</th>
+                    <th scope="col">Route</th>
+                    <th scope="col" class="text-end">Warm requests</th>
+                    <th scope="col" class="text-end">Median (ms)</th>
+                    <th scope="col" class="text-end">p95 (ms)</th>
+                    <th scope="col" class="text-end">First request (ms)</th>
+                    <th scope="col">Top method by self time</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr
-                    v-for="node in tree.nodes"
-                    :key="node.id"
-                    :class="{
-                      'code-paths-async': node.async,
-                      'table-active': node.method && node.method === selectedMethod
-                    }"
-                  >
+                  <tr v-for="row in routes" :key="row.route" :class="{'table-active': row.route === selectedRoute}">
                     <td>
-                      <div class="code-paths-indent" :style="{paddingInlineStart: `${node.depth * 1.1}rem`}">
-                        <button
-                          v-if="node.kind === 'METHOD'"
-                          :aria-pressed="node.method === selectedMethod"
-                          :title="node.method"
-                          class="btn btn-link p-0 text-start code-paths-method"
-                          type="button"
-                          @click="selectMethod(node.method)"
-                        >
-                          <code>{{ nodeLabel(node) }}</code>
-                        </button>
-                        <span v-else :class="{'fw-semibold': node.kind === 'REQUEST'}">{{ nodeLabel(node) }}</span>
-                        <span v-if="node.kind === 'ASYNC'" class="badge text-bg-info ms-2">Async, shown apart</span>
-                        <span v-else-if="node.async" class="badge text-bg-info ms-2">Async</span>
-                        <span v-if="phaseLabel(node.phase) && node.kind === 'METHOD'" class="small text-muted ms-2">
-                          {{ phaseLabel(node.phase) }}
-                        </span>
-                      </div>
-                    </td>
-                    <td class="text-end">{{ node.kind === 'REQUEST' ? '—' : node.callsPerRequest }}</td>
-                    <td class="text-end">{{ formatMillis(node.totalMillis) }}</td>
-                    <td class="text-end">{{ formatMillis(node.selfMillis) }}</td>
-                    <td class="text-end code-paths-median">
-                      <template v-if="node.p50Millis != null">≈ {{ formatMillis(node.p50Millis) }}</template>
-                      <span v-else class="text-muted">—</span>
-                    </td>
-                    <td>
-                      <span v-if="node.share != null && node.kind !== 'REQUEST'" class="code-paths-share">
-                        <span class="code-paths-share-track" aria-hidden="true">
-                          <span
-                            class="code-paths-share-bar"
-                            :class="{'code-paths-share-bar-top': node.share === topShare}"
-                            :style="{width: `${Math.min(100, node.share)}%`}"
-                          ></span>
-                        </span>
-                        <span class="code-paths-share-value">{{ node.share }} %</span>
+                      <button
+                        :aria-pressed="row.route === selectedRoute"
+                        class="btn btn-link p-0 text-start code-paths-route"
+                        type="button"
+                        @click="selectRoute(row.route)"
+                      >
+                        <code class="bootui-break-anywhere">{{ row.route }}</code>
+                      </button>
+                      <span v-if="row.assemblyOnly" class="badge text-bg-secondary ms-2 code-paths-assembly">
+                        Assembly only
                       </span>
+                    </td>
+                    <td class="text-end">{{ formatNumber(row.warmRequests) }}</td>
+                    <td class="text-end">{{ row.warmRequests ? formatMillis(row.p50Millis) : '—' }}</td>
+                    <td class="text-end">{{ row.warmRequests ? formatMillis(row.p95Millis) : '—' }}</td>
+                    <td class="text-end">{{ formatMillis(row.firstRequestMillis) }}</td>
+                    <td>
+                      <template v-if="row.topMethods?.length">
+                        <code>{{ methodLabel(row.topMethods[0].method) }}</code>
+                        <span class="small text-muted ms-1">
+                          {{ formatMillis(row.topMethods[0].selfMillis) }} ms · {{ row.topMethods[0].share }} %
+                        </span>
+                      </template>
                       <span v-else class="text-muted">—</span>
                     </td>
                   </tr>
                 </tbody>
               </table>
-              <p v-if="moreNodes(tree)" class="small text-muted">
-                {{ formatNumber(moreNodes(tree)) }} more nodes not shown.
-              </p>
             </div>
+          </section>
 
-            <section
-              v-if="selectedMethodDetail"
-              class="card mb-3 code-paths-method-detail"
-              aria-labelledby="code-paths-method-heading"
-            >
-              <div class="card-body">
-                <h4 id="code-paths-method-heading" class="h6 mb-1">
-                  <code>{{ methodLabel(selectedMethodDetail.method) }}</code>
-                </h4>
-                <p class="small text-muted bootui-break-anywhere mb-2">{{ selectedMethodDetail.method }}</p>
-                <div class="row g-3 small">
-                  <div class="col-md-6">
-                    <h5 class="h6 small text-muted">Called by, in this route</h5>
-                    <ul class="mb-0 code-paths-callers">
-                      <li v-for="caller in selectedMethodDetail.callers" :key="caller">
-                        <code>{{ callerLabel(caller) }}</code>
-                      </li>
-                    </ul>
-                  </div>
-                  <div class="col-md-6">
-                    <h5 class="h6 small text-muted">Routes that reach it</h5>
-                    <ul class="mb-0 code-paths-reach">
-                      <li v-for="name in selectedMethodDetail.routes" :key="name">
-                        <button
-                          v-if="name !== selectedRoute"
-                          class="btn btn-link p-0 text-start"
-                          type="button"
-                          @click="selectRoute(name)"
+          <section v-if="selectedRoute" class="mb-4" aria-labelledby="code-paths-tree-heading">
+            <h3 id="code-paths-tree-heading" class="h5 fw-semibold mb-2">
+              <code class="bootui-break-anywhere">{{ selectedRoute }}</code>
+            </h3>
+            <div v-if="treeError" class="alert alert-danger" role="alert">{{ treeError }}</div>
+            <p v-else-if="!tree" class="small text-muted">Loading…</p>
+            <template v-else>
+              <div v-if="tree.assemblyOnly" class="alert alert-secondary small code-paths-assembly-note" role="note">
+                <strong>Assembly only.</strong> This route's handler ran on an event loop, returned a reactive or
+                asynchronous result, or BootUI could not tell where its work ran, so its tree times the handler's
+                assembly, not the work that ran later or elsewhere, and Runtime Insights does not split its handler by
+                method.
+              </div>
+              <p class="small mb-2 code-paths-tree-summary">
+                <strong>{{ formatNumber(tree.warmRequests) }}</strong> warm requests, mean
+                <strong>{{ formatMillis(tree.ownMillis) }} ms</strong> of their own time<template
+                  v-if="tree.handlerMillis != null"
+                >
+                  , <strong>{{ formatMillis(tree.handlerMillis) }} ms</strong> of it in the handler's application
+                  methods
+                </template>
+                <template v-if="tree.firstRequestMillis != null">
+                  · first recorded request {{ formatMillis(tree.firstRequestMillis) }} ms, kept apart</template
+                >. Times are per warm request; medians are approximate (≈), from log2 buckets.
+                <template v-if="hasCalls">
+                  SQL, REST client, cache, and AI rows under a method were issued while it was the innermost
+                  instrumented method open on their thread, and their time is part of its self time. A statement
+                  Hibernate flushes at commit runs after the @Transactional method returned, so it shows under the
+                  method that called it.
+                </template>
+              </p>
+              <p v-if="!tree.nodes.length" class="text-muted small">
+                Only the route's first recorded request, kept apart, was recorded: send it again to build its warm tree.
+              </p>
+              <div v-else class="table-responsive">
+                <table class="table table-sm align-middle code-paths-table code-paths-tree">
+                  <caption class="visually-hidden">
+                    The call tree of
+                    {{
+                      selectedRoute
+                    }}, each method under its caller
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Method</th>
+                      <th scope="col" class="text-end">Calls per request</th>
+                      <th scope="col" class="text-end">Total (ms)</th>
+                      <th scope="col" class="text-end">Self (ms)</th>
+                      <th scope="col" class="text-end">
+                        <span title="Approximate: interpolated within log2 buckets of per-request time"
+                          >Median (≈ ms)</span
                         >
-                          <code>{{ name }}</code>
-                        </button>
-                        <code v-else>{{ name }}</code>
-                      </li>
-                    </ul>
+                      </th>
+                      <th scope="col" class="code-paths-share-column">{{ shareLabel }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="node in tree.nodes" :key="node.id">
+                      <tr
+                        :class="{
+                          'code-paths-async': node.async,
+                          'table-active': node.method && node.method === selectedMethod
+                        }"
+                      >
+                        <td>
+                          <div class="code-paths-indent" :style="{paddingInlineStart: `${node.depth * 1.1}rem`}">
+                            <button
+                              v-if="node.kind === 'METHOD'"
+                              :aria-pressed="node.method === selectedMethod"
+                              :title="node.method"
+                              class="btn btn-link p-0 text-start code-paths-method"
+                              type="button"
+                              @click="selectMethod(node.method)"
+                            >
+                              <code>{{ nodeLabel(node) }}</code>
+                            </button>
+                            <span v-else :class="{'fw-semibold': node.kind === 'REQUEST'}">{{ nodeLabel(node) }}</span>
+                            <span v-if="node.kind === 'ASYNC'" class="badge text-bg-info ms-2">Async, shown apart</span>
+                            <span v-else-if="node.async" class="badge text-bg-info ms-2">Async</span>
+                            <span v-if="phaseLabel(node.phase) && node.kind === 'METHOD'" class="small text-muted ms-2">
+                              {{ phaseLabel(node.phase) }}
+                            </span>
+                          </div>
+                        </td>
+                        <td class="text-end">{{ node.kind === 'REQUEST' ? '—' : node.callsPerRequest }}</td>
+                        <td class="text-end">{{ formatMillis(node.totalMillis) }}</td>
+                        <td class="text-end">{{ formatMillis(node.selfMillis) }}</td>
+                        <td class="text-end code-paths-median">
+                          <template v-if="node.p50Millis != null">≈ {{ formatMillis(node.p50Millis) }}</template>
+                          <span v-else class="text-muted">—</span>
+                        </td>
+                        <td>
+                          <span v-if="node.share != null && node.kind !== 'REQUEST'" class="code-paths-share">
+                            <span class="code-paths-share-track" aria-hidden="true">
+                              <span
+                                class="code-paths-share-bar"
+                                :class="{'code-paths-share-bar-top': node.share === topShare}"
+                                :style="{width: `${Math.min(100, node.share)}%`}"
+                              ></span>
+                            </span>
+                            <span class="code-paths-share-value">{{ node.share }} %</span>
+                          </span>
+                          <span v-else class="text-muted">—</span>
+                        </td>
+                      </tr>
+                      <tr
+                        v-for="call in node.calls ?? []"
+                        :key="`${node.id}-${call.kind}`"
+                        :class="{'code-paths-async': node.async}"
+                        class="code-paths-call"
+                      >
+                        <td>
+                          <div
+                            class="code-paths-indent"
+                            :style="{paddingInlineStart: `${((node.depth + 1) * 1.1).toFixed(1)}rem`}"
+                          >
+                            <span :title="callTitle(node)" class="code-paths-call-label">
+                              <i :class="['bi', callIcon(call), 'me-1']" aria-hidden="true"></i>{{ callLabel(call) }}
+                            </span>
+                            <span class="visually-hidden">, issued while {{ nodeLabel(node) }} was open</span>
+                          </div>
+                        </td>
+                        <td class="text-end">{{ call.callsPerRequest }}</td>
+                        <td class="text-end">
+                          <template v-if="call.totalMillis != null">{{ formatMillis(call.totalMillis) }}</template>
+                          <span v-else class="text-muted" title="Cache accesses carry no duration">—</span>
+                        </td>
+                        <td class="text-end text-muted">—</td>
+                        <td class="text-end text-muted">—</td>
+                        <td class="text-muted">—</td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <p v-if="moreNodes(tree)" class="small text-muted">
+                  {{ formatNumber(moreNodes(tree)) }} more nodes not shown.
+                </p>
+              </div>
+
+              <section
+                v-if="selectedMethodDetail"
+                class="card mb-3 code-paths-method-detail"
+                aria-labelledby="code-paths-method-heading"
+              >
+                <div class="card-body">
+                  <h4 id="code-paths-method-heading" class="h6 mb-1">
+                    <code>{{ methodLabel(selectedMethodDetail.method) }}</code>
+                  </h4>
+                  <p class="small text-muted bootui-break-anywhere mb-2">{{ selectedMethodDetail.method }}</p>
+                  <div class="row g-3 small">
+                    <div class="col-md-6">
+                      <h5 class="h6 small text-muted">Called by, in this route</h5>
+                      <ul class="mb-0 code-paths-callers">
+                        <li v-for="caller in selectedMethodDetail.callers" :key="caller">
+                          <code>{{ callerLabel(caller) }}</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div class="col-md-6">
+                      <h5 class="h6 small text-muted">Routes that reach it</h5>
+                      <ul class="mb-0 code-paths-reach">
+                        <li v-for="name in selectedMethodDetail.routes" :key="name">
+                          <button
+                            v-if="name !== selectedRoute"
+                            class="btn btn-link p-0 text-start"
+                            type="button"
+                            @click="selectRoute(name)"
+                          >
+                            <code>{{ name }}</code>
+                          </button>
+                          <code v-else>{{ name }}</code>
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
 
-            <p v-if="tree.exemplarRequestIds?.length" class="small mb-0 code-paths-exemplars">
-              Slowest and failed requests kept:
-              <template v-for="(id, index) in tree.exemplarRequestIds" :key="id">
-                <router-link :to="{path: '/activity', query: {request: id}}"
-                  ><code>{{ id }}</code></router-link
-                ><template v-if="Number(index) < tree.exemplarRequestIds.length - 1">, </template>
-              </template>
-            </p>
-          </template>
+              <p v-if="tree.exemplarRequestIds?.length" class="small mb-0 code-paths-exemplars">
+                Slowest and failed requests kept:
+                <template v-for="(id, index) in tree.exemplarRequestIds" :key="id">
+                  <router-link :to="{path: '/activity', query: {request: id}}"
+                    ><code>{{ id }}</code></router-link
+                  ><template v-if="Number(index) < tree.exemplarRequestIds.length - 1">, </template>
+                </template>
+              </p>
+            </template>
+          </section>
+        </template>
+
+        <section class="mb-4" aria-labelledby="code-paths-excluded-heading">
+          <h3 id="code-paths-excluded-heading" class="h6 text-muted mb-2">Excluded methods</h3>
+          <p v-if="!summary.excludedMethods?.length" class="small text-muted mb-0">
+            No method was excluded in this run.
+          </p>
+          <ul v-else class="small mb-0 code-paths-excluded">
+            <li v-for="method in summary.excludedMethods" :key="method.method">
+              <code :title="method.method">{{ methodLabel(method.method) }}</code>
+              <span class="text-muted"> — {{ method.reason }}</span>
+            </li>
+          </ul>
         </section>
-      </template>
+      </section>
 
-      <section class="mb-4" aria-labelledby="code-paths-excluded-heading">
-        <h3 id="code-paths-excluded-heading" class="h6 text-muted mb-2">Excluded methods</h3>
-        <p v-if="!summary.excludedMethods?.length" class="small text-muted mb-0">No method was excluded in this run.</p>
-        <ul v-else class="small mb-0 code-paths-excluded">
-          <li v-for="method in summary.excludedMethods" :key="method.method">
-            <code :title="method.method">{{ methodLabel(method.method) }}</code>
-            <span class="text-muted"> — {{ method.reason }}</span>
-          </li>
-        </ul>
+      <section
+        v-else
+        id="code-paths-panel-beans"
+        aria-labelledby="code-paths-tab-beans"
+        class="code-paths-beans"
+        role="tabpanel"
+        tabindex="0"
+      >
+        <div v-if="beansError" class="alert alert-danger" role="alert">{{ beansError }}</div>
+        <p v-else-if="!beans || beansLoading" class="small text-muted">Loading…</p>
+        <UnavailableState v-else-if="!beans.available" icon="bi-diagram-3" class="code-paths-beans-unavailable">
+          {{ beans.unavailableReason }}
+        </UnavailableState>
+        <template v-else>
+          <p class="small mb-2 code-paths-beans-summary">
+            <strong>{{ formatNumber(beans.observedEdges) }}</strong>
+            {{ beans.observedEdges === 1 ? 'call pair' : 'call pairs' }} between beans observed in this run's route
+            trees, beside <strong>{{ formatNumber(beans.declaredEdges) }}</strong> declared
+            {{ beans.declaredEdges === 1 ? 'dependency' : 'dependencies' }}, of which
+            <strong>{{ formatNumber(beans.notCalled) }}</strong> not called in this run.
+          </p>
+          <div v-if="beans.beansAvailable" class="form-check form-switch mb-2">
+            <input
+              id="code-paths-not-called"
+              v-model="notCalledOnly"
+              class="form-check-input"
+              role="switch"
+              type="checkbox"
+            />
+            <label class="form-check-label small" for="code-paths-not-called">
+              Only declared dependencies not called in this run
+            </label>
+          </div>
+          <p v-if="!beanEdges.length" class="small text-muted code-paths-beans-empty">
+            {{
+              notCalledOnly
+                ? 'Every declared dependency Code Paths would observe was called in this run.'
+                : 'No bean-to-bean call or declared dependency to show yet.'
+            }}
+          </p>
+          <div v-else class="table-responsive">
+            <table class="table table-sm align-middle code-paths-table code-paths-beans-table">
+              <caption class="visually-hidden">
+                Calls between beans observed in this run, beside the dependencies the beans declare
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Bean</th>
+                  <th scope="col">Calls or depends on</th>
+                  <th scope="col">Declared</th>
+                  <th scope="col" class="text-end">Calls in this run</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="edge in beanEdges" :key="`${edge.from}>${edge.to}`">
+                  <td>
+                    <code :title="edge.fromType ?? undefined">{{ edge.from }}</code>
+                  </td>
+                  <td>
+                    <code :title="edge.toType ?? undefined">{{ edge.to }}</code>
+                  </td>
+                  <td>{{ edge.declared ? 'Yes' : 'No' }}</td>
+                  <td class="text-end">
+                    <template v-if="edge.observed">{{ formatNumber(edge.calls) }}</template>
+                    <span v-else-if="edge.observable" class="text-body-secondary code-paths-not-called"
+                      >Not called in this run</span
+                    >
+                    <span
+                      v-else
+                      class="text-muted code-paths-not-observable"
+                      :title="edge.unobservableReason ?? 'A call between these beans would not be observed'"
+                      >Not observable</span
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="beans.omitted" class="small text-muted">{{ formatNumber(beans.omitted) }} more edges not shown.</p>
+          </div>
+          <details v-if="beans.limitations?.length" class="mt-2 small code-paths-limitations">
+            <summary>What these edges cannot show ({{ beans.limitations.length }})</summary>
+            <ul class="mb-0 mt-2">
+              <li v-for="limitation in beans.limitations" :key="limitation">{{ limitation }}</li>
+            </ul>
+          </details>
+        </template>
       </section>
     </template>
   </div>
@@ -485,5 +710,10 @@ function moreNodes(report) {
 
 .code-paths-limitations summary {
   cursor: pointer;
+}
+
+.code-paths-call td {
+  color: var(--bs-secondary-color);
+  font-size: 0.875em;
 }
 </style>

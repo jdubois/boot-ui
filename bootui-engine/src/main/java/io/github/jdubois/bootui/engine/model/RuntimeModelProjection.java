@@ -62,10 +62,28 @@ public final class RuntimeModelProjection {
             LongSupplier clock,
             long budgetNanos,
             Predicate<String> evictedRequestTraces) {
+        return project(entries, routes, structure, evicted, clock, budgetNanos, evictedRequestTraces, List.of());
+    }
+
+    /**
+     * Projects {@code entries} as {@link #project(List, RouteTemplateResolver, StructureSnapshot, long, LongSupplier,
+     * long, Predicate)} does, with the calls Code Paths observed between application classes, {@code invocations}, as
+     * {@link EdgeType#INVOKES} edges between their beans ({@code docs/PLAN-v2.md} §5.14, M5-4c).
+     */
+    public static RuntimeModel project(
+            List<JournalEntry> entries,
+            RouteTemplateResolver routes,
+            StructureSnapshot structure,
+            long evicted,
+            LongSupplier clock,
+            long budgetNanos,
+            Predicate<String> evictedRequestTraces,
+            List<ClassInvocation> invocations) {
         long started = clock.getAsLong();
         RuntimeModelBuilder builder = new RuntimeModelBuilder();
         List<String> limitations = new ArrayList<>();
         declare(builder, structure);
+        invokes(builder, structure, invocations, limitations);
 
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
@@ -159,6 +177,29 @@ public final class RuntimeModelProjection {
     private static void observe(RuntimeModelBuilder builder, int owner, RuntimeEvent event) {
         for (ObservedEdges.Target target : ObservedEdges.targets(event)) {
             builder.observe(owner, target.type(), builder.node(target.nodeType(), target.key()), event.epochMillis());
+        }
+    }
+
+    /** The calls Code Paths observed between beans, as {@link EdgeType#INVOKES} edges with their counts. */
+    private static void invokes(
+            RuntimeModelBuilder builder,
+            StructureSnapshot structure,
+            List<ClassInvocation> invocations,
+            List<String> limitations) {
+        if (structure == null || invocations == null || invocations.isEmpty()) {
+            return;
+        }
+        BeanInvocations.Resolved resolved = BeanInvocations.resolve(structure.beans(), invocations);
+        for (BeanInvocations.Edge edge : resolved.edges()) {
+            builder.observeTimes(
+                    builder.node(edge.fromRepository() ? NodeType.REPOSITORY : NodeType.BEAN, edge.from()),
+                    EdgeType.INVOKES,
+                    builder.node(edge.toRepository() ? NodeType.REPOSITORY : NodeType.BEAN, edge.to()),
+                    edge.calls());
+        }
+        if (resolved.unmappedCalls() > 0) {
+            limitations.add(resolved.unmappedCalls() + " calls Code Paths observed are between classes that are not"
+                    + " each exactly one bean's, so they are in no invokes edge.");
         }
     }
 

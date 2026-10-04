@@ -154,6 +154,37 @@ final class EvidenceRing {
         return Collections.unmodifiableList(merged);
     }
 
+    /**
+     * The retained events whose sequence is above {@code sequence}, newest first, merged across both rings: a reader
+     * that already read up to {@code sequence} copies only what is new.
+     */
+    synchronized List<JournalEntry> newestFirstAfter(long sequence) {
+        List<JournalEntry> merged = new ArrayList<>();
+        Iterator<JournalEntry> routineIterator = routine.descendingIterator();
+        Iterator<JournalEntry> reservedIterator = reserved.descendingIterator();
+        JournalEntry nextRoutine = after(routineIterator, sequence);
+        JournalEntry nextReserved = after(reservedIterator, sequence);
+        while (nextRoutine != null || nextReserved != null) {
+            if (nextReserved == null || (nextRoutine != null && nextRoutine.sequence() > nextReserved.sequence())) {
+                merged.add(nextRoutine);
+                nextRoutine = after(routineIterator, sequence);
+            } else {
+                merged.add(nextReserved);
+                nextReserved = after(reservedIterator, sequence);
+            }
+        }
+        return Collections.unmodifiableList(merged);
+    }
+
+    /** The iterator's next entry, newest first, while its sequence is above {@code sequence}; else {@code null}. */
+    private static JournalEntry after(Iterator<JournalEntry> newestFirst, long sequence) {
+        if (!newestFirst.hasNext()) {
+            return null;
+        }
+        JournalEntry next = newestFirst.next();
+        return next.sequence() > sequence ? next : null;
+    }
+
     /** The ring's counts at one instant. */
     synchronized Counts counts() {
         JournalEntry oldestRoutine = routine.peekFirst();

@@ -460,6 +460,14 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return ring.newestFirst();
     }
 
+    /**
+     * The retained events recorded after the event with sequence {@code sequence}, newest first: a reader that already
+     * read up to it, as {@link #lastSequence()} before its read, copies only what is new.
+     */
+    public List<JournalEntry> entriesAfter(long sequence) {
+        return ring.newestFirstAfter(sequence);
+    }
+
     /** The stable id of {@code entry}: its run id and its sequence number. */
     public String eventId(JournalEntry entry) {
         return run.id() + "-" + entry.sequence();

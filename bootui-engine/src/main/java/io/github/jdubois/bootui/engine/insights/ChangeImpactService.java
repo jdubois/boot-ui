@@ -69,7 +69,12 @@ public final class ChangeImpactService {
     // An application event is shared like a table: its publishers and listeners reach it through access edges (M4-8).
     private static final Set<NodeType> RESOURCES =
             EnumSet.of(NodeType.TABLE, NodeType.CACHE, NodeType.HOST, NodeType.EVENT);
-    private static final Set<EdgeType> CODE = EnumSet.of(EdgeType.DEPENDS_ON, EdgeType.HANDLED_BY);
+    // INVOKES (observed bean calls from Code Paths, M5-4c) is deliberately left out (design I8): a call observed in
+    // this
+    // run says which paths the requests sent happened to take, not what a change can reach, so the closure would change
+    // with the traffic; the declared DEPENDS_ON edges already reach every bean that injects the changed one.
+    public static final Set<EdgeType> CODE =
+            java.util.Collections.unmodifiableSet(EnumSet.of(EdgeType.DEPENDS_ON, EdgeType.HANDLED_BY));
     private static final Set<EdgeType> ACCESS =
             EnumSet.of(EdgeType.READS, EdgeType.WRITES, EdgeType.CALLS, EdgeType.PUBLISHES, EdgeType.CONSUMES);
     private static final Set<JournalSource> IMPACT_SOURCES = EnumSet.of(

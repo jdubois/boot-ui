@@ -283,8 +283,10 @@ public final class McpToolDescriptions {
                             + "get_agent_status). Without query, the routes slowest warm median first, at most limit "
                             + "(10), each with its top methods by self time; with query, the routes whose label or top "
                             + "methods contain it, and for a single route its method nodes with the most self time. "
-                            + "Times are per warm request; a method's self time still includes the SQL and REST calls "
-                            + "it waited on. An assemblyOnly route's handler ran on an event loop, returned a reactive or "
+                            + "Times are per warm request; each node's calls list the SQL, REST client, cache, and AI "
+                            + "calls recorded while it was the innermost instrumented method on their thread, whose time "
+                            + "is part of its self time; calls recorded on another thread carry no stamp and show under "
+                            + "no node. An assemblyOnly route's handler ran on an event loop, returned a reactive or "
                             + "asynchronous result, or BootUI could not tell where its work ran, so its tree times "
                             + "assembly, not the work. Node percentiles are approximate, from log2 buckets."),
             Map.entry(

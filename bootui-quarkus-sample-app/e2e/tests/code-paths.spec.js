@@ -12,7 +12,7 @@ test.describe('Code Paths view (Quarkus)', () => {
     expect(panel.available).toBe(false)
     expect(panel.unavailableReason).toMatch(/^Requires the BootUI agent's code-paths sensor/)
 
-    for (const path of ['', '/route?route=GET%20%2Fapi%2Fhello', '/requests/0000000000000000']) {
+    for (const path of ['', '/route?route=GET%20%2Fapi%2Fhello', '/requests/0000000000000000', '/beans']) {
       const response = await page.request.get(`/bootui/api/code-paths${path}`)
       expect(response.ok()).toBeTruthy()
       const body = await response.json()

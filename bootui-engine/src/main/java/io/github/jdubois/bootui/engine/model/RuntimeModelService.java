@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -33,6 +34,10 @@ public final class RuntimeModelService {
     private long cachedVisibleWatermark = Long.MIN_VALUE;
     private long cachedVisibleEvicted = Long.MIN_VALUE;
     private long cachedVisibleClears = Long.MIN_VALUE;
+    private long cachedInvocations = Long.MIN_VALUE;
+    private long cachedVisibleInvocations = Long.MIN_VALUE;
+    private Supplier<List<ClassInvocation>> invocations = List::of;
+    private LongSupplier invocationsFingerprint = () -> 0L;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -48,6 +53,36 @@ public final class RuntimeModelService {
         this.structure = structure == null ? StructureSnapshot::empty : structure;
     }
 
+    /**
+     * Installs the calls Code Paths observed between application classes, such as {@code CodePathsService::invocations},
+     * which the model shows as {@link EdgeType#INVOKES} edges between their beans ({@code docs/PLAN-v2.md} §5.14,
+     * M5-4c), and a cheap fingerprint of them, such as {@code CodePathsService::routeTreesFingerprint}, since route trees
+     * change without a journal event.
+     */
+    public synchronized void setInvocations(Supplier<List<ClassInvocation>> invocations, LongSupplier fingerprint) {
+        this.invocations = invocations == null ? List::of : invocations;
+        this.invocationsFingerprint = fingerprint == null ? () -> 0L : fingerprint;
+        this.cached = null;
+        this.cachedVisible = null;
+    }
+
+    private long invocationsFingerprint() {
+        try {
+            return invocationsFingerprint.getAsLong();
+        } catch (RuntimeException ex) {
+            return 0L;
+        }
+    }
+
+    private List<ClassInvocation> invocations() {
+        try {
+            List<ClassInvocation> observed = invocations.get();
+            return observed == null ? List.of() : observed;
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
+    }
+
     /** The current run's model, or an empty partial model when the journal is disabled. */
     public synchronized RuntimeModel model() {
         if (journal == null || !journal.settings().enabled()) {
@@ -57,10 +92,12 @@ public final class RuntimeModelService {
 
         JournalStatus status = journal.status();
         long evicted = status.evictedByCount() + status.evictedByBytes();
+        long fingerprint = invocationsFingerprint();
         if (cached != null
                 && cachedWatermark == status.lastSequence()
                 && cachedEvicted == evicted
-                && cachedClears == status.clears()) {
+                && cachedClears == status.clears()
+                && cachedInvocations == fingerprint) {
             return cached;
         }
         // An empty snapshot is read again, as providers can become available after the first read.
@@ -83,7 +120,9 @@ public final class RuntimeModelService {
                 evicted,
                 System::nanoTime,
                 RuntimeModelProjection.READ_BUDGET_NANOS,
-                journal::evictedARequestOf);
+                journal::evictedARequestOf,
+                invocations());
+        cachedInvocations = fingerprint;
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
         cachedClears = status.clears();
@@ -104,7 +143,10 @@ public final class RuntimeModelService {
             snapshot = read(status.runId());
             snapshotRun = status.runId();
         }
+        boolean codePaths = visibility.getOrDefault(CODE_PATHS_PANEL, false);
+        long fingerprint = codePaths ? invocationsFingerprint() : 0L;
         if (cachedVisible != null
+                && cachedVisibleInvocations == fingerprint
                 && cachedVisibleWatermark == status.lastSequence()
                 && cachedVisibleEvicted == evicted
                 && cachedVisibleClears == status.clears()
@@ -128,7 +170,10 @@ public final class RuntimeModelService {
                 snapshot,
                 evicted,
                 System::nanoTime,
-                RuntimeModelProjection.READ_BUDGET_NANOS);
+                RuntimeModelProjection.READ_BUDGET_NANOS,
+                traceId -> false,
+                codePaths ? invocations() : List.of());
+        cachedVisibleInvocations = fingerprint;
         cachedVisibility = Map.copyOf(visibility);
         cachedVisibleSnapshot = snapshot;
         cachedVisibleRun = status.runId();
@@ -137,6 +182,9 @@ public final class RuntimeModelService {
         cachedVisibleClears = status.clears();
         return cachedVisible;
     }
+
+    /** The panel whose evidence the {@link EdgeType#INVOKES} edges are: hidden with it. */
+    static final String CODE_PATHS_PANEL = "code-paths";
 
     /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */
     public synchronized StructureSnapshot structure() {

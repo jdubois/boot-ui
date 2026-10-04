@@ -39,6 +39,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import java.time.Duration;
+import java.util.List;
 import org.eclipse.microprofile.config.Config;
 
 /**
@@ -120,10 +121,16 @@ public class RuntimeInsightsResource {
         this.insights.setCodeInventory(
                 () -> codeInventory.isResolvable() ? codeInventory.get().changedCode() : null,
                 () -> codeInventory.isResolvable() ? codeInventory.get().changesFingerprint() : 0L);
-        // route-time-breakdown's handler split by method, from the agent's code paths (docs/PLAN-v2.md §5.14).
+        // route-time-breakdown's handler split by method and repeated-selects' issuing method, from the agent's code
+        // paths (docs/PLAN-v2.md §5.14).
+        models.setInvocations(
+                () -> codePaths.isResolvable() ? codePaths.get().invocations() : List.of(),
+                () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
         this.insights.setCodePaths(
                 route -> codePaths.isResolvable() ? codePaths.get().handlerMethods(route) : null,
-                () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
+                () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L,
+                id -> codePaths.isResolvable() ? codePaths.get().methodKey(id) : null,
+                (route, id) -> codePaths.isResolvable() ? codePaths.get().issuingMethod(route, id) : null);
     }
 
     /**

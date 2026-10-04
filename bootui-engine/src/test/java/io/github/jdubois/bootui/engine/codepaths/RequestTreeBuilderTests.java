@@ -50,14 +50,14 @@ class RequestTreeBuilderTests {
 
         assertThat(describe(tree))
                 .containsExactly(
-                        "-1 REQUEST calls=2 total=1100 child=1100",
-                        "0 1 calls=1 total=100 child=0",
-                        "0 2 calls=1 total=1000 child=600",
-                        "2 3 calls=2 total=600 child=0",
-                        "0 ASYNC(c1) calls=2 total=700 child=700",
-                        "4 4 calls=2 total=900 child=0",
-                        "0 ASYNC(c2) calls=1 total=500 child=500",
-                        "6 5 calls=1 total=500 child=0");
+                        "-1 REQUEST phase=0 calls=2 total=1100 child=1100",
+                        "0 1 phase=1 calls=1 total=100 child=0",
+                        "0 2 phase=2 calls=1 total=1000 child=600",
+                        "2 3 phase=2 calls=2 total=600 child=0",
+                        "0 ASYNC(c1) phase=0 calls=2 total=700 child=700",
+                        "4 4 phase=0 calls=2 total=900 child=0",
+                        "0 ASYNC(c2) phase=0 calls=1 total=500 child=500",
+                        "6 5 phase=0 calls=1 total=500 child=0");
         assertThat(tree.durationNanos())
                 .as("the request's own time, async aside")
                 .isEqualTo(1_100L);
@@ -312,15 +312,17 @@ class RequestTreeBuilderTests {
                     continue;
                 }
                 String target = parent < 0 ? attach : paths[parent];
-                if (target.endsWith("/O")) {
+                if (isOther(target)) {
                     dropped += calls;
                     continue;
                 }
                 String path = null;
                 if (depth.get(target) + 1 <= RequestTreeBuilder.MAX_DEPTH) {
                     int method = fragment.method()[node];
-                    String own = target + "/" + method;
-                    String other = target + "/O";
+                    // A node is its parent, method, and request phase.
+                    int phase = fragment.phase()[node];
+                    String own = target + "/" + method + "@" + phase;
+                    String other = target + "/O@" + phase;
                     if (method != CodePathFragment.OTHER && nodes.containsKey(own)) {
                         path = own;
                     } else if (method != CodePathFragment.OTHER
@@ -342,7 +344,7 @@ class RequestTreeBuilderTests {
                 depth.put(path, depth.get(target) + 1);
                 values[0] += calls;
                 values[1] += total;
-                if (!path.endsWith("/O")) {
+                if (!isOther(path)) {
                     values[2] += fragment.child()[node];
                 }
                 if (parent < 0) {
@@ -363,12 +365,18 @@ class RequestTreeBuilderTests {
                 long[] values = entry.getValue();
                 String label;
                 int parent;
+                String phase = "0";
                 if (path.equals("R")) {
                     label = "REQUEST";
                     parent = -1;
                 } else {
                     String last = path.substring(path.lastIndexOf('/') + 1);
                     parent = index.get(path.substring(0, path.lastIndexOf('/')));
+                    int at = last.indexOf('@');
+                    if (at >= 0) {
+                        phase = last.substring(at + 1);
+                        last = last.substring(0, at);
+                    }
                     label = last.equals("O")
                             ? "OTHER"
                             : last.startsWith("A") ? "ASYNC(" + last.substring(1) + ")" : last;
@@ -377,7 +385,7 @@ class RequestTreeBuilderTests {
                         || path.substring(path.lastIndexOf('/') + 1).startsWith("A");
                 long total = union ? tree.total()[node] : values[1];
                 long calls = union ? tree.calls()[node] : values[0];
-                rows.add(parent + " " + label + " calls=" + calls + " total=" + total + " child="
+                rows.add(parent + " " + label + " phase=" + phase + " calls=" + calls + " total=" + total + " child="
                         + Math.min(values[2], total));
                 node++;
             }
@@ -387,6 +395,10 @@ class RequestTreeBuilderTests {
 
     // ---- helpers
     // ------------------------------------------------------------------------------------------------------
+
+    private static boolean isOther(String path) {
+        return path.substring(path.lastIndexOf('/') + 1).startsWith("O@");
+    }
 
     static long bruteForceUnion(List<long[]> intervals) {
         boolean[] covered = new boolean[4_000];
@@ -411,8 +423,8 @@ class RequestTreeBuilderTests {
                     : method == RequestTree.ASYNC
                             ? "ASYNC(" + Long.toHexString(tree.execution()[node]) + ")"
                             : method == RequestTree.OTHER ? "OTHER" : String.valueOf(method);
-            rows.add(tree.parent()[node] + " " + label + " calls=" + tree.calls()[node] + " total=" + tree.total()[node]
-                    + " child=" + tree.child()[node]);
+            rows.add(tree.parent()[node] + " " + label + " phase=" + tree.phase()[node] + " calls=" + tree.calls()[node]
+                    + " total=" + tree.total()[node] + " child=" + tree.child()[node]);
         }
         return rows;
     }

@@ -36,8 +36,17 @@ final class TaskSnapshots {
 
     /** Records an owned submission; returns false when the entry is (now) ambiguous. */
     boolean put(Object task, long generation, Object[] payload) {
+        return put(task, generation, payload, 0L);
+    }
+
+    /**
+     * Records an owned submission made while the code-paths node {@code stamp} was open on the submitting thread (0 when
+     * unknown); returns false when the entry is (now) ambiguous. Submissions of one task by one owner from different
+     * nodes keep no stamp.
+     */
+    boolean put(Object task, long generation, Object[] payload, long stamp) {
         expunge();
-        Put put = new Put(generation, payload);
+        Put put = new Put(generation, payload, stamp);
         snapshots.compute(new Key(task, queue), put);
         return !put.ambiguous;
     }
@@ -133,9 +142,13 @@ final class TaskSnapshots {
         int pending;
         boolean ambiguous;
 
-        Entry(long generation, Object[] payload) {
+        /** The code-paths stamp of the submitting node ({@code CodePaths.stamp()}), 0 when unknown. */
+        long stamp;
+
+        Entry(long generation, Object[] payload, long stamp) {
             this.generation = generation;
             this.payload = payload;
+            this.stamp = stamp;
             this.pending = 1;
         }
     }
@@ -144,19 +157,24 @@ final class TaskSnapshots {
 
         private final long generation;
         private final Object[] payload;
+        private final long stamp;
         boolean ambiguous;
 
-        Put(long generation, Object[] payload) {
+        Put(long generation, Object[] payload, long stamp) {
             this.generation = generation;
             this.payload = payload;
+            this.stamp = stamp;
         }
 
         @Override
         public Entry apply(Object key, Entry existing) {
             if (existing == null) {
-                return new Entry(generation, payload);
+                return new Entry(generation, payload, stamp);
             }
             existing.pending++;
+            if (existing.stamp != stamp) {
+                existing.stamp = 0L;
+            }
             if (!existing.ambiguous && (existing.generation != generation || !sameOwner(existing.payload, payload))) {
                 existing.ambiguous = true;
             }
