@@ -14,6 +14,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param tier the weakest correlation tier its evidence accepts, such as {@code REQUEST_ID}
  * @param exemplarRequestId one request to open with {@code get_request_profile}, or {@code null}
  * @param verify the first check to run before editing anything, worded as a condition
+ * @param listed whether the default list, the empty query, shows it; a row it leaves out is listed by the query
+ *     {@code all}, its kind, or its route, and {@code get_runtime_insight} says why it is left out
  */
 public record RuntimeInsightAgentDto(
         String id,
@@ -25,4 +27,5 @@ public record RuntimeInsightAgentDto(
         long affected,
         String tier,
         String exemplarRequestId,
-        String verify) {}
+        String verify,
+        boolean listed) {}

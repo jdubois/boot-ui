@@ -440,7 +440,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui http sessions` | `get_http_sessions` | — | read | Spring MVC |
 | `bootui insights compare` | `get_runtime_run_comparison` | `[<id>]` (defaults to `previous`, or a run id) | read | all |
 | `bootui insights impact` | `get_runtime_impact` | `<id>` | read | all |
-| `bootui insights list` | `get_runtime_insights` | `--query`, `--limit` | read | all |
+| `bootui insights list` | `get_runtime_insights` | `--query` (`all` adds the rows the default list leaves out), `--limit` | read | all |
 | `bootui insights show` | `get_runtime_insight` | `<id>` | read | all |
 | `bootui jms` | `get_jms_activity` | — | read | Spring MVC, WebFlux |
 | `bootui jvm tuning` | `get_jvm_tuning` | — | read | all |

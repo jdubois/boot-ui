@@ -502,6 +502,17 @@ public abstract class AbstractMcpConformanceTest {
                     .isLessThanOrEqualTo(8);
             assertThat(byDefault.has("requests")).isTrue();
             assertThat(byDefault.path("notExercised").size()).isLessThanOrEqualTo(8);
+            for (JsonNode observation : byDefault.path("observations")) {
+                assertThat(observation.path("listed").asBoolean(false))
+                        .as("the default list shows only rows listed by default (M4-19)")
+                        .isTrue();
+            }
+            JsonNode everything = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
+            assertThat(everything.path("observations").size()
+                            + everything.path("omitted").asInt())
+                    .as("the query all reaches every row the default list leaves out")
+                    .isGreaterThanOrEqualTo(byDefault.path("observations").size()
+                            + byDefault.path("omitted").asInt());
 
             JsonNode unknown = callTool("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
             assertThat(unknown.path("available").asBoolean(true)).isFalse();

@@ -1736,6 +1736,17 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
+  Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
+  not, `unlistedReason` ([PLAN-v2.md](PLAN-v2.md) M4-19, D35): a `route-time-breakdown` is listed only when prominent
+  (a warm median of 20 ms or more, authorization taking 20 % of the warm time, or a median of 50 authorization
+  decisions a request; this replaces §5.5's former "or one phase ≥ 50 %", which nearly every short route met);
+  `exception-hotspots` lists groups behind a 5xx, a failed run or message, a redirect, or not observed in the previous
+  run, and collapses those seen only behind 4xx responses into one counted row; `lazy-sql-after-handler` leaves out
+  a statement `repeated-selects` already lists from the same call site; `framework-warnings-by-route` leaves out a
+  `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts in one row the framework `ERROR` events
+  that carried no request id; `gc-inflated-latency` and `heap-growth-after-gc` are reached from the Memory panel
+  (revisiting D18); and the four ORM and application-event kinds of D29 are left out until their counterexample
+  fixtures pass. The panel's **Show all routes**, a search, or a deep link lists the rest.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a

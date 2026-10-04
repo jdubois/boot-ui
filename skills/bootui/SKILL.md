@@ -324,11 +324,13 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    exchanges only. `0` means not exercised only when the limitations say so; an observation that names a request or
    execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work ran that
    `requests` does not count. A run-level observation with no exemplar does not. Then read `checksNotRun` and
-   `limitations`, then each observation's sentence, `verify` line, and exemplar request. The empty query includes
-   latency rows and omits only an insufficient repeated SELECT under 50 ms that ran fewer than 10 times in any request;
-   a limitation names how many, and `--query repeated-selects` returns them. Past the limit, every kind appears once
-   before any kind twice; list one kind with
-   `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
+   `limitations`, then each observation's sentence, `verify` line, and exemplar request. The empty query is the default
+   list the panel shows: a route's time breakdown only when prominent (a warm median of 20 ms or more, or heavy
+   authorization), exceptions behind a 5xx, a failed run, a redirect, or new, no garbage collection or heap rows, and no
+   insufficient repeated SELECT under 50 ms that ran fewer than 10 times in any request. A limitation counts what it
+   left out per kind; `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
+   cheap repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
+   kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
 3. Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
    `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
    resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included

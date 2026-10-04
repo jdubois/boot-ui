@@ -34,7 +34,9 @@ public final class McpGuidance {
                         "Investigate a runtime failure by correlating health, activity, exceptions, traces, SQL, and logs.",
                         "Diagnose the current runtime issue in this " + framework
                                 + " application. Begin with get_runtime_insights: read its coverage and the checks that"
-                                + " did not run before its observations, and treat INSUFFICIENT as unknown. Do not read"
+                                + " did not run before its observations, and treat INSUFFICIENT as unknown. Its default"
+                                + " list leaves out short routes and other rows it counts in a limitation; when nothing"
+                                + " listed explains the issue, call it again with the query all or the route. Do not read"
                                 + " requests 0 as idle when an observation names a request or execution, the non-HTTP"
                                 + " limitation, or eviction says otherwise. A run-level observation with no exemplar"
                                 + " does not. Then call"

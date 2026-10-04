@@ -150,8 +150,11 @@ function formatBytes(value) {
                 </dd>
               </dl>
               <p class="small text-muted mt-3 mb-0">
-                A snapshot is one moment. Whether the heap left after collections keeps rising across the run is in
-                <RouterLink :to="{path: '/runtime-insights', query: {theme: 'memory'}}">Runtime Insights</RouterLink>.
+                A snapshot is one moment. Whether the heap left after collections keeps rising across the run, and which
+                routes' slowest requests a collection pause completed during, are in
+                <RouterLink :to="{path: '/runtime-insights', query: {theme: 'memory', all: '1'}}"
+                  >Runtime Insights</RouterLink
+                >.
               </p>
             </div>
           </div>

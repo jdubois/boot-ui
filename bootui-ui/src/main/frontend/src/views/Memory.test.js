@@ -135,7 +135,7 @@ describe('Memory', () => {
   it('links the snapshot to the run-wide heap trend in Runtime Insights', async () => {
     const wrapper = await mountWithReport(advisorReport([]))
     const link = wrapper.findAll('a').find((anchor) => anchor.text() === 'Runtime Insights')
-    expect(JSON.parse(link.attributes('href'))).toEqual({path: '/runtime-insights', query: {theme: 'memory'}})
+    expect(JSON.parse(link.attributes('href'))).toEqual({path: '/runtime-insights', query: {theme: 'memory', all: '1'}})
   })
 
   it('offers the shared BootUI memory offload next to the scan action', async () => {

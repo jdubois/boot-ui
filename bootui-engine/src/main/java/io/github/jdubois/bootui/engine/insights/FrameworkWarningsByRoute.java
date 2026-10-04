@@ -15,7 +15,11 @@ import java.util.Set;
 /**
  * {@code framework-warnings-by-route} ({@code docs/PLAN-v2.md} §5.5): {@code WARN} and {@code ERROR} events that
  * framework loggers wrote while serving a request, grouped by logger, message template, and route. Well-known codes
- * carry a specific check.
+ * carry a specific check. The default list ({@code docs/PLAN-v2.md} M4-19) shows every {@code ERROR} group and the
+ * {@code WARN} groups with a specific check, except Spring MVC's {@code Resolved [...]} when every request it was written
+ * in answered 4xx, which Exception hotspots counts. Framework {@code ERROR} events that carried no request or execution
+ * id, such as a container's errors while it parsed requests, are counted in one row of their own, so they are not
+ * missed for having no route.
  */
 public final class FrameworkWarningsByRoute implements Observation {
 
@@ -41,6 +45,22 @@ public final class FrameworkWarningsByRoute implements Observation {
 
     /** Known messages and their check, matched by a fragment of the template. */
     static final Map<String, String> KNOWN = known();
+
+    /** The key and subject of the row counting framework {@code ERROR} events that carried no request id. */
+    static final String NO_REQUEST = "No request";
+
+    /** How long after a request ended an error on its thread without an id is taken as the request's. */
+    static final long AFTER_REQUEST_MILLIS = 1_000;
+
+    /** Why a {@code WARN} message without a specific check is left out of the default list. */
+    static final String UNKNOWN_MESSAGE = "It is a WARN message BootUI has no specific check for.";
+
+    /** Why Spring MVC's note that it resolved an exception to a client error is left out when every request was 4xx. */
+    static final String RESOLVED_4XX = "Spring MVC resolved an exception to a 4xx response in every request, which"
+            + " Exception hotspots counts behind 4xx responses.";
+
+    /** The fragment of Spring MVC's note that it resolved an exception into a response. */
+    static final String RESOLVED = "Resolved [";
 
     @Override
     public String kind() {
@@ -85,7 +105,116 @@ public final class FrameworkWarningsByRoute implements Observation {
             groups.forEach((key, group) ->
                     findings.add(finding(route.getKey(), key, group, requests.size(), snapshot.exposure())));
         }
+        Finding unowned = unowned(snapshot);
+        if (unowned != null) {
+            findings.add(unowned);
+        }
         return new Evaluation(eligible, findings);
+    }
+
+    /**
+     * One row counting the framework {@code ERROR} events that carried no request or execution id, by logger and
+     * template, or {@code null} when there were none. It names no request, so its tier is the kind's only nominally.
+     */
+    private static Finding unowned(InsightsSnapshot snapshot) {
+        Map<String, long[]> counts = new LinkedHashMap<>();
+        Map<String, LogPayload> logs = new LinkedHashMap<>();
+        Map<String, List<ProjectedRequest>> byThread = new LinkedHashMap<>();
+        for (ProjectedRequest request : snapshot.httpRequests()) {
+            // A blank name, as an unnamed virtual thread has, cannot tell one request's thread from another's.
+            if (request.thread() != null && !request.thread().isBlank()) {
+                byThread.computeIfAbsent(request.thread(), thread -> new ArrayList<>())
+                        .add(request);
+            }
+        }
+        long afterRequest = 0;
+        for (RuntimeEvent event : snapshot.unownedErrorLogs()) {
+            if (event.payload() instanceof LogPayload log && isFramework(log.logger())) {
+                if (justAfterARequest(event, byThread)) {
+                    afterRequest++;
+                    continue;
+                }
+                String key = log.logger() + "\n" + log.template();
+                counts.computeIfAbsent(key, k -> new long[1])[0]++;
+                logs.putIfAbsent(key, log);
+            }
+        }
+        if (counts.isEmpty()) {
+            return null;
+        }
+        List<String> limitations = new ArrayList<>(List.of(
+                "Counts framework ERROR events written while no request or execution id was current, including at"
+                        + " startup; WARN events without one are not counted.",
+                "Not yet compared with the previous run, whose summary does not keep log messages."));
+        if (afterRequest > 0) {
+            limitations.add(InsightText.counted(afterRequest, "more event") + " written on the thread of a request that"
+                    + " failed, within " + AFTER_REQUEST_MILLIS + " ms after it ended, as a container or error handler"
+                    + " logs a failure once the request's filters returned, " + (afterRequest == 1 ? "is" : "are")
+                    + " left out: Exception hotspots and Errors behind 2xx responses report the request.");
+        }
+        List<Map.Entry<String, long[]>> ranked = new ArrayList<>(counts.entrySet());
+        ranked.sort((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0]));
+        long total = 0;
+        List<List<String>> rows = new ArrayList<>();
+        List<String> checks = new ArrayList<>();
+        JournalTextExposure text = snapshot.exposure();
+        for (Map.Entry<String, long[]> entry : ranked) {
+            LogPayload log = logs.get(entry.getKey());
+            String template = log.template() == null ? "" : log.template();
+            String shown = text.message(template);
+            total += entry.getValue()[0];
+            rows.add(List.of(
+                    log.logger(), shown == null ? "" : InsightText.quoted(shown), String.valueOf(entry.getValue()[0])));
+            KNOWN.forEach((fragment, check) -> {
+                if (template.contains(fragment) && !checks.contains(check) && checks.size() < 2) {
+                    checks.add(check);
+                }
+            });
+        }
+        LogPayload top = logs.get(ranked.get(0).getKey());
+        String sentence = "Framework loggers wrote " + InsightText.counted(total, "`ERROR` event")
+                + " that carried no request or execution id, from " + InsightText.counted(ranked.size(), "message")
+                + "; the most frequent from `" + InsightText.simpleName(top.logger()) + "`, "
+                + ranked.get(0).getValue()[0] + " times.";
+        checks.add("Open Log Tail and filter on the logger to read these errors with their stack traces: a container"
+                + " error while parsing requests, a failure at startup, or work on a thread BootUI does not follow.");
+        return new Finding(
+                NO_REQUEST,
+                NO_REQUEST,
+                true,
+                sentence,
+                0,
+                0,
+                checks,
+                List.of(),
+                List.of("Logger", "Message", "Events"),
+                rows,
+                limitations);
+    }
+
+    /**
+     * Whether an event without a request id was written on a failed request's thread, one that answered 5xx or recorded
+     * an exception, while it ran or within {@value #AFTER_REQUEST_MILLIS} ms after it ended, before the thread served
+     * another: a container or error handler logging the failure once the request's filters, and so its id, were gone.
+     */
+    private static boolean justAfterARequest(RuntimeEvent event, Map<String, List<ProjectedRequest>> byThread) {
+        List<ProjectedRequest> requests = byThread.get(event.thread());
+        if (requests == null) {
+            return false;
+        }
+        ProjectedRequest last = null;
+        for (ProjectedRequest request : requests) {
+            if (request.startMillis() <= event.epochMillis()) {
+                last = request;
+            }
+        }
+        // Only a failed request is taken to own it, as a container logs the failure it answered 5xx for.
+        if (last == null
+                || !(last.failed() || !last.children(JournalSource.EXCEPTION).isEmpty())) {
+            return false;
+        }
+        long end = last.startMillis() + last.durationNanos() / 1_000_000;
+        return event.epochMillis() <= end + AFTER_REQUEST_MILLIS;
     }
 
     static boolean isFramework(String logger) {
@@ -115,8 +244,14 @@ public final class FrameworkWarningsByRoute implements Observation {
                 checks.add(check);
             }
         });
+        boolean known = !checks.isEmpty();
+        boolean error = InsightsSnapshot.isError(log.level());
+        boolean only4xx = group.rows.stream().allMatch(row -> row.get(1).startsWith("4"));
+        String unlisted = known && template.contains(RESOLVED) && only4xx
+                ? RESOLVED_4XX
+                : known || error ? null : UNKNOWN_MESSAGE;
         checks.add("Open one of these requests in Live Activity to read the message with its context.");
-        return new Finding(
+        Finding finding = new Finding(
                 route + ":" + InsightText.stableHash(key),
                 route,
                 true,
@@ -131,6 +266,7 @@ public final class FrameworkWarningsByRoute implements Observation {
                         "Counts WARN and ERROR events written while the request's id was current; a warning logged"
                                 + " at startup or on another thread is not counted.",
                         "Not yet compared with the previous run, whose summary does not keep log messages."));
+        return finding.unlisted(unlisted);
     }
 
     private static Map<String, String> known() {

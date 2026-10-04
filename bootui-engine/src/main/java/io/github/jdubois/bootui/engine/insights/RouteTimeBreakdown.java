@@ -51,8 +51,35 @@ public final class RouteTimeBreakdown implements Observation {
 
     static final int MIN_WARM_REQUESTS = 5;
 
-    /** The median from which, with a dominant phase, a breakdown is worth reading first. */
+    /**
+     * The warm median from which a breakdown is prominent, listed by default ({@code docs/PLAN-v2.md} M4-19), and from
+     * which, with a dominant phase, it is worth reading first.
+     */
     static final long PROMINENT_MEDIAN_NANOS = 20_000_000;
+
+    /**
+     * The share of the warm requests' time in authorization from which a route is prominent whatever its median, in
+     * place of the cut {@code authorization-cost} kind ({@code docs/PLAN-v2.md} D36).
+     */
+    static final double PROMINENT_AUTHORIZATION_SHARE = 0.20;
+
+    /** The median authorization decisions per warm request from which a route is prominent whatever its median (D36). */
+    static final long PROMINENT_AUTHORIZATION_DECISIONS = 50;
+
+    /** Why a sufficient breakdown that is not prominent is left out of the default list. */
+    static final String NOT_PROMINENT = "Its warm median is under 20 ms, and authorization takes under 20 % of its time"
+            + " and under 50 decisions a request, so it is not prominent.";
+
+    /** Why an insufficient breakdown is left out of the default list. */
+    static final String TOO_FEW_WARM =
+            "It has fewer than " + MIN_WARM_REQUESTS + " warm requests, so where its time goes is not known yet.";
+
+    /**
+     * Why a breakdown of requests that reached no marked handler, or named nothing at all, is left out of the default
+     * list when it is not prominent either.
+     */
+    static final String NOT_SPLIT = "Its time is not split into phases, since its requests reached no handler BootUI"
+            + " marks or named nothing at all, and its warm median is under 20 ms.";
 
     /** Where a request's time went, in the order shown. */
     enum Phase {
@@ -347,18 +374,19 @@ public final class RouteTimeBreakdown implements Observation {
         String coldText = coldText(cold);
         if (warm.size() < MIN_WARM_REQUESTS) {
             return new Finding(
-                    route,
-                    route,
-                    false,
-                    "`" + route + "`: " + warm.size() + " of " + MIN_WARM_REQUESTS + " warm requests needed."
-                            + coldText,
-                    warm.size(),
-                    warm.size(),
-                    List.of("Exercise the route a few more times to read where its time goes."),
-                    cold == null ? List.of() : List.of(cold.requestId()),
-                    List.of(),
-                    List.of(),
-                    limitations);
+                            route,
+                            route,
+                            false,
+                            "`" + route + "`: " + warm.size() + " of " + MIN_WARM_REQUESTS + " warm requests needed."
+                                    + coldText,
+                            warm.size(),
+                            warm.size(),
+                            List.of("Exercise the route a few more times to read where its time goes."),
+                            cold == null ? List.of() : List.of(cold.requestId()),
+                            List.of(),
+                            List.of(),
+                            limitations)
+                    .unlisted(TOO_FEW_WARM);
         }
         Totals totals = Totals.of(warm);
         long median = median(totals.durations());
@@ -369,19 +397,20 @@ public final class RouteTimeBreakdown implements Observation {
             // Without phase marks and without a recorded call, the whole request is one unattributed span: the
             // breakdown would say nothing about where the time went.
             return new Finding(
-                    route,
-                    route,
-                    false,
-                    warmText + ", none of it in a recorded call; " + stackName(stack)
-                            + " marks no phases, so where that time went is not known." + rejected(warm)
-                            + resources(warm) + coldText,
-                    warm.size(),
-                    warm.size(),
-                    List.of("Open the slowest exemplar request in Live Activity to see its timeline."),
-                    exemplars,
-                    COLUMNS,
-                    totals.rows(),
-                    limitations);
+                            route,
+                            route,
+                            false,
+                            warmText + ", none of it in a recorded call; " + stackName(stack)
+                                    + " marks no phases, so where that time went is not known." + rejected(warm)
+                                    + resources(warm) + coldText,
+                            warm.size(),
+                            warm.size(),
+                            List.of("Open the slowest exemplar request in Live Activity to see its timeline."),
+                            exemplars,
+                            COLUMNS,
+                            totals.rows(),
+                            limitations)
+                    .unlisted(prominent(median, warm) ? null : NOT_SPLIT);
         }
         List<Row> ranked = totals.rankedRows();
         List<String> top = new ArrayList<>();
@@ -392,7 +421,16 @@ public final class RouteTimeBreakdown implements Observation {
             top.add(row.label() + " " + percent(row.values()[0], totals.sum()));
         }
         boolean dominant = !ranked.isEmpty() && ranked.get(0).values()[0] * 2 >= totals.total();
-        String sentence = warmText + "; " + String.join(", ", top) + "." + resources(warm) + coldText;
+        long[] authorization = totals.phases().get(Phase.AUTHORIZATION);
+        boolean authorizationShare = authorization != null
+                && authorization[0] >= PROMINENT_AUTHORIZATION_SHARE * Math.max(1, totals.total());
+        long decisions = median(warm.stream().mapToLong(Breakdown::decisions).toArray());
+        boolean manyDecisions = decisions >= PROMINENT_AUTHORIZATION_DECISIONS;
+        boolean prominent = median >= PROMINENT_MEDIAN_NANOS || authorizationShare || manyDecisions;
+        String decisionText = manyDecisions
+                ? " Median " + InsightText.counted(decisions, "authorization decision") + " per request."
+                : "";
+        String sentence = warmText + "; " + String.join(", ", top) + "." + decisionText + resources(warm) + coldText;
         List<String> checks = new ArrayList<>();
         if (!ranked.isEmpty()) {
             Row first = ranked.get(0);
@@ -402,10 +440,15 @@ public final class RouteTimeBreakdown implements Observation {
                                     + ": open Code Paths for this route to see what it calls and who calls it."
                             : check(first.phase()));
         }
+        if (manyDecisions && (ranked.isEmpty() || ranked.get(0).phase() != Phase.AUTHORIZATION)) {
+            checks.add("Each request made a median " + InsightText.counted(decisions, "authorization decision")
+                    + ": check which rules and method-security expressions run per request, such as one per"
+                    + " returned row.");
+        }
         if (median >= PROMINENT_MEDIAN_NANOS || dominant) {
             checks.add("Open the slowest exemplar request in Live Activity to see its timeline.");
         }
-        return new Finding(
+        Finding finding = new Finding(
                 route,
                 route,
                 true,
@@ -417,6 +460,7 @@ public final class RouteTimeBreakdown implements Observation {
                 COLUMNS,
                 totals.rows(),
                 limitations);
+        return prominent ? finding : finding.unlisted(NOT_PROMINENT);
     }
 
     /**
@@ -474,21 +518,31 @@ public final class RouteTimeBreakdown implements Observation {
         }
         sentence.append(coldText(cold));
         return new Finding(
-                route,
-                route,
-                false,
-                sentence.toString(),
-                warm.size(),
-                unmarked.size(),
-                List.of(
-                        rejected == unmarked.size()
-                                ? "Send the route requests it accepts to read where its handler's time goes."
-                                : "Open the slowest exemplar request in Live Activity to see its timeline and"
-                                        + " recorded calls."),
-                slowest(unmarked),
-                COLUMNS,
-                totals.rows(),
-                limitations);
+                        route,
+                        route,
+                        false,
+                        sentence.toString(),
+                        warm.size(),
+                        unmarked.size(),
+                        List.of(
+                                rejected == unmarked.size()
+                                        ? "Send the route requests it accepts to read where its handler's time goes."
+                                        : "Open the slowest exemplar request in Live Activity to see its timeline and"
+                                                + " recorded calls."),
+                        slowest(unmarked),
+                        COLUMNS,
+                        totals.rows(),
+                        limitations)
+                .unlisted(prominent(median(durations), warm) ? null : NOT_SPLIT);
+    }
+
+    /**
+     * Whether a breakdown whose time is not split into phases is still prominent: its warm median, or its median
+     * authorization decisions per request, reaches the threshold of a split one.
+     */
+    private static boolean prominent(long median, List<Breakdown> warm) {
+        return median >= PROMINENT_MEDIAN_NANOS
+                || median(warm.stream().mapToLong(Breakdown::decisions).toArray()) >= PROMINENT_AUTHORIZATION_DECISIONS;
     }
 
     /** Why requests left out of a route's split reached no marked handler. */
@@ -713,6 +767,13 @@ public final class RouteTimeBreakdown implements Observation {
 
         Breakdown(ProjectedRequest request, long duration, Map<Phase, Long> phases, long overlap) {
             this(request, duration, phases, overlap, Map.of());
+        }
+
+        /** The authorization decisions the request made, request and method checks alike. */
+        long decisions() {
+            return request.children(JournalSource.AUTHORIZATION).stream()
+                    .filter(child -> child.payload() instanceof AuthorizationPayload)
+                    .count();
         }
 
         /** The length of the request's handler phase, 0 when unmarked. */

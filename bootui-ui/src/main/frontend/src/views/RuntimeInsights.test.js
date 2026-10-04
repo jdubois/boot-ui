@@ -336,6 +336,94 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.text()).toContain('No observation matches this search.')
   })
 
+  it('leaves short routes out by default, counts them, and lists them with Show all routes', async () => {
+    const fast = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:fast',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/fast',
+      sentence: '`GET /api/fast`: warm median 3 ms over 5 requests.',
+      listed: false,
+      unlistedReason: 'Its warm median is under 20 ms.'
+    }
+    const withFast = {
+      ...report,
+      checks: [...report.checks, {...report.checks[0], kind: 'route-time-breakdown', title: 'Route time breakdown'}],
+      observations: [{...report.observations[0], listed: true, unlistedReason: null}, fast]
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).includes('/insights/') ? {...detail, observation: fast} : withFast))
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
+    expect(wrapper.get('.insight-unlisted').text()).toContain('1 more not listed by default: 1 Route time breakdown.')
+    const toggle = wrapper.get('.insight-show-all')
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('.insight-item')).toHaveLength(2)
+    expect(wrapper.find('.insight-unlisted').exists()).toBe(false)
+    const item = wrapper.findAll('.insight-item').find((candidate) => candidate.text().includes('GET /api/fast'))
+    expect(item.text()).toContain('Not listed by default')
+    await item.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.insight-unlisted-reason').text()).toBe(
+      'Not listed by default: Its warm median is under 20 ms.'
+    )
+  })
+
+  it('shows every row when a deep link names one the default list leaves out', async () => {
+    const fast = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:fast',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/fast',
+      listed: false,
+      unlistedReason: 'Its warm median is under 20 ms.'
+    }
+    routeState.query = {insight: fast.id}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? {...detail, observation: fast}
+              : {...report, observations: [...report.observations, fast]}
+          )
+        )
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.insight-show-all').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('.insight-item.active').text()).toContain('GET /api/fast')
+  })
+
+  it('explains an empty default list instead of reading as no match', async () => {
+    const fast = {...report.observations[0], listed: false, unlistedReason: 'Its warm median is under 20 ms.'}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : {...report, observations: [fast]}))
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.insight-none-listed').text()).toContain('Nothing is listed by default here. 1 not listed')
+    expect(wrapper.text()).not.toContain('No observation matches this search.')
+    await wrapper.get('.insight-none-listed button').trigger('click')
+    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
+  })
+
   it('lists the declared routes this run never reached', async () => {
     vi.stubGlobal(
       'fetch',

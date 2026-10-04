@@ -660,11 +660,36 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
 | `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
 | `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |
-| `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
+| `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it and to `gc-inflated-latency`. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
-| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
+| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route, and in one row of its own, the framework `ERROR` events that carried no request or execution id, such as a container's errors while parsing requests or a failure at startup. An error written on the thread of a request that failed, within a second after it ended, as Tomcat logs an exception a servlet threw once the request's filters returned, is taken as that request's and left out of that count, which a limitation says |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 | `changed-code-not-executed` | Per class, the methods changed or added since the previous run that the agent tracked and that nothing executed in this run, worded "your change has not run yet", with the routes that executed the class's other methods. Reads [Code Inventory](java-agent.md#code-inventory): needs the [BootUI agent](java-agent.md)'s `inventory` sensor and a previous run of the application kept in this JVM, and is not applicable, with the reason, without either, or while the Code Inventory panel is disabled; a changed method that executed, or one the agent could not track, is never reported |
+
+**The default list** shows less than the report holds, so the rows worth reading first are not buried under the
+others. A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the
+toggle **Show all routes**, any search, a deep link to the row, such as **Why this route is slow** in a request's
+drawer, and an agent query naming its kind or route, or `all`, reach it. The panel counts what it left out under the
+list, marks such a row **Not listed by default**, and says why in its detail and in **Copy for AI**. The default list
+leaves out:
+
+- a `route-time-breakdown` that is not prominent: listed when its warm median is 20 ms or more, when authorization
+  takes 20 % or more of its warm requests' time, or when its requests make a median of 50 authorization decisions or
+  more. Authorization replaces a separate authorization-cost check. A route whose time is not split into phases, such as
+  an Actuator route or one on WebFlux without a recorded call, is listed by its median or its decisions only, and a route
+  with fewer than five warm requests is left out whatever its time;
+- an `exception-hotspots` group that no request answered with 5xx, no scheduled run or message failed for, that is not
+  new since the previous run, and that was seen only behind 2xx or 4xx responses or in runs and messages that
+  completed; a redirect or a request recorded without a status keeps it listed. The groups seen only behind 4xx responses, usually intended, are collapsed into one counted row,
+  **Behind 4xx responses**, listed after the others; Errors behind 2xx responses reports the 2xx ones;
+- a `lazy-sql-after-handler` statement that `repeated-selects` already reports, listed, on the same route from the same
+  call site;
+- a `framework-warnings-by-route` `WARN` message without a specific check, and Spring MVC's `Resolved [...]` note when
+  every request it was written in answered 4xx;
+- every `gc-inflated-latency` and `heap-growth-after-gc` row: garbage collection and heap rows are reached from the
+  Memory panel, whose link opens this panel on the **Memory** theme with every row shown;
+- every `transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` row,
+  until their counterexample fixtures pass across observations.
 
 Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
 but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented

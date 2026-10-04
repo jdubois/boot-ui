@@ -241,6 +241,13 @@ public abstract class AbstractCliConformanceTest {
                         .size())
                 .as("bootui insights list without --limit gets the compact default")
                 .isLessThanOrEqualTo(8);
+        for (JsonNode observation : invoke("get_runtime_insights", "{}").json().path("observations")) {
+            assertThat(observation.path("listed").asBoolean(false))
+                    .as("bootui insights list shows only rows listed by default (M4-19)")
+                    .isTrue();
+        }
+        assertThat(invoke("get_runtime_insights", "{\"query\":\"all\"}").status())
+                .isEqualTo(200);
         Response comparison = invoke("get_runtime_run_comparison", "{\"id\":\"previous\"}");
         assertThat(comparison.status()).isEqualTo(200);
         assertThat(comparison.json().path("status").asText()).isNotBlank();

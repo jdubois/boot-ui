@@ -755,6 +755,7 @@ public final class RuntimeInsightsService {
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
+        List<Evaluated> evaluated = new ArrayList<>();
         for (Observation observation : observations) {
             List<String> hiddenPanels = projected.hiddenPanels(observation);
             String missing = missingSource(observation, snapshot, visibility, hiddenPanels);
@@ -797,12 +798,22 @@ public final class RuntimeInsightsService {
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
                     reasons.isEmpty() ? null : String.join(" ", reasons)));
-            for (Finding finding : evaluation.findings()) {
+            evaluated.add(new Evaluated(observation, evaluation.findings(), partial, unseen));
+        }
+        List<Finding> repeatedSelects = evaluated.stream()
+                .filter(done -> RepeatedSelects.KIND.equals(done.observation().kind()))
+                .flatMap(done -> done.findings().stream())
+                .toList();
+        for (Evaluated done : evaluated) {
+            Observation observation = done.observation();
+            String partial = done.partial();
+            for (Finding found : done.findings()) {
+                Finding finding = DefaultListing.apply(observation.kind(), found, repeatedSelects);
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
                 List<String> limitations = new ArrayList<>(finding.limitations());
                 limitations.addAll(touchedBy(snapshot.markers(), finding));
-                limitations.addAll(unseen);
+                limitations.addAll(done.unseen());
                 if (partial != null) {
                     limitations.add(partial);
                 }
@@ -823,7 +834,9 @@ public final class RuntimeInsightsService {
                                                 MAX_EXEMPLARS,
                                                 finding.exemplarRequestIds().size())),
                         Math.min(MAX_EVIDENCE_ROWS, finding.rows().size()),
-                        limitations);
+                        limitations,
+                        finding.listed(),
+                        finding.unlisted());
                 rows.add(row);
                 details.put(row.id(), new Detail(row, finding));
             }
@@ -1133,6 +1146,9 @@ public final class RuntimeInsightsService {
     }
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
+
+    /** One observation's findings, kept until every observation ran, since listing one may depend on another's. */
+    private record Evaluated(Observation observation, List<Finding> findings, String partial, List<String> unseen) {}
 
     private record VisibleEntries(List<JournalEntry> entries, Map<ProjectedRequest.Kind, List<String>> panelsByKind) {
         List<String> hiddenPanels(Observation observation) {
