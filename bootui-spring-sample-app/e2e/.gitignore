@@ -3,9 +3,11 @@ playwright-report/
 playwright-report-webflux/
 playwright-report-custom-path/
 playwright-report-agent/
+playwright-report-webflux-agent/
 test-results/
 test-results-webflux/
 test-results-custom-path/
 test-results-agent/
+test-results-webflux-agent/
 blob-report/
 playwright/.cache/
