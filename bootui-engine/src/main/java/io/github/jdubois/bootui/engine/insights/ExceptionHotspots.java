@@ -28,6 +28,11 @@ public final class ExceptionHotspots implements Observation {
     /** Specific checks, by fully qualified class name. */
     static final Map<String, String> CHECKS = checks();
 
+    private static final Set<String> EXACT_ONLY = Set.of(
+            "com.fasterxml.jackson.databind.JsonMappingException",
+            "tools.jackson.databind.DatabindException",
+            "org.springframework.http.converter.HttpMessageNotWritableException");
+
     @Override
     public String kind() {
         return KIND;
@@ -63,7 +68,7 @@ public final class ExceptionHotspots implements Observation {
                 for (RuntimeEvent event : request.children(JournalSource.EXCEPTION)) {
                     if (event.payload() instanceof ExceptionPayload exception) {
                         String key = exception.signature() != null ? exception.signature() : exception.groupId();
-                        groups.computeIfAbsent(key, k -> new Group(exception));
+                        groups.computeIfAbsent(key, k -> new Group(exception)).observe(exception);
                         perRequest.computeIfAbsent(key, k -> new int[1])[0]++;
                     }
                 }
@@ -88,12 +93,13 @@ public final class ExceptionHotspots implements Observation {
         }
         sentence.append('.');
         List<String> checks = new ArrayList<>();
-        String specific = CHECKS.get(group.exception.exceptionClass());
-        if (specific != null) {
-            checks.add(specific);
-        }
+        checks.addAll(group.checks.stream().limit(2).toList());
         checks.add(GENERIC_CHECK);
         List<String> limitations = new ArrayList<>();
+        if (group.checks.size() > 2) {
+            limitations.add("This exception group recorded differing causes; only the first two specific checks are"
+                    + " listed. Open its occurrences to inspect the other causes.");
+        }
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
             limitations.add(
                     "Exceptions a WebFlux handler handles itself, such as with onErrorResume, are not" + " recorded.");
@@ -144,8 +150,9 @@ public final class ExceptionHotspots implements Observation {
         checks.put("java.sql.SQLIntegrityConstraintViolationException", integrity);
         checks.put(
                 "java.sql.SQLTransientConnectionException",
-                "The pool had no free connection within its timeout: compare Connections per request with the pool"
-                        + " size, and look for connections held across slow work.");
+                "A connection could not be obtained: if the pool timed out, compare Connections per request with"
+                        + " the pool size and look for connections held across slow work; also check database"
+                        + " connectivity.");
         String lock = "A lock wait timed out or deadlocked: check which requests write the same rows, and in which"
                 + " order.";
         checks.put("org.springframework.dao.CannotAcquireLockException", lock);
@@ -168,10 +175,23 @@ public final class ExceptionHotspots implements Observation {
 
         private final ExceptionPayload exception;
         private final List<List<String>> rows = new ArrayList<>();
+        private final List<String> checks = new ArrayList<>();
         private long occurrences;
 
         Group(ExceptionPayload exception) {
             this.exception = exception;
+        }
+
+        void observe(ExceptionPayload occurrence) {
+            String specific = occurrence.types().stream()
+                    .filter(type -> !EXACT_ONLY.contains(type))
+                    .map(CHECKS::get)
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst()
+                    .orElse(CHECKS.get(occurrence.exceptionClass()));
+            if (specific != null && !checks.contains(specific)) {
+                checks.add(specific);
+            }
         }
 
         void add(ProjectedRequest request, int count) {

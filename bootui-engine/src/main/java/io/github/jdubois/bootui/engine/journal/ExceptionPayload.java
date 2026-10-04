@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import java.util.List;
+
 /**
  * An exception occurrence's payload: the group it belongs to, its exception class, and its cross-run signature, never
  * its message.
@@ -9,8 +11,22 @@ package io.github.jdubois.bootui.engine.journal;
  * @param signature a hash of the class and the declaring class and method of its top frames, without line numbers, so
  *     the same failure keeps its signature when an edit shifts its lines ({@code docs/PLAN-v2.md} §5.5), or
  *     {@code null} when unknown
+ * @param types bounded class and superclass names, deepest cause first, without messages
  */
-public record ExceptionPayload(String groupId, String exceptionClass, String signature) implements RuntimeEventPayload {
+public record ExceptionPayload(String groupId, String exceptionClass, String signature, List<String> types)
+        implements RuntimeEventPayload {
+
+    public static final int MAX_TYPES = 16;
+
+    public ExceptionPayload {
+        types = types == null
+                ? List.of()
+                : List.copyOf(types.stream().limit(MAX_TYPES).toList());
+    }
+
+    public ExceptionPayload(String groupId, String exceptionClass, String signature) {
+        this(groupId, exceptionClass, signature, List.of());
+    }
 
     /** An occurrence without a cross-run signature. */
     public ExceptionPayload(String groupId, String exceptionClass) {
@@ -21,7 +37,10 @@ public record ExceptionPayload(String groupId, String exceptionClass, String sig
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
         return new ExceptionPayload(
-                dictionary.shared(groupId), dictionary.shared(exceptionClass), dictionary.shared(signature));
+                dictionary.shared(groupId),
+                dictionary.shared(exceptionClass),
+                dictionary.shared(signature),
+                types.stream().map(dictionary::shared).toList());
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -33,9 +52,13 @@ public record ExceptionPayload(String groupId, String exceptionClass, String sig
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 24
+        return 48
+                + JournalDictionary.REFERENCE_BYTES * types.size()
                 + JournalDictionary.retained(dictionary, groupId)
                 + JournalDictionary.retained(dictionary, exceptionClass)
-                + JournalDictionary.retained(dictionary, signature);
+                + JournalDictionary.retained(dictionary, signature)
+                + types.stream()
+                        .mapToInt(type -> JournalDictionary.retained(dictionary, type))
+                        .sum();
     }
 }

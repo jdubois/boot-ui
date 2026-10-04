@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,7 +21,8 @@ import java.util.Set;
 /**
  * {@code errors-behind-2xx} ({@code docs/PLAN-v2.md} §5.5): 2xx responses whose own request rolled back its root
  * transaction, recorded an exception, wrote an {@code ERROR} log, or received a failed downstream call, strongest
- * evidence first. Requests where a retry or fallback recovered are reported apart, as recovered.
+ * evidence first. Matching exceptions a retry or fallback recovered are reported apart; one request can belong to
+ * both groups.
  */
 public final class ErrorsBehind2xx implements Observation {
 
@@ -105,11 +107,9 @@ public final class ErrorsBehind2xx implements Observation {
             List<Behind> unrecovered = new ArrayList<>();
             List<Behind> recovered = new ArrayList<>();
             for (ProjectedRequest request : successes) {
-                Behind behind = behind(request, readable, snapshot.exposure());
-                if (behind == null) {
-                    continue;
+                for (Behind behind : behind(request, readable, snapshot.exposure())) {
+                    (behind.recovered() ? recovered : unrecovered).add(behind);
                 }
-                (behind.recovered() ? recovered : unrecovered).add(behind);
             }
             if (!unrecovered.isEmpty()) {
                 findings.add(finding(route.getKey(), unrecovered, successes.size(), false));
@@ -136,15 +136,16 @@ public final class ErrorsBehind2xx implements Observation {
         return readable;
     }
 
-    static Behind behind(ProjectedRequest request, Set<JournalSource> readable) {
+    static List<Behind> behind(ProjectedRequest request, Set<JournalSource> readable) {
         return behind(request, readable, JournalTextExposure.masked());
     }
 
-    static Behind behind(ProjectedRequest request, Set<JournalSource> readable, JournalTextExposure text) {
+    static List<Behind> behind(ProjectedRequest request, Set<JournalSource> readable, JournalTextExposure text) {
         Map<Evidence, List<String>> evidence = new EnumMap<>(Evidence.class);
-        boolean retried = false;
-        boolean recoveredByPolicy = false;
-        for (RuntimeEvent event : request.children()) {
+        Map<Evidence, List<String>> recovered = new EnumMap<>(Evidence.class);
+        Set<Integer> recoveredExceptions = recoveredExceptions(request, readable);
+        for (int i = 0; i < request.children().size(); i++) {
+            RuntimeEvent event = request.children().get(i);
             if (!readable.contains(event.source())) {
                 continue;
             }
@@ -157,7 +158,10 @@ public final class ErrorsBehind2xx implements Observation {
                             transaction.method() == null ? "transaction" : transaction.method());
                 }
             } else if (payload instanceof ExceptionPayload exception) {
-                add(evidence, Evidence.EXCEPTION, InsightText.simpleName(exception.exceptionClass()));
+                add(
+                        recoveredExceptions.contains(i) ? recovered : evidence,
+                        Evidence.EXCEPTION,
+                        InsightText.simpleName(exception.exceptionClass()));
             } else if (payload instanceof LogPayload log) {
                 if ("ERROR".equalsIgnoreCase(log.level())) {
                     add(evidence, Evidence.ERROR_LOG, log.logger() == null ? "?" : log.logger());
@@ -166,22 +170,77 @@ public final class ErrorsBehind2xx implements Observation {
                 if (call.status() != null ? call.status() >= 500 : call.failed()) {
                     add(evidence, Evidence.DOWNSTREAM, downstream(call, text));
                 }
-            } else if (payload instanceof FaultTolerancePayload policy) {
-                if (FaultToleranceVocabulary.OUTCOME_FALLBACK.equals(policy.outcome())) {
-                    recoveredByPolicy = true;
-                } else if (FaultToleranceVocabulary.OUTCOME_RETRY.equals(policy.outcome())) {
-                    retried = true;
-                } else if (retried && FaultToleranceVocabulary.OUTCOME_SUCCESS.equals(policy.outcome())) {
-                    recoveredByPolicy = true;
-                }
             }
         }
-        if (evidence.isEmpty()) {
-            return null;
+        List<Behind> groups = new ArrayList<>();
+        if (!evidence.isEmpty()) {
+            groups.add(new Behind(request, evidence, false));
         }
-        boolean recovered = recoveredByPolicy && !evidence.containsKey(Evidence.ROLLED_BACK);
-        return new Behind(request, evidence, recovered);
+        if (!recovered.isEmpty()) {
+            groups.add(new Behind(request, recovered, true));
+        }
+        return groups;
     }
+
+    private static Set<Integer> recoveredExceptions(ProjectedRequest request, Set<JournalSource> readable) {
+        Set<Integer> recovered = new java.util.HashSet<>();
+        if (!readable.contains(JournalSource.FAULT_TOLERANCE) || !readable.contains(JournalSource.EXCEPTION)) {
+            return recovered;
+        }
+        Map<Policy, List<Integer>> retries = new LinkedHashMap<>();
+        for (int i = 0; i < request.children().size(); i++) {
+            RuntimeEvent event = request.children().get(i);
+            if (event.source() != JournalSource.FAULT_TOLERANCE
+                    || !(event.payload() instanceof FaultTolerancePayload policy)
+                    || policy.policy() == null) {
+                continue;
+            }
+            Policy key = new Policy(policy.policy(), policy.policyType(), policy.target());
+            if (FaultToleranceVocabulary.OUTCOME_RETRY.equals(policy.outcome())) {
+                retries.computeIfAbsent(key, k -> new ArrayList<>()).add(i);
+            } else if (FaultToleranceVocabulary.OUTCOME_SUCCESS.equals(policy.outcome()) && !policy.failure()) {
+                List<Integer> attempts = retries.remove(key);
+                if (attempts != null) {
+                    for (int attempt : attempts) {
+                        recoverException(request, attempt, recovered);
+                    }
+                }
+            } else if (FaultToleranceVocabulary.OUTCOME_FALLBACK.equals(policy.outcome()) && !policy.failure()) {
+                recoverException(request, i, recovered);
+                retries.remove(key);
+            } else {
+                retries.remove(key);
+            }
+        }
+        return recovered;
+    }
+
+    private static void recoverException(ProjectedRequest request, int attempt, Set<Integer> recovered) {
+        RuntimeEvent event = request.children().get(attempt);
+        FaultTolerancePayload policy = (FaultTolerancePayload) event.payload();
+        if (policy.failureCategory() == null) {
+            return;
+        }
+        // A failed attempt can account for at most one earlier exception, never every error in the request.
+        for (int i = attempt - 1; i >= 0; i--) {
+            RuntimeEvent candidate = request.children().get(i);
+            if (!recovered.contains(i)
+                    && candidate.source() == JournalSource.EXCEPTION
+                    && java.util.Objects.equals(candidate.thread(), event.thread())
+                    && candidate.payload() instanceof ExceptionPayload exception
+                    && policy.failureCategory().equals(failureCategory(exception.exceptionClass()))) {
+                recovered.add(i);
+                return;
+            }
+        }
+    }
+
+    private static String failureCategory(String type) {
+        String simple = InsightText.simpleName(type);
+        return simple.substring(simple.lastIndexOf('$') + 1);
+    }
+
+    private record Policy(String name, String type, String target) {}
 
     private static void add(Map<Evidence, List<String>> evidence, Evidence kind, String what) {
         evidence.computeIfAbsent(kind, k -> new ArrayList<>()).add(what);
@@ -241,8 +300,14 @@ public final class ErrorsBehind2xx implements Observation {
                                 String.valueOf(b.request().status()),
                                 b.describe()))
                         .toList(),
-                List.of("Only work that carries the request's id is counted; work handed to another thread without"
-                        + " BootUI's correlation is not."));
+                List.of(
+                        "Only work that carries the request's id is counted; work handed to another thread without"
+                                + " BootUI's correlation is not.",
+                        "Recovery matches at most one earlier exception of the reported failure class on the same"
+                                + " thread per failed attempt, and requires a terminal success for the same policy,"
+                                + " type, and target, or a successful fallback. It is not causal proof.",
+                        "Logs, downstream failures, and root rollbacks are never inferred recovered. Providers that"
+                                + " report no terminal success or fallback cannot establish recovery."));
     }
 
     /** One 2xx request and the errors it recorded. */

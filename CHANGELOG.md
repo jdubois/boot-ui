@@ -17,6 +17,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
+  in a successful request. Connections held together now use the known pool maximum and the corrected first possible
+  hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
+  top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
 - **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
   `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
   are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
