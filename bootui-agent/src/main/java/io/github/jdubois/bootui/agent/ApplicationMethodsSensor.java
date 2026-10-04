@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
+import io.github.jdubois.bootui.agent.bridge.Exclusions;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
@@ -1393,7 +1394,7 @@ final class ApplicationMethodsSensor {
             "java/",
             "jdk/",
             "sun/",
-            "net/bytebuddy/",
+            Exclusions.byteBuddyPrefix('/'),
             "io/github/jdubois/bootui/agent/",
             "io/github/jdubois/bootui/engine/",
             "io/github/jdubois/bootui/core/",

@@ -508,6 +508,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **The BootUI agent skips the application's own Byte Buddy.** Packaging the agent relocated the `net.bytebuddy.`
+  prefix in its exclusion list to the agent's shaded package, so the published jar excluded only its own copy of Byte
+  Buddy and could instrument the one an application ships with Mockito or Hibernate. The prefix is now built at run time,
+  and a test checks it in the packaged jar (PLAN-v2 §5.13).
 - **Code Paths overhead under load.** With more than 512 request trees open, as under sustained load, the engine settled
   the eldest one tree at a time, reading the whole runtime journal once per request on BootUI's drain thread: 15 % of
   the process's CPU in a profile of the sample under the agent overhead benchmark's load. The eldest quarter now settle
