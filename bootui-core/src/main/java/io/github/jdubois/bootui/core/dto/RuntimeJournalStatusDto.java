@@ -24,6 +24,8 @@ import java.util.Map;
  * @param droppedEvents events dropped from every source
  * @param previousRuns the previous runs whose summaries are kept, newest first
  * @param previousRunsUnavailable why previous runs cannot be kept, or {@code null} when they can
+ * @param agentEvidence what the BootUI agent's evidence kept outside the journal retains, or {@code null} when no
+ *     store of it is registered
  */
 public record RuntimeJournalStatusDto(
         boolean enabled,
@@ -43,7 +45,8 @@ public record RuntimeJournalStatusDto(
         Map<String, Long> dropped,
         long droppedEvents,
         List<RuntimeRunSummaryDto> previousRuns,
-        String previousRunsUnavailable) {
+        String previousRunsUnavailable,
+        RuntimeAgentEvidenceDto agentEvidence) {
 
     public RuntimeJournalStatusDto {
         recorded = DtoCollections.immutableCopy(recorded);

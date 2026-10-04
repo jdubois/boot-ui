@@ -352,7 +352,8 @@ public final class BootUiApiContractCatalog {
                             "methods", JsonType.NULLABLE_OBJECT,
                             "changes", JsonType.NULLABLE_OBJECT,
                             "dependencies", JsonType.NULLABLE_OBJECT,
-                            "limitations", JsonType.ARRAY)),
+                            "limitations", JsonType.ARRAY,
+                            "recordingClearedAt", JsonType.NULLABLE_INTEGER)),
             read(
                     "code-paths",
                     "/code-paths",
@@ -448,7 +449,8 @@ public final class BootUiApiContractCatalog {
                     "dropped", JsonType.OBJECT,
                     "droppedEvents", JsonType.INTEGER,
                     "previousRuns", JsonType.ARRAY,
-                    "previousRunsUnavailable", JsonType.NULLABLE_STRING));
+                    "previousRunsUnavailable", JsonType.NULLABLE_STRING,
+                    "agentEvidence", JsonType.NULLABLE_OBJECT));
 
     /**
      * The run's resource track and CPU ledger, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
@@ -500,9 +502,9 @@ public final class BootUiApiContractCatalog {
                             "page", JsonType.OBJECT)));
 
     /**
-     * Code Paths' tree reads ({@code docs/PLAN-v2.md} §5.14), reads of the {@code code-paths} panel kept out of
-     * {@link #reads()}: each answers the same shape with or without the BootUI agent, {@code available: false} and empty
-     * without it, and {@code found: false} for a route or request this run has no tree for.
+     * Code Paths' tree reads and Beans at runtime ({@code docs/PLAN-v2.md} §5.14), reads of the {@code code-paths} panel
+     * kept out of {@link #reads()}: each answers the same shape with or without the BootUI agent, {@code available:
+     * false} and empty without it, and {@code found: false} for a route or request this run has no tree for.
      */
     private static final List<ReadContract> CODE_PATHS_TREES = List.of(
             read(
@@ -542,6 +544,19 @@ public final class BootUiApiContractCatalog {
                             "droppedCalls", JsonType.NUMBER,
                             "nodes", JsonType.ARRAY,
                             "topMethods", JsonType.ARRAY,
+                            "limitations", JsonType.ARRAY)),
+            read(
+                    "code-paths",
+                    "/code-paths/beans",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "beansAvailable", JsonType.BOOLEAN,
+                            "edges", JsonType.ARRAY,
+                            "observedEdges", JsonType.NUMBER,
+                            "declaredEdges", JsonType.NUMBER,
+                            "notCalled", JsonType.NUMBER,
+                            "omitted", JsonType.NUMBER,
                             "limitations", JsonType.ARRAY)));
 
     /**

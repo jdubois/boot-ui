@@ -9,6 +9,7 @@
     "test:custom-path": "playwright test --config=playwright.custom-path.config.js",
     "test:webflux": "playwright test --config=playwright.webflux.config.js",
     "test:agent": "playwright test --config=playwright.agent.config.js",
+    "test:webflux:agent": "playwright test --config=playwright.webflux-agent.config.js",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "screenshots": "node scripts/capture-docs-screenshots.mjs",

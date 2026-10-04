@@ -127,6 +127,62 @@ class RuntimeModelProjectionTests {
         assertThat(model.partial()).isFalse();
     }
 
+    /**
+     * M5-4c: the calls Code Paths observed between application classes become observed {@code INVOKES} edges between
+     * their beans, with their counts; a proxy class reads as its user class, a self-call or a class of no single bean
+     * makes no edge, and change impact's code closure never walks them (design I8).
+     */
+    @Test
+    void observedCallsBetweenBeansBecomeInvokesEdgesThatChangeImpactNeverWalks() {
+        JournalFixture journal = new JournalFixture();
+        journal.request("GET", "/api/orders/{id}", child(JournalSource.SQL, sql("select * from orders")));
+        StructureSnapshot structure = new StructureSnapshot(
+                "run-1",
+                List.of(new StructureSnapshot.RouteHandler("GET /api/orders/{id}", "com.example.OrderController")),
+                List.of(
+                        new StructureSnapshot.Bean(
+                                "orderController", "com.example.OrderController", false, List.of("orderService")),
+                        new StructureSnapshot.Bean(
+                                "orderService", "com.example.OrderService$$SpringCGLIB$$0", false, List.of()),
+                        new StructureSnapshot.Bean("auditService", "com.example.AuditService", false, List.of()),
+                        new StructureSnapshot.Bean("twinA", "com.example.Twin", false, List.of()),
+                        new StructureSnapshot.Bean("twinB", "com.example.Twin", false, List.of())));
+        List<ClassInvocation> invocations = List.of(
+                new ClassInvocation("com.example.OrderController", "com.example.OrderService", 6),
+                new ClassInvocation("com.example.OrderService", "com.example.AuditService", 3),
+                new ClassInvocation("com.example.OrderService", "com.example.OrderService", 9),
+                new ClassInvocation("com.example.OrderService", "com.example.Twin", 2));
+
+        RuntimeModel model = RuntimeModelProjection.project(
+                journal.entries(),
+                RouteTemplateResolver.empty(),
+                structure,
+                0,
+                new AtomicLong()::get,
+                RuntimeModelProjection.READ_BUDGET_NANOS,
+                traceId -> false,
+                invocations);
+
+        assertThat(model.edges())
+                .filteredOn(edge -> edge.type() == EdgeType.INVOKES)
+                .extracting(edge -> model.node(edge.from()).key() + ">"
+                        + model.node(edge.to()).key() + ":" + edge.provenance() + ":" + edge.count())
+                .containsExactlyInAnyOrder(
+                        "orderController>orderService:OBSERVED:6", "orderService>auditService:OBSERVED:3");
+        assertThat(model.limitations()).anyMatch(limitation -> limitation.startsWith("2 calls Code Paths observed"));
+        int audit = model.node(NodeType.BEAN, "auditService").orElseThrow().id();
+        assertThat(ReverseClosure.of(
+                        model, audit, io.github.jdubois.bootui.engine.insights.ChangeImpactService.CODE, 5))
+                .as("change impact's code closure never walks an observed call")
+                .isEmpty();
+        assertThat(ReverseClosure.of(model, audit, Set.of(EdgeType.INVOKES), 5))
+                .containsOnlyKeys(
+                        model.node(NodeType.BEAN, "orderService").orElseThrow().id(),
+                        model.node(NodeType.BEAN, "orderController")
+                                .orElseThrow()
+                                .id());
+    }
+
     @Test
     void declaredStructureIsKeptApartFromObservedExecution() {
         JournalFixture journal = new JournalFixture();

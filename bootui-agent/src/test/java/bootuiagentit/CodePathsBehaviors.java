@@ -153,11 +153,17 @@ public final class CodePathsBehaviors {
                 }
             }
             check(
-                    "a handoff fragment carries the execution id (" + describe(blobs) + ")",
+                    "a handoff fragment carries the execution id and its submitting node's stamp (" + describe(blobs)
+                            + ")",
                     answer == 20
                             && blobs.size() == 2
                             && worker != null
                             && submitter != null
+                            && worker[CodePaths.H_SUBMITTER] != 0L
+                            && CodePaths.stampSequence(worker[CodePaths.H_SUBMITTER]) == submitter[CodePaths.H_SEQUENCE]
+                            && CodePaths.stampNode(worker[CodePaths.H_SUBMITTER]) == 0
+                            && CodePaths.stampMethod(worker[CodePaths.H_SUBMITTER])
+                                    == submitter[CodePaths.HEADER + CodePaths.N_METHOD]
                             && worker[CodePaths.H_REQUEST] == REQUEST_BITS
                             && worker[CodePaths.H_EXECUTION] == EXECUTION_BITS
                             && (worker[CodePaths.H_FLAGS] & 15) == CodePaths.EXECUTION_ASYNC

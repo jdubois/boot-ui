@@ -17,9 +17,9 @@ final class InventoryAdvice {
     private InventoryAdvice() {}
 
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    static void enter(@MethodId int id) {
-        if (CodeInventory.HITS[id] != CodeInventory.epoch) {
-            CodeInventory.hit(id);
+    static void enter(@MethodId int id, @DefinitionToken int definition) {
+        if (CodeInventory.HITS[id] != CodeInventory.epoch && CodeInventory.eligibleDefinition(definition)) {
+            CodeInventory.hit(id, definition);
         }
     }
 
@@ -27,4 +27,8 @@ final class InventoryAdvice {
     @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.PARAMETER)
     @interface MethodId {}
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.PARAMETER)
+    @interface DefinitionToken {}
 }

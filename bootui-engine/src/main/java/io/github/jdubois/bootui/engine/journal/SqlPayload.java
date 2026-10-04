@@ -11,6 +11,9 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
  * @param phase the part of its request it ran in, or {@code null} when unknown or outside a request
  * @param completedNanos the {@link System#nanoTime()} when it completed, or {@code -1} when unknown, which places it
  *     inside or outside a transaction of its thread below the millisecond ({@code docs/PLAN-v2.md} §5.5)
+ * @param codePathStamp the BootUI agent's code-paths stamp of the instrumented method open on the issuing thread when the
+ *     statement was recorded ({@code docs/PLAN-v2.md} §5.14, M5-4c), which names the request-tree node that issued it, or {@code 0}
+ *     when unknown: without the agent, or when the recorder ran on another thread
  */
 public record SqlPayload(
         String sql,
@@ -19,8 +22,21 @@ public record SqlPayload(
         boolean failed,
         ApplicationFrames frames,
         RequestPhase phase,
-        long completedNanos)
+        long completedNanos,
+        long codePathStamp)
         implements RuntimeEventPayload {
+
+    /** A statement without a code-paths stamp. */
+    public SqlPayload(
+            String sql,
+            String callSite,
+            String dataSource,
+            boolean failed,
+            ApplicationFrames frames,
+            RequestPhase phase,
+            long completedNanos) {
+        this(sql, callSite, dataSource, failed, frames, phase, completedNanos, 0L);
+    }
 
     /** A statement without its request phase or monotonic completion. */
     public SqlPayload(String sql, String callSite, String dataSource, boolean failed, ApplicationFrames frames) {
@@ -48,7 +64,8 @@ public record SqlPayload(
                 failed,
                 frames == null ? null : frames.interned(dictionary),
                 phase,
-                completedNanos);
+                completedNanos,
+                codePathStamp);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -60,7 +77,7 @@ public record SqlPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 32
+        return 40
                 + JournalDictionary.retained(dictionary, sql)
                 + JournalDictionary.retained(dictionary, callSite)
                 + JournalDictionary.retained(dictionary, dataSource)

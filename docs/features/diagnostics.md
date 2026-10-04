@@ -452,7 +452,14 @@ How it works:
   records, which a full ring may drop (counted, and said).
 - The first request and route belong to [HTTP Exchanges](#http-exchanges): while that panel is disabled, every read,
   `get_code_inventory`, and Runtime Insights' `changed-code-not-executed` leave them out, with the reason, and say only
-  which methods executed and when.
+  which methods executed and when. While the Code Inventory panel itself is disabled, every read, the MCP tool, and
+  `changed-code-not-executed` answer that it is disabled, and the journal status reports only its bytes.
+- First calls are kept per method id, bounded by the agent's method limit (about 9 MB with their loads and routes), and counted in the journal
+  status's **Agent evidence** with Code Paths' trees ([agent evidence](java-agent.md#agent-evidence-outside-the-journal)).
+  **Clear recording** in Live Activity drops every first request and route recorded before it, those still queued in
+  the agent's ring included; which methods executed, and when each first ran, still cover the whole run, since the
+  agent marks each method once a run, so a method whose first call is older than the clear may not have run since. The
+  summary's `recordingClearedAt` and a limitation say when.
 - A method counts as executed or never executed only when the agent instrumented its class in this run, or when its
   class has not loaded in this run at all (after a DevTools restart, a class the new class loader has not loaded yet
   has not run). Any other method on disk is **not tracked**, with its reason (static initializer, abstract method,
@@ -493,9 +500,23 @@ panel is unavailable with the Java Agent panel's reason and a link to it, and ev
   handler's assembly, not the work that ran later or elsewhere.
 - **The selected route's tree** as an indented table: method, calls per request, total and self time per request, an
   approximate median (≈) per request that reached it, and its share of the handler's time in application methods (of the request's own time when no handler phase is known,
-  as on WebFlux), with a share bar. Work an executor ran for the request is marked **async** and shown apart, never
-  subtracted from its parent; a parent's methods past the tree's node budget are one **Other** node.
+  as on WebFlux), with a share bar. Work an executor ran for the request is marked **async** and shown apart under the
+  method that submitted it, never subtracted from it; a parent's methods past the tree's node budget are one **Other**
+  node.
+- **Calls under methods**: under each method, its SQL statements, REST client calls, cache accesses, and AI calls per
+  request, with their time: the calls recorded while it was the innermost instrumented method open on their thread. A
+  statement Hibernate flushes at commit runs after the `@Transactional` method returned, in the transaction interceptor
+  around it, so it shows under the method that called the `@Transactional` one. Calls issued while no instrumented
+  method was open, as in a filter or while the response is written, and calls recorded on another thread, as a
+  streaming AI call's, show under no method; the limitations count each apart and say why.
 - **Selecting a method** shows its callers within the tree and every route whose tree reaches it.
+- **Beans at runtime**, a tab beside the routes: the calls between beans observed in this run's route trees, with their
+  counts, beside the dependencies the beans declare, as the Beans panel lists them. A filter keeps only the declared
+  dependencies **not called in this run**, which is all a run can say: never "unused", since a path no request took or
+  work outside a request may still call it. Calls come from each route's warm requests and its first request. A
+  dependency is not called only when a call would have been observed: both beans' classes are instrumented and none of
+  their methods was adaptively excluded; otherwise it is **not observable**, with why, as with a repository whose class
+  a framework generates, and never counted as not called.
 - **Excluded methods**: the methods the sensor stopped timing in this run, called more than 50,000 times a second under
   2 µs each, whose time stays in their callers.
 
@@ -503,19 +524,44 @@ How it works:
 
 - The agent times the public and protected methods of the application's bean classes (Spring beans, ArC beans) and
   builds a per-thread fragment of each request's call tree; the engine merges a request's fragments into its request
-  tree, then, about two seconds after its last fragment, merges the settled tree into its **route tree**: per node, the
+  tree, then, about two seconds after its last fragment, or sooner under sustained load, when more than 512 request
+  trees are open and the eldest quarter settle together, merges the settled tree into its **route tree**: per node, the
   requests that reached it, its calls, total and self time, and a log2 histogram of the time each request spent in it
   with its least and most, from which an approximate (≈) median and 95th percentile are read: interpolated within a
   bucket and clamped to that least and most. Each route's first recorded request, the first whose tree settled, is kept
   apart, as its time and request id only.
 - Route trees are keyed by the routes and outcomes [HTTP Exchanges](#http-exchanges) owns: while that panel is
   disabled, the panel, every read, `get_code_paths`, and the handler split are unavailable with that reason.
-- Route trees are bounded: 2,000 nodes a route with one **Other** node per parent past the budget, 100,000 nodes and
-  500 routes across the run. A call that finds no node left keeps its time in its caller's self time. Route trees cover
-  the current run only: a DevTools restart or Quarkus live reload starts new ones.
+- A node is its caller, its method, and the request phase it was entered in: a helper called by the handler and again
+  while the response is written is two nodes, so its response-write time never counts as handler time, whichever
+  request reached it first.
+- A request's tree joins its route tree once the request's exchange is recorded. A slow reactive response's tree can
+  settle before its response completes: it waits for the exchange, looked up again with a back-off, up to the executor
+  handoff window (five minutes), and only then is kept without a route.
+- Route trees are bounded: 2,000 nodes a route with one **Other** node per parent and phase past the budget, 100,000
+  nodes and 500 routes across the run. A call that finds no node left keeps its time in its caller's self time. Route
+  trees cover the current run only: a DevTools restart or Quarkus live reload starts new ones.
+- Request and route trees are kept outside the runtime journal, under the
+  [agent evidence contract](java-agent.md#agent-evidence-outside-the-journal). While the Code Paths panel is disabled,
+  every read, `get_code_paths`, Beans at runtime, the runtime model's observed calls, the handler split, and
+  `repeated-selects`' issuing method say so and show nothing of it. Their estimated bytes show in Live Activity's journal
+  status as **Agent evidence**; a smaller `bootui.runtime-journal.agent-evidence-max-bytes` shrinks the bounds above in
+  proportion. **Clear recording** drops every request and route tree, and any fragment flushed before the clear, still
+  queued or not: a request that lost a fragment to the clear is left out whole, never shown partial. The counts and the
+  adaptive exclusions are kept, and the summary says the recording was cleared.
 - A method's self time is its time outside its recorded child methods, so a JDK, framework, or library method shows
-  only as its caller's self time, and so do the SQL, REST client, cache, and AI calls it waited on: their call sites are
-  not stamped yet.
+  only as its caller's self time, and so do the SQL, REST client, cache, and AI calls it waited on.
+- **Call-site stamps.** Where the SQL, REST client, cache, and AI recorders already capture their application call site,
+  on the thread that issued the call, they also take the agent's stamp of the innermost instrumented method open there:
+  its fragment and node, packed into one number. When the request's tree settles, each stamped call is counted under the
+  exact node that issued it, and the route tree sums them per node. A call recorded on another thread than the one that
+  issued it carries no stamp and shows under no method: a streaming AI call, one received over OTLP, or a WebClient call
+  subscribed on another thread (Spring's WebClient filter takes the stamp where the exchange is subscribed, which is the
+  issuing thread when the caller blocks or subscribes in place; Quarkus's REST client, where its request filter runs). A
+  call issued on the request's thread while no instrumented method was open, as in a filter, while the response is
+  written, or in a commit after the outermost instrumented method returned, is counted apart. An executor's handoff
+  carries the submitting method's stamp too, so its work shows under that method, and the thread's previous submitter
+  comes back when the work is over, as for work a caller-runs executor ran in place.
 - **Assembly only**: a handler that ran on an event loop, returned a reactive or asynchronous result, or whose work
   BootUI could not place. That is a Spring MVC handler that started async processing, every Spring WebFlux handler (the
   fragment covers the request's subscription on the assembling thread, up to its first asynchronous boundary; the
@@ -523,12 +569,16 @@ How it works:
   loop or returns `Uni`, `Multi`, `CompletionStage`, or a publisher. When Quarkus cannot tell which method ran, the
   request is marked assembly only rather than guessed.
 - **Handler split.** With the sensor active, Runtime Insights' `route-time-breakdown` splits a route's **Handler, other
-  work** into its top five handler-phase methods by self time, the rest as **Other handler time**, for every route whose
-  tree is not assembly only and whose recorded calls take under 10 % of the handler phase. Each method takes the share
-  its self time per request has of the handler phase (or of the handler's methods, when they add up to more), so the
-  parts never exceed the handler's work and the SQL and REST time already named is never subtracted twice. Until call
-  sites are stamped on recorded calls, a method's self time includes the calls it waited on, so a route whose recorded
-  calls take 10 % of its handler or more is not split, and the observation says so.
+  work** into its top five handler-phase methods by own time, the rest as **Other handler time**, for every route whose
+  tree is not assembly only. A method's own time is its self time minus the recorded calls stamped to it, which the
+  breakdown already names as SQL, REST client, or AI time. Each method takes the share its own time per request has of
+  the handler's other work (or of the handler's methods, when they add up to more), so the parts never exceed it. A
+  recorded call without a stamp stays in the own time of the method that waited on it, and the observation says how
+  many there were. Only handler-phase nodes count. Each method keeps its own row, labelled `Class.method`, with its
+  parameter types when two overloads would share a label, and its package when two classes share a name.
+- **Issuing method.** Runtime Insights' `repeated-selects` names the method that issued the repeated statements, such
+  as a service method looping over a repository, beside SQL Trace's call site: the instrumented method that was
+  innermost on the statements' thread, since a repository's own methods are not instrumented.
 
 API, all `GET`:
 
@@ -537,7 +587,13 @@ API, all `GET`:
 | `/bootui/api/code-paths` | The sensor's status, the routes with a tree ranked by warm median with their top methods, the excluded methods, and the limitations |
 | `/bootui/api/code-paths/route?route=` | One route's tree, paged by `depth` (8 by default, at most 33), `offset`, and `limit` (200, at most 500), with each listed method's callers and the routes that reach it, and the route's exemplar request ids |
 | `/bootui/api/code-paths/requests/{requestId}` | One request's tree while the run keeps it: its recent requests and each route's slowest and latest failed |
+| `/bootui/api/code-paths/beans` | Beans at runtime: the observed calls between beans and the declared dependencies, observed first, with how many declared dependencies on a timed bean were not called in this run |
+
+Each tree node carries `calls`: per kind (`SQL`, `REST`, `CACHE`, `AI`), the calls it issued per request and their
+time, `null` for cache accesses, which have none. The runtime model gains an observed `INVOKES` edge between two beans
+per call pair, with its count; change impact never walks it, since a call observed in one run is evidence of the paths
+its requests took, not of what a change can reach.
 
 `get_code_paths` and `bootui code paths` return at most `limit` (10) routes matching `query` (a route, or part of a
 route or of a method), slowest warm median first, each with its top methods; for a single route, its method nodes with
-the most self time. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.
+the most self time, each with its calls. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.

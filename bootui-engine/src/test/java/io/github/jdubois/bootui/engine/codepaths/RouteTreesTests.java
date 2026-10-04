@@ -15,11 +15,32 @@ import org.junit.jupiter.api.Test;
 /**
  * Route trees ({@code docs/PLAN-v2.md} §5.14, M5-4b): examples of the first recorded request, assembly only, and the
  * histogram, then seeded random request trees against a straightforward path-keyed reference of the merge, and, under
- * small budgets, the invariants the merge keeps: node caps, one Other node per parent, and self time conserved.
+ * small budgets, the invariants the merge keeps: node caps, one Other node per parent and phase, and self time
+ * conserved.
  */
 class RouteTreesTests {
 
     private static final String ROUTE = "GET /api/orders";
+
+    /** M5-11: Clear recording empties the route trees and keeps their counts since the claim and their bounds. */
+    @Test
+    void clearedRouteTreesAreEmptyAndKeepTheirCountsAndBounds() {
+        RouteTrees trees = new RouteTrees(5_000, 20);
+        trees.add(new Tree(1_000L).method(0, 7, 2, 1, 1_000L).build("0000000000000001"), ROUTE, false);
+        trees.add(new Tree(2_000L).method(0, 7, 2, 1, 1_000L).build("0000000000000002"), null, false);
+        long version = trees.version();
+
+        RouteTrees cleared = trees.cleared();
+
+        assertThat(cleared.routes()).isEmpty();
+        assertThat(cleared.nodes()).isZero();
+        assertThat(cleared.merged()).isEqualTo(1);
+        assertThat(cleared.unrouted()).isEqualTo(1);
+        assertThat(cleared.version()).isGreaterThan(version);
+        assertThat(cleared.maxNodes()).isEqualTo(5_000);
+        assertThat(cleared.maxRoutes()).isEqualTo(20);
+        assertThat(cleared.estimatedBytes()).isLessThan(trees.estimatedBytes());
+    }
 
     /**
      * The route's first recorded request, the first whose tree settled, is kept apart as its start, length, and id
@@ -275,7 +296,7 @@ class RouteTreesTests {
         }
     }
 
-    /** Under small node budgets, the caps hold, each parent keeps one Other node, and self time is conserved. */
+    /** Under small node budgets, the caps hold, each parent keeps one Other node a phase, and self time is conserved. */
     @Test
     void underBudgetPressureTheCapsHoldAndSelfTimeIsConserved() {
         for (long seed = 1; seed <= 300; seed++) {
@@ -315,11 +336,11 @@ class RouteTreesTests {
     }
 
     private static void assertOneOtherPerParent(RouteTree route) {
-        Set<Integer> parents = new HashSet<>();
+        Set<Long> parents = new HashSet<>();
         for (int node = 1; node < route.nodeCount(); node++) {
             if (route.method(node) == RequestTree.OTHER) {
-                assertThat(parents.add(route.parent(node)))
-                        .as("one Other node per parent")
+                assertThat(parents.add(((long) route.parent(node) << 2) | route.phase(node)))
+                        .as("one Other node per parent and phase")
                         .isTrue();
             }
         }
@@ -329,7 +350,7 @@ class RouteTreesTests {
         if (node == 0) {
             return "R";
         }
-        return path(route, route.parent(node)) + "/" + label(route.method(node));
+        return path(route, route.parent(node)) + "/" + label(route.method(node)) + "@" + route.phase(node);
     }
 
     private static String label(int method) {
@@ -508,15 +529,16 @@ class RouteTreesTests {
             Map<String, Long> perRequest = new LinkedHashMap<>();
             for (int node = 0; node < n; node++) {
                 int method = tree.method()[node];
-                String path = node == 0 ? "R" : paths[tree.parent()[node]] + "/" + label(method);
+                long phase = method == RequestTree.ASYNC || isAsync(tree, node) ? 0L : (long) tree.phase()[node];
+                // A node is its parent, method, and request phase.
+                String path = node == 0 ? "R" : paths[tree.parent()[node]] + "/" + label(method) + "@" + phase;
                 paths[node] = path;
                 boolean under = node > 0 && tree.method()[tree.parent()[node]] == RequestTree.OTHER;
                 if (under) {
                     continue;
                 }
                 long self = method == RequestTree.OTHER ? tree.total()[node] : tree.selfNanos(node);
-                phases.putIfAbsent(
-                        path, method == RequestTree.ASYNC || isAsync(tree, node) ? 0L : (long) tree.phase()[node]);
+                phases.putIfAbsent(path, phase);
                 List<Long> row = rows.getOrDefault(path, List.of(0L, 0L, 0L, 0L, 0L));
                 rows.put(
                         path,

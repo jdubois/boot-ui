@@ -15,9 +15,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * adapter opens and closes a request's scope on the handling thread ({@link #begin()}, {@link #end()}), so the sensor's
  * fragment covers the request apart from application filters outside it, and where it marks the request's phase
  * ({@link #phase}) and where the request is over on a thread no {@link #end()} closes ({@link #clearPhase()}), so each
- * method node records the phase it entered in. Each call is one method handle bound once to
- * the bridge on the bootstrap class path; without the agent, or with one predating the sensor, every call does nothing.
- * Never throws.
+ * method node records the phase it entered in; and where a recorder stamps the SQL statement, REST client call, cache
+ * access, or AI call it records with the innermost open node ({@link #stamp()}, M5-4c). Each call is one method handle
+ * bound once to the bridge on the bootstrap class path; without the agent, or with one predating the sensor or its
+ * stamps, every call does nothing and a stamp is 0. Never throws.
  */
 public final class AgentCodePaths {
 
@@ -59,6 +60,25 @@ public final class AgentCodePaths {
             } catch (Throwable ex) {
                 // The agent never fails a request.
             }
+        }
+    }
+
+    /**
+     * The code-paths node of the innermost instrumented call open on this thread, for a recorder to stamp the call it
+     * records here, on the thread that issued it ({@code docs/PLAN-v2.md} §5.14, M5-4c): the fragment's sequence, the
+     * node's index, and its method id packed into one long ({@code CodePaths.stamp()}); 0 when unknown, as without the
+     * agent, which costs one volatile read. A call recorded on another thread than the one that issued it, as a
+     * WebClient response or a streaming AI call, must not be stamped.
+     */
+    public static long stamp() {
+        MethodHandle stamp = handles.stamp;
+        if (stamp == null) {
+            return 0L;
+        }
+        try {
+            return (long) stamp.invokeExact();
+        } catch (Throwable ex) {
+            return 0L;
         }
     }
 
@@ -144,7 +164,7 @@ public final class AgentCodePaths {
 
     /** Tests only: binds the hooks to {@code codePaths}, a {@code CodePaths} class, or unbinds them with {@code null}. */
     static void bind(Class<?> codePaths) {
-        handles = codePaths == null ? new Handles(null, null, null) : Handles.bind(codePaths);
+        handles = codePaths == null ? new Handles(null, null, null, null) : Handles.bind(codePaths);
     }
 
     /** Tests only: binds the hooks to the bootstrap class path's bridge again. */
@@ -152,29 +172,41 @@ public final class AgentCodePaths {
         handles = Handles.locate();
     }
 
-    private record Handles(MethodHandle begin, MethodHandle end, MethodHandle phase) {
+    private record Handles(MethodHandle begin, MethodHandle end, MethodHandle phase, MethodHandle stamp) {
 
         static Handles locate() {
             try {
                 AgentBridgeAccess access = AgentBridgeAccess.locate();
                 if (!access.codePathsSupported()) {
-                    return new Handles(null, null, null);
+                    return new Handles(null, null, null, null);
                 }
                 return bind(Class.forName(AgentBridgeAccess.CODE_PATHS_CLASS, false, null));
             } catch (Throwable ex) {
-                return new Handles(null, null, null);
+                return new Handles(null, null, null, null);
             }
         }
 
         static Handles bind(Class<?> codePaths) {
+            MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+            Handles bound;
             try {
-                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-                return new Handles(
+                bound = new Handles(
                         lookup.findStatic(codePaths, "begin", MethodType.methodType(void.class)),
                         lookup.findStatic(codePaths, "end", MethodType.methodType(void.class)),
-                        lookup.findStatic(codePaths, "phase", MethodType.methodType(void.class, int.class)));
+                        lookup.findStatic(codePaths, "phase", MethodType.methodType(void.class, int.class)),
+                        null);
             } catch (Throwable ex) {
-                return new Handles(null, null, null);
+                return new Handles(null, null, null, null);
+            }
+            try {
+                // Optional: an agent predating M5-4c's stamps still times code paths, and every stamp is 0.
+                return new Handles(
+                        bound.begin,
+                        bound.end,
+                        bound.phase,
+                        lookup.findStatic(codePaths, "stamp", MethodType.methodType(long.class)));
+            } catch (Throwable ex) {
+                return bound;
             }
         }
     }

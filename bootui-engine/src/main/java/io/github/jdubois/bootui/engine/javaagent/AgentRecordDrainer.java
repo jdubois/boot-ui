@@ -24,6 +24,8 @@ import java.util.logging.Logger;
  */
 public final class AgentRecordDrainer implements AutoCloseable {
 
+    private final Object drainLock = new Object();
+
     /** The drain thread's name. */
     public static final String THREAD_NAME = "bootui-agent-drain";
 
@@ -236,7 +238,18 @@ public final class AgentRecordDrainer implements AutoCloseable {
         return thread == self;
     }
 
+    /**
+     * One drain of the ring and the fragment queue. Serialized: the bridge lets only one drainer in at a time and turns
+     * the other away empty, so a read's {@link #drainNow()} that ran beside the thread's drain would miss what was
+     * flushed just before it; waiting for that drain, then draining again, never does.
+     */
     private int drainOnce() {
+        synchronized (drainLock) {
+            return drainUnderLock();
+        }
+    }
+
+    private int drainUnderLock() {
         int count = claim.drain(sink);
         drained.addAndGet(count);
         int blobs = codePathsRoute == null ? 0 : claim.drainCodePaths(blobSink);

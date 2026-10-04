@@ -355,10 +355,11 @@ public final class InventoryBehaviors {
 
         refine(third, "bootuiinventoryextra");
         check(
-                "after a narrower claim and its refine, a refined package's classes in every class loader are"
-                        + " instrumented",
+                "after a narrower claim and its refine, both copies run but only the current loader marks execution",
                 !executed(extraSecond)
                         && "second".equals(second.getMethod("second").invoke(null))
+                        && !executed(extraSecond)
+                        && "second".equals(third0.getMethod("second").invoke(null))
                         && executed(extraSecond)
                         && !late(runId));
         // Narrower again, with no refine: the release must still restore every class instrumented.

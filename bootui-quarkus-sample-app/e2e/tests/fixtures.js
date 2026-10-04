@@ -11,6 +11,12 @@ import {expect, test as base} from '@playwright/test'
  *   })
  */
 export const test = base.extend({
+  // Whether the sample runs with the BootUI agent attached: false for the default suite, true in
+  // playwright.agent.config.js, which starts quarkus:dev with -javaagent. Specs whose expectations differ (Java Agent,
+  // Code Inventory, Code Paths) read it instead of guessing from the server's answer, so neither leg can pass on the
+  // other's state.
+  agentAttached: [false, {option: true}],
+
   openView: async ({page}, use) => {
     /**
      * @param {string} route hash route, e.g. 'overview' or 'config'

@@ -147,6 +147,64 @@ describe('RuntimeJournalStatus', () => {
     expect(wrapper.text()).not.toContain('Clear recording')
   })
 
+  it("reports the BootUI agent's evidence beside the journal, hiding a disabled panel's, and names it before clearing", async () => {
+    fetch.mockImplementation((url) =>
+      url === 'api/activity/journal'
+        ? respond(
+            status({
+              agentEvidence: {
+                retainedBytes: 3 * 1024 * 1024,
+                maxBytes: 52 * 1024 * 1024,
+                stores: [
+                  {
+                    store: 'code-paths',
+                    panel: 'code-paths',
+                    visible: true,
+                    note: null,
+                    retainedBytes: 2 * 1024 * 1024,
+                    maxBytes: 46 * 1024 * 1024,
+                    counts: {requestTrees: 12, routes: 1, routeNodes: 40, indexBytes: 2048}
+                  },
+                  {
+                    store: 'code-inventory',
+                    panel: 'code-inventory',
+                    visible: false,
+                    note: 'The Code Inventory panel is disabled.',
+                    retainedBytes: null,
+                    maxBytes: null,
+                    counts: {}
+                  }
+                ]
+              }
+            })
+          )
+        : respond({})
+    )
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+
+    const evidence = wrapper.find('.runtime-journal-agent-evidence').text()
+    expect(evidence).toContain('kept outside the journal and cleared with it')
+    expect(evidence).toContain('Code Paths:')
+    expect(evidence).toContain('12 request trees, 1 route, 40 route-tree nodes')
+    expect(evidence).toContain('of method names kept apart')
+    expect(evidence).toContain('Code Inventory: The Code Inventory panel is disabled.')
+
+    const clear = wrapper.findAll('button').find((button) => button.text().includes('Clear recording'))
+    await clear.trigger('click')
+    expect(confirmState.options.message).toContain("It also drops the BootUI agent's evidence recorded with them")
+  })
+
+  it('shows no agent evidence row without the agent', async () => {
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+
+    expect(wrapper.find('.runtime-journal-agent-evidence').exists()).toBe(false)
+    const clear = wrapper.findAll('button').find((button) => button.text().includes('Clear recording'))
+    await clear.trigger('click')
+    expect(confirmState.options.message).not.toContain('BootUI agent')
+  })
+
   it('clears the recording only after confirmation, then reloads the status', async () => {
     const wrapper = mount(RuntimeJournalStatus)
     await flushPromises()

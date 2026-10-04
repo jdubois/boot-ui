@@ -185,6 +185,183 @@ class RuntimeInsightsServiceTests {
         assertThat(service.insight("repeated-selects:nothing").available()).isFalse();
     }
 
+    /**
+     * M5-4c: statements carrying the code-paths stamp of the method that issued them name it, beside the stack walk's
+     * call site; the same fixture without stamps keeps today's text, columns, and checks.
+     */
+    @Test
+    void repeatedSelectsNameTheMethodThatIssuedThemWhenStatementsCarryStamps() {
+        int findAll = 42;
+        int load = 43;
+        long issued = io.github.jdubois.bootui.engine.codepaths.CodePathStamps.pack(7L, 2, findAll);
+        long parent = io.github.jdubois.bootui.engine.codepaths.CodePathStamps.pack(7L, 1, load);
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/owners",
+                    stamped("select * from owners", parent, 5, "select * from pets where owner_id = ?", issued));
+        }
+        RuntimeInsightsService service = service();
+        Map<Integer, String> keys = Map.of(
+                findAll, "shop.OwnerService#findAll()Ljava/util/List;",
+                load, "shop.OwnerController#list()Ljava/lang/String;");
+        service.setCodePaths(route -> null, () -> 1L, keys::get);
+
+        RuntimeObservationDto owners =
+                observations(service.report(), RepeatedSelects.KIND).get("GET /api/owners");
+        assertThat(owners.sentence()).endsWith("up to 5 times in one. Issued by `OwnerService.findAll`.");
+        assertThat(owners.whatToCheck().get(0)).contains("`OwnerService.findAll`");
+        assertThat(owners.limitations()).anyMatch(limitation -> limitation.startsWith("The issuing method is"));
+        RuntimeObservationDetailDto detail = service.insight(owners.id());
+        assertThat(detail.columns()).endsWith("In transaction", "Issuing method");
+        assertThat(detail.rows())
+                .allSatisfy(row -> assertThat(row.cells().get(6)).isEqualTo("OwnerService.findAll"));
+
+        // The Code Paths panel disabled names nothing, as if the statements carried no stamp.
+        RuntimeInsightsService hidden =
+                new RuntimeInsightsService(journal, null, panel -> !panel.equals(BootUiPanels.CODE_PATHS), null, null);
+        hidden.setCodePaths(route -> null, () -> 1L, keys::get);
+        assertThat(observations(hidden.report(), RepeatedSelects.KIND)
+                        .get("GET /api/owners")
+                        .sentence())
+                .doesNotContain("Issued by");
+    }
+
+    /**
+     * M5-11: Code Paths and Code Inventory are read under one read of their panels per projection, resolved through the
+     * agent evidence contract, never once per call an observation makes.
+     */
+    @Test
+    void agentEvidenceIsReadUnderOneReadOfItsPanelsPerProjection() {
+        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
+        io.github.jdubois.bootui.engine.journal.AgentEvidence evidence =
+                new io.github.jdubois.bootui.engine.journal.AgentEvidence(
+                        panel -> {
+                            if (panel.equals(BootUiPanels.CODE_PATHS) || panel.equals(BootUiPanels.CODE_INVENTORY)) {
+                                asked.incrementAndGet();
+                            }
+                            return true;
+                        },
+                        null);
+        io.github.jdubois.bootui.engine.codepaths.CodePathsService codePaths =
+                new io.github.jdubois.bootui.engine.codepaths.CodePathsService(
+                        io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess.absent(),
+                        () -> null,
+                        () -> null,
+                        evidence);
+        CodeInventoryService inventory = new CodeInventoryService(
+                io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess.absent(),
+                () -> null,
+                () -> null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                evidence);
+        for (int i = 0; i < 3; i++) {
+            request("GET", "/api/a");
+        }
+        RuntimeInsightsService service = new RuntimeInsightsService(journal, null, panel -> true, null, null);
+        service.setCodePathsService(() -> codePaths);
+        service.setCodeInventoryService(() -> inventory);
+
+        service.report();
+
+        assertThat(asked.get()).as("one read of each store's panel").isEqualTo(2);
+        try {
+            codePaths.close();
+            inventory.close();
+        } catch (RuntimeException ignored) {
+            // nothing started
+        }
+    }
+
+    /**
+     * I6: statements a repository or DAO method of the application's own ran, which the sensor instruments as a bean,
+     * name the method that called the repository, through the repository method; without the route's tree, the finding
+     * names the repository method and says the caller is unknown, never that repositories are not instrumented.
+     */
+    @Test
+    void repeatedSelectsIssuedByAnApplicationRepositoryNameTheMethodThatCalledIt() {
+        int byOwner = 44;
+        long issued = io.github.jdubois.bootui.engine.codepaths.CodePathStamps.pack(7L, 3, byOwner);
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/owners",
+                    stamped("select * from owners", 0L, 5, "select * from pets where owner_id = ?", issued));
+        }
+        RuntimeInsightsService service = service();
+        String repository = "shop.PetRepository#byOwner(J)Ljava/util/List;";
+        service.setCodePaths(
+                route -> null,
+                () -> 1L,
+                id -> id == byOwner ? repository : null,
+                (route, id) -> id == byOwner && route.equals("GET /api/owners")
+                        ? new io.github.jdubois.bootui.engine.codepaths.IssuingMethod(
+                                "shop.OwnerService#findAll()Ljava/util/List;", repository, false)
+                        : null);
+
+        RuntimeObservationDto owners =
+                observations(service.report(), RepeatedSelects.KIND).get("GET /api/owners");
+        assertThat(owners.sentence()).endsWith("Issued by `OwnerService.findAll`, through `PetRepository.byOwner`.");
+        assertThat(owners.whatToCheck().get(0)).startsWith("Look at `OwnerService.findAll`");
+        assertThat(owners.limitations())
+                .anyMatch(limitation -> limitation.contains("names the first method above it that is not one"))
+                .noneMatch(limitation -> limitation.contains("own methods are not instrumented"));
+        assertThat(service.insight(owners.id()).rows())
+                .allSatisfy(row -> assertThat(row.cells().get(6))
+                        .isEqualTo("OwnerService.findAll (through PetRepository.byOwner)"));
+
+        // Only the method keys: the repository method, said to be one.
+        RuntimeInsightsService keysOnly = service();
+        keysOnly.setCodePaths(route -> null, () -> 1L, id -> id == byOwner ? repository : null);
+        RuntimeObservationDto named =
+                observations(keysOnly.report(), RepeatedSelects.KIND).get("GET /api/owners");
+        assertThat(named.sentence()).endsWith("Issued by `PetRepository.byOwner`.");
+        assertThat(named.limitations())
+                .anyMatch(limitation -> limitation.startsWith("A repository or DAO method of the application's own"));
+    }
+
+    /** The counterexample: the same statements without stamps keep today's finding exactly. */
+    @Test
+    void repeatedSelectsWithoutStampsKeepTodaysText() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/owners",
+                    stamped("select * from owners", 0L, 5, "select * from pets where owner_id = ?", 0L));
+        }
+        RuntimeInsightsService service = service();
+        service.setCodePaths(route -> null, () -> 1L, id -> "shop.OwnerService#findAll()Ljava/util/List;");
+
+        RuntimeObservationDto owners =
+                observations(service.report(), RepeatedSelects.KIND).get("GET /api/owners");
+        assertThat(owners.sentence())
+                .isEqualTo("`GET /api/owners` ran `select * from pets where owner_id = ?` 5 or more times after another"
+                        + " statement in 3 of 3 requests, up to 5 times in one.");
+        assertThat(owners.whatToCheck()).hasSize(2);
+        assertThat(owners.limitations()).noneMatch(limitation -> limitation.startsWith("The issuing method is"));
+        assertThat(service.insight(owners.id()).columns())
+                .containsExactly("Request", "Executions", "Time (ms)", "Call site", "Phase", "In transaction");
+    }
+
+    private static Child[] stamped(String parent, long parentStamp, int repeats, String repeated, long stamp) {
+        Child[] children = new Child[1 + repeats];
+        children[0] = new Child(
+                JournalSource.SQL,
+                1_000_000,
+                new SqlPayload(parent, "Parent.load:10", "db", false, null, null, -1, parentStamp));
+        for (int r = 0; r < repeats; r++) {
+            children[1 + r] = new Child(
+                    JournalSource.SQL,
+                    1_000_000,
+                    new SqlPayload(repeated, "Child.load:20", "db", false, null, null, -1, stamp));
+        }
+        return children;
+    }
+
     @Test
     void repeatedSelectsNamePhaseAndTransactionAndTheDefaultListAppliesTheFiftyMillisecondFloor() {
         for (int i = 0; i < 3; i++) {

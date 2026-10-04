@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.AiCallEvents;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -42,7 +43,9 @@ public final class AiObservationJournalHandler implements ObservationHandler<Obs
                         System.nanoTime(),
                         System.currentTimeMillis(),
                         BootUiCorrelation.current(),
-                        Thread.currentThread().getName()));
+                        Thread.currentThread().getName(),
+                        Thread.currentThread(),
+                        AgentCodePaths.stamp()));
     }
 
     @Override
@@ -83,7 +86,11 @@ public final class AiObservationJournalHandler implements ObservationHandler<Obs
                         AiCallEvents.tokens(value(context, "gen_ai.usage.input_tokens")),
                         AiCallEvents.tokens(value(context, "gen_ai.usage.output_tokens")),
                         AiCallEvents.finishReason(value(context, "gen_ai.response.finish_reasons")),
-                        failed));
+                        failed,
+                        null,
+                        -1,
+                        // Stamped only when the call ended where it started: a streaming call ends elsewhere (§5.14).
+                        Thread.currentThread() == started.starter() ? started.codePathStamp() : 0L));
     }
 
     private static String value(Observation.Context context, String key) {
@@ -97,7 +104,13 @@ public final class AiObservationJournalHandler implements ObservationHandler<Obs
         return value.getValue();
     }
 
-    private record Started(long nanos, long epochMillis, CorrelationContext correlation, String thread) {}
+    private record Started(
+            long nanos,
+            long epochMillis,
+            CorrelationContext correlation,
+            String thread,
+            Thread starter,
+            long codePathStamp) {}
 
     /** Reads Micrometer Tracing's span of the observation by name, so the handler loads without it. */
     static final class Tracing {

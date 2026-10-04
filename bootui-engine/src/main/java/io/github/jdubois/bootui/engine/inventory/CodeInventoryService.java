@@ -24,6 +24,8 @@ import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import java.net.URI;
@@ -41,7 +43,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -91,6 +92,7 @@ public final class CodeInventoryService implements AutoCloseable {
     static final String SYNTHETIC_CLASS = "synthetic or generated proxy class: never instrumented";
     static final String TRANSFORM_FAILED = "transform failed";
     static final String OVER_THE_LIMIT = "over the agent's method limit";
+    static final String DEFINITION_LIMIT = "not tracked: the agent's defining-loader capacity was reached";
     static final String RAN_BEFORE_INSTRUMENTATION = "ran before instrumentation: its class loaded before the agent"
             + " instrumented it, so earlier calls were not seen";
     static final String NOT_INSTRUMENTED = "not instrumented in this run: its loaded class lacks it, as when the class"
@@ -116,6 +118,11 @@ public final class CodeInventoryService implements AutoCloseable {
     /** Said while HTTP Exchanges, which owns request routes, is not visible. */
     public static final String ROUTES_HIDDEN = "The HTTP Exchanges panel is disabled, so first requests and their"
             + " routes are left out; which methods executed is still exact.";
+
+    /** Said once the recording was cleared (M5-11). */
+    static final String RECORDING_CLEARED = "The recording was cleared: first requests and routes recorded before then"
+            + " were dropped. Which methods executed, and when each first ran, still cover the whole run, since the agent"
+            + " marks each method once a run: a method whose first call is older than the clear may not have run since.";
 
     static final String NO_PREVIOUS_RUN = "No previous run of this application was kept in this JVM: change detection"
             + " starts with the next DevTools restart or Quarkus live reload.";
@@ -144,7 +151,11 @@ public final class CodeInventoryService implements AutoCloseable {
     private Run run;
     private boolean closed;
     private volatile Function<Set<String>, Map<String, String>> requestRoutes = ids -> Map.of();
-    private volatile BooleanSupplier routesVisible = () -> true;
+    private final AgentEvidence evidence;
+    private final AgentEvidence.Store store = new Store();
+    // The current run, published for the evidence store's usage and clear, which never wait on the lock.
+    private volatile Run published;
+    private volatile long indexBytes;
 
     /** One view build at a time; it also guards the method-key index below, which only a build reads and grows. */
     private final Object buildLock = new Object();
@@ -164,6 +175,7 @@ public final class CodeInventoryService implements AutoCloseable {
      * @param readyAt when the application was ready, in epoch milliseconds, or {@code null} when unknown
      * @param settings the settings
      * @param history the run history, usually {@link CodeInventoryHistory#shared()}
+     * @param evidence the agent evidence contract this service's records are read, cleared, and counted under (M5-11)
      */
     public CodeInventoryService(
             AgentBridgeAccess access,
@@ -173,8 +185,19 @@ public final class CodeInventoryService implements AutoCloseable {
             Supplier<DependencyInventory> declared,
             Supplier<Long> readyAt,
             CodeInventorySettings settings,
-            CodeInventoryHistory history) {
-        this(access, claims, agentUnavailable, loader, declared, readyAt, settings, history, System::nanoTime);
+            CodeInventoryHistory history,
+            AgentEvidence evidence) {
+        this(
+                access,
+                claims,
+                agentUnavailable,
+                loader,
+                declared,
+                readyAt,
+                settings,
+                history,
+                evidence,
+                System::nanoTime);
     }
 
     CodeInventoryService(
@@ -186,6 +209,7 @@ public final class CodeInventoryService implements AutoCloseable {
             Supplier<Long> readyAt,
             CodeInventorySettings settings,
             CodeInventoryHistory history,
+            AgentEvidence evidence,
             LongSupplier nanoTime) {
         this.access = access == null ? AgentBridgeAccess.absent() : access;
         this.claims = claims == null ? () -> null : claims;
@@ -196,6 +220,8 @@ public final class CodeInventoryService implements AutoCloseable {
         this.settings = settings == null ? CodeInventorySettings.defaults() : settings;
         this.history = history == null ? CodeInventoryHistory.shared() : history;
         this.nanoTime = nanoTime;
+        this.evidence = Objects.requireNonNull(evidence, "evidence");
+        evidence.register(store);
     }
 
     /**
@@ -207,19 +233,18 @@ public final class CodeInventoryService implements AutoCloseable {
     }
 
     /**
-     * Installs whether the panel that owns HTTP evidence, HTTP Exchanges, is visible ({@code docs/PLAN-v2.md} §8): while
-     * it is not, no row names its first request or route, and none is looked up, though the agent recorded it.
+     * The read of this service's panels now ({@code docs/PLAN-v2.md} §8, M5-11): the Code Inventory panel, and HTTP
+     * Exchanges, which owns requests and routes. While Code Inventory is hidden, every read answers its reason; while
+     * HTTP Exchanges is, no row names its first request or route, and none is looked up, though the agent recorded it.
      */
-    public void setRoutesVisible(BooleanSupplier routesVisible) {
-        this.routesVisible = routesVisible == null ? () -> true : routesVisible;
+    public AgentEvidence.Read read() {
+        return evidence.read(store);
     }
 
-    private boolean routesVisible() {
-        try {
-            return routesVisible.getAsBoolean();
-        } catch (RuntimeException ex) {
-            return false;
-        }
+    /** Why a read under {@code read} answers nothing: the sensor does not record, or the panel is hidden. */
+    private String readReason(AgentEvidence.Read read) {
+        String reason = unavailableReason();
+        return reason != null ? reason : read.hiddenReason();
     }
 
     // ---- lifecycle -------------------------------------------------------------------------------------------------
@@ -244,6 +269,7 @@ public final class CodeInventoryService implements AutoCloseable {
                         run.close();
                     }
                     run = new Run(claim, access);
+                    published = run;
                     run.start();
                 }
                 List<String> packages = claim.claimedPackages();
@@ -264,6 +290,7 @@ public final class CodeInventoryService implements AutoCloseable {
             if (run != null) {
                 run.close();
                 run = null;
+                published = null;
             }
         }
     }
@@ -387,8 +414,12 @@ public final class CodeInventoryService implements AutoCloseable {
 
     /** The summary. */
     public CodeInventoryReport report() {
-        String reason = unavailableReason();
-        View view = reason == null ? view() : null;
+        return report(read());
+    }
+
+    private CodeInventoryReport report(AgentEvidence.Read read) {
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
         if (view == null) {
             return CodeInventoryReport.unavailable(reason == null ? unavailableNow() : reason);
         }
@@ -400,13 +431,15 @@ public final class CodeInventoryService implements AutoCloseable {
                 view.counts,
                 view.changeCounts,
                 view.dependencies().counts(),
-                view.limitations());
+                view.limitations(),
+                view.clearedAt);
     }
 
     /** The changed and added methods, not executed first. */
     public CodeInventoryChangesReport changes(Integer offset, Integer limit) {
-        String reason = unavailableReason();
-        View view = reason == null ? view() : null;
+        AgentEvidence.Read read = read();
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
         if (view == null) {
             return new CodeInventoryChangesReport(
                     false, reason == null ? unavailableNow() : reason, null, List.of(), emptyPage(limit));
@@ -422,8 +455,9 @@ public final class CodeInventoryService implements AutoCloseable {
      */
     public CodeInventoryMethodsReport methods(
             String packageName, String className, String status, Integer offset, Integer limit) {
-        String reason = unavailableReason();
-        View view = reason == null ? view() : null;
+        AgentEvidence.Read read = read();
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
         if (view == null) {
             return new CodeInventoryMethodsReport(
                     false,
@@ -470,8 +504,9 @@ public final class CodeInventoryService implements AutoCloseable {
 
     /** The dependency use, declared dependencies not loaded first; {@code status} filters by status when given. */
     public CodeInventoryDependenciesReport dependencies(String status, Integer offset, Integer limit) {
-        String reason = unavailableReason();
-        View view = reason == null ? view() : null;
+        AgentEvidence.Read read = read();
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
         if (view == null) {
             return new CodeInventoryDependenciesReport(
                     false, reason == null ? unavailableNow() : reason, null, List.of(), emptyPage(limit));
@@ -490,14 +525,15 @@ public final class CodeInventoryService implements AutoCloseable {
      * {@code dependencies}, or a package or class name.
      */
     public CodeInventoryAgentReport agentReport(String query, Integer limit) {
-        CodeInventoryReport summary = report();
+        AgentEvidence.Read read = read();
+        CodeInventoryReport summary = report(read);
         int max = limit == null || limit <= 0 ? CodeInventoryAgentReport.DEFAULT_LIMIT : limit;
         String q = blank(query) ? "changed" : query.trim();
         String normalized = q.toLowerCase(Locale.ROOT);
         if (!summary.available()) {
             return new CodeInventoryAgentReport(summary, normalized, query, List.of(), List.of(), 0, 0);
         }
-        View view = view();
+        View view = view(read);
         if (view == null) {
             return new CodeInventoryAgentReport(summary, normalized, query, List.of(), List.of(), 0, 0);
         }
@@ -540,14 +576,19 @@ public final class CodeInventoryService implements AutoCloseable {
     /**
      * What {@code changed-code-not-executed} reads: per class, its changed and added methods with their status, and the
      * routes known to have executed its methods, with the scan's status; with the reason, and nothing else, when the
-     * sensor does not record this run.
+     * sensor does not record this run, or the Code Inventory panel is hidden.
      */
     public ChangedCode changedCode() {
-        String reason = unavailableReason();
+        return changedCode(read());
+    }
+
+    /** {@link #changedCode()} under {@code read}, a read of the panels the caller resolved once for its projection. */
+    public ChangedCode changedCode(AgentEvidence.Read read) {
+        String reason = readReason(read);
         if (reason != null) {
             return new ChangedCode(reason, false, null, List.of(), 0L, null, null);
         }
-        View view = view();
+        View view = view(read);
         if (view == null) {
             return new ChangedCode(unavailableNow(), false, null, List.of(), 0L, null, null);
         }
@@ -594,8 +635,13 @@ public final class CodeInventoryService implements AutoCloseable {
      * history, and the drained records and resolved routes. Unlike {@link #changedCode()}, it builds no view.
      */
     public long changesFingerprint() {
+        return changesFingerprint(read());
+    }
+
+    /** {@link #changesFingerprint()} under {@code read}, the read {@link #changedCode(AgentEvidence.Read)} is given. */
+    public long changesFingerprint(AgentEvidence.Read read) {
         try {
-            String reason = unavailableReason();
+            String reason = readReason(read);
             if (reason != null) {
                 return reason.hashCode();
             }
@@ -611,7 +657,7 @@ public final class CodeInventoryService implements AutoCloseable {
             fingerprint = fingerprint * 31 + System.identityHashCode(current.scan);
             fingerprint = fingerprint * 31 + history.version();
             fingerprint = fingerprint * 31 + current.records.version();
-            fingerprint = fingerprint * 31 + (routesVisible() ? 1 : 0);
+            fingerprint = fingerprint * 31 + read.key();
             return fingerprint;
         } catch (RuntimeException ex) {
             return 0L;
@@ -681,7 +727,7 @@ public final class CodeInventoryService implements AutoCloseable {
      * call never answers the view from before it. The build lock also guards the method-key index, which only a build
      * reads and grows; a reader waiting on it reuses the view the build before it made, when still fresh.
      */
-    private View view() {
+    private View view(AgentEvidence.Read read) {
         start();
         Run current;
         synchronized (lock) {
@@ -690,7 +736,7 @@ public final class CodeInventoryService implements AutoCloseable {
         if (current == null) {
             return null;
         }
-        boolean routes = routesVisible();
+        boolean routes = read.requests();
         View cached = current.view;
         if (fresh(cached, current, access.inventoryVersion(), routes, nanoTime.getAsLong())) {
             return cached;
@@ -719,6 +765,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 && cached.scan == current.scan
                 && cached.version == version
                 && cached.routes == routes
+                && cached.clears == current.records.clears()
                 && now - cached.builtNanos < VIEW_TTL_NANOS;
     }
 
@@ -732,6 +779,7 @@ public final class CodeInventoryService implements AutoCloseable {
             Set<String> overLimitClasses,
             Set<String> classesThisRun,
             long overflow,
+            long definitionOverflow,
             long failures) {
 
         /** Whether the agent may have left a class with no method id uninstrumented without naming it. */
@@ -790,6 +838,9 @@ public final class CodeInventoryService implements AutoCloseable {
         if (failed) {
             return Status.notTracked(TRANSFORM_FAILED);
         }
+        if (id != null && id < tracking.states().length && tracking.states()[id] == 3) {
+            return Status.notTracked(DEFINITION_LIMIT);
+        }
         if (id == null && tracking.overLimitClasses().contains(className)) {
             return Status.notTracked(OVER_THE_LIMIT);
         }
@@ -805,11 +856,17 @@ public final class CodeInventoryService implements AutoCloseable {
             // No method of the class ever got an id, and the agent left some class uninstrumented without naming it.
             return Status.notTracked(UNKNOWN_TRACKING);
         }
+        if (tracking.definitionOverflow() > 0) {
+            return Status.notTracked(DEFINITION_LIMIT);
+        }
         // Its class did not load in this run: the agent instruments it as it loads, so none of its methods ran yet.
         return Status.of(NEVER_EXECUTED);
     }
 
     private View build(Run current, Map<String, Object> snapshot, boolean routes, long now) {
+        // Read first: a clear during the build makes the view stale at once.
+        long clears = current.records.clears();
+        Long clearedAt = current.records.clearedAt();
         int methodCount = intValue(snapshot.get("methods"));
         boolean disabled = Boolean.TRUE.equals(snapshot.get("disabled"));
         Map<String, Object> counters = AgentStatus.inventory(access.status());
@@ -831,6 +888,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 names(snapshot.get("overLimitClasses")),
                 classesThisRun,
                 longValue(snapshot.get("methodOverflow")),
+                longValue(snapshot.get("definitionOverflow")),
                 longValue(snapshot.get("transformFailures")));
         long overflow = tracking.overflow();
         long[] executed = tracking.executed();
@@ -975,11 +1033,25 @@ public final class CodeInventoryService implements AutoCloseable {
             limitations.add("Incomplete: " + dropped + " first-call or class-load records were dropped, so some"
                     + " first requests and routes are missing; which methods executed is still exact.");
         }
+        long unrecorded = current.records.unrecorded();
+        if (unrecorded > 0) {
+            limitations.add(unrecorded + " first loads or route names were not kept past their bounds, so some first"
+                    + " routes are missing; which methods executed is still exact.");
+        }
         if (overflow > 0) {
             limitations.add(overflow + " methods were left uninstrumented past the agent's method limit.");
         }
         if (tracking.failures() > 0) {
             limitations.add("The agent failed to instrument some classes: their methods are not tracked.");
+        }
+        boolean definitionUnknown = tracking.definitionOverflow() > 0;
+        for (byte state : tracking.states()) {
+            definitionUnknown |= state == 3;
+        }
+        if (definitionUnknown) {
+            limitations.add("The agent reached its defining-loader capacity: affected methods are not tracked,"
+                    + " not never executed. While capacity is unavailable, classes without current tracking evidence"
+                    + " are unknown too; collected loaders' slots are reusable by a later reload.");
         }
         if (disabled) {
             String disabledReason = Objects.toString(counters.get("disabledReason"), null);
@@ -989,6 +1061,9 @@ public final class CodeInventoryService implements AutoCloseable {
         if (generated > 0) {
             limitations.add(generated + " executed methods have no class file in the scanned roots, such as generated"
                     + " classes: they are counted apart, as generated.");
+        }
+        if (clearedAt != null) {
+            limitations.add(RECORDING_CLEARED);
         }
         return new View(
                 now,
@@ -1003,7 +1078,9 @@ public final class CodeInventoryService implements AutoCloseable {
                 List.copyOf(changed),
                 limitations,
                 routes,
-                current);
+                current,
+                clears,
+                clearedAt);
     }
 
     /** What the changes say instead of a comparison: the scan in progress or failed, else the scan's note. */
@@ -1124,6 +1201,8 @@ public final class CodeInventoryService implements AutoCloseable {
             }
         }
         keys = grown;
+        // About 100 bytes a key and its index entry: kept across a clear, since it names code, not requests.
+        indexBytes = (long) keys.length * 100;
     }
 
     private static String classOf(String key) {
@@ -1467,6 +1546,61 @@ public final class CodeInventoryService implements AutoCloseable {
         }
     }
 
+    // ---- agent evidence (M5-11) -------------------------------------------------------------------------------------
+
+    /** This service's records as a store of the agent evidence contract: counted, and cleared with the journal. */
+    private final class Store implements AgentEvidence.Store {
+
+        @Override
+        public String id() {
+            return "code-inventory";
+        }
+
+        @Override
+        public String panel() {
+            return BootUiPanels.CODE_INVENTORY;
+        }
+
+        @Override
+        public String title() {
+            return "Code Inventory";
+        }
+
+        @Override
+        public String unavailableReason() {
+            return CodeInventoryService.this.unavailableReason();
+        }
+
+        @Override
+        public AgentEvidence.Usage usage() {
+            Run current = published;
+            long bytes = 0;
+            Map<String, Long> counts = new LinkedHashMap<>();
+            if (current != null) {
+                bytes += current.records.retainedBytes();
+                counts.put("firstCalls", current.records.firstCalls());
+                counts.put("firstCallsWithRequest", current.records.firstCallsWithRequest());
+                counts.put("firstLoads", current.records.firstLoads());
+            }
+            // The method-key index names code, not requests: counted apart, and kept through a clear.
+            counts.put("indexBytes", indexBytes + (current == null ? 0 : current.records.internBytes()));
+            return new AgentEvidence.Usage(bytes, AgentEvidence.Part.CODE_INVENTORY_RECORDS.ceilingBytes(), counts);
+        }
+
+        @Override
+        public String clear(long epochMillis) {
+            Run current = published;
+            if (current == null) {
+                return null;
+            }
+            int dropped = current.records.clear(epochMillis);
+            current.view = null;
+            return dropped == 0
+                    ? null
+                    : dropped + (dropped == 1 ? " first request" : " first requests") + " of Code Inventory";
+        }
+    }
+
     // ---- state ---------------------------------------------------------------------------------------------------
 
     /**
@@ -1561,6 +1695,8 @@ public final class CodeInventoryService implements AutoCloseable {
         private final List<String> limitations;
         final boolean routes;
         private final Run owner;
+        final long clears;
+        final Long clearedAt;
         private Dependencies dependencies;
 
         View(
@@ -1574,7 +1710,9 @@ public final class CodeInventoryService implements AutoCloseable {
                 List<CodeInventoryMethodDto> changes,
                 List<String> limitations,
                 boolean routes,
-                Run owner) {
+                Run owner,
+                long clears,
+                Long clearedAt) {
             this.builtNanos = builtNanos;
             this.version = version;
             this.scan = scan;
@@ -1586,6 +1724,8 @@ public final class CodeInventoryService implements AutoCloseable {
             this.limitations = limitations;
             this.routes = routes;
             this.owner = owner;
+            this.clears = clears;
+            this.clearedAt = clearedAt;
         }
 
         synchronized Dependencies dependencies() {

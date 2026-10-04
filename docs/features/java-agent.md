@@ -318,13 +318,25 @@ and its counters.
 | `class load` | counts loaded classes | every class definition with a code source, outside the JDK, BootUI, and Byte Buddy |
 
 **Executed methods.** The agent adds one entry check to each instrumented method: a method that already ran in this
-run costs one array read and one volatile read. Its first call in a run marks it executed and, when the call belongs to
+run costs one array read and volatile reads. Its first call in a run marks it executed and, when the call belongs to
 a request or another BootUI execution, records the request id, the route, and the time. A first call with nothing to
 attribute, as at startup, is marked executed without a record. Each claim starts a new run, so a DevTools restart or a
 Quarkus live reload counts executions afresh, while a method keeps the same id for the agent's lifetime, in every class
 loader that defines its class. While nothing records (the claim disarmed, or the sensor stopped), a method's first call
 still marks it, without a record, so it never stays on the slower first-call path; a claim that does not ask for the
 sensor removes its instrumentation.
+
+Execution also checks a primitive defining-loader token. Each claim admits its calling thread's context class loader
+and ancestors, and loaders first seen defining new classes beneath them; retained sibling loaders from earlier runs
+stay ineligible, even if another agent retransforms their classes. Classes the new context loader defined before claiming
+become eligible at the claim without retransformation. Old application objects and their tasks cannot mark a changed method executed
+in the replacement run. Hit flags belong to the run, so a hit racing a restart or the byte epoch wrapping cannot
+write into the replacement run's flags. Applications claiming with an unrelated or null context loader must supply
+the application loader as their thread context loader to admit its already-defined classes.
+The claim enumerates the JVM's loaded classes to identify pre-existing loaders before admitting fresh definitions;
+an old loader defining a lazy class after an inventory-off run cannot become a new-run loader that way. A new loader
+appearing after that snapshot may be admitted even when installation first encounters its class already loaded.
+Known loader provenance never changes when an empty ancestor later defines its first class.
 
 Instrumented packages only grow while the sensor is installed: a package a refine added stays instrumented when a later
 claim asks only for its base packages, as after a DevTools restart, so its classes are instrumented in the new class
@@ -357,6 +369,13 @@ dropped and counted, and since the executed flags are kept apart, a dropped reco
 and time, never the fact that the method ran. Routes are interned per run, at most 16,384 of them; past that they are
 recorded as unknown. At most 262,144 methods and 4,096 code sources are tracked for the agent's lifetime; past that,
 methods are left uninstrumented and counted.
+Defining-loader tokens use weak identity keys in the isolated agent, never held by the bootstrap bridge. Only loaders
+defining claimed types, the claim's context loader, and their ancestors receive tokens; observing ignored classes does
+not consume capacity. The 16,383 non-bootstrap slots are reusable after a phantom reference proves a loader has died
+and cannot be resurrected. At capacity, affected definitions cannot record execution and remain **not tracked** with a
+reason, even in subsequent runs, until instrumented with a valid token in a newer run. Within a run, an untracked copy
+keeps the method uncertain even if another copy was instrumented successfully. The sensor counts `definitionOverflow`
+and the inventory reports a limitation: missing tracking evidence is unknown, never confidently **never executed**.
 
 | Counter | What it counts |
 | --- | --- |
@@ -376,8 +395,7 @@ is `null`, as the inventory sensor's `executors` is.
 
 Accepted limits: calls made before BootUI claims the agent (typically the main class's, or a restarted context's
 startup code before its claim) are not seen, though in the agent's first run the classes already loaded are marked
-late; a thread of the previous run still running after a DevTools restart marks its methods executed in the new run; a
-method [HotSwapped](#hotswap) without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
+late; a method [HotSwapped](#hotswap) without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
 sensor's check, so a stubbed method does not count as executed, while a spy's real call does. The `inventory` sensor
 shares its transformer with the [`code-paths` sensor](#the-code-paths-sensor).
 
@@ -463,6 +481,15 @@ its hook's `fired` count is fragments, not calls, since the advice keeps no glob
 is `null`. The shared transformer's counters are on the `inventory` row while its advice applies, and on the
 `code-paths` row otherwise.
 
+**On BootUI's side.** BootUI's drain thread reads the fragments every 100 ms and merges each request's into its request
+tree, which settles about two seconds after its last fragment, when the engine looks up its request's exchange and
+stamped calls in the runtime journal. Under sustained load, when more than 512 request trees are open (fewer under a
+configured agent evidence bound), the eldest quarter settle together, with one journal read for all of them. Settling
+them one at a time read the whole journal once per request: in a profile of the sample under the agent overhead
+benchmark's load, that was 15 % of the process's CPU, against about 0.25 % for the advice on the application threads. On
+a four-processor CI runner, the benchmark's median overhead went from 16.0 % to 4.1 % with the default sensors, and from
+15.2 % to 5.5 % with `code-paths` alone, within the 10 % budget, so the sensor stays on by default.
+
 **Debuggers.** The agent's bridge, which the advice calls, carries no line numbers or local variable tables, only its
 source file names, so stepping into an instrumented method in IntelliJ IDEA, Eclipse, or any JDI debugger steps over
 the advice's calls into BootUI and stops in the application's method, as a forked JDI test verifies; an error the bridge
@@ -507,6 +534,32 @@ Sharing is only supported for boot loader classes because bootstrap classpath ha
 
 That warning is expected. It means CDS, AppCDS, and AOT caches no longer apply outside boot-loader classes for that JVM.
 This is why the agent is a development-time tool and should not be placed on production or AOT-cached JVM launches.
+
+## Agent evidence outside the journal
+
+Code Paths' request and route trees and Code Inventory's first calls are kept in bounded stores of the run, not as
+runtime journal events. One engine contract, the agent evidence projection, applies to them what the journal applies
+to its own events:
+
+- **Panel visibility.** Each read resolves once whether the store's panel (Code Paths, Code Inventory) and
+  [HTTP Exchanges](diagnostics.md#http-exchanges), which owns requests and routes, are visible, and derives its answer,
+  its cache key, and its reason from that one read. While the store's panel is disabled, its panel, its MCP tool, its
+  CLI command, and the Runtime Insights observations that read it say so, and its evidence is neither shown nor counted.
+  Without the agent, the agent's own reason comes first.
+- **Clear recording.** The evidence is a listener of the runtime journal, so every clear of the journal, by **Clear
+  recording** after its confirmation or by **Free BootUI memory**, drops it in the same step, under the journal's lock:
+  every tree recorded before the clear, the fragments still queued in the agent's ring included, and Code Inventory's
+  first requests and routes. A request whose tree lost a fragment to the clear is left out whole, never shown partial.
+  Counts since the claim, the adaptive exclusions, and which methods executed are kept.
+- **Exports.** The panels, Runtime Insights' **Export JSON** and **Copy for AI**, the MCP tools, and the CLI carry only
+  what these reads return: method keys, route templates (or masked observed paths), request ids, times, and counts.
+  No surface serializes a store, and nothing of it is written to disk.
+- **Memory.** The journal status reports the stores' estimated bytes as **Agent evidence**, beside the journal's own,
+  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 55 MB by default, the sum of the stores' fixed caps.
+  A smaller bound shrinks Code Paths' trees in proportion; Code Inventory's first calls, bounded by the agent's method
+  limit, are only counted. A disabled panel's store adds its bytes to the total without its own row's figures, and a
+  store that records nothing for the application, as without the agent, is left out. The method names each store keeps
+  beside its evidence are reported apart, and kept through a clear.
 
 ## Privacy and dependency inventory
 

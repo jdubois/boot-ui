@@ -69,6 +69,22 @@ public final class RuntimeModelBuilder {
         edge(new EdgeKey(from, type, to, Provenance.OBSERVED), epochMillis);
     }
 
+    /**
+     * Adds {@code count} observations of an edge at once, such as the calls Code Paths counted between two beans, with
+     * when they were first and last seen unknown.
+     */
+    public void observeTimes(int from, EdgeType type, int to, long count) {
+        if (count <= 0) {
+            return;
+        }
+        EdgeKey key = new EdgeKey(from, type, to, Provenance.OBSERVED);
+        edge(key, -1);
+        long[] stats = edges.get(key);
+        if (stats != null) {
+            stats[0] += count - 1;
+        }
+    }
+
     /** Adds an edge inferred from shared access to a resource, once. */
     public void infer(int from, EdgeType type, int to) {
         edge(new EdgeKey(from, type, to, Provenance.INFERRED), -1);

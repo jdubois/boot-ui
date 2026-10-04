@@ -35,6 +35,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
@@ -180,6 +181,7 @@ public class LiveActivityResource {
     private final Instance<DataSource> dataSources;
     private Instance<RuntimeJournal> journal;
     private Instance<JournalAggregates> journalAggregates;
+    private Instance<AgentEvidence> agentEvidence;
     private final KafkaActivityRecorder kafkaRecorder;
     private final RabbitActivityRecorder rabbitRecorder;
     private final FaultToleranceEventRecorder faultToleranceRecorder;
@@ -289,6 +291,15 @@ public class LiveActivityResource {
     void setRuntimeJournal(Instance<RuntimeJournal> journal, Instance<JournalAggregates> journalAggregates) {
         this.journal = journal;
         this.journalAggregates = journalAggregates;
+    }
+
+    /**
+     * The BootUI agent's evidence kept outside the journal (M5-11), which the journal status reports beside its own bytes
+     * and which every clear of the journal clears.
+     */
+    @Inject
+    void setAgentEvidence(Instance<AgentEvidence> agentEvidence) {
+        this.agentEvidence = agentEvidence;
     }
 
     /**
@@ -467,7 +478,8 @@ public class LiveActivityResource {
     private RuntimeJournalService runtimeJournal() {
         return new RuntimeJournalService(
                 journal != null && journal.isResolvable() ? journal.get() : null,
-                journalAggregates != null && journalAggregates.isResolvable() ? journalAggregates.get() : null);
+                journalAggregates != null && journalAggregates.isResolvable() ? journalAggregates.get() : null,
+                agentEvidence != null && agentEvidence.isResolvable() ? agentEvidence.get() : null);
     }
 
     /**

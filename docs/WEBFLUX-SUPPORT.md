@@ -186,7 +186,11 @@ were already framework-neutral in practice, not just in the engine underneath th
     the subscribing thread, so the tree times the pipeline's assembly, not the work its publisher does later: every
     WebFlux route is **assembly only**, and `route-time-breakdown` never splits its handler by method. The reactive
     configuration marks every tree once, when it creates the Code Paths service, so nothing is recorded per request on
-    the event loop, and the subscription sees the thread's correlation exactly as it does without the agent.
+    the event loop, and the subscription sees the thread's correlation exactly as it does without the agent. A
+    WebClient call takes its code-paths stamp where its exchange is subscribed: in a WebFlux pipeline that is after
+    the handler's methods returned, so it is counted as issued outside every instrumented method, or carries no stamp
+    when subscribed on another thread, and shows under no method; Beans at runtime still lists the calls assembly made
+    between beans.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
     handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and

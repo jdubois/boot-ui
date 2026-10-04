@@ -28,13 +28,23 @@ import java.util.function.Supplier;
  * re-entrancy guard: the request id and, for work handed to an executor, the execution id, both parsed to their 64 bits.
  * Without an owner, the thread only counts depth until the outermost call returns. With one, it borrows a tree from a
  * bounded pool (empty: the fragment is dropped, counted) and records one node per {@code (parent, method)} with its
- * calls, total time, children's time, and the request phase it entered in ({@link #phase}), up to
+ * calls, total time, children's time, and the request phase it entered in ({@link #phase}), a method entered in
+ * another phase under the same parent being another node, up to
  * {@value #MAX_DEPTH} levels (deeper calls stay in the level-{@value #MAX_DEPTH} node's time) and {@value #MAX_NODES}
  * nodes, of which {@value #OTHER_RESERVE} are kept for one <b>Other</b> node per parent once the others are used; the
  * calls under an Other node stay in its time. The fragment is flushed when the depth returns to where it started, or at
  * {@link #end()}: encoded as one blob ({@link #HEADER} longs, then {@link #NODE} longs per node) into a lock-free queue
  * bounded by bytes (full: the blob is dropped, counted), which the claim's drainer takes with its token
  * ({@link #drain}). The tree goes back to the pool.
+ *
+ * <p><b>Stamps.</b> Each fragment takes a sequence number when it opens, written in its blob. A recorder of SQL, REST
+ * client, cache, or AI calls asks for {@link #stamp()} on the thread that issues the call: the fragment's sequence and
+ * the index of the innermost open node, with its method id, packed into one long, so the engine attaches the call to the
+ * exact node of the request's tree; {@link #STAMP_OUTSIDE} when the thread's fragment is open but no instrumented call
+ * is, as in a filter, while the response is written, or in a transaction commit after the outermost instrumented method
+ * returned. An executor's handoff carries the submitting thread's stamp ({@link #handoff}), which the fragment of the
+ * work it runs records as its submitter, and restores the thread's previous one when the work is over
+ * ({@link #handoffDone()}), as when an executor runs the work on the submitting thread.
  *
  * <p><b>Safety.</b> JDK types only: the per-thread frame and the pooled trees are this package's classes holding
  * primitives and primitive arrays, never an application, framework, or engine object, so nothing here pins a class
@@ -82,8 +92,11 @@ public final class CodePaths {
     /** Flag: calls were still open when the fragment was flushed, and were closed at the flush. */
     public static final int FLAG_CUT = 32;
 
-    /** Blob layout: the format version, {@value #BLOB_VERSION}. */
-    public static final int BLOB_VERSION = 1;
+    /**
+     * Blob layout: the format version, {@value #BLOB_VERSION}. Code Paths is unreleased, so the protocol was not bumped
+     * for version 2: the engine checks each blob's version and counts one it does not know as malformed.
+     */
+    public static final int BLOB_VERSION = 2;
 
     public static final int H_VERSION = 0;
     public static final int H_GENERATION = 1;
@@ -96,8 +109,38 @@ public final class CodePaths {
     public static final int H_DROPPED = 8;
     public static final int H_START_MILLIS = 9;
 
+    /** The fragment's sequence, which its node stamps carry ({@link #stamp()}); since version 2. */
+    public static final int H_SEQUENCE = 10;
+
+    /**
+     * For a fragment of work an executor ran, the stamp of the node that submitted it, 0 when unknown; since version
+     * 2.
+     */
+    public static final int H_SUBMITTER = 11;
+
     /** Longs before the first node. */
-    public static final int HEADER = 10;
+    public static final int HEADER = 12;
+
+    /** Stamp layout: the fragment sequence's bits, above the node index and the method id plus one. */
+    public static final int STAMP_SEQUENCE_BITS = 35;
+
+    /** The node index's bits: {@value #MAX_NODES} nodes. */
+    public static final int STAMP_NODE_BITS = 9;
+
+    /** The method id plus one's bits, 0 for an Other node: {@code CodeInventory.MAX_METHODS} ids. */
+    public static final int STAMP_METHOD_BITS = 19;
+
+    /** The largest fragment sequence: sequences wrap to 1 past it, so no stamp is 0. */
+    public static final long MAX_SEQUENCE = (1L << STAMP_SEQUENCE_BITS) - 1;
+
+    /**
+     * The stamp of a call issued on a thread whose fragment is open while no instrumented call is open in it ({@link
+     * #stamp()}): negative, so never a node's stamp, which is always positive.
+     */
+    public static final long STAMP_OUTSIDE = -1L;
+
+    /** The handoffs nested on one thread whose submitter is restored when the inner one is over. */
+    static final int MAX_HANDOFFS = 16;
 
     /** Node layout, relative to the node's first long: parent index (-1 for a top-level node). */
     public static final int N_PARENT = 0;
@@ -144,6 +187,7 @@ public final class CodePaths {
     private static final AtomicBoolean DRAINING = new AtomicBoolean();
     private static final AtomicInteger EXCLUDED_COUNT = new AtomicInteger();
     private static final AtomicLong ERROR_COUNT = new AtomicLong();
+    private static final AtomicLong SEQUENCE = new AtomicLong();
 
     private static final LongAdder FRAGMENTS = new LongAdder();
     private static final LongAdder POOL_EMPTY = new LongAdder();
@@ -300,7 +344,7 @@ public final class CodePaths {
             if (tree == null) {
                 return;
             }
-            tree.open(generation, owner[0], owner[1], (int) owner[2] | FLAG_BEGUN);
+            tree.open(generation, owner[0], owner[1], (int) owner[2] | FLAG_BEGUN, submitter(frame, owner));
             frame.tree = tree;
             frame.base = frame.depth;
             frame.begun = frame.depth;
@@ -364,6 +408,128 @@ public final class CodePaths {
         return frame == null ? 0 : frame.depth;
     }
 
+    // ---- stamps ----------------------------------------------------------------------------------------------------
+
+    /**
+     * The node of the innermost instrumented call open on the calling thread, for a recorder to stamp the SQL
+     * statement, REST client call, cache access, or AI call it records there (PLAN-v2 §5.14, M5-4c): the fragment's
+     * sequence, the node's index in it, and the node's method id plus one (0 for an Other node), packed into one long
+     * ({@link #STAMP_SEQUENCE_BITS}, {@link #STAMP_NODE_BITS}, {@link #STAMP_METHOD_BITS} bits), never 0. A call nested
+     * past what the fragment records stamps the deepest node that holds its time. {@link #STAMP_OUTSIDE} when a fragment
+     * records on the thread but no instrumented call is open in it, as an adapter's {@link #begin()} opened it for the
+     * request's filters, its response write, or a transaction committed after its outermost instrumented method
+     * returned. 0 when the sensor is inactive, no fragment records on the thread, as on another thread than the
+     * request's, or the open calls hold no node. Allocates nothing once the thread has called it, and never throws.
+     */
+    public static long stamp() {
+        try {
+            if (!active) {
+                return 0L;
+            }
+            Frame frame = FRAME.get();
+            if (frame == null) {
+                return 0L;
+            }
+            Tree tree = frame.tree;
+            if (tree == null) {
+                return 0L;
+            }
+            if (tree.level <= 0) {
+                return STAMP_OUTSIDE;
+            }
+            for (int level = Math.min(tree.level, MAX_DEPTH); level > 0; level--) {
+                int node = tree.stackNode[level];
+                if (node >= 0) {
+                    return pack(tree.sequence, node, tree.method[node]);
+                }
+            }
+            return 0L;
+        } catch (Throwable ex) {
+            return 0L;
+        }
+    }
+
+    /** {@code (sequence, node, method)} as a stamp. */
+    public static long pack(long sequence, int node, int method) {
+        long methodBits = method < 0 ? 0L : (method + 1L) & ((1L << STAMP_METHOD_BITS) - 1);
+        return (sequence << (STAMP_NODE_BITS + STAMP_METHOD_BITS))
+                | ((long) (node & ((1 << STAMP_NODE_BITS) - 1)) << STAMP_METHOD_BITS)
+                | methodBits;
+    }
+
+    /** The fragment sequence of {@code stamp}. */
+    public static long stampSequence(long stamp) {
+        return stamp >>> (STAMP_NODE_BITS + STAMP_METHOD_BITS);
+    }
+
+    /** The node index of {@code stamp}. */
+    public static int stampNode(long stamp) {
+        return (int) ((stamp >>> STAMP_METHOD_BITS) & ((1 << STAMP_NODE_BITS) - 1));
+    }
+
+    /** The method id of {@code stamp}, or {@link #OTHER} for an Other node. */
+    public static int stampMethod(long stamp) {
+        return (int) (stamp & ((1L << STAMP_METHOD_BITS) - 1)) - 1;
+    }
+
+    /**
+     * An executor starts running, on the calling thread, work submitted while the node {@code submitter} stamps was
+     * open ({@link #stamp()}, 0 when unknown or not a node's): a fragment this work starts records that stamp, so the
+     * engine attaches it under the submitting node. Called where the executor sensor reopens the submission's context,
+     * each matched by {@link #handoffDone()} where it closes it, which restores the thread's previous submitter, as for
+     * work an executor ran on the submitting thread inside work it ran itself. Never throws.
+     */
+    public static void handoff(long submitter) {
+        try {
+            Frame frame = FRAME.get();
+            if (frame == null) {
+                if (submitter <= 0L || !active) {
+                    return;
+                }
+                frame = frame();
+            }
+            if (frame.handoffs < MAX_HANDOFFS) {
+                frame.previousSubmitters[frame.handoffs] = frame.submitter;
+            }
+            frame.handoffs++;
+            frame.submitter = Math.max(0L, submitter);
+        } catch (Throwable ex) {
+            failed(ex);
+        }
+    }
+
+    /**
+     * The work {@link #handoff} started on the calling thread is over: the thread's submitter is the one before it, 0
+     * past {@value #MAX_HANDOFFS} nested handoffs. Never throws.
+     */
+    public static void handoffDone() {
+        try {
+            Frame frame = FRAME.get();
+            if (frame == null) {
+                return;
+            }
+            if (frame.handoffs <= 0) {
+                frame.submitter = 0L;
+                return;
+            }
+            frame.handoffs--;
+            frame.submitter = frame.handoffs < MAX_HANDOFFS ? frame.previousSubmitters[frame.handoffs] : 0L;
+        } catch (Throwable ex) {
+            failed(ex);
+        }
+    }
+
+    /** The submitter stamp a fragment of {@code owner} records: the thread's handoff, for work an executor ran. */
+    private static long submitter(Frame frame, long[] owner) {
+        return owner[2] == EXECUTION_NONE ? 0L : frame.submitter;
+    }
+
+    /** The next fragment sequence: 1 to {@link #MAX_SEQUENCE}, wrapping, never 0. */
+    static long nextSequence() {
+        long sequence = SEQUENCE.incrementAndGet() & MAX_SEQUENCE;
+        return sequence != 0L ? sequence : SEQUENCE.incrementAndGet() & MAX_SEQUENCE;
+    }
+
     // ---- recording -------------------------------------------------------------------------------------------------
 
     private static Frame frame() {
@@ -390,7 +556,7 @@ public final class CodePaths {
         if (tree == null) {
             return;
         }
-        tree.open(generation, owner[0], owner[1], (int) owner[2]);
+        tree.open(generation, owner[0], owner[1], (int) owner[2], submitter(frame, owner));
         frame.untracked = -1;
         frame.tree = tree;
         frame.base = depth;
@@ -549,6 +715,8 @@ public final class CodePaths {
                 frame.nested = 0;
                 frame.depth = 0;
                 frame.phase = PHASE_UNKNOWN;
+                frame.submitter = 0L;
+                frame.handoffs = 0;
                 frame.epoch++;
             }
             if (!application && errors >= MAX_ERRORS && !off) {
@@ -756,12 +924,17 @@ public final class CodePaths {
     public static void warm() {
         try {
             Tree tree = new Tree();
-            tree.open(-1L, 0L, 0L, 0);
+            tree.open(-1L, 0L, 0L, 0, 0L);
             tree.node(-1, 0, 0);
             tree.encode(0L);
             tree.reset();
             bytes(new long[0]);
             depth();
+            stamp();
+            handoffDone();
+            stampSequence(pack(1L, 0, 0));
+            stampNode(0L);
+            stampMethod(0L);
             Reentrancy.guarded();
             status();
         } catch (Throwable ex) {
@@ -854,6 +1027,7 @@ public final class CodePaths {
         Arrays.fill(EXCLUDED, (byte) 0);
         EXCLUDED_COUNT.set(0);
         ERROR_COUNT.set(0);
+        SEQUENCE.set(0);
         FRAGMENTS.reset();
         POOL_EMPTY.reset();
         QUEUE_FULL.reset();
@@ -878,6 +1052,11 @@ public final class CodePaths {
         disabledReason = null;
         selfTestThread = null;
         claimedOnce = false;
+    }
+
+    /** Tests only: sets the last fragment sequence handed out. */
+    static void sequence(long last) {
+        SEQUENCE.set(last);
     }
 
     /** Tests only: the calling thread's frame epoch. */
@@ -916,6 +1095,15 @@ public final class CodePaths {
         /** The request phase the thread is in, as the adapter marked it. */
         int phase;
 
+        /** The stamp of the node that submitted the work an executor runs on the thread now, 0 when none or unknown. */
+        long submitter;
+
+        /** The handoffs open on the thread, nested as work an executor ran on the submitting thread. */
+        int handoffs;
+
+        /** The submitter each open handoff replaced, for the first {@value #MAX_HANDOFFS} of them. */
+        final long[] previousSubmitters = new long[MAX_HANDOFFS];
+
         Tree tree;
     }
 
@@ -930,6 +1118,8 @@ public final class CodePaths {
         long generation;
         long request;
         long execution;
+        long sequence;
+        long submitter;
         int flags;
         long startNanos;
         long startMillis;
@@ -957,36 +1147,41 @@ public final class CodePaths {
             Arrays.fill(stackNode, -1);
         }
 
-        void open(long claimGeneration, long ownerRequest, long ownerExecution, int ownerFlags) {
+        void open(long claimGeneration, long ownerRequest, long ownerExecution, int ownerFlags, long submitterStamp) {
             generation = claimGeneration;
             request = ownerRequest;
             execution = ownerExecution;
+            sequence = nextSequence();
+            submitter = submitterStamp;
             flags = ownerFlags;
             startNanos = System.nanoTime();
             startMillis = System.currentTimeMillis();
         }
 
         /**
-         * The node of {@code (parentNode, id)}: an existing one, a new one while regular nodes remain, else the
-         * parent's Other node, created while the reserve lasts; -1 when none can be had.
+         * The node of {@code (parentNode, id, nodePhase)}: an existing one, a new one while regular nodes remain, else
+         * the parent's Other node of that phase, created while the reserve lasts; -1 when none can be had. The phase is
+         * part of a node's identity, so a method called in the handler and again in the response write under the same
+         * parent is two nodes, each with its own time.
          */
         int node(int parentNode, int id, int nodePhase) {
-            int found = find(parentNode, id);
+            int found = find(parentNode, id, nodePhase);
             if (found >= 0) {
                 return found;
             }
             if (count < MAX_NODES - OTHER_RESERVE) {
                 return add(parentNode, id, nodePhase);
             }
-            int other = find(parentNode, OTHER);
+            int other = find(parentNode, OTHER, nodePhase);
             if (other >= 0) {
                 return other;
             }
             return count < MAX_NODES ? add(parentNode, OTHER, nodePhase) : -1;
         }
 
-        private static int key(int parentNode, int id) {
-            return ((parentNode + 1) << 19) | (id + 1);
+        /** 10 bits of parent, 19 of method id, 2 of phase: 31 bits, never negative. */
+        private static int key(int parentNode, int id, int nodePhase) {
+            return ((((parentNode + 1) << 19) | (id + 1)) << 2) | (nodePhase & 3);
         }
 
         private static int slot(int key, int mask) {
@@ -994,8 +1189,8 @@ public final class CodePaths {
             return (hash ^ (hash >>> 15)) & mask;
         }
 
-        private int find(int parentNode, int id) {
-            int key = key(parentNode, id);
+        private int find(int parentNode, int id, int nodePhase) {
+            int key = key(parentNode, id, nodePhase);
             int mask = index.length - 1;
             for (int slot = slot(key, mask); ; slot = (slot + 1) & mask) {
                 int entry = index[slot];
@@ -1003,7 +1198,7 @@ public final class CodePaths {
                     return -1;
                 }
                 int node = entry - 1;
-                if (parent[node] == parentNode && method[node] == id) {
+                if (parent[node] == parentNode && method[node] == id && phase[node] == (byte) nodePhase) {
                     return node;
                 }
             }
@@ -1026,7 +1221,7 @@ public final class CodePaths {
 
         private void insert(int node) {
             int mask = index.length - 1;
-            int slot = slot(key(parent[node], method[node]), mask);
+            int slot = slot(key(parent[node], method[node], phase[node]), mask);
             while (index[slot] != 0) {
                 slot = (slot + 1) & mask;
             }
@@ -1059,6 +1254,8 @@ public final class CodePaths {
             blob[H_NODES] = count;
             blob[H_DROPPED] = dropped;
             blob[H_START_MILLIS] = startMillis;
+            blob[H_SEQUENCE] = sequence;
+            blob[H_SUBMITTER] = submitter;
             for (int node = 0; node < count; node++) {
                 int base = HEADER + node * NODE;
                 blob[base + N_PARENT] = parent[node];
@@ -1081,6 +1278,8 @@ public final class CodePaths {
             flags = 0;
             request = 0L;
             execution = 0L;
+            sequence = 0L;
+            submitter = 0L;
             generation = 0L;
         }
     }

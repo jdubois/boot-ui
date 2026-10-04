@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -67,6 +69,7 @@ public final class AgentClaim {
     private volatile Long token;
     private volatile Long generation;
     private volatile AgentHandoffs handoffs;
+    private final Set<String> beanClasses = ConcurrentHashMap.newKeySet();
     private AgentRecordDrainer drainer;
 
     private AgentClaim(
@@ -156,6 +159,10 @@ public final class AgentClaim {
         claim.generation = AgentBridgeAccess.number(answer, "generation");
         if (ARMED.equals(answer.get("status")) && answer.get("token") instanceof Long granted) {
             claim.token = granted;
+            // Only once the agent accepted them: Beans at runtime says a call would be observed only for these.
+            if (beanClasses != null) {
+                claim.beanClasses.addAll(clean(beanClasses));
+            }
         } else {
             claim.ended.set(true);
             if ("failed".equals(answer.get("status"))) {
@@ -200,8 +207,21 @@ public final class AgentClaim {
         Map<String, Object> answer = access.refine(granted, request);
         if (ARMED.equals(answer.get("status"))) {
             result = answer;
+            // Only once the agent accepted the refine: a refused one instruments none of them.
+            if (beanClasses != null) {
+                this.beanClasses.addAll(clean(beanClasses));
+            }
         }
         return answer;
+    }
+
+    /**
+     * The application bean classes this claim asked the {@code code-paths} sensor to instrument, at the claim and every
+     * refine the agent accepted, by binary name: Code Paths' Beans at runtime tells a bean whose calls it could time
+     * from one it could not.
+     */
+    public Set<String> beanClasses() {
+        return Set.copyOf(beanClasses);
     }
 
     /**
