@@ -1689,17 +1689,19 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(json.path("reason").asText()).isNotBlank();
         }
         assertThat(json.path("restartCost").path("status").asText()).isIn("COMPARED", "UNAVAILABLE");
-        // Code changes lead the comparison (M5-7a): the same shape on every stack, unavailable with its reason
-        // without the BootUI agent.
+        // Code changes lead the comparison with the BootUI agent (M5-7a): null without it, the same shape on every
+        // stack with it, unavailable with its reason when it cannot list them.
         JsonNode codeChanges = json.path("codeChanges");
-        assertThat(codeChanges.path("available").isBoolean())
-                .as(codeChanges.toString())
-                .isTrue();
-        assertThat(codeChanges.path("methods").isArray())
-                .as(codeChanges.toString())
-                .isTrue();
-        if (!codeChanges.path("available").asBoolean()) {
-            assertThat(codeChanges.path("unavailableReason").asText()).isNotBlank();
+        if (!codeChanges.isNull()) {
+            assertThat(codeChanges.path("available").isBoolean())
+                    .as(codeChanges.toString())
+                    .isTrue();
+            assertThat(codeChanges.path("methods").isArray())
+                    .as(codeChanges.toString())
+                    .isTrue();
+            if (!codeChanges.path("available").asBoolean()) {
+                assertThat(codeChanges.path("unavailableReason").asText()).isNotBlank();
+            }
         }
 
         Response unknown = probe.get(api(contract.relativePath() + "?run=conformance-unknown-run"));

@@ -664,34 +664,58 @@ public final class CodeInventoryService implements AutoCloseable {
     }
 
     /**
-     * The access flags the scan read for the methods {@code keys} name, {@code class#name+descriptor}; a key the scan
-     * did not read is absent. Empty when the sensor does not record this run.
+     * The changed and added methods, at most {@code limit}, with the access flags the scan read for them, under one read
+     * of the panels ({@code docs/PLAN-v2.md} §5.8, M5-7a): the run comparison's code changes.
      */
-    public Map<String, Integer> accessFlags(Set<String> keys) {
+    public ChangesRead changesWithAccess(int limit) {
         AgentEvidence.Read read = read();
-        if (keys == null || keys.isEmpty() || readReason(read) != null) {
-            return Map.of();
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
+        if (view == null) {
+            return new ChangesRead(
+                    new CodeInventoryChangesReport(
+                            false, reason == null ? unavailableNow() : reason, null, List.of(), emptyPage(limit)),
+                    Map.of());
         }
-        View view = view(read);
-        ClassScanner.Result result = view == null ? null : view.scan.result();
-        if (result == null) {
-            return Map.of();
-        }
+        PagedList.Result<CodeInventoryMethodDto> page = PagedList.from(view.changes, 0, limit);
         Map<String, Integer> flags = new HashMap<>();
-        for (String key : keys) {
-            int hash = key.indexOf('#');
-            ScannedClass scanned = hash <= 0 ? null : result.classes().get(key.substring(0, hash));
+        ClassScanner.Result result = view.scan.result();
+        for (CodeInventoryMethodDto method : page.items()) {
+            ScannedClass scanned = result == null ? null : result.classes().get(method.className());
             if (scanned == null) {
                 continue;
             }
-            for (MethodHash method : scanned.hashes().methods()) {
-                if (method.key(scanned.className()).equals(key)) {
-                    flags.put(key, method.access());
+            for (MethodHash hash : scanned.hashes().methods()) {
+                if (hash.name().equals(method.name()) && hash.descriptor().equals(method.descriptor())) {
+                    flags.put(method.key(), hash.access());
                     break;
                 }
             }
         }
-        return flags;
+        return new ChangesRead(
+                new CodeInventoryChangesReport(true, null, view.changeCounts, page.items(), page.page()), flags);
+    }
+
+    /**
+     * The code changes {@link #changesWithAccess} read.
+     *
+     * @param report the changed and added methods
+     * @param accessFlags their access flags from the class files, by key; a key the scan did not read is absent
+     */
+    public record ChangesRead(CodeInventoryChangesReport report, Map<String, Integer> accessFlags) {
+
+        public ChangesRead {
+            accessFlags = Map.copyOf(accessFlags);
+        }
+    }
+
+    /** Whether the BootUI agent is attached to this JVM, whatever this application's claim. Never throws. */
+    public boolean agentAttached() {
+        try {
+            return access.attached();
+        } catch (RuntimeException ex) {
+            return false;
+        }
     }
 
     /** Whether {@code asked} names the class {@code className}: its binary name, source form, or simple name. */

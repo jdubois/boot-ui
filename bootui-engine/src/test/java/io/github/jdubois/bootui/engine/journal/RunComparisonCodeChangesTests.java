@@ -15,7 +15,6 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
-import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -56,22 +55,39 @@ class RunComparisonCodeChangesTests {
         RunComparisonService service = new RunComparisonService(journal, new JournalAggregates(), history);
         RuntimeRunComparisonDto comparison = service.compare(null);
 
-        assertThat(comparison.codeChanges().available()).isFalse();
-        assertThat(comparison.codeChanges().unavailableReason()).isEqualTo(RuntimeRunComparisonDto.NO_CODE_CHANGES);
+        assertThat(comparison.codeChanges())
+                .as("without code changes installed")
+                .isNull();
         assertThat(comparison.previous().runId()).isEqualTo(newest.id());
-        assertThat(RuntimeInsightsAgentView.comparison(comparison).codeChanges().available())
-                .isFalse();
+        assertThat(RuntimeInsightsAgentView.comparison(comparison).codeChanges())
+                .isNull();
+
+        service.setCodeChanges(() -> false, limit -> changes(report()), wanted -> MethodRoutes.unavailable("x"));
+        assertThat(service.compare(null).codeChanges())
+                .as("without the agent attached, the comparison is unchanged")
+                .isNull();
+
+        service.setCodeChanges(
+                () -> true,
+                limit -> changes(new CodeInventoryChangesReport(
+                        false, "Requires the BootUI agent's inventory sensor: disabled.", null, List.of(), null)),
+                null);
+        assertThat(service.compare(null).codeChanges().unavailableReason())
+                .as("attached, but the inventory cannot list them")
+                .contains("inventory sensor");
     }
 
     @Test
     void codeChangesLeadWithEachMethodExecutedOrNotAndTheRoutesWhoseCallTreesRanIt() {
         RunComparisonService service = new RunComparisonService(journal, new JournalAggregates(), history);
         service.setCodeChanges(
-                limit -> report(
-                        method(CHANGED, "CHANGED", CodeInventoryService.EXECUTED),
-                        method(ADDED, "ADDED", CodeInventoryService.NEVER_EXECUTED),
-                        method(HELPER, "CHANGED", CodeInventoryService.EXECUTED)),
-                keys -> Map.of(CHANGED, 0x0001, ADDED, 0x0001, HELPER, 0x0002),
+                () -> true,
+                limit -> new CodeInventoryService.ChangesRead(
+                        report(
+                                method(CHANGED, "CHANGED", CodeInventoryService.EXECUTED),
+                                method(ADDED, "ADDED", CodeInventoryService.NEVER_EXECUTED),
+                                method(HELPER, "CHANGED", CodeInventoryService.EXECUTED)),
+                        Map.of(CHANGED, 0x0001, ADDED, 0x0001, HELPER, 0x0002)),
                 wanted -> new MethodRoutes(
                         null,
                         Map.of(CHANGED, Map.of("GET /api/orders", 4L, "GET /api/orders/{id}", 1L)),
@@ -107,17 +123,16 @@ class RunComparisonCodeChangesTests {
     }
 
     @Test
-    void theAgentViewCapsTheMethodsAndADisabledPanelLeavesThemOut() {
+    void theAgentViewCapsTheMethodsAndAFailedReadSaysSo() {
         List<CodeInventoryMethodDto> many = new ArrayList<>();
         for (int i = 0; i < 12; i++) {
             many.add(method("com.example.A#m" + i + "()V", "ADDED", CodeInventoryService.NEVER_EXECUTED));
         }
-        RunComparisonService service = new RunComparisonService(
-                journal, new JournalAggregates(), history, panel -> !BootUiPanels.CODE_PATHS.equals(panel));
+        RunComparisonService service = new RunComparisonService(journal, new JournalAggregates(), history);
         service.setCodeChanges(
-                limit -> report(many.toArray(CodeInventoryMethodDto[]::new)),
-                keys -> Map.of(),
-                wanted -> MethodRoutes.unavailable("never read"));
+                () -> true,
+                limit -> changes(report(many.toArray(CodeInventoryMethodDto[]::new))),
+                wanted -> MethodRoutes.unavailable("The Code Paths panel is disabled."));
 
         RuntimeRunComparisonAgentDto agent = RuntimeInsightsAgentView.comparison(service.compare("previous"));
         assertThat(agent.codeChanges().methods()).hasSize(RuntimeRunComparisonAgentDto.MAX_ROWS);
@@ -125,20 +140,19 @@ class RunComparisonCodeChangesTests {
         assertThat(agent.codeChanges().limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("Code Paths panel is disabled"));
 
-        RunComparisonService hidden = new RunComparisonService(
-                journal, new JournalAggregates(), history, panel -> !BootUiPanels.CODE_INVENTORY.equals(panel));
-        hidden.setCodeChanges(limit -> report(), keys -> Map.of(), null);
-        assertThat(hidden.compare(null).codeChanges().unavailableReason()).contains("Code Inventory panel is disabled");
-
         RunComparisonService failing = new RunComparisonService(journal, new JournalAggregates(), history);
         failing.setCodeChanges(
+                () -> true,
                 limit -> {
                     throw new IllegalStateException("boom");
                 },
-                keys -> Map.of(),
                 null);
         assertThat(failing.compare(null).codeChanges().unavailableReason())
                 .startsWith("Code changes could not be read");
+    }
+
+    private static CodeInventoryService.ChangesRead changes(CodeInventoryChangesReport report) {
+        return new CodeInventoryService.ChangesRead(report, Map.of());
     }
 
     private static CodeInventoryChangesReport report(CodeInventoryMethodDto... methods) {

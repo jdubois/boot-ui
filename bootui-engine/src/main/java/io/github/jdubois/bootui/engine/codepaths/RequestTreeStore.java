@@ -117,13 +117,15 @@ public final class RequestTreeStore {
     private long openNodes;
     private BiConsumer<RequestTree, RequestOutcome> settledListener = (tree, outcome) -> {};
     private Amendment amendmentListener = (route, before, added, incomplete) -> {};
-    /** Per key of a tree handed over, its route, the most recent {@value #MAX_ANNOUNCED}. */
+    /** Per key of a tree handed over, its route, the most recent {@link #maxAnnounced}. */
     private final LinkedHashMap<String, String> announced = new LinkedHashMap<>(256, 0.75f, false) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-            return size() > MAX_ANNOUNCED;
+            return size() > maxAnnounced;
         }
     };
+    /** {@value #MAX_ANNOUNCED}, shrunk in proportion with the kept nodes by an agent evidence bound (M5-11). */
+    private final int maxAnnounced;
 
     private long amended;
     private final LinkedHashMap<String, Open> open = new LinkedHashMap<>();
@@ -158,6 +160,7 @@ public final class RequestTreeStore {
         this.maxOpen = Math.max(1, Math.min(MAX_OPEN, maxOpen));
         this.overflowBatch = Math.max(1, this.maxOpen / 4);
         this.maxKeptNodes = Math.max(RequestTreeBuilder.MAX_NODES, Math.min(MAX_KEPT_NODES, maxKeptNodes));
+        this.maxAnnounced = (int) Math.max(256L, (long) MAX_ANNOUNCED * this.maxKeptNodes / MAX_KEPT_NODES);
     }
 
     /**
@@ -703,6 +706,13 @@ public final class RequestTreeStore {
                 keys.add(tree.key());
             }
         }
+        // The trees handed over and forgotten first, so the tombstones kept longest are those of the trees above: a
+        // pre-clear request's late fragment never amends a route tree of after the clear (M5-7a).
+        for (String key : announced.keySet()) {
+            if (!keys.contains(key)) {
+                tombstone(key);
+            }
+        }
         for (String key : keys) {
             tombstone(key);
         }
@@ -753,7 +763,7 @@ public final class RequestTreeStore {
         return ((long) maxKeptNodes + (long) maxOpen * RequestTreeBuilder.MAX_NODES) * NODE_BYTES
                 + (long) (RECENT + MAX_UNRESOLVED + maxOpen) * TREE_BYTES
                 + (long) MAX_TOMBSTONES * TOMBSTONE_BYTES
-                + (long) MAX_ANNOUNCED * ANNOUNCED_BYTES;
+                + (long) maxAnnounced * ANNOUNCED_BYTES;
     }
 
     private static final class Open {

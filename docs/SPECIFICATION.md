@@ -1731,8 +1731,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
   list holds at most 200 rows. `codeChanges`, shown first, lists with the BootUI agent the methods Code Inventory found
   changed or added since the previous run, not run yet first, each with its status and the routes whose call trees ran
-  it, with the change counts, removed methods counted only (M5-7a); it is `available=false` with the reason without the
-  agent, while the Code Inventory panel is disabled, or against a run other than the previous one.
+  it, with the change counts, removed methods counted only (M5-7a). It is `null` without the agent, and
+  `available=false` with the reason while the inventory sensor or the Code Inventory panel cannot answer, or against a
+  run other than the previous one.
 - `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
   §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.

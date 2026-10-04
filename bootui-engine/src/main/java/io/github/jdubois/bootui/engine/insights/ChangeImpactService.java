@@ -849,10 +849,6 @@ public final class ChangeImpactService {
         if (source == null) {
             return MethodRoutes.unavailable("the BootUI agent is not attached.");
         }
-        if (!enabled(BootUiPanels.CODE_PATHS)) {
-            return MethodRoutes.unavailable("the Code Paths panel is disabled or unavailable, as without the BootUI"
-                    + " agent's code-paths sensor.");
-        }
         try {
             MethodRoutes routes = source.apply(method::matchesKey);
             return routes == null ? MethodRoutes.unavailable("the BootUI agent is not attached.") : routes;
@@ -865,7 +861,7 @@ public final class ChangeImpactService {
     /** Code Inventory's methods of that name and class, or {@code null} when it cannot answer; never throws. */
     private CodeInventoryService.MethodLookup lookup(MethodSymbol method) {
         BiFunction<String, String, CodeInventoryService.MethodLookup> source = inventory;
-        if (source == null || !enabled(BootUiPanels.CODE_INVENTORY)) {
+        if (source == null) {
             return null;
         }
         try {
@@ -873,14 +869,6 @@ public final class ChangeImpactService {
             return lookup == null || lookup.unavailableReason() != null ? null : lookup;
         } catch (RuntimeException ex) {
             return null;
-        }
-    }
-
-    private boolean enabled(String panel) {
-        try {
-            return panelEnabled.test(panel);
-        } catch (RuntimeException ex) {
-            return false;
         }
     }
 

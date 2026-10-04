@@ -15,7 +15,6 @@ import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
-import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -25,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.logging.Level;
@@ -47,8 +47,8 @@ public final class RunComparisonService {
     private final RunHistory history;
     private final Predicate<String> panelEnabled;
     private final Predicate<String> panelAvailable;
-    private volatile Function<Integer, CodeInventoryChangesReport> inventoryChanges;
-    private volatile Function<Set<String>, Map<String, Integer>> accessFlags = keys -> Map.of();
+    private volatile BooleanSupplier agentAttached = () -> false;
+    private volatile Function<Integer, CodeInventoryService.ChangesRead> inventoryChanges;
     private volatile Function<Predicate<String>, MethodRoutes> codePaths;
 
     /**
@@ -80,19 +80,21 @@ public final class RunComparisonService {
 
     /**
      * Installs Code Inventory and Code Paths, so the comparison leads with the methods changed since the previous run,
-     * whether each ran, and on which routes ({@code docs/PLAN-v2.md} §5.8, §5.17, M5-7a).
+     * whether each ran, and on which routes ({@code docs/PLAN-v2.md} §5.8, §5.17, M5-7a). Each is read once per
+     * comparison, under its own panels' read.
      *
-     * @param changes the changed and added methods, at most the given count, such as {@code CodeInventoryService.changes}
-     * @param accessFlags the access flags of methods by key, such as {@code CodeInventoryService.accessFlags}
+     * @param agentAttached whether the BootUI agent is attached: without it, the comparison carries no code changes
+     * @param changes the changed and added methods with their access flags, at most the given count, such as
+     *     {@code CodeInventoryService.changesWithAccess}
      * @param codePaths the routes whose requests executed methods, such as {@code CodePathsService.methodRoutes}, or
      *     {@code null}
      */
     public void setCodeChanges(
-            Function<Integer, CodeInventoryChangesReport> changes,
-            Function<Set<String>, Map<String, Integer>> accessFlags,
+            BooleanSupplier agentAttached,
+            Function<Integer, CodeInventoryService.ChangesRead> changes,
             Function<Predicate<String>, MethodRoutes> codePaths) {
+        this.agentAttached = agentAttached == null ? () -> false : agentAttached;
         this.inventoryChanges = changes;
-        this.accessFlags = accessFlags == null ? keys -> Map.of() : accessFlags;
         this.codePaths = codePaths;
     }
 
@@ -119,23 +121,22 @@ public final class RunComparisonService {
      * Never throws.
      */
     RuntimeCodeChangesDto codeChanges(boolean previousRun) {
-        Function<Integer, CodeInventoryChangesReport> changes = inventoryChanges;
-        if (changes == null) {
-            return RuntimeCodeChangesDto.unavailable(RuntimeRunComparisonDto.NO_CODE_CHANGES);
-        }
-        if (!test(panelEnabled, BootUiPanels.CODE_INVENTORY)) {
-            return RuntimeCodeChangesDto.unavailable(
-                    "The Code Inventory panel is disabled, so code changes are left out.");
-        }
-        if (!test(panelAvailable, BootUiPanels.CODE_INVENTORY)) {
-            return RuntimeCodeChangesDto.unavailable(RuntimeRunComparisonDto.NO_CODE_CHANGES);
+        Function<Integer, CodeInventoryService.ChangesRead> changes = inventoryChanges;
+        try {
+            if (changes == null || !agentAttached.getAsBoolean()) {
+                // Without the agent, the comparison is what it was before code changes.
+                return null;
+            }
+        } catch (RuntimeException ex) {
+            return null;
         }
         if (!previousRun) {
             return RuntimeCodeChangesDto.unavailable("Code changes are listed against this application's previous run"
                     + " only: compare with the previous run to see them.");
         }
         try {
-            CodeInventoryChangesReport report = changes.apply(RuntimeRunComparisonDto.MAX_ROWS);
+            CodeInventoryService.ChangesRead read = changes.apply(RuntimeRunComparisonDto.MAX_ROWS);
+            CodeInventoryChangesReport report = read == null ? null : read.report();
             if (report == null || !report.available()) {
                 return RuntimeCodeChangesDto.unavailable(
                         report == null || report.unavailableReason() == null
@@ -151,7 +152,7 @@ public final class RunComparisonService {
             Set<String> keys = new LinkedHashSet<>();
             methods.forEach(method -> keys.add(method.key()));
             MethodRoutes paths = methodRoutes(keys);
-            Map<String, Integer> flags = keys.isEmpty() ? Map.of() : accessFlags.apply(keys);
+            Map<String, Integer> flags = read.accessFlags();
             Set<String> known = new HashSet<>();
             aggregates.snapshot().routes().forEach(route -> known.add(route.route()));
             List<RuntimeCodeChangeDto> rows = new ArrayList<>();
@@ -260,9 +261,6 @@ public final class RunComparisonService {
         if (source == null) {
             return MethodRoutes.unavailable("the BootUI agent's code-paths sensor is not available.");
         }
-        if (!enabled(BootUiPanels.CODE_PATHS)) {
-            return MethodRoutes.unavailable("the Code Paths panel is disabled.");
-        }
         if (keys.isEmpty()) {
             return MethodRoutes.unavailable("no method changed.");
         }
@@ -272,18 +270,6 @@ public final class RunComparisonService {
         } catch (RuntimeException ex) {
             return MethodRoutes.unavailable(
                     MethodRoutes.READ_FAILED + ex.getClass().getSimpleName() + ".");
-        }
-    }
-
-    private boolean enabled(String panel) {
-        return test(panelEnabled, panel) && test(panelAvailable, panel);
-    }
-
-    private static boolean test(Predicate<String> policy, String panel) {
-        try {
-            return policy.test(panel);
-        } catch (RuntimeException ex) {
-            return false;
         }
     }
 

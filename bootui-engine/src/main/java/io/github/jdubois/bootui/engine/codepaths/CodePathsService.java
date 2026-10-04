@@ -1255,6 +1255,8 @@ public final class CodePathsService implements AutoCloseable {
                 int routes = current.routes.routeCount();
                 current.routes = current.routes.cleared();
                 current.clears++;
+                // Drops before the clear no longer bear on what the route trees hold.
+                current.droppedAtStart = current.agentDropped();
                 publish(current);
                 if (trees == 0 && routes == 0) {
                     return null;
@@ -1275,7 +1277,7 @@ public final class CodePathsService implements AutoCloseable {
         final AdaptiveExclusion exclusion = new AdaptiveExclusion();
         RouteTrees routes = newRouteTrees();
         final Map<Integer, String> keys = new HashMap<>();
-        final long droppedAtStart;
+        long droppedAtStart;
         long clears;
         long fragments;
         long stale;

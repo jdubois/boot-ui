@@ -594,7 +594,7 @@ public final class BootUiApiContractCatalog {
                     "restartCost", JsonType.OBJECT,
                     "latency", JsonType.ARRAY,
                     "limitations", JsonType.ARRAY,
-                    "codeChanges", JsonType.OBJECT));
+                    "codeChanges", JsonType.NULLABLE_OBJECT));
 
     /**
      * The <b>Profile resources</b> session's state, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md}

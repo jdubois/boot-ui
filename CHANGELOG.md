@@ -21,7 +21,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `notObserved`, and `notObservedTotal` impact fields, `executedRequests` and `partial` per route, and `codeChanges`
   in the comparison, on Spring MVC, Spring WebFlux, and Quarkus; `get_runtime_impact` takes the method form,
   `get_runtime_run_comparison` leads with `codeChanges`, and the `verify_after_change` prompt checks each changed
-  method's impact. Without the agent, only handler methods are checked and the comparison says code changes need it
+  method's impact. Without the agent, only handler methods are checked and the comparison is unchanged
   ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.7, §5.8, §5.17, M5-7a).
 - **The agent evidence contract (M5-11).** Code Paths' request and route trees and Code Inventory's first calls, which
   the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on Spring MVC, Spring
@@ -30,7 +30,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runtime model, and the Runtime Insights observations that read it, with the reason; **Clear recording** and **Free
   BootUI memory** clear it with the journal, the records still queued in the agent's ring included, leaving a request
   that lost a fragment out of Code Paths whole; and Live Activity's journal status reports its estimated bytes as
-  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 55 MB by default, which
+  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 62 MB by default, which
   changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
   through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
   in primitive slots per method id, bounded by the agent's method limit.

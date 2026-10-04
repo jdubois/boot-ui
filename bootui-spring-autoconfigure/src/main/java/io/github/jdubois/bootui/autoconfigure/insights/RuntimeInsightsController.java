@@ -26,7 +26,6 @@ import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
-import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
@@ -132,13 +131,13 @@ public class RuntimeInsightsController {
             return inventory == null ? null : inventory.lookup(type, name);
         });
         this.comparison.setCodeChanges(
+                () -> {
+                    CodeInventoryService inventory = codeInventory.getIfUnique();
+                    return inventory != null && inventory.agentAttached();
+                },
                 limit -> {
                     CodeInventoryService inventory = codeInventory.getIfUnique();
-                    return inventory == null ? null : inventory.changes(0, limit);
-                },
-                keys -> {
-                    CodeInventoryService inventory = codeInventory.getIfUnique();
-                    return inventory == null ? Map.of() : inventory.accessFlags(keys);
+                    return inventory == null ? null : inventory.changesWithAccess(limit);
                 },
                 wanted -> {
                     CodePathsService paths = codePaths.getIfUnique();

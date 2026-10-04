@@ -670,6 +670,9 @@ class SpringAgentScenarioIT {
                 "/runtime-insights/comparison", BootUiApiContractCatalog.runComparison(), comparison, failures);
         assertThat(failures).as("run comparison contract, with the agent").isEmpty();
         JsonNode codeChanges = comparison.path("codeChanges");
+        assertThat(codeChanges.isObject())
+                .as("with the agent, the comparison carries code changes")
+                .isTrue();
         assertThat(codeChanges.path("available").isBoolean())
                 .as(codeChanges.toString())
                 .isTrue();

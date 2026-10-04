@@ -72,8 +72,6 @@ test.describe('Runtime Insights view', () => {
     await expect(impact.locator('.insight-impact-node')).toContainText('method')
     await expect(impact.locator('.insight-impact-node')).toContainText('SampleController#products')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/products')
-    // The comparison leads with code changes, which need the agent this suite runs without.
-    await expect(comparison.locator('[data-testid="code-changes-unavailable"]')).toContainText('BootUI agent')
 
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()

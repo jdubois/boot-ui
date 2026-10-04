@@ -796,8 +796,8 @@ than being silently skipped. A picker chooses another kept run. With the BootUI 
 **Code changes**: the methods [Code Inventory](diagnostics.md#code-inventory) found changed or added since the
 application's previous run in this JVM, not run yet first, each with whether it ran in this run and the routes whose
 requests' call trees ran it, and the count of removed methods, which the previous run keeps only as hashes. Code
-changes are listed against the previous run only, and need the Code Inventory panel; without the agent the comparison
-is otherwise unchanged and says that code changes need it. On a laptop, warmup and noise dominate latency while
+changes are listed against the previous run only, and need the Code Inventory panel, else the section says why;
+without the agent the comparison is unchanged. On a laptop, warmup and noise dominate latency while
 the work identical requests do is stable, so comparison leads with behavior: per route or execution (scheduled jobs
 and consumed messages), the statements, REST calls, AI calls, cache misses, and tokens per request or execution.
 Statement groups are compared and displayed only as literal-free shapes, in the browser, MCP and CLI under every

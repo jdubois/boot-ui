@@ -16,7 +16,8 @@ import java.util.List;
  *     {@code previous}
  * @param notComparableReasons what differs between the runs, when not comparable
  * @param codeChanges the methods changed, added, and removed since the previous run, which ran, and where, first; at
- *     most {@value #MAX_ROWS} methods, each with at most {@value #MAX_ROWS} routes
+ *     most {@value #MAX_ROWS} methods, each with at most {@value #MAX_ROWS} routes; {@code null} without the BootUI
+ *     agent
  * @param behavior what the routes did differently, at most {@value #MAX_ROWS}
  * @param behaviorOmitted the behavior rows left out
  * @param edges the runtime model's added and removed edges, at most {@value #MAX_ROWS}
@@ -46,9 +47,6 @@ public record RuntimeRunComparisonAgentDto(
         behavior = DtoCollections.immutableCopy(behavior);
         edges = DtoCollections.immutableCopy(edges);
         limitations = DtoCollections.immutableCopy(limitations);
-        codeChanges = codeChanges == null
-                ? RuntimeCodeChangesDto.unavailable(RuntimeRunComparisonDto.NO_CODE_CHANGES)
-                : codeChanges;
     }
 
     public RuntimeRunComparisonAgentDto(

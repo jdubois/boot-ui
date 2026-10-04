@@ -40,7 +40,6 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import org.eclipse.microprofile.config.Config;
 
 /**
@@ -133,8 +132,8 @@ public class RuntimeInsightsResource {
         this.impact.setCodeInventory((type, name) ->
                 codeInventory.isResolvable() ? codeInventory.get().lookup(type, name) : null);
         this.comparison.setCodeChanges(
-                limit -> codeInventory.isResolvable() ? codeInventory.get().changes(0, limit) : null,
-                keys -> codeInventory.isResolvable() ? codeInventory.get().accessFlags(keys) : Map.of(),
+                () -> codeInventory.isResolvable() && codeInventory.get().agentAttached(),
+                limit -> codeInventory.isResolvable() ? codeInventory.get().changesWithAccess(limit) : null,
                 wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
         this.insights.setCodePathsService(() -> codePaths.isResolvable() ? codePaths.get() : null);
     }

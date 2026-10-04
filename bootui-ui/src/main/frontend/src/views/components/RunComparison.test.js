@@ -162,6 +162,13 @@ describe('RunComparison', () => {
     await flushPromises()
     expect(wrapper.find('[data-section="code-changes"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="code-changes-unavailable"]').text()).toContain('need the BootUI agent')
+
+    wrapper.unmount()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({...compared, codeChanges: null})))
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.find('[data-section="code-changes"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="code-changes-unavailable"]').exists()).toBe(false)
   })
 
   it('shows a failed load as its message, never as an object', async () => {

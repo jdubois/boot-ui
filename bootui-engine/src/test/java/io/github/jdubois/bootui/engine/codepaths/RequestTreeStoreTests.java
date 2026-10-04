@@ -247,6 +247,37 @@ class RequestTreeStoreTests {
         assertThat(store.amended()).isEqualTo(3);
     }
 
+    /**
+     * M5-7a with M5-11: a clear forgets which routes the trees handed over had, and tombstones them, so a late fragment
+     * of a request from before the clear never amends a route tree recorded after it, nor opens a new tree.
+     */
+    @Test
+    void aLateFragmentOfARequestFromBeforeAClearNeverAmendsTheRoutesAfterIt() {
+        RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids));
+        List<String> amended = new ArrayList<>();
+        store.onAmended((route, before, added, incomplete) -> amended.add(route));
+        for (long request = 1; request <= RequestTreeStore.RECENT + 6; request++) {
+            store.add(fragment(request, 10L), 0L);
+        }
+        store.settle(2 * SECOND);
+        assertThat(store.tree(CodePathFragment.hex(4L)))
+                .as("neither recent nor an exemplar")
+                .isNull();
+
+        store.clear(3 * SECOND);
+        store.add(
+                Blobs.handoff(1L, 4L, 0xc3L)
+                        .between(4 * SECOND, 4 * SECOND + 400L)
+                        .node(-1, 11, 0, 1L, 400L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        store.settleAll();
+
+        assertThat(amended).isEmpty();
+        assertThat(store.tree(CodePathFragment.hex(4L))).isNull();
+        assertThat(store.clearedFragments()).isEqualTo(1L);
+    }
+
     @Test
     void openTreesAndKeptTreesStayBounded() {
         RequestTreeStore store = new RequestTreeStore(null);
