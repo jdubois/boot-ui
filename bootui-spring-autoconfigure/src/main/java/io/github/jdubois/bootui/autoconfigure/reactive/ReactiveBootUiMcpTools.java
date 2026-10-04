@@ -302,6 +302,14 @@ public class ReactiveBootUiMcpTools {
                     "get_code_paths",
                     McpToolDescriptions.spring("get_code_paths"),
                     args -> codePathsBean.agentReport(args.query(), args.limit())));
+            registry.add(tool(
+                    "start_method_probe",
+                    McpToolDescriptions.spring("start_method_probe"),
+                    args -> codePathsBean.agentStartProbe(args.id())));
+            registry.add(tool(
+                    "get_method_probe",
+                    McpToolDescriptions.spring("get_method_probe"),
+                    args -> codePathsBean.agentProbe(args.id())));
         }
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         if (runtimeInsightsBean != null) {

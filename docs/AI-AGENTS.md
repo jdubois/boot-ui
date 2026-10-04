@@ -275,10 +275,12 @@ the classpath) are simply not advertised.
   see [Did my change run?](#did-my-change-run).
 - **Code Paths read:** `get_code_paths`, which application methods each route spends its time in; see
   [Where does the handler's time go?](#where-does-the-handlers-time-go).
+- **Method probes:** `start_method_probe`, an action that needs the user's separate approval, and `get_method_probe`;
+  see [Did this method run, and how?](#did-this-method-run-and-how).
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
-  `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
+  `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, and `start_method_probe`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
   command.
 
@@ -319,8 +321,8 @@ read tools return short, stable facts rather than a dashboard:
 | --- | --- | --- |
 | `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, and a `verify` line. Past the limit every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (every observation, including latency rows, except an insufficient repeated-selects row under 50 ms that ran fewer than 10 times in any request), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile` |
-| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
-| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then at most 8 route/execution behavior rows and edges; latency is left out |
+| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
+| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then at most 8 route/execution behavior rows and edges; latency is left out |
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
 never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
@@ -334,21 +336,25 @@ configuration comparability and restart timings are independent facts. The `diag
 with `get_runtime_insights`, then one `get_request_profile`, and for a slow route whose time is in its handler,
 `get_code_paths` when the agent is attached; the
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
-calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
+calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
+known, runs the tests, calls
 `get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
 
 **Change, then verify.** An agent editing code uses the four tools as one loop:
 
 1. Before editing `OrderService`, `bootui insights impact OrderService --json` lists the routes this run exercised
    through it, the mapped routes it reaches that no request did, and the routes sharing its tables. Those are what the
-   tests must reach.
+   tests must reach. With the BootUI agent, `bootui insights impact 'OrderService#total' --json` narrows that to the
+   routes whose requests ran the method itself; a route under `notObserved` ran without showing it, which is not proof
+   it never does.
 2. After the edit and a DevTools restart or Quarkus live reload, run the tests, then
    `bootui insights list --query repeated-selects --json`. The default list keeps a sufficient repeated SELECT, including
    a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times in any
    request, so that query shows whether a weak cheap repeat is gone. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
-3. Then `bootui insights compare --json` (or `compare previous`), and stop. Omitted `id` or `previous` selects the
-   newest kept run, including listener-only and idle runs. A new statement fingerprint or a higher statement count
+3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
+   come first: the methods changed since the previous run, which ran, and on which routes. Omitted `id` or `previous`
+   selects the newest kept run, including listener-only and idle runs. A new statement fingerprint or a higher statement count
    per request on a route is a behavior change the agent caused; `INSUFFICIENT` means the tests did not reach the
    route 3 times in both runs, not that nothing changed. Do not edit from a latency row.
 
@@ -393,6 +399,25 @@ calls without a stamp take a tenth of the handler or none is stamped; `repeated-
 a repeated statement, past an application repository or DAO method to the method that called it. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or asynchronous
 result, or BootUI could not tell where its work ran, so its tree times assembly, not the work. Node percentiles are
 approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue` prompt calls it for a slow route whose time is in its handler.
+
+### Did this method run, and how?
+
+A [method probe](features/diagnostics.md#method-probes) records one application method's next invocations: metadata
+only, in every exposure mode (D24).
+
+| Tool | CLI | Returns |
+| --- | --- | --- |
+| `start_method_probe` | `bootui probe start <method>` | An action: starts a probe on `id`, the method as `binary.Class#name`, with its JVM descriptor for an overloaded one (`com.example.PriceService#quote(I)J`), as Code Paths and Code Inventory name it. Returns the probe, `starting`. Refused (an in-band tool error with the REST status) for a method the agent never instrumented or outside the application's packages (400), and while BootUI or the Code Paths panel is read-only, without the agent, or when five probes run (409) |
+| `get_method_probe` | `bootui probe show <id>` | The probe `id`: its state (`starting`, `active`, `ending`, `ended`, `failed`), `endReason` or `failure`, `waitingForClass`, `async`, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame |
+
+A probe records at most 20 invocations, for at most 60 seconds, five at once, and ends with the run; the agent enforces
+those bounds where the method runs and then removes its instrumentation. It never records an argument or a return value.
+**Ask the user before starting one**, as for `memory_scan` or `pentest_scan`: it changes the running application's code
+for its window, even though read-only policy refuses it. The loop it serves: start a probe on the method an edit
+changed, run the test or send the request that should reach it, then read `get_method_probe`. No invocation after the
+code ran is evidence the path never reaches the method (the wrong route, the wrong bean, never wired). A probe
+`waitingForClass` has not seen this run load its class yet; an `async` method's durations time the assembly of its
+reactive or asynchronous result, not the work that runs later.
 
 ### MySQL operational evidence
 

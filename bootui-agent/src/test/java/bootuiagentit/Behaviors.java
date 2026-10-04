@@ -80,27 +80,13 @@ public class Behaviors {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    static void awaitSelfTest(Class<?> bridge) throws Exception {
-        for (int i = 0; i < 400; i++) {
-            Map<String, Object> status =
-                    (Map<String, Object>) bridge.getMethod("status").invoke(null);
-            Map<String, Object> agent = (Map<String, Object>) status.get("agent");
-            List<Object> sensors = agent == null ? List.of() : (List<Object>) agent.get("sensors");
-            for (Object sensor : sensors) {
-                Map<String, Object> map = (Map<String, Object>) sensor;
-                if (Boolean.TRUE.equals(map.get("selfTestPassed"))) {
-                    System.out.println("SELF_TEST=" + map.get("hooks"));
-                    return;
-                }
-                if (map.get("selfTestError") != null || "failed".equals(map.get("state"))) {
-                    System.out.println("SELF_TEST_FAILED=" + map);
-                    return;
-                }
-            }
-            Thread.sleep(25);
+    static void awaitSelfTest() throws Exception {
+        Map<String, Object> sensor = SensorWait.awaitSettled("executors");
+        if (Boolean.TRUE.equals(sensor.get("selfTestPassed"))) {
+            System.out.println("SELF_TEST=" + sensor.get("hooks"));
+        } else {
+            System.out.println("SELF_TEST_FAILED=" + sensor);
         }
-        System.out.println("SELF_TEST_TIMEOUT=" + bridge.getMethod("status").invoke(null));
     }
 
     public static void main(String[] args) throws Exception {
@@ -146,7 +132,7 @@ public class Behaviors {
             Method claim = bridge.getMethod("claim", Map.class, Supplier.class, Function.class);
             Object result = claim.invoke(null, request, capture, reopen);
             System.out.println("CLAIM=" + result);
-            awaitSelfTest(bridge);
+            awaitSelfTest();
         }
         CONTEXT.set("request-42");
         if (bridge != null && !mode.equals("none")) {

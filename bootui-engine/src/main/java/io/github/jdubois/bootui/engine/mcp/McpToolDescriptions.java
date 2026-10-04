@@ -58,15 +58,18 @@ public final class McpToolDescriptions {
                             + "exemplar request. An unknown or evicted id returns available=false with a reason."),
             Map.entry(
                     "get_runtime_impact",
-                    "For a route, bean, class, repository, table, cache, host, or event type id: the routes this run "
-                            + "exercised through it, those it did not, and those sharing a resource with it, at most 8 "
-                            + "each, or AMBIGUOUS with candidates. A checklist of what was and was not exercised, never "
-                            + "a verdict that a change is safe."),
+                    "For a route, bean, class, method (Class#method, with parameter types for one overload), "
+                            + "repository, table, cache, host, or event type id: the routes this run exercised through "
+                            + "it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS "
+                            + "with candidates. With the BootUI agent, a method's observed routes are those whose "
+                            + "requests executed it; notObserved routes ran without showing it, which proves nothing. "
+                            + "A checklist of what was and was not exercised, never a verdict that a change is safe."),
             Map.entry(
                     "get_runtime_run_comparison",
                     "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run "
-                            + "including runs without HTTP traffic; runs lists the others. Comparability first, then at most "
-                            + "8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
+                            + "including runs without HTTP traffic; runs lists the others. Comparability first, then "
+                            + "codeChanges (with the BootUI agent: changed and added methods, executed or not, and the "
+                            + "routes that ran them), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
                             + "mean no change. Call after tests to verify a change."),
             Map.entry(
                     "get_request_profile",
@@ -292,6 +295,27 @@ public final class McpToolDescriptions {
                             + "no node. An assemblyOnly route's handler ran on an event loop, returned a reactive or "
                             + "asynchronous result, or BootUI could not tell where its work ran, so its tree times "
                             + "assembly, not the work. Node percentiles are approximate, from log2 buckets."),
+            Map.entry(
+                    "start_method_probe",
+                    "Start a method probe: an action that retransforms one application method of the running "
+                            + "application to record its next 20 invocations, for at most 60 seconds (five probes at "
+                            + "once), then removes itself; it ends with the run. Ask the user for separate approval "
+                            + "before starting one, even when other tools were approved. id is the method, "
+                            + "binary.Class#name, with its JVM descriptor for an overloaded one, as Code Paths, Code "
+                            + "Inventory, and get_code_paths name it (com.example.PriceService#quote(I)J); it must be a "
+                            + "method the agent instrumented, in the application's packages. Refused while the Code "
+                            + "Paths panel or BootUI is read-only, without the BootUI agent, or when five probes run. "
+                            + "Returns the probe, starting; call get_method_probe with its id after the code runs. "
+                            + "Metadata only, in every exposure mode: durations, thread kind, request id, outcome, "
+                            + "exception type, and calling frame, never argument or return values."),
+            Map.entry(
+                    "get_method_probe",
+                    "Return a method probe by id: its state (starting, active, ending, ended, failed), why it ended "
+                            + "or failed, and each recorded invocation's duration, thread kind, request id, outcome or "
+                            + "exception type, and calling frame. Metadata only, never argument or return values. No "
+                            + "invocations after the code ran is evidence the path never reached the method; an active "
+                            + "probe waitingForClass has not seen its class load in this run yet, and an async method's "
+                            + "durations time the assembly of its result only."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "

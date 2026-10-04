@@ -1,7 +1,15 @@
 <script setup>
 import {computed, onBeforeUnmount, ref} from 'vue'
 import {getJson} from '../../api.js'
-import {impactLists, isImpact, isSymbols, nodeParts, routeTraffic, symbolOption} from '../../utils/changeImpact.js'
+import {
+  impactLists,
+  isImpact,
+  isSymbols,
+  methodStatusText,
+  nodeParts,
+  routeTraffic,
+  symbolOption
+} from '../../utils/changeImpact.js'
 import {formatNumber} from '../../utils/format.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import InsightText from './InsightText.vue'
@@ -135,6 +143,7 @@ function showList(id) {
 
 const lists = computed(() => impactLists(impact.value))
 const node = computed(() => nodeParts(impact.value?.node))
+const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus))
 </script>
 
 <template>
@@ -142,8 +151,9 @@ const node = computed(() => nodeParts(impact.value?.node))
     <div class="card-body">
       <h2 id="insight-impact-title" class="h6 mb-1">Change impact</h2>
       <p class="small text-muted mb-2 insight-impact-intro">
-        Name what you are changing, a route, a bean, a class, a repository, a table, a cache, or a host, to see which
-        routes this run exercised through it and which it did not. Start typing to pick one from this run.
+        Name what you are changing, a route, a bean, a class, a method such as <code>OrderService#total</code>, a
+        repository, a table, a cache, or a host, to see which routes this run exercised through it and which it did not.
+        Start typing to pick one from this run.
       </p>
       <form
         class="d-flex flex-wrap gap-2 align-items-center"
@@ -157,12 +167,12 @@ const node = computed(() => nodeParts(impact.value?.node))
             type="search"
             role="combobox"
             class="form-control form-control-sm insight-impact-input"
-            aria-label="Symbol to check, such as a route, bean, class, repository, table, cache, or host"
+            aria-label="Symbol to check, such as a route, bean, class, method, repository, table, cache, or host"
             aria-autocomplete="list"
             :aria-expanded="listVisible ? 'true' : 'false'"
             :aria-controls="listboxId"
             :aria-activedescendant="activeOptionId"
-            placeholder="Type a route, bean, table…"
+            placeholder="Type a route, bean, Class#method…"
             autocomplete="off"
             spellcheck="false"
             @input="onInput"
@@ -209,7 +219,19 @@ const node = computed(() => nodeParts(impact.value?.node))
               <span v-if="node.kind" class="text-muted small">{{ node.kind }}&nbsp;</span>
               <code>{{ node.name }}</code>
             </p>
-            <p class="small text-muted mb-0">
+            <p v-if="methodStatus || impact.methods?.length > 1" class="small mb-1 insight-impact-method">
+              <template v-if="methodStatus">{{ methodStatus }}</template>
+              <template v-if="methodStatus && impact.methods.length > 1"> · </template>
+              <template v-if="impact.methods?.length > 1"
+                >{{ impact.methods.length }} overloads checked as one</template
+              >
+            </p>
+            <p v-if="impact.observedFrom === 'ROUTE_TREES'" class="small text-muted mb-0">
+              Reached by {{ formatNumber(impact.structuralReach) }}
+              {{ impact.structuralReach === 1 ? 'node' : 'nodes' }} through its bean. A route ran it only when one of
+              its requests' own call trees did; a route that ran without showing it is never proof that it did not.
+            </p>
+            <p v-else class="small text-muted mb-0">
               Reached by {{ formatNumber(impact.structuralReach) }}
               {{ impact.structuralReach === 1 ? 'node' : 'nodes' }} within five steps. What ran is listed apart: a
               route's traffic does not prove that a request went through this code.

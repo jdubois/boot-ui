@@ -199,7 +199,12 @@ describe('Code Inventory panel', () => {
     expect(rows[0].text()).toContain('Added')
     expect(rows[0].text()).toContain('Not executed')
     expect(rows[1].text()).toContain('Executed')
-    const link = rows[1].get('.router-link-stub')
+    const [probe, link] = rows[1].findAll('.router-link-stub')
+    expect(JSON.parse(probe.attributes('data-to'))).toEqual({
+      path: '/code-paths',
+      query: {probe: 'shop.OrderService#pay()V'}
+    })
+    expect(probe.text()).toBe('Probe in Code Paths')
     expect(JSON.parse(link.attributes('data-to'))).toEqual({path: '/activity', query: {request: '00000000000000ab'}})
     expect(link.text()).toBe('POST /orders/{id}/pay')
   })

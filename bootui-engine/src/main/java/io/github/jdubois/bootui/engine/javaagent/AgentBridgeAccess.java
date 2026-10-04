@@ -37,6 +37,9 @@ public final class AgentBridgeAccess {
     /** The code-paths sensor's bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-4a). */
     static final String CODE_PATHS_CLASS = "io.github.jdubois.bootui.agent.bridge.CodePaths";
 
+    /** Method probes' bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-8). */
+    static final String METHOD_PROBES_CLASS = "io.github.jdubois.bootui.agent.bridge.MethodProbes";
+
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
 
@@ -56,6 +59,7 @@ public final class AgentBridgeAccess {
     private final Inventory inventory;
     private final CodePathsHandles codePaths;
     private final ClassEvidenceHandles classEvidence;
+    private final MethodProbesHandles methodProbes;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -114,6 +118,7 @@ public final class AgentBridgeAccess {
         this.inventory = releaseHandle == null ? null : Inventory.bind(bridge);
         this.codePaths = this.inventory == null ? null : CodePathsHandles.bind(bridge);
         this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
+        this.methodProbes = this.inventory == null ? null : MethodProbesHandles.bind(bridge);
     }
 
     /**
@@ -485,6 +490,81 @@ public final class AgentBridgeAccess {
         }
     }
 
+    /**
+     * Whether the bridge carries method probes' entry points ({@code MethodProbes}): an agent of the same protocol from
+     * before M5-8 does not, and probes are then unavailable.
+     */
+    public boolean methodProbesSupported() {
+        return inventorySupported() && methodProbes != null;
+    }
+
+    /**
+     * Starts a method probe for the claim {@code token} ({@code MethodProbes.start}): the answer's {@code status} is
+     * {@code started} with the {@code probe}, or {@code invalid}, {@code refused}, {@code stale}, {@code unavailable}, or
+     * {@code failed} with a {@code reason}.
+     */
+    public Map<String, Object> startMethodProbe(long token, Map<String, ?> request) {
+        if (!methodProbesSupported()) {
+            return unavailable(present ? "this BootUI agent predates method probes" : null);
+        }
+        try {
+            return copy(methodProbes.start.invoke(token, request));
+        } catch (Throwable ex) {
+            return failed(ex);
+        }
+    }
+
+    /** Stops the method probe {@code id} for the claim {@code token} ({@code MethodProbes.stop}). */
+    public Map<String, Object> stopMethodProbe(long token, long id) {
+        if (!methodProbesSupported()) {
+            return unavailable(present ? "this BootUI agent predates method probes" : null);
+        }
+        try {
+            return copy(methodProbes.stop.invoke(token, id));
+        } catch (Throwable ex) {
+            return failed(ex);
+        }
+    }
+
+    /** Every method probe the bridge keeps, as maps of JDK types: copies. Never null. */
+    public List<Map<String, Object>> methodProbes() {
+        if (!methodProbesSupported()) {
+            return List.of();
+        }
+        try {
+            Object value = methodProbes.list.invoke();
+            List<Map<String, Object>> probes = new java.util.ArrayList<>();
+            if (value instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?>) {
+                        probes.add(copy(item));
+                    }
+                }
+            }
+            return probes;
+        } catch (Throwable ex) {
+            return List.of();
+        }
+    }
+
+    /** Method probes' bridge entry points, bound once; {@code null} when the bridge has none. */
+    private record MethodProbesHandles(MethodHandle start, MethodHandle stop, MethodHandle list) {
+
+        static MethodProbesHandles bind(Class<?> bridge) {
+            try {
+                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                Class<?> probes = Class.forName(METHOD_PROBES_CLASS, false, bridge.getClassLoader());
+                return new MethodProbesHandles(
+                        lookup.findStatic(probes, "start", MethodType.methodType(Map.class, long.class, Map.class)),
+                        lookup.findStatic(probes, "stop", MethodType.methodType(Map.class, long.class, long.class)),
+                        lookup.findStatic(probes, "list", MethodType.methodType(List.class)));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-8: no method probes.
+                return null;
+            }
+        }
+    }
+
     /** The code-paths sensor's bridge entry points, bound once; {@code null} when the bridge has none. */
     private record CodePathsHandles(MethodHandle drain, MethodHandle exclude, MethodHandle excluded) {
 
@@ -544,9 +624,13 @@ public final class AgentBridgeAccess {
     }
 
     private Map<String, Object> unavailable() {
+        return unavailable(null);
+    }
+
+    private Map<String, Object> unavailable(String reason) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("status", UNAVAILABLE);
-        map.put("reason", present ? problem : "the JVM runs without the BootUI agent");
+        map.put("reason", reason != null ? reason : present ? problem : "the JVM runs without the BootUI agent");
         return map;
     }
 
@@ -569,7 +653,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Reads {@code key} of a bridge map as a map, or an empty map. */
-    static Map<String, Object> map(Map<String, ?> source, String key) {
+    public static Map<String, Object> map(Map<String, ?> source, String key) {
         Object value = source == null ? null : source.get(key);
         return value instanceof Map<?, ?> ? copy(value) : Map.of();
     }
@@ -581,7 +665,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Reads {@code key} of a bridge map as a number, or {@code null}. */
-    static Long number(Map<String, ?> source, String key) {
+    public static Long number(Map<String, ?> source, String key) {
         Object value = source == null ? null : source.get(key);
         return value instanceof Number number ? number.longValue() : null;
     }

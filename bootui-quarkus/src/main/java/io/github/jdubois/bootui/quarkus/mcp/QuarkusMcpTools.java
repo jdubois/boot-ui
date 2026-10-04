@@ -354,6 +354,21 @@ public class QuarkusMcpTools {
                         "get_code_paths",
                         McpToolDescriptions.quarkus("get_code_paths"),
                         args -> codePaths.agentReport(args.query(), args.limit())));
+        // Method probes, Code Paths' actions (M5-8): start_method_probe is refused on a read-only panel.
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "start_method_probe",
+                        McpToolDescriptions.quarkus("start_method_probe"),
+                        args -> codePaths.agentStartProbe(args.id())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_method_probe",
+                        McpToolDescriptions.quarkus("get_method_probe"),
+                        args -> codePaths.agentProbe(args.id())));
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         addIfAvailable(
                 registry,

@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.model.BeanInvocations;
@@ -47,7 +48,7 @@ import java.util.logging.Logger;
  * excluded method back to the bridge through the claim. Fragments of another claim generation, such as a previous run's
  * still queued, are dropped and counted; a new claim generation starts new trees. Its reads serve the Code Paths panel,
  * {@code get_code_paths}, and {@code route-time-breakdown}'s handler split, and start no scan, network call, or
- * mutation.
+ * mutation. Its method probes ({@link #probes()}, M5-8) are the panel's only actions.
  */
 public final class CodePathsService implements AutoCloseable {
 
@@ -119,6 +120,7 @@ public final class CodePathsService implements AutoCloseable {
             + " its handler.";
 
     private final Object lock = new Object();
+    private final MethodProbeService probes;
     private Run run;
     private boolean closed;
 
@@ -152,6 +154,12 @@ public final class CodePathsService implements AutoCloseable {
         this.nanoTime = nanoTime;
         this.evidence = java.util.Objects.requireNonNull(evidence, "evidence");
         evidence.register(store);
+        this.probes = new MethodProbeService(this.access, this.claims, this::unavailableReason, evidence);
+    }
+
+    /** This run's method probes ({@code docs/PLAN-v2.md} M5-8): part of Code Paths, available when it is. */
+    public MethodProbeService probes() {
+        return probes;
     }
 
     /**
@@ -264,6 +272,7 @@ public final class CodePathsService implements AutoCloseable {
                 run = null;
             }
         }
+        probes.close();
     }
 
     /** Why the sensor does not record for this application, or {@code null} when it does. */
@@ -956,6 +965,127 @@ public final class CodePathsService implements AutoCloseable {
     }
 
     /**
+     * Which routes' requests executed the methods whose keys {@code wanted} accepts ({@code docs/PLAN-v2.md} §5.7, §5.17,
+     * M5-7a), from each route's own trees, after draining what is waiting and settling the quiet trees; unavailable
+     * while the sensor does not record this run or HTTP Exchanges is not visible. Keys are resolved outside the lock, in
+     * one bridge read, and only the matching methods are looked up in each route's table. Never throws.
+     */
+    public MethodRoutes methodRoutes(Predicate<String> wanted) {
+        return methodRoutes(read(), wanted);
+    }
+
+    /** {@link #methodRoutes(Predicate)} under {@code read}, a read of the panels the caller resolved once (M5-11). */
+    public MethodRoutes methodRoutes(AgentEvidence.Read read, Predicate<String> wanted) {
+        try {
+            String reason = readReason(read);
+            if (reason != null) {
+                return MethodRoutes.unavailable(reason);
+            }
+            Run current = settledRun();
+            if (current == null) {
+                return MethodRoutes.unavailable("The code-paths sensor has not recorded this run yet.");
+            }
+            // Only the ids the route tables hold are resolved, through the run's key cache.
+            Map<Integer, String> matched = new HashMap<>();
+            List<Integer> excludedIds;
+            synchronized (lock) {
+                Set<Integer> ids = new HashSet<>();
+                for (RouteTree tree : current.routes.routes()) {
+                    for (int id : tree.executedMethods()) {
+                        ids.add(id);
+                    }
+                }
+                for (int id : current.routes.unroutedMethods()) {
+                    ids.add(id);
+                }
+                excludedIds = current.exclusion.excluded();
+                ids.addAll(excludedIds);
+                for (int id : ids) {
+                    String key = current.key(id);
+                    if (!key.startsWith("#") && wanted.test(key)) {
+                        matched.put(id, key);
+                    }
+                }
+            }
+            Set<String> excluded = new LinkedHashSet<>();
+            for (int id : excludedIds) {
+                String key = matched.get(id);
+                if (key != null) {
+                    excluded.add(key);
+                }
+            }
+            Map<String, Map<String, Long>> byKey = new LinkedHashMap<>();
+            Map<String, Long> unrouted = new LinkedHashMap<>();
+            Map<String, MethodRoutes.RouteEvidence> evidence = new LinkedHashMap<>();
+            List<String> limitations = new ArrayList<>();
+            synchronized (lock) {
+                for (RouteTree tree : current.routes.routes()) {
+                    for (Map.Entry<Integer, String> method : matched.entrySet()) {
+                        long requests = tree.executedRequests(method.getKey());
+                        if (requests > 0) {
+                            byKey.computeIfAbsent(method.getValue(), ignored -> new LinkedHashMap<>())
+                                    .merge(tree.route(), requests, Long::sum);
+                        }
+                    }
+                    evidence.put(tree.route(), evidence(tree));
+                }
+                for (Map.Entry<Integer, String> method : matched.entrySet()) {
+                    long trees = current.routes.unroutedExecutions(method.getKey());
+                    if (trees > 0) {
+                        unrouted.merge(method.getValue(), trees, Long::sum);
+                    }
+                }
+                int settling = current.store.openCount() + current.store.unresolvedCount();
+                if (settling > 0) {
+                    limitations.add(settling + (settling == 1 ? " request tree is" : " request trees are")
+                            + " still settling, about two seconds after their last fragment or until their exchange is"
+                            + " recorded: their requests are not counted yet.");
+                }
+                if (current.clears > 0) {
+                    limitations.add(RECORDING_CLEARED);
+                }
+                if (current.malformed > 0) {
+                    limitations.add(current.malformed + " code-paths fragments could not be read in this run.");
+                }
+                if (current.routes.routesDropped() > 0 || current.routes.unroutedPartial()) {
+                    limitations.add("The run's route trees reached their bounds: some requests' methods are counted"
+                            + " under no route.");
+                }
+            }
+            long dropped = current.agentDropped() - current.droppedAtStart;
+            if (dropped > 0) {
+                limitations.add("The agent dropped " + dropped + " code-paths fragments in this run, as its fragment"
+                        + " pool or queue was full: their methods are counted under no route.");
+            }
+            return new MethodRoutes(
+                    null, byKey, unrouted, evidence, excluded, current.claim.beanClasses(), limitations);
+        } catch (RuntimeException ex) {
+            log.log(Level.FINE, "BootUI could not read the methods of this run's route trees", ex);
+            return MethodRoutes.unavailable(
+                    MethodRoutes.READ_FAILED + ex.getClass().getSimpleName() + ".");
+        }
+    }
+
+    private static MethodRoutes.RouteEvidence evidence(RouteTree tree) {
+        List<String> reasons = new ArrayList<>();
+        if (tree.methodsPartial()) {
+            reasons.add("its executed-method table reached its bound");
+        }
+        if (tree.incompleteRequests() > 0) {
+            reasons.add(tree.incompleteRequests() + " of its request trees folded methods into Other nodes or dropped"
+                    + " calls");
+        }
+        if (tree.amendedWithoutTree()) {
+            reasons.add(
+                    "a late fragment arrived after its request's tree was forgotten, so its counts are approximate");
+        }
+        if (tree.assemblyOnly()) {
+            reasons.add("its handler only assembled its result, so work that ran later or elsewhere may be missing");
+        }
+        return new MethodRoutes.RouteEvidence(tree.requestsSeen(), !reasons.isEmpty(), reasons);
+    }
+
+    /**
      * A cheap fingerprint of what the route trees hold, which changes with every merged tree and claim generation, so
      * a cached projection that read them knows it is stale. 0 when the sensor does not record this run, or HTTP
      * Exchanges is not visible.
@@ -1133,6 +1263,8 @@ public final class CodePathsService implements AutoCloseable {
                 int routes = current.routes.routeCount();
                 current.routes = current.routes.cleared();
                 current.clears++;
+                // Drops before the clear no longer bear on what the route trees hold.
+                current.droppedAtStart = current.agentDropped();
                 publish(current);
                 if (trees == 0 && routes == 0) {
                     return null;
@@ -1153,6 +1285,7 @@ public final class CodePathsService implements AutoCloseable {
         final AdaptiveExclusion exclusion = new AdaptiveExclusion();
         RouteTrees routes = newRouteTrees();
         final Map<Integer, String> keys = new HashMap<>();
+        long droppedAtStart;
         long clears;
         long fragments;
         long stale;
@@ -1186,6 +1319,22 @@ public final class CodePathsService implements AutoCloseable {
                     evidence.scaled(RequestTreeStore.MAX_KEPT_NODES, RequestTreeBuilder.MAX_NODES));
             this.store.onSettled((tree, outcome) ->
                     routes.add(tree, outcome.route(), tree.requestId() != null && isAssemblyOnly(tree.requestId())));
+            // A fragment arriving after its tree was merged amends its route's executed methods (M5-7a).
+            // Reads the field each time: a clear replaces the route trees.
+            this.store.onAmended((route, before, added, incomplete) -> routes.amend(route, before, added, incomplete));
+            this.droppedAtStart = agentDropped();
+        }
+
+        /** The code-paths fragments the agent dropped in this JVM, its pool or queue full; 0 when unknown. */
+        long agentDropped() {
+            try {
+                Map<String, Object> counters = AgentBridgeAccess.map(access.status(), AgentSensorSettings.CODE_PATHS);
+                Long pool = AgentBridgeAccess.number(counters, "fragmentsDropped");
+                Long queue = AgentBridgeAccess.number(counters, "queueDropped");
+                return (pool == null ? 0L : pool) + (queue == null ? 0L : queue);
+            } catch (RuntimeException ex) {
+                return 0L;
+            }
         }
 
         /** The classes of the application's repository beans, read once per run from the Beans panel's beans. */

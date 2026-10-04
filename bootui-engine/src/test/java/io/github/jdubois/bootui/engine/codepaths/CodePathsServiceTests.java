@@ -329,10 +329,13 @@ class CodePathsServiceTests {
         assertThat(service.methodKey(controller)).isNull();
         assertThat(service.issuingMethod("GET /api/quote", controller)).isNull();
         assertThat(service.routeTreesFingerprint()).isZero();
-        assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
-            assertThat(store.visible()).isFalse();
-            assertThat(store.counts()).isEmpty();
-        });
+        assertThat(evidence.status().stores())
+                .filteredOn(store -> store.store().equals("code-paths"))
+                .singleElement()
+                .satisfies(store -> {
+                    assertThat(store.visible()).isFalse();
+                    assertThat(store.counts()).isEmpty();
+                });
 
         hiddenPanels.remove(BootUiPanels.CODE_PATHS);
         assertThat(service.report().routes()).isNotEmpty();
@@ -357,10 +360,13 @@ class CodePathsServiceTests {
         clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
         assertThat(service.report().routes()).isNotEmpty();
         long fingerprint = service.routeTreesFingerprint();
-        assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
-            assertThat(store.retainedBytes()).isPositive();
-            assertThat(store.counts()).containsEntry("requestTrees", 2L).containsEntry("routes", 1L);
-        });
+        assertThat(evidence.status().stores())
+                .filteredOn(store -> store.store().equals("code-paths"))
+                .singleElement()
+                .satisfies(store -> {
+                    assertThat(store.retainedBytes()).isPositive();
+                    assertThat(store.counts()).containsEntry("requestTrees", 2L).containsEntry("routes", 1L);
+                });
 
         assertThat(evidence.clear()).isEqualTo("2 request trees and 1 route tree of Code Paths");
 
@@ -381,6 +387,48 @@ class CodePathsServiceTests {
         assertThat(service.report().routes())
                 .singleElement()
                 .satisfies(route -> assertThat(route.route()).isEqualTo("GET /api/quote"));
+    }
+
+    /**
+     * M5-7a: which routes' requests ran a method, from each route's own trees, the first request included; hidden with
+     * the Code Paths panel, and emptied by a clear, which says so.
+     */
+    @Test
+    void methodRoutesNameTheRoutesWhoseTreesRanAMethodUnderTheEvidenceRead() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome(id.endsWith("9") ? "GET /api/other" : "GET /api/quote", 200, false));
+            }
+            return named;
+        });
+        int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
+        int pricing = CodeInventory.methodId("shop.SlowPricingService#quote()I");
+        for (int i = 1; i <= 3; i++) {
+            request(String.format("%016x", i), () -> call(controller, () -> call(pricing, null)));
+        }
+        request("0000000000000009", () -> call(controller, null));
+        awaitFragments(4);
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        MethodRoutes routes = service.methodRoutes(key -> key.startsWith("shop.SlowPricingService#"));
+        assertThat(routes.available()).isTrue();
+        assertThat(routes.routesByKey())
+                .containsOnlyKeys("shop.SlowPricingService#quote()I")
+                .containsEntry("shop.SlowPricingService#quote()I", Map.of("GET /api/quote", 3L));
+        assertThat(routes.routes().get("GET /api/quote").requests()).isEqualTo(3);
+        assertThat(routes.routes().get("GET /api/other").requests()).isEqualTo(1);
+        assertThat(routes.beanClasses()).isNotNull();
+
+        hiddenPanels.add(BootUiPanels.CODE_PATHS);
+        assertThat(service.methodRoutes(key -> true).available()).isFalse();
+        hiddenPanels.clear();
+
+        evidence.clear();
+        MethodRoutes cleared = service.methodRoutes(key -> true);
+        assertThat(cleared.routesByKey()).isEmpty();
+        assertThat(cleared.limitations()).contains(CodePathsService.RECORDING_CLEARED);
     }
 
     /**

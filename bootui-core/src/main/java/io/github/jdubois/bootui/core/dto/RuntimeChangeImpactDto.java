@@ -21,7 +21,17 @@ import java.util.List;
  * @param sharedResources the routes outside its reach that use a table, cache, or host it writes or calls
  * @param sharedResourcesTotal how many there are
  * @param limitations what the impact cannot see
- * @param notExercisedUndetermined whether some reached routes cannot be classified after aggregate overflow
+ * @param notExercisedUndetermined whether some reached routes cannot be classified: after aggregate overflow, or, for a
+ *     method, routes that ran without their call trees showing it ({@code notObserved})
+ * @param observedFrom how observed routes were found: {@code STRUCTURE} (the bean graph and route traffic),
+ *     {@code HANDLER_MAPPING} (the routes mapped to a handler method), or {@code ROUTE_TREES} (the routes whose requests'
+ *     own call trees executed the method); {@code null} unless resolved
+ * @param methods for a method, the method keys it names, {@code class#name+descriptor}, at most {@value #MAX_ROWS}
+ * @param methodStatus for a method, whether it ran in this run per Code Inventory: {@code EXECUTED},
+ *     {@code NEVER_EXECUTED}, {@code NOT_TRACKED}, or {@code null} when unknown
+ * @param notObserved for a method, the routes that reach it and ran in this run while their call trees did not show it:
+ *     never proof that it did not run, each with why
+ * @param notObservedTotal how many there are
  */
 public record RuntimeChangeImpactDto(
         String status,
@@ -37,7 +47,16 @@ public record RuntimeChangeImpactDto(
         List<RuntimeImpactRouteDto> sharedResources,
         int sharedResourcesTotal,
         List<String> limitations,
-        boolean notExercisedUndetermined) {
+        boolean notExercisedUndetermined,
+        String observedFrom,
+        List<String> methods,
+        String methodStatus,
+        List<RuntimeImpactRouteDto> notObserved,
+        int notObservedTotal) {
+
+    public static final String FROM_STRUCTURE = "STRUCTURE";
+    public static final String FROM_HANDLER_MAPPING = "HANDLER_MAPPING";
+    public static final String FROM_ROUTE_TREES = "ROUTE_TREES";
 
     /** The rows each list holds at most. */
     public static final int MAX_ROWS = 8;
@@ -48,6 +67,45 @@ public record RuntimeChangeImpactDto(
         notExercised = DtoCollections.immutableCopy(notExercised);
         sharedResources = DtoCollections.immutableCopy(sharedResources);
         limitations = DtoCollections.immutableCopy(limitations);
+        methods = DtoCollections.immutableCopy(methods);
+        notObserved = DtoCollections.immutableCopy(notObserved);
+    }
+
+    public RuntimeChangeImpactDto(
+            String status,
+            String reason,
+            String symbol,
+            String node,
+            List<String> candidates,
+            long structuralReach,
+            List<RuntimeImpactRouteDto> observed,
+            int observedTotal,
+            List<RuntimeImpactRouteDto> notExercised,
+            int notExercisedTotal,
+            List<RuntimeImpactRouteDto> sharedResources,
+            int sharedResourcesTotal,
+            List<String> limitations,
+            boolean notExercisedUndetermined) {
+        this(
+                status,
+                reason,
+                symbol,
+                node,
+                candidates,
+                structuralReach,
+                observed,
+                observedTotal,
+                notExercised,
+                notExercisedTotal,
+                sharedResources,
+                sharedResourcesTotal,
+                limitations,
+                notExercisedUndetermined,
+                null,
+                List.of(),
+                null,
+                List.of(),
+                0);
     }
 
     public RuntimeChangeImpactDto(

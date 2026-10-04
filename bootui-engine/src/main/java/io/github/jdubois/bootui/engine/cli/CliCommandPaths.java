@@ -28,6 +28,8 @@ public final class CliCommandPaths {
             Map.entry("get_agent_status", "agent status"),
             Map.entry("get_code_inventory", "code inventory"),
             Map.entry("get_code_paths", "code paths"),
+            Map.entry("start_method_probe", "probe start"),
+            Map.entry("get_method_probe", "probe show"),
             Map.entry("clear_exceptions", "exceptions clear"),
             Map.entry("clear_rest_client_traces", "rest-client clear"),
             Map.entry("clear_sql_traces", "sql clear"),

@@ -75,6 +75,102 @@ describe('RunComparison', () => {
     expect(wrapper.find('details').text()).toContain('Tracing was on before')
   })
 
+  it('leads with the code changes when the agent lists them, and says why when it cannot', async () => {
+    const withCode = {
+      ...compared,
+      codeChanges: {
+        available: true,
+        unavailableReason: null,
+        counts: {
+          previousRun: true,
+          note: null,
+          changed: 1,
+          added: 1,
+          removed: 2,
+          executed: 1,
+          notExecuted: 1,
+          partial: false,
+          scanStatus: 'COMPLETE'
+        },
+        methods: [
+          {
+            key: 'com.example.OrderService#discount()V',
+            className: 'com.example.OrderService',
+            name: 'discount',
+            descriptor: '()V',
+            change: 'ADDED',
+            status: 'NEVER_EXECUTED',
+            notTrackedReason: null,
+            routes: [],
+            routesTotal: 0,
+            routesNote: null
+          },
+          {
+            key: 'com.example.OrderService#total(J)J',
+            className: 'com.example.OrderService',
+            name: 'total',
+            descriptor: '(J)J',
+            change: 'CHANGED',
+            status: 'EXECUTED',
+            notTrackedReason: null,
+            routes: ['GET /api/orders'],
+            routesTotal: 1,
+            routesNote: null
+          }
+        ],
+        methodsTotal: 2,
+        limitations: ["2 removed methods are counted, not named: the previous run keeps only its methods' hashes."]
+      }
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(withCode)))
+    wrapper = mount(RunComparison)
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-section]').map((section) => section.attributes('data-section'))).toEqual([
+      'code-changes',
+      'behavior',
+      'edges',
+      'restart'
+    ])
+    const code = wrapper.find('[data-section="code-changes"]')
+    expect(code.find('h3').text().replace(/\s+/g, ' ')).toBe(
+      'Code changes · 1 changed · 1 added · 2 removed · 1 not run yet'
+    )
+    const rows = code.findAll('.insight-comparison-row')
+    expect(rows[0].text().replace(/\s+/g, ' ')).toContain('Added: OrderService#discount not run yet')
+    expect(rows[1].text().replace(/\s+/g, ' ')).toContain('OrderService#total ran in this run on GET /api/orders')
+    expect(code.find('details').text()).toContain('2 removed methods are counted')
+
+    wrapper.unmount()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...compared,
+          codeChanges: {
+            available: false,
+            unavailableReason: "Code changes need the BootUI agent's inventory sensor: see the Java Agent panel.",
+            counts: null,
+            methods: [],
+            methodsTotal: 0,
+            limitations: []
+          }
+        })
+      )
+    )
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.find('[data-section="code-changes"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="code-changes-unavailable"]').text()).toContain('need the BootUI agent')
+
+    wrapper.unmount()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({...compared, codeChanges: null})))
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.find('[data-section="code-changes"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="code-changes-unavailable"]').exists()).toBe(false)
+  })
+
   it('shows a failed load as its message, never as an object', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Request failed with status 403')))
     wrapper = mount(RunComparison)

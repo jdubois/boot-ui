@@ -237,6 +237,11 @@ function methodLabel(method) {
   return `${name}${method.descriptor}`
 }
 
+/** Whether Code Paths can probe the method: a method, not a constructor or a static initializer (M5-8). */
+function probeable(method) {
+  return method.name !== '<init>' && method.name !== '<clinit>'
+}
+
 function statusOf(method) {
   return STATUS[method.status] ?? STATUS.NOT_TRACKED
 }
@@ -432,6 +437,13 @@ function moreRows(report) {
                     <td>
                       <span :class="['badge', statusOf(method).badge]">{{ statusOf(method).label }}</span>
                       <div v-if="method.notTrackedReason" class="small text-muted">{{ method.notTrackedReason }}</div>
+                      <router-link
+                        v-if="probeable(method)"
+                        :to="{path: '/code-paths', query: {probe: method.key}}"
+                        class="small d-inline-block code-inventory-probe"
+                        :title="`Probe ${method.key} in Code Paths`"
+                        >Probe in Code Paths</router-link
+                      >
                     </td>
                     <td>
                       <router-link

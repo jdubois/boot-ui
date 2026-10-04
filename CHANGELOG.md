@@ -9,6 +9,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
+  any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
+  and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth
+  (first requests, executor work the agent followed, and late fragments included) or Code Inventory's first request,
+  never composed from calls observed across requests; each says how many of its requests ran it. Routes reaching the
+  method's bean that ran without their trees showing it are listed apart, **ran without showing it**, with why that
+  proves nothing, and are called not exercised only when Code Inventory saw the method never run. The run comparison
+  leads with **Code changes**: the methods changed or added since the previous run, not run yet first, with whether
+  each ran and on which routes, and the removed methods counted. New `observedFrom`, `methods`, `methodStatus`,
+  `notObserved`, and `notObservedTotal` impact fields, `executedRequests` and `partial` per route, and `codeChanges`
+  in the comparison, on Spring MVC, Spring WebFlux, and Quarkus; `get_runtime_impact` takes the method form,
+  `get_runtime_run_comparison` leads with `codeChanges`, and the `verify_after_change` prompt checks each changed
+  method's impact. Without the agent, only handler methods are checked and the comparison is unchanged
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.7, §5.8, §5.17, M5-7a).
 - **Runtime reach in the Vulnerabilities panel.** With the BootUI agent's `inventory` sensor, the Vulnerabilities panel
   gains a **Runtime reach** column and filter: per dependency, whether its jar's classes loaded in this JVM (with how
   many in this run and the first route), whether a class its advisory names loaded (**Named class loaded**), **Not
@@ -25,11 +39,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runtime model, and the Runtime Insights observations that read it, with the reason; **Clear recording** and **Free
   BootUI memory** clear it with the journal, the records still queued in the agent's ring included, leaving a request
   that lost a fragment out of Code Paths whole; and Live Activity's journal status reports its estimated bytes as
-  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 55 MB by default, which
+  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 62 MB by default, which
   changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
   through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
   in primitive slots per method id, bounded by the agent's method limit.
-
+- **Method probes.** With the BootUI agent attached, **Probe this method** on a method selected in a Code Paths tree,
+  or **Probe in Code Paths** on a changed method in Code Inventory, records that one method's next 20 invocations, for
+  at most 60 seconds, five probes at once: each invocation's duration, thread kind, request id, outcome or exception
+  type, and calling frame, never an argument or a return value. The agent retransforms only the current run's copy of
+  the class, enforces the bounds in the probe's own advice, ends a probe with its run, and removes it by retransformation
+  while the inventory and code-paths advice stay. Probes are Code Paths' only actions, so the panel is now action-capable
+  and `bootui.panels.code-paths.read-only` (or `bootui.read-only`) refuses them; `GET`/`POST
+  /bootui/api/code-paths/probes`, `GET`/`DELETE /code-paths/probes/{id}`, and `POST /code-paths/probes/{id}/stop` on
+  Spring MVC, WebFlux, and Quarkus, and the `start_method_probe` (`bootui probe start`, an action needing the user's
+  separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
+  Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
+  ([Method probes](docs/features/diagnostics.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
@@ -228,6 +253,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Code Paths counts a late fragment's request once.** A code-paths fragment arriving after its request's tree was
+  merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
+  partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
+  (PLAN-v2 M5-7a).
 - **Durable Live Activity history is journal-rendered.** With
   `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
   polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**

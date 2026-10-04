@@ -522,9 +522,9 @@ to its own events:
   what these reads return: method keys, route templates (or masked observed paths), request ids, times, and counts.
   No surface serializes a store, and nothing of it is written to disk.
 - **Memory.** The journal status reports the stores' estimated bytes as **Agent evidence**, beside the journal's own,
-  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 55 MB by default, the sum of the stores' fixed caps.
+  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 62 MB by default, the sum of the stores' fixed caps.
   A smaller bound shrinks Code Paths' trees in proportion; Code Inventory's first calls, bounded by the agent's method
-  limit, are only counted. A disabled panel's store adds its bytes to the total without its own row's figures, and a
+  limit, and method probes, bounded at 25 probes of 20 invocations, are only counted. A disabled panel's store adds its bytes to the total without its own row's figures, and a
   store that records nothing for the application, as without the agent, is left out. The method names each store keeps
   beside its evidence are reported apart, and kept through a clear.
 

@@ -17,7 +17,7 @@ status where they don't.
 ## 2. Current status
 
 The WebFlux adapter serves the large majority of the panel surface — the same 64-panel manifest the servlet adapter
-reports, including the view-only **Java Agent**, **Code Inventory**, and **Code Paths** panels, minus the one panel (**HTTP Sessions**, §6.7) that stays
+reports, including the view-only **Java Agent** and **Code Inventory** panels and **Code Paths** with its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays
 unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 

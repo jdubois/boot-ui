@@ -548,7 +548,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "For a route, bean, class, repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates."
+      "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates."
     },
     {
       "name": "get_runtime_insights",
@@ -795,6 +795,32 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings."
+    },
+    {
+      "name": "get_method_probe",
+      "command": "probe show",
+      "schema": "ID",
+      "panel": "code-paths",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return a method probe by id: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame."
+    },
+    {
+      "name": "start_method_probe",
+      "command": "probe start",
+      "schema": "ID",
+      "panel": "code-paths",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run."
     },
     {
       "name": "get_profile_diff",

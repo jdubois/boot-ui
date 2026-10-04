@@ -57,7 +57,7 @@ public final class ThreadBehaviors {
         request.put("executors", Map.of("skipTasks", List.of(), "skipThreads", List.of()));
         Method claim = bridge.getMethod("claim", Map.class, Supplier.class, Function.class);
         System.out.println("CLAIM=" + claim.invoke(null, request, capture, reopen));
-        awaitSelfTests(bridge);
+        awaitSelfTests(List.of("executors", "threads"));
 
         CONTEXT.set("request-7");
         once("an application task's thread propagates", () -> "request-7".equals(onThread(new Read())));
@@ -353,32 +353,11 @@ public final class ThreadBehaviors {
         return thread.seen.get();
     }
 
-    @SuppressWarnings("unchecked")
-    static void awaitSelfTests(Class<?> bridge) throws Exception {
-        for (int i = 0; i < 400; i++) {
-            Map<String, Object> status =
-                    (Map<String, Object>) bridge.getMethod("status").invoke(null);
-            Map<String, Object> agent = (Map<String, Object>) status.get("agent");
-            List<Object> sensors = agent == null ? List.of() : (List<Object>) agent.get("sensors");
-            int done = 0;
-            for (Object sensor : sensors) {
-                Map<String, Object> map = (Map<String, Object>) sensor;
-                if (Boolean.TRUE.equals(map.get("selfTestPassed")) || map.get("selfTestError") != null) {
-                    done++;
-                }
-            }
-            // Every sensor the claim installed, two or three (the leak test's runs also ask for inventory).
-            if (done >= 2 && done == sensors.size()) {
-                for (Object sensor : sensors) {
-                    Map<String, Object> map = (Map<String, Object>) sensor;
-                    System.out.println("SELF_TEST_" + map.get("id") + "=" + map.get("selfTestPassed") + " "
-                            + map.get("selfTestError") + " " + map.get("hooks"));
-                }
-                return;
-            }
-            Thread.sleep(25);
+    static void awaitSelfTests(List<String> ids) throws Exception {
+        for (Map<String, Object> map : SensorWait.awaitSettled(ids)) {
+            System.out.println("SELF_TEST_" + map.get("id") + "=" + map.get("selfTestPassed") + " "
+                    + map.get("selfTestError") + " " + map.get("hooks"));
         }
-        System.out.println("SELF_TEST_TIMEOUT=" + bridge.getMethod("status").invoke(null));
     }
 
     static void check(String name, boolean ok) {

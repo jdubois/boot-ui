@@ -454,6 +454,7 @@ public final class InventoryBehaviors {
             Map<String, Object> sensor = sensor();
             state = sensor.get("state");
             if (expected.equals(state)
+                    && Boolean.TRUE.equals(sensor.get("idle"))
                     && (!"installed".equals(expected) || Boolean.TRUE.equals(sensor.get("selfTestPassed")))) {
                 return state;
             }
@@ -519,19 +520,11 @@ public final class InventoryBehaviors {
         System.out.println("REFINE_TIMEOUT=" + sensor());
     }
 
-    @SuppressWarnings("unchecked")
     static void awaitSelfTest() throws Exception {
-        for (int i = 0; i < 400; i++) {
-            Map<String, Object> sensor = sensor();
-            if (Boolean.TRUE.equals(sensor.get("selfTestPassed")) || sensor.get("selfTestError") != null) {
-                System.out.println("SELF_TEST_inventory=" + sensor.get("selfTestPassed") + " "
-                        + sensor.get("selfTestError") + " " + sensor.get("hooks"));
-                System.out.println("INSTALL_MILLIS=" + sensor.get("durationMillis"));
-                return;
-            }
-            Thread.sleep(25);
-        }
-        System.out.println("SELF_TEST_TIMEOUT=" + status());
+        Map<String, Object> sensor = SensorWait.awaitSettled("inventory");
+        System.out.println("SELF_TEST_inventory=" + sensor.get("selfTestPassed") + " " + sensor.get("selfTestError")
+                + " " + sensor.get("hooks"));
+        System.out.println("INSTALL_MILLIS=" + sensor.get("durationMillis"));
     }
 
     @SuppressWarnings("unchecked")

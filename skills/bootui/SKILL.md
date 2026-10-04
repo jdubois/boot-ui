@@ -198,6 +198,18 @@ no method. An `assemblyOnly` route's handler ran on an event loop, returned a re
 asynchronous result, or BootUI could not tell where its work ran: its tree times assembly, not the work, so do not
 optimize from it.
 
+### Check whether a method runs, and how
+
+With the agent attached and the user's separate approval, `bootui probe start <method> --json`
+(`start_method_probe`) records one application method's next 20 invocations, for at most 60 seconds: name it
+`binary.Class#name`, with its JVM descriptor when it is overloaded (`com.example.PriceService#quote(I)J`), as Code Paths
+and Code Inventory name it. It is an action: read-only policy refuses it, and it changes the running code for its
+window. Run the test or send the request that should reach the method, then `bootui probe show <id> --json`
+(`get_method_probe`): each invocation's duration, thread kind, request id, outcome or exception type, and calling frame,
+never argument or return values. No invocation after the code ran is evidence the path never reaches the method. A
+probe `waitingForClass` has not seen this run load its class yet; an `async` method's durations time its result's
+assembly only.
+
 ### Read MySQL operational evidence
 
 The MySQL operational panel supports Oracle MySQL 8.4 LTS and 9.7 LTS, with live coverage on 8.4.6 and 9.7.2; check
@@ -327,10 +339,13 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 1. Before editing a bean, class, repository, or table, read `bootui insights impact <name> --json`
    (`get_runtime_impact`): the routes this run exercised through it, the mapped routes it reaches that no request did,
    and the routes sharing its tables. `AMBIGUOUS` lists candidates; never guess one. The answer says what was and was
-   not exercised, never that a change is safe.
+   not exercised, never that a change is safe. With the BootUI agent, name the method itself, `Class#method` (add
+   parameter types for one overload): its `observed` routes ran it, and a `notObserved` route ran without showing it,
+   which is not proof it never does.
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
 3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
-   (`get_runtime_run_comparison`, optional `id`), and stop. The default list keeps a sufficient repeated SELECT,
+   (`get_runtime_run_comparison`, optional `id`), and stop. With the BootUI agent, its `codeChanges` come first: read
+   any changed method still `NEVER_EXECUTED` before anything else. The default list keeps a sufficient repeated SELECT,
    including a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times
    in any request, so that query shows whether a weak cheap repeat is gone. Omitted `id` or `previous` selects the
    newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint
@@ -376,8 +391,9 @@ This is an agent workflow, not a new scan tool, server-side assessment job, or c
 3. Start with existing evidence only: Overview, Health, cached advisor reports, and bounded diagnostic summaries.
    Assessment does not authorize fresh scans or fixes. Before fresh scans, name the applicable scans and obtain approval
    for that scope unless already explicitly approved. Request separate approval for `memory_scan` (may trigger a full
-   GC), `pentest_scan` (bounded loopback probes), `vulnerabilities_scan` (outbound OSV.dev queries), and
-   `database_advisor_scan` (contacts the configured database for metadata). Never run controls, generate traffic, install
+   GC), `pentest_scan` (bounded loopback probes), `vulnerabilities_scan` (outbound OSV.dev queries),
+   `database_advisor_scan` (contacts the configured database for metadata), and `start_method_probe` (retransforms one
+   application method for at most 20 invocations or 60 seconds). Never run controls, generate traffic, install
    integrations, or loosen disabled/read-only policy just to improve coverage.
 4. Declare a time and tool-call budget before collection. Run approved scans sequentially and stop at the budget;
    record busy, timed-out, or failed calls rather than retrying indefinitely. Preserve useful evidence from other

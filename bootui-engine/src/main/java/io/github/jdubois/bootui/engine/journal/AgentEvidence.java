@@ -52,17 +52,26 @@ public final class AgentEvidence implements JournalListener {
     public enum Part {
         /**
          * Code Paths' request trees: 131,072 kept nodes at 48 bytes, 512 open trees of up to 512 nodes, 1,024 trees'
-         * own 512 bytes (recent, waiting, and open), and 4,096 tombstones at 96 bytes.
+         * own 512 bytes (recent, waiting, and open), 4,096 tombstones at 96 bytes, and the routes of the 16,384 trees
+         * last handed over, at 96 bytes, which late fragments amend (M5-7a).
          */
-        CODE_PATHS_REQUEST_TREES(131_072L * 48 + 512L * 512 * 48 + 1_024L * 512 + 4_096L * 96, true),
-        /** Code Paths' route trees: 100,000 nodes at about 264 bytes and 500 routes at about 2.5 KB. */
-        CODE_PATHS_ROUTE_TREES(100_000L * 264 + 500L * 2_560, true),
+        CODE_PATHS_REQUEST_TREES(131_072L * 48 + 512L * 512 * 48 + 1_024L * 512 + 4_096L * 96 + 16_384L * 96, true),
+        /**
+         * Code Paths' route trees: 100,000 nodes at about 264 bytes, 500 routes at about 2.5 KB, and 200,000 executed
+         * methods at 32 bytes, counted per route (M5-7a).
+         */
+        CODE_PATHS_ROUTE_TREES(100_000L * 264 + 500L * 2_560 + 200_000L * 32, true),
         /**
          * Code Inventory's first calls and loads: 2^18 method slots at about 21 bytes, the agent's method limit, 16,384
          * first loads at 160 bytes, 8,192 pending lookups and 4,096 request routes at 64 bytes, and 4,096 route names at
          * about 192 bytes.
          */
-        CODE_INVENTORY_RECORDS((1L << 18) * 21 + 16_384L * 160 + 8_192L * 64 + 4_096L * 64 + 4_096L * 192, false);
+        CODE_INVENTORY_RECORDS((1L << 18) * 21 + 16_384L * 160 + 8_192L * 64 + 4_096L * 64 + 4_096L * 192, false),
+        /**
+         * Method probes (M5-8): 25 probes kept per run at about 512 bytes, each with at most 20 recorded invocations at
+         * about 320 bytes, bounded by the probes' own caps.
+         */
+        METHOD_PROBES(25L * 512 + 25L * 20 * 320, false);
 
         private final long ceilingBytes;
         private final boolean scalable;
@@ -122,7 +131,15 @@ public final class AgentEvidence implements JournalListener {
      * a new one fails {@link Usage} until it is listed here and reviewed.
      */
     public static final java.util.Set<String> COUNTS = java.util.Set.of(
-            "requestTrees", "routes", "routeNodes", "indexBytes", "firstCalls", "firstCallsWithRequest", "firstLoads");
+            "requestTrees",
+            "routes",
+            "routeNodes",
+            "indexBytes",
+            "firstCalls",
+            "firstCallsWithRequest",
+            "firstLoads",
+            "probes",
+            "probeHits");
 
     /**
      * What a store holds.
