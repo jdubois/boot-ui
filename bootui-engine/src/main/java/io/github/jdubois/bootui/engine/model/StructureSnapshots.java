@@ -38,7 +38,8 @@ public final class StructureSnapshots {
                                 null,
                                 RouteTemplateResolver.empty())
                         .id();
-                routes.add(new StructureSnapshot.RouteHandler(label, handlerClass(mapping.handler())));
+                routes.add(new StructureSnapshot.RouteHandler(
+                        label, handlerClass(mapping.handler()), handlerMethod(mapping.handler())));
             }
         }
         if (beans == null || !beans.available()) {
@@ -68,6 +69,24 @@ public final class StructureSnapshots {
         String type = hash < 0 ? handler : handler.substring(0, hash);
         int space = type.lastIndexOf(' ');
         return space < 0 ? type.strip() : type.substring(space + 1).strip();
+    }
+
+    /**
+     * {@code com.example.ProductController#list(Pageable)}, as Spring describes a handler method, or Quarkus's
+     * {@code com.example.ProductResource#list}, as {@code list}; {@code null} when the handler names no method.
+     */
+    static String handlerMethod(String handler) {
+        if (handler == null) {
+            return null;
+        }
+        int hash = handler.indexOf('#');
+        if (hash < 0) {
+            return null;
+        }
+        String method = handler.substring(hash + 1);
+        int parenthesis = method.indexOf('(');
+        method = (parenthesis < 0 ? method : method.substring(0, parenthesis)).strip();
+        return method.isEmpty() ? null : method;
     }
 
     private static boolean repository(BeanSummary bean) {

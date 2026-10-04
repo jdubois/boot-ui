@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.engine.model;
 
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.VisibleJournalEntries;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -23,6 +26,13 @@ public final class RuntimeModelService {
     private long cachedWatermark = Long.MIN_VALUE;
     private long cachedEvicted = Long.MIN_VALUE;
     private long cachedClears = Long.MIN_VALUE;
+    private RuntimeModel cachedVisible;
+    private Map<String, Boolean> cachedVisibility;
+    private StructureSnapshot cachedVisibleSnapshot;
+    private String cachedVisibleRun;
+    private long cachedVisibleWatermark = Long.MIN_VALUE;
+    private long cachedVisibleEvicted = Long.MIN_VALUE;
+    private long cachedVisibleClears = Long.MIN_VALUE;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -44,6 +54,7 @@ public final class RuntimeModelService {
             return new RuntimeModelBuilder()
                     .build(null, List.of("The runtime journal is disabled: set bootui.runtime-journal.enabled=true."));
         }
+
         JournalStatus status = journal.status();
         long evicted = status.evictedByCount() + status.evictedByBytes();
         if (cached != null
@@ -76,6 +87,54 @@ public final class RuntimeModelService {
         cachedEvicted = evicted;
         cachedClears = status.clears();
         return cached;
+    }
+
+    /** Projects only the entries visible under one panel-policy read, cached until the journal or policy changes. */
+    public synchronized RuntimeModel model(Map<String, Boolean> visibility) {
+        if (journal == null || !journal.settings().enabled()) {
+            return new RuntimeModelBuilder()
+                    .build(null, List.of("The runtime journal is disabled: set bootui.runtime-journal.enabled=true."));
+        }
+        JournalStatus status = journal.status();
+        long evicted = status.evictedByCount() + status.evictedByBytes();
+        if (snapshot == null
+                || !status.runId().equals(snapshotRun)
+                || (snapshot.routes().isEmpty() && snapshot.beans().isEmpty())) {
+            snapshot = read(status.runId());
+            snapshotRun = status.runId();
+        }
+        if (cachedVisible != null
+                && cachedVisibleWatermark == status.lastSequence()
+                && cachedVisibleEvicted == evicted
+                && cachedVisibleClears == status.clears()
+                && status.runId().equals(cachedVisibleRun)
+                && cachedVisibleSnapshot == snapshot
+                && visibility.equals(cachedVisibility)) {
+            return cachedVisible;
+        }
+        RouteTemplateResolver resolver;
+        try {
+            resolver = routes.get();
+        } catch (RuntimeException ex) {
+            resolver = RouteTemplateResolver.empty();
+        }
+        cachedVisible = RuntimeModelProjection.project(
+                VisibleJournalEntries.of(journal.entries(), event -> {
+                    String panel = JournalSourcePanels.panelOf(event);
+                    return panel == null || visibility.getOrDefault(panel, false);
+                }),
+                resolver,
+                snapshot,
+                evicted,
+                System::nanoTime,
+                RuntimeModelProjection.READ_BUDGET_NANOS);
+        cachedVisibility = Map.copyOf(visibility);
+        cachedVisibleSnapshot = snapshot;
+        cachedVisibleRun = status.runId();
+        cachedVisibleWatermark = status.lastSequence();
+        cachedVisibleEvicted = evicted;
+        cachedVisibleClears = status.clears();
+        return cachedVisible;
     }
 
     /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */

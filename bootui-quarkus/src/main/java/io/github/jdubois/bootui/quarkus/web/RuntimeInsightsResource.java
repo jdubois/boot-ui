@@ -84,7 +84,8 @@ public class RuntimeInsightsResource {
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates,
                 models,
-                journalAggregates == null ? null : journalAggregates.declaredRoutes());
+                journalAggregates == null ? null : journalAggregates.declaredRoutes(),
+                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
         this.impact.setStack(InsightsStack.QUARKUS);
         this.profile = new ResourceProfileService(
                 journal.isResolvable() ? journal.get() : null,
