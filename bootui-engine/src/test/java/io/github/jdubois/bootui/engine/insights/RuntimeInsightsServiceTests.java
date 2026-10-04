@@ -534,7 +534,8 @@ class RuntimeInsightsServiceTests {
         assertThat(report.checks())
                 .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND)
                         && !check.kind().equals(ProxyBypass.KIND)
-                        && !check.kind().equals(WorkAfterResponse.KIND))
+                        && !check.kind().equals(WorkAfterResponse.KIND)
+                        && !check.kind().equals(ChangedCodeNotExecuted.KIND))
                 .allSatisfy(check -> {
                     assertThat(check.status()).as(check.kind()).isIn("INSUFFICIENT", "EVALUATED");
                     if ("INSUFFICIENT".equals(check.status())) {
@@ -548,6 +549,11 @@ class RuntimeInsightsServiceTests {
                 .filteredOn(check -> check.kind().equals(WorkAfterResponse.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
                 .as("without the BootUI agent, work handed to an executor is unseen")
+                .containsExactly("NOT_APPLICABLE");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ChangedCodeNotExecuted.KIND))
+                .extracting(RuntimeInsightCheckDto::status)
+                .as("without the BootUI agent, which methods ran is unseen")
                 .containsExactly("NOT_APPLICABLE");
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))

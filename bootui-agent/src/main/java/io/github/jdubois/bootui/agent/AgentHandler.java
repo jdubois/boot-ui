@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
@@ -17,8 +18,10 @@ import java.util.function.Function;
  * here. The bridge calls the agent after its compare-and-set, outside any lock, so calls can arrive out of order: every
  * transition carries a generation from one JVM-wide sequence, and a claim or release older than the last one applied is
  * ignored, as is a refine or disarm of another generation than the current claim's. A claim asking for the
- * {@code executors} sensor installs it once and self-tests it (PLAN-v2 M5-2), and a release removes it; a claim without
- * a sensor installs nothing, unless {@link AgentTestHook} enables the diagnostic probe.
+ * {@code executors}, {@code threads}, or {@code inventory} sensor installs it once and self-tests it (PLAN-v2 M5-2,
+ * M5-3), and a release removes it; a claim without a sensor installs nothing, unless {@link AgentTestHook} enables the
+ * diagnostic probe. A claim without the {@code inventory} sensor also removes it, since its advice on every application
+ * method would otherwise stay for a claim that never reads it.
  */
 final class AgentHandler implements Function<Map<String, Object>, Map<String, Object>> {
 
@@ -31,6 +34,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private AgentInstaller installer;
     private ExecutorSensor executors;
     private ThreadSensor threads;
+    private InventorySensor inventory;
+    /** Whether the current claim asked for the inventory sensor: refines reach it only then. */
+    private boolean inventoryClaimed;
+
     private long generation;
     private boolean armed;
     private List<String> packages = Collections.emptyList();
@@ -75,12 +82,22 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (claimedSensors.contains(ThreadPropagation.SENSOR)) {
                     threads().claimed(generation, packages);
                 }
+                inventoryClaimed = strings(request.get("sensors")).contains(CodeInventory.SENSOR);
+                if (inventoryClaimed) {
+                    inventory().claimed(generation, packages);
+                } else if (inventory != null) {
+                    // Its advice would otherwise stay on every method for a claim that never reads it.
+                    inventory.release();
+                }
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
                     packages = strings(request.get("packages"));
                     if (threads != null) {
                         threads.refined(packages);
+                    }
+                    if (inventory != null && inventoryClaimed) {
+                        inventory.refined(packages);
                     }
                 }
                 return answer("ok", null);
@@ -105,6 +122,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (threads != null) {
                     threads.release();
                 }
+                inventoryClaimed = false;
+                if (inventory != null) {
+                    inventory.release();
+                }
                 return answer("ok", null);
             case "status":
                 return status();
@@ -118,6 +139,13 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             threads = new ThreadSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
         }
         return threads;
+    }
+
+    private InventorySensor inventory() {
+        if (inventory == null) {
+            inventory = new InventorySensor(instrumentation, hook.privilegedInstall());
+        }
+        return inventory;
     }
 
     private ExecutorSensor executors() {
@@ -150,6 +178,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         }
         if (threads != null) {
             sensors.add(active(threads.status()));
+        }
+        if (inventory != null) {
+            sensors.add(inventory.status());
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());

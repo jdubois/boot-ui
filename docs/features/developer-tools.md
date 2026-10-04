@@ -83,6 +83,10 @@ each exception's `exceptionGroupId`. `source` is `none` when neither retention w
 `get_agent_status`, `get_devtools_status`, `get_dev_services`, `get_github_dashboard`,
 `get_copilot_sessions`, and `get_claude_code_sessions`.
 
+**Code Inventory read** — `get_code_inventory`: with the BootUI agent, whether the methods changed since the previous run
+executed in this run, then the never-executed, not-tracked, executed, or dependency rows a query asks for (see
+[Code Inventory](diagnostics.md#code-inventory)).
+
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
 `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`, `postgresql_read`,

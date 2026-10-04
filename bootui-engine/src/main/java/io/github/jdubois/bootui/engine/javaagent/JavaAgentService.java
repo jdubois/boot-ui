@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.JavaAgentClaimDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentExecutorCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentInventoryCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
@@ -38,6 +39,9 @@ public final class JavaAgentService {
 
     /** What propagated work, the {@code PROPAGATED} tier, and {@code work-after-response} need. */
     public static final String PROPAGATION_REQUIREMENT = "Requires the BootUI agent's executors sensor";
+
+    /** What Code Inventory and {@code changed-code-not-executed} need ({@code docs/PLAN-v2.md} §5.15). */
+    public static final String INVENTORY_REQUIREMENT = "Requires the BootUI agent's inventory sensor";
 
     /** The state the agent reports for a sensor whose hooks are in place. */
     static final String INSTALLED = "installed";
@@ -143,37 +147,16 @@ public final class JavaAgentService {
     public String propagationUnavailableReason() {
         try {
             Map<String, Object> status = access.status();
-            Resolution resolution = resolve(status, AgentBridgeAccess.map(status, "claim"));
-            if (!JavaAgentReport.ARMED.equals(resolution.state())) {
-                String reason = resolution.reason() == null
-                        ? "the agent is not armed for this application."
-                        : resolution.reason();
-                if (JavaAgentReport.NOT_ATTACHED.equals(resolution.state())) {
-                    reason += " Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).";
-                }
-                return PROPAGATION_REQUIREMENT + ": " + reason;
+            String reason = sensorUnavailableReason(
+                    status,
+                    PROPAGATION_REQUIREMENT,
+                    AgentSensorSettings.EXECUTORS,
+                    "executors",
+                    "executor propagation");
+            if (reason != null) {
+                return reason;
             }
             AgentClaim ours = claim.get();
-            if (ours != null && !ours.sensors().executors()) {
-                return PROPAGATION_REQUIREMENT
-                        + ": this application's claim does not use it; bootui.agent.sensors must include executors.";
-            }
-            Map<String, Object> sensor = executorsSensor(AgentBridgeAccess.map(status, "agent"));
-            if (sensor == null) {
-                return PROPAGATION_REQUIREMENT
-                        + ": the agent did not start it; bootui.agent.sensors must include executors.";
-            }
-            if (Boolean.FALSE.equals(sensor.get("active"))) {
-                return PROPAGATION_REQUIREMENT + ": the agent reports it inactive for this application's claim.";
-            }
-            String state = AgentBridgeAccess.text(sensor, "state");
-            if (!INSTALLED.equals(state)) {
-                return PROPAGATION_REQUIREMENT + ": the sensor is " + (state == null ? "not installed" : state) + ".";
-            }
-            String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, "executors"), "disabledReason");
-            if (disabled != null) {
-                return PROPAGATION_REQUIREMENT + ": the agent disabled executor propagation: " + disabled;
-            }
             if (ours == null || ours.handoffs() == null) {
                 return PROPAGATION_REQUIREMENT + ": BootUI has not attached its executor handoffs to this application's"
                         + " claim yet.";
@@ -184,11 +167,69 @@ public final class JavaAgentService {
         }
     }
 
-    private static Map<String, Object> executorsSensor(Map<String, Object> agent) {
+    /**
+     * Why the agent's {@code inventory} sensor does not record this application's run, starting with
+     * {@value #INVENTORY_REQUIREMENT}, or {@code null} when it does: the agent is attached and armed for this
+     * application, its bridge carries the sensor's entry points, the sensor is installed, and the bridge has not
+     * disabled it ({@code docs/PLAN-v2.md} §5.15). Reads only the bridge's status. Never throws.
+     */
+    public String inventoryUnavailableReason() {
+        try {
+            if (access.present() && access.compatible() && !access.inventorySupported()) {
+                return INVENTORY_REQUIREMENT + ": the attached BootUI agent predates it; attach the bootui-agent jar of"
+                        + " BootUI " + settings.bootUiVersion() + ".";
+            }
+            return sensorUnavailableReason(
+                    access.status(), INVENTORY_REQUIREMENT, AgentSensorSettings.INVENTORY, "inventory", "the sensor");
+        } catch (RuntimeException ex) {
+            return INVENTORY_REQUIREMENT + ".";
+        }
+    }
+
+    /**
+     * Why sensor {@code id} does not record for this application, starting with {@code requirement}, or {@code null}
+     * when the agent is armed for it, the sensor is installed, and the bridge's counters under {@code countersKey}
+     * carry no {@code disabledReason}.
+     */
+    private String sensorUnavailableReason(
+            Map<String, Object> status, String requirement, String id, String countersKey, String disabledWhat) {
+        Resolution resolution = resolve(status, AgentBridgeAccess.map(status, "claim"));
+        if (!JavaAgentReport.ARMED.equals(resolution.state())) {
+            String reason =
+                    resolution.reason() == null ? "the agent is not armed for this application." : resolution.reason();
+            if (JavaAgentReport.NOT_ATTACHED.equals(resolution.state())) {
+                reason += " Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).";
+            }
+            return requirement + ": " + reason;
+        }
+        AgentClaim ours = claim.get();
+        if (ours != null && !ours.sensors().sensors().contains(id)) {
+            return requirement + ": this application's claim does not use it; bootui.agent.sensors must include " + id
+                    + ".";
+        }
+        Map<String, Object> sensor = sensor(AgentBridgeAccess.map(status, "agent"), id);
+        if (sensor == null) {
+            return requirement + ": the agent did not start it; bootui.agent.sensors must include " + id + ".";
+        }
+        if (Boolean.FALSE.equals(sensor.get("active"))) {
+            return requirement + ": the agent reports it inactive for this application's claim.";
+        }
+        String state = AgentBridgeAccess.text(sensor, "state");
+        if (!INSTALLED.equals(state)) {
+            return requirement + ": the sensor is " + (state == null ? "not installed" : state) + ".";
+        }
+        String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, countersKey), "disabledReason");
+        if (disabled != null) {
+            return requirement + ": the agent disabled " + disabledWhat + ": " + disabled;
+        }
+        return null;
+    }
+
+    private static Map<String, Object> sensor(Map<String, Object> agent, String id) {
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
                 Map<String, Object> sensor = AgentBridgeAccess.map(Map.of("sensor", raw), "sensor");
-                if (AgentSensorSettings.EXECUTORS.equals(AgentBridgeAccess.text(sensor, "id"))) {
+                if (id.equals(AgentBridgeAccess.text(sensor, "id"))) {
                     return sensor;
                 }
             }
@@ -322,6 +363,7 @@ public final class JavaAgentService {
                 }
                 String id = AgentBridgeAccess.text(sensor, "id");
                 Map<String, Object> counters = id == null ? Map.of() : AgentBridgeAccess.map(status, id);
+                boolean inventory = AgentSensorSettings.INVENTORY.equals(id);
                 sensors.add(new JavaAgentSensorDto(
                         id,
                         AgentBridgeAccess.text(sensor, "state"),
@@ -340,22 +382,35 @@ public final class JavaAgentService {
                         count(sensor, "skipped"),
                         count(sensor, "transformed"),
                         count(sensor, "retransformed"),
-                        counters.isEmpty() ? null : executorCounters(counters)));
+                        counters.isEmpty() || inventory ? null : executorCounters(counters),
+                        counters.isEmpty() || !inventory ? null : inventoryCounters(counters)));
             }
         }
         return sensors;
     }
 
-    private static List<JavaAgentHookDto> hooks(Map<String, Object> sensor, Map<String, Object> executors) {
-        Map<String, Object> keyed = AgentBridgeAccess.map(executors, "keyed");
-        Map<String, Object> applied = AgentBridgeAccess.map(executors, "applied");
+    /**
+     * A sensor's hooks, each with how often it fired from the bridge's counters for the sensor: {@code keyed} and
+     * {@code applied} for the propagation sensors' {@code key} and {@code apply} hooks, {@code recorded} for the
+     * inventory sensor's {@code record} hooks.
+     */
+    private static List<JavaAgentHookDto> hooks(Map<String, Object> sensor, Map<String, Object> counters) {
+        Map<String, Object> keyed = AgentBridgeAccess.map(counters, "keyed");
+        Map<String, Object> applied = AgentBridgeAccess.map(counters, "applied");
+        Map<String, Object> recorded = AgentBridgeAccess.map(counters, "recorded");
         List<JavaAgentHookDto> hooks = new ArrayList<>();
         for (Object item : AgentBridgeAccess.items(sensor, "hooks")) {
             if (item instanceof Map<?, ?> raw) {
                 Map<String, Object> hook = AgentBridgeAccess.map(Map.of("hook", raw), "hook");
                 String id = AgentBridgeAccess.text(hook, "id");
                 String kind = AgentBridgeAccess.text(hook, "kind");
-                Long fired = AgentBridgeAccess.number("apply".equals(kind) ? applied : keyed, id);
+                Map<String, Object> firings =
+                        switch (kind == null ? "" : kind) {
+                            case "apply" -> applied;
+                            case "record" -> recorded;
+                            default -> keyed;
+                        };
+                Long fired = AgentBridgeAccess.number(firings, id);
                 hooks.add(new JavaAgentHookDto(
                         id,
                         kind,
@@ -385,6 +440,19 @@ public final class JavaAgentService {
                 AgentBridgeAccess.flag(executors, "asyncApplies"),
                 AgentBridgeAccess.number(executors, "libraryThreadsSkipped"),
                 AgentBridgeAccess.number(executors, "poolWorkersSkipped"));
+    }
+
+    private static JavaAgentInventoryCountersDto inventoryCounters(Map<String, Object> inventory) {
+        return new JavaAgentInventoryCountersDto(
+                longValue(inventory, "methodsTracked"),
+                longValue(inventory, "executedThisRun"),
+                longValue(inventory, "methodOverflow"),
+                longValue(inventory, "transformFailures"),
+                longValue(inventory, "codeSources"),
+                longValue(inventory, "ringDropped"),
+                longValue(inventory, "ringLost"),
+                longValue(inventory, "internOverflow"),
+                AgentBridgeAccess.text(inventory, "disabledReason"));
     }
 
     private static Map<String, String> texts(Map<String, Object> map) {

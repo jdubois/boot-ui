@@ -652,6 +652,48 @@ Acceptance criteria:
 - The dependency inventory does not count a jar whose manifest carries `BootUI-Agent-Protocol` as an application
   library.
 
+### 5.7.3 Code Inventory
+
+Purpose: answer "Did the code I changed run, which application code did this run never execute, and which dependencies
+did it never load?"
+
+Data sources:
+
+- The BootUI agent's `inventory` sensor through the bootstrap bridge: per-method hit flags for this run, which methods it
+  tracks, first-call and first-class-of-a-jar records with their request, route, and time, and per-code-source class
+  counts. The engine drains the agent's ring with a `bootui-agent-drain` daemon of the run.
+- A scan of the application's own class files in the claimed packages, off the request path once per run, hashing each
+  method over its resolved instructions without debug attributes, bounded by `bootui.code-inventory.max-classes` and
+  `bootui.code-inventory.scan-timeout`.
+- The previous run's method hashes, kept across DevTools restarts and Quarkus live reloads in the same JVM.
+- The application's declared dependencies from the Vulnerabilities panel's inventory.
+
+Features:
+
+- A header "N of M application methods executed" for this run, where M counts the methods the agent tracked.
+- **Changed since the previous run** (first when a previous run exists): methods changed or added since the previous run,
+  without git, each executed or not in this run, with the first request and route that ran it; removed methods as a count.
+  While the scan runs, or after it failed, it says so and compares nothing (the change counts carry `scanStatus`).
+- **Application code**: packages and classes with executed, never-executed, and not-tracked counts, filterable to
+  never executed. A method counts as tracked only when the agent instrumented its class in this run, or when its class
+  has not loaded in this run at all. A method the agent could not see is **not tracked**, with its reason (static
+  initializer, abstract method, a class the agent excludes by name, transform failed, over the method limit, ran before
+  instrumentation), never counted as executed or never executed.
+- **Dependencies**: declared jars and the jars that defined classes, with classes loaded in this run, at startup or
+  later, and the first route; a declared jar with no class loaded is **not loaded in this run**, never unused.
+- `GET /bootui/api/code-inventory`, `/changes`, `/methods`, and `/dependencies`; `get_code_inventory` and
+  `bootui code inventory` take `query` (`changed` by default, `never-executed`, `not-tracked`, `executed`,
+  `dependencies`, or a package or class) and `limit`.
+
+Acceptance criteria:
+
+- The panel is view-only on Spring MVC, Spring WebFlux, and Quarkus; it is available while the agent's inventory sensor
+  records this run and otherwise unavailable with the Java Agent panel's reason, and every read answers the same
+  `available: false` shape.
+- Editing one method and letting DevTools restart lists exactly that method as changed, executed or not according to
+  the requests sent.
+- A seeded never-called method is never executed, and a declared jar the sample never loads is not loaded in this run.
+
 ### 5.8 Startup Timeline
 
 Purpose: answer "What made startup slow?"
@@ -2850,6 +2892,10 @@ Initial endpoints:
 | `/bootui/api/cli`                            | GET    | Command-line endpoint status and the tool catalog this instance exposes                 |
 | `/bootui/api/cli/tools/{name}`               | POST   | Invoke one tool by name and return its payload directly, with the outcome in the HTTP status |
 | `/bootui/api/java-agent`                     | GET    | BootUI Java agent attachment, claim, setup, and sensor status                            |
+| `/bootui/api/code-inventory`                 | GET    | Code Inventory summary: methods executed of tracked, changes since the previous run, dependency counts |
+| `/bootui/api/code-inventory/changes`         | GET    | Paged methods changed or added since the previous run, each executed or not in this run  |
+| `/bootui/api/code-inventory/methods`         | GET    | Paged application methods by `package`, `class`, and `status`, with package and class counts |
+| `/bootui/api/code-inventory/dependencies`    | GET    | Paged dependency use: declared jars, classes loaded in this run, startup or later, first route |
 | `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
 | `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
 | `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
@@ -3078,7 +3124,8 @@ Design rules:
     `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
-    `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
+    `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
+    `get_devtools_status`,
     `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
@@ -3270,6 +3317,7 @@ collapsible:
   - Exceptions.
   - HTTP Exchanges.
   - HTTP Probe.
+  - Code Inventory.
 - Developer tools:
   - MCP Server.
   - Command Line.

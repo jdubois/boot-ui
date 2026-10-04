@@ -5,20 +5,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2): which sensors to install
- * ({@code bootui.agent.sensors}), and for the {@code executors} and {@code threads} sensors, which tasks and threads to
- * leave alone
- * because they already propagate their context ({@code bootui.agent.executors.skip-tasks},
- * {@code bootui.agent.executors.skip-threads}), and how long a handoff's work is attributed to its request
- * ({@code bootui.agent.executors.max-handoff}).
+ * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3): which sensors to
+ * install ({@code bootui.agent.sensors}), for the {@code executors} and {@code threads} sensors which tasks and threads
+ * to leave alone because they already propagate their context ({@code bootui.agent.executors.skip-tasks},
+ * {@code bootui.agent.executors.skip-threads}) and how long a handoff's work is attributed to its request
+ * ({@code bootui.agent.executors.max-handoff}), and the capacity of the agent's transport ring
+ * ({@code bootui.agent.ring-capacity}).
  *
- * @param sensors the sensors to install: {@code executors}, and the opt-in {@code threads}
+ * @param sensors the sensors to install: {@code executors} and {@code inventory}, and the opt-in {@code threads}
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
+ * @param ringCapacity the records the agent's transport ring holds, clamped to {@value #MIN_RING_CAPACITY} to
+ *     {@value #MAX_RING_CAPACITY} and rounded up to a power of two
  */
 public record AgentSensorSettings(
-        List<String> sensors, List<String> skipTasks, List<String> skipThreads, Duration maxHandoff) {
+        List<String> sensors, List<String> skipTasks, List<String> skipThreads, Duration maxHandoff, int ringCapacity) {
 
     /** The executors sensor. */
     public static final String EXECUTORS = "executors";
@@ -29,8 +31,23 @@ public record AgentSensorSettings(
      */
     public static final String THREADS = "threads";
 
+    /**
+     * The sensor recording which application methods ran in this run and which code sources loaded classes (M5-3), on
+     * by default (D21).
+     */
+    public static final String INVENTORY = "inventory";
+
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS);
+    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY);
+
+    /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
+    public static final int DEFAULT_RING_CAPACITY = 65_536;
+
+    /** The smallest transport ring. */
+    public static final int MIN_RING_CAPACITY = 1_024;
+
+    /** The largest transport ring: 256 MB of records. */
+    public static final int MAX_RING_CAPACITY = 4_194_304;
 
     /**
      * The default {@code bootui.agent.executors.skip-tasks}: BootUI's own and Micrometer's context-propagating wrappers,
@@ -62,19 +79,48 @@ public record AgentSensorSettings(
         maxHandoff = maxHandoff == null || maxHandoff.isNegative() || maxHandoff.isZero()
                 ? AgentHandoffs.DEFAULT_MAX_HANDOFF
                 : maxHandoff;
+        ringCapacity = ringCapacity(ringCapacity);
+    }
+
+    /** These settings with the default ring capacity. */
+    public AgentSensorSettings(
+            List<String> sensors, List<String> skipTasks, List<String> skipThreads, Duration maxHandoff) {
+        this(sensors, skipTasks, skipThreads, maxHandoff, DEFAULT_RING_CAPACITY);
     }
 
     /** The defaults. */
     public static AgentSensorSettings defaults() {
         return new AgentSensorSettings(
-                DEFAULT_SENSORS, DEFAULT_SKIP_TASKS, DEFAULT_SKIP_THREADS, AgentHandoffs.DEFAULT_MAX_HANDOFF);
+                DEFAULT_SENSORS,
+                DEFAULT_SKIP_TASKS,
+                DEFAULT_SKIP_THREADS,
+                AgentHandoffs.DEFAULT_MAX_HANDOFF,
+                DEFAULT_RING_CAPACITY);
+    }
+
+    /**
+     * {@code requested} as the agent sizes its ring: the default when not positive, else clamped to
+     * {@value #MIN_RING_CAPACITY} to {@value #MAX_RING_CAPACITY} and rounded up to a power of two.
+     */
+    public static int ringCapacity(int requested) {
+        if (requested <= 0) {
+            return DEFAULT_RING_CAPACITY;
+        }
+        int clamped = Math.max(MIN_RING_CAPACITY, Math.min(MAX_RING_CAPACITY, requested));
+        int power = Integer.highestOneBit(clamped);
+        return power == clamped ? clamped : power << 1;
     }
 
     /** These settings with {@code prefixes} added to the thread prefixes, once each. */
     public AgentSensorSettings withSkipThreads(List<String> prefixes) {
         List<String> threads = new ArrayList<>(skipThreads);
         threads.addAll(prefixes == null ? List.of() : prefixes);
-        return new AgentSensorSettings(sensors, skipTasks, threads, maxHandoff);
+        return new AgentSensorSettings(sensors, skipTasks, threads, maxHandoff, ringCapacity);
+    }
+
+    /** Whether the {@code inventory} sensor is asked for. */
+    public boolean inventory() {
+        return sensors.contains(INVENTORY);
     }
 
     /** Whether the {@code executors} sensor is asked for. */

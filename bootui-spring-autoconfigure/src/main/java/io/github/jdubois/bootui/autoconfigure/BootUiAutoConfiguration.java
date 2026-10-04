@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
@@ -201,6 +202,7 @@ import tools.jackson.databind.ObjectMapper;
     LiveServiceMapController.class,
     RuntimeInsightsController.class,
     JavaAgentController.class,
+    CodeInventoryController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -245,6 +247,7 @@ public class BootUiAutoConfiguration {
             LiveServiceMapController.class.getName(),
             RuntimeInsightsController.class.getName(),
             JavaAgentController.class.getName(),
+            CodeInventoryController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
@@ -552,7 +555,8 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<SpringCacheController> cache,
                 ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
                 ObjectProvider<RuntimeInsightsController> runtimeInsights,
-                ObjectProvider<JavaAgentController> javaAgent) {
+                ObjectProvider<JavaAgentController> javaAgent,
+                ObjectProvider<CodeInventoryController> codeInventory) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -587,7 +591,8 @@ public class BootUiAutoConfiguration {
                     cache,
                     connectionPools,
                     runtimeInsights,
-                    javaAgent);
+                    javaAgent,
+                    codeInventory);
         }
 
         @Bean

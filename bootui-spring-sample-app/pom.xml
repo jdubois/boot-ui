@@ -17,6 +17,7 @@
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
         <spring-ai.version>2.0.1</spring-ai.version>
+        <commons-exec.version>1.6.0</commons-exec.version>
     </properties>
 
     <dependencyManagement>
@@ -47,6 +48,15 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+        <!--
+            Code Inventory's seed (docs/PLAN-v2.md §5.15): a declared dependency nothing in the sample, Spring, or BootUI
+            ever loads a class from, so the Dependencies tab lists it as not loaded in this run. Do not use it.
+        -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-exec</artifactId>
+            <version>${commons-exec.version}</version>
         </dependency>
         <!--
             Fault tolerance libraries the BootUI Fault Tolerance panel reads. Neither is managed by the Spring Boot

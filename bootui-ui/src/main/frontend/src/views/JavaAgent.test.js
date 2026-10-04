@@ -293,6 +293,119 @@ describe('Java Agent panel', () => {
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-threads"]').exists()).toBe(true)
   })
 
+  it('shows the inventory sensor with its record hooks and explained counters', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'inventory',
+          state: 'installed',
+          instrumentedTypes: 12,
+          failures: [],
+          durationMillis: 230,
+          selfTestPassed: true,
+          selfTestError: null,
+          selfTestSteps: {probe: 'ok'},
+          hooks: [
+            {
+              id: 'method entry',
+              kind: 'record',
+              type: '(claimed packages)',
+              present: true,
+              transformed: true,
+              selfTest: 'passed',
+              fired: 87
+            },
+            {
+              id: 'class load',
+              kind: 'record',
+              type: '(every class)',
+              present: true,
+              transformed: true,
+              selfTest: 'not-exercised',
+              fired: 4210
+            }
+          ],
+          failedTypes: 0,
+          skippedTypes: 0,
+          executors: null,
+          inventory: {
+            methodsTracked: 340,
+            executedThisRun: 87,
+            methodOverflow: 0,
+            transformFailures: 1,
+            codeSources: 93,
+            ringDropped: 5,
+            ringLost: 0,
+            internOverflow: 0,
+            disabledReason: null
+          }
+        }
+      ]
+    })
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('records first calls')
+    expect(text).toContain('counts loaded classes')
+    expect(text).toContain('Methods tracked 340')
+    expect(text).toContain('Executed this run 87')
+    expect(text).toContain('Transform failures 1')
+    expect(text).toContain('Code sources 93')
+    expect(text).toContain('Records dropped 5')
+    expect(text).not.toContain('Pending')
+    expect(text).not.toContain('is disabled for this claim')
+    expect(wrapper.find('[aria-labelledby="java-agent-hooks-inventory"]').exists()).toBe(true)
+  })
+
+  it('says when the inventory sensor stopped recording', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'inventory',
+          state: 'self-test-failed',
+          instrumentedTypes: 0,
+          failures: [],
+          durationMillis: null,
+          selfTestPassed: false,
+          selfTestError: 'self-test failed: the probe never ran',
+          selfTestSteps: {},
+          hooks: [
+            {
+              id: 'method entry',
+              kind: 'record',
+              type: '(claimed packages)',
+              present: true,
+              transformed: false,
+              selfTest: 'failed',
+              fired: 0
+            }
+          ],
+          failedTypes: 0,
+          skippedTypes: 0,
+          executors: null,
+          inventory: {
+            methodsTracked: 0,
+            executedThisRun: 0,
+            methodOverflow: 0,
+            transformFailures: 0,
+            codeSources: 0,
+            ringDropped: 0,
+            ringLost: 0,
+            internOverflow: 0,
+            disabledReason: 'self-test failed: the probe never ran'
+          }
+        }
+      ]
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Recording is disabled for this claim: self-test failed: the probe never ran')
+  })
+
   it('does not call the API when manifest availability says the panel is unavailable', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

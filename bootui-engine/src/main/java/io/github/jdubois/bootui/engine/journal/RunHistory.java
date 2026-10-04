@@ -175,7 +175,7 @@ public final class RunHistory {
     }
 
     /** Why a history loaded by {@code loader} would be replaced on every restart, or {@code null}. */
-    static String reloadableReason(ClassLoader loader) {
+    public static String reloadableReason(ClassLoader loader) {
         return loader == null ? null : reloadableReason(loader.getClass().getName(), loader.getName());
     }
 

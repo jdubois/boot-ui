@@ -341,6 +341,18 @@ public final class BootUiApiContractCatalog {
                             "setup.jarFound", JsonType.BOOLEAN,
                             "setup.buildTool", JsonType.STRING,
                             "setup.snippets", JsonType.ARRAY)),
+            read(
+                    "code-inventory",
+                    "/code-inventory",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "run", JsonType.NULLABLE_OBJECT,
+                            "scan", JsonType.NULLABLE_OBJECT,
+                            "methods", JsonType.NULLABLE_OBJECT,
+                            "changes", JsonType.NULLABLE_OBJECT,
+                            "dependencies", JsonType.NULLABLE_OBJECT,
+                            "limitations", JsonType.ARRAY)),
             capabilityList("email", "/email", "messages", "total", fields("devTrapEnabled", JsonType.BOOLEAN)),
             capture("kafka", "/kafka", "messages"),
             capture("rabbitmq", "/rabbitmq", "messages"),
@@ -441,6 +453,41 @@ public final class BootUiApiContractCatalog {
                     "families", JsonType.ARRAY,
                     "points", JsonType.ARRAY,
                     "totals", JsonType.OBJECT));
+
+    /**
+     * Code Inventory's paged lists ({@code docs/PLAN-v2.md} §5.15), reads of the {@code code-inventory} panel kept out
+     * of {@link #reads()}: each answers the same shape with or without the BootUI agent, {@code available: false} and
+     * empty without it.
+     */
+    private static final List<ReadContract> CODE_INVENTORY_LISTS = List.of(
+            read(
+                    "code-inventory",
+                    "/code-inventory/changes",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "counts", JsonType.NULLABLE_OBJECT,
+                            "changes", JsonType.ARRAY,
+                            "page", JsonType.OBJECT)),
+            read(
+                    "code-inventory",
+                    "/code-inventory/methods?status=never-executed",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "packages", JsonType.ARRAY,
+                            "classes", JsonType.ARRAY,
+                            "methods", JsonType.ARRAY,
+                            "page", JsonType.OBJECT)),
+            read(
+                    "code-inventory",
+                    "/code-inventory/dependencies",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "counts", JsonType.NULLABLE_OBJECT,
+                            "dependencies", JsonType.ARRAY,
+                            "page", JsonType.OBJECT)));
 
     /**
      * One Runtime Insights observation with its evidence, a detail read of the {@code runtime-insights} panel
@@ -580,6 +627,11 @@ public final class BootUiApiContractCatalog {
     /** The journal request profile's read contract ({@code docs/PLAN-v2.md} §5.3, §5.11). */
     public static ReadContract requestJournalProfile() {
         return REQUEST_JOURNAL_PROFILE;
+    }
+
+    /** Code Inventory's paged lists' read contracts ({@code docs/PLAN-v2.md} §5.15). */
+    public static List<ReadContract> codeInventoryLists() {
+        return CODE_INVENTORY_LISTS;
     }
 
     /** The resource track's read contract ({@code docs/PLAN-v2.md} §5.11). */
