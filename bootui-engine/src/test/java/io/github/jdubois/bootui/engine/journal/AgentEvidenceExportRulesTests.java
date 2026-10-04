@@ -9,6 +9,8 @@ import io.github.jdubois.bootui.core.dto.CodeInventoryMethodsReport;
 import io.github.jdubois.bootui.core.dto.CodeInventoryReport;
 import io.github.jdubois.bootui.core.dto.CodePathsAgentReport;
 import io.github.jdubois.bootui.core.dto.CodePathsBeansReport;
+import io.github.jdubois.bootui.core.dto.CodePathsProbeDto;
+import io.github.jdubois.bootui.core.dto.CodePathsProbesReport;
 import io.github.jdubois.bootui.core.dto.CodePathsReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
@@ -43,6 +45,8 @@ class AgentEvidenceExportRulesTests {
             CodePathsRequestTreeReport.class,
             CodePathsAgentReport.class,
             CodePathsBeansReport.class,
+            CodePathsProbesReport.class,
+            CodePathsProbeDto.class,
             CodeInventoryReport.class,
             CodeInventoryAgentReport.class,
             CodeInventoryChangesReport.class,
@@ -56,6 +60,42 @@ class AgentEvidenceExportRulesTests {
 
     /** Every field, each reviewed as metadata. */
     private static final Set<String> METADATA = Set.of(
+            // Method probes (M5-8): code identifiers, states, bounds, times, counts, request ids, exception type names,
+            // and sentences BootUI or its agent wrote; never an argument or a return value.
+            "CodePathsProbesReport.available",
+            "CodePathsProbesReport.unavailableReason",
+            "CodePathsProbesReport.maxActive",
+            "CodePathsProbesReport.maxInvocations",
+            "CodePathsProbesReport.windowSeconds",
+            "CodePathsProbesReport.probes",
+            "CodePathsProbesReport.limitations",
+            "CodePathsProbeDto.id",
+            "CodePathsProbeDto.method",
+            "CodePathsProbeDto.className",
+            "CodePathsProbeDto.methodName",
+            "CodePathsProbeDto.descriptor",
+            "CodePathsProbeDto.state",
+            "CodePathsProbeDto.endReason",
+            "CodePathsProbeDto.failure",
+            "CodePathsProbeDto.removal",
+            "CodePathsProbeDto.waitingForClass",
+            "CodePathsProbeDto.async",
+            "CodePathsProbeDto.maxInvocations",
+            "CodePathsProbeDto.windowSeconds",
+            "CodePathsProbeDto.requestedAt",
+            "CodePathsProbeDto.endsAt",
+            "CodePathsProbeDto.endedAt",
+            "CodePathsProbeDto.invocations",
+            "CodePathsProbeDto.recorded",
+            "CodePathsProbeDto.dropped",
+            "CodePathsProbeDto.hits",
+            "CodePathsProbeHitDto.time",
+            "CodePathsProbeHitDto.durationMicros",
+            "CodePathsProbeHitDto.threadKind",
+            "CodePathsProbeHitDto.requestId",
+            "CodePathsProbeHitDto.outcome",
+            "CodePathsProbeHitDto.exceptionType",
+            "CodePathsProbeHitDto.caller",
             "ChangedClass.className",
             "ChangedClass.methods",
             "ChangedClass.routes",
@@ -322,7 +362,9 @@ class AgentEvidenceExportRulesTests {
     @Test
     void everyCountTheJournalStatusCanReportIsReviewedMetadata() {
         assertThat(AgentEvidence.COUNTS)
-                .as("a count is a number of trees, routes, nodes, calls, or loads, or the bytes of an index")
+                .as(
+                        "a count is a number of trees, routes, nodes, calls, loads, probes, or probe hits, or the bytes of an"
+                                + " index")
                 .containsExactlyInAnyOrder(
                         "requestTrees",
                         "routes",
@@ -330,7 +372,9 @@ class AgentEvidenceExportRulesTests {
                         "indexBytes",
                         "firstCalls",
                         "firstCallsWithRequest",
-                        "firstLoads");
+                        "firstLoads",
+                        "probes",
+                        "probeHits");
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> new AgentEvidence.Usage(0L, 0L, java.util.Map.of("targets", 1L)))
                 .isInstanceOf(IllegalArgumentException.class);

@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.agent.bridge.CodePaths;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -23,7 +24,9 @@ import java.util.function.Function;
  * it (PLAN-v2 M5-2, M5-3, M5-4a), and a release removes it; a claim without a sensor installs nothing, unless
  * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
  * transformer ({@link ApplicationMethodsSensor}): a claim asking for neither removes it, since its advice on every
- * application method would otherwise stay for a claim that never reads it.
+ * application method would otherwise stay for a claim that never reads it. A {@code method-probe} of the current armed
+ * generation queues one method probe ({@link MethodProbeSensor}, PLAN-v2 M5-8) for the class loaders of the current run:
+ * the context class loader chain of the thread that claimed or refined, held weakly.
  */
 final class AgentHandler implements Function<Map<String, Object>, Map<String, Object>> {
 
@@ -37,6 +40,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private ExecutorSensor executors;
     private ThreadSensor threads;
     private ApplicationMethodsSensor applicationMethods;
+    private MethodProbeSensor methodProbes;
+    /** The current run's class loaders: the claiming and refining threads' context class loader chains, weakly. */
+    private List<WeakReference<ClassLoader>> runLoaders = Collections.emptyList();
     /** Whether the current claim asked for the inventory or code-paths sensor: refines reach them only then. */
     private boolean applicationMethodsClaimed;
 
@@ -71,6 +77,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 generation = requested;
                 armed = true;
+                runLoaders = loaders(Collections.<WeakReference<ClassLoader>>emptyList());
+                if (methodProbes != null) {
+                    methodProbes.runLoaders(runLoaders);
+                }
                 packages = strings(request.get("packages"));
                 claimedSensors = strings(request.get("sensors"));
                 hook.onClaim(Collections.unmodifiableMap(new LinkedHashMap<String, Object>(request)));
@@ -97,6 +107,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
+                    runLoaders = loaders(runLoaders);
+                    if (methodProbes != null) {
+                        methodProbes.runLoaders(runLoaders);
+                    }
                     packages = strings(request.get("packages"));
                     if (threads != null) {
                         threads.refined(packages);
@@ -132,6 +146,19 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                     applicationMethods.release();
                 }
                 return answer("ok", null);
+            case "method-probe":
+                if (requested != generation || !armed) {
+                    return answer(AgentBridge.FAILED, "the run that asked for the probe ended");
+                }
+                methodProbes()
+                        .add(new MethodProbeSensor.Request(
+                                ((Number) request.get("slot")).intValue(),
+                                ((Number) request.get("id")).longValue(),
+                                String.valueOf(request.get("className")),
+                                String.valueOf(request.get("methodName")),
+                                request.get("descriptor") == null ? null : String.valueOf(request.get("descriptor")),
+                                runLoaders));
+                return answer("ok", null);
             case "status":
                 return status();
             default:
@@ -144,6 +171,40 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             threads = new ThreadSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
         }
         return threads;
+    }
+
+    private MethodProbeSensor methodProbes() {
+        if (methodProbes == null) {
+            methodProbes = new MethodProbeSensor(instrumentation, hook.privilegedInstall());
+            methodProbes.runLoaders(runLoaders);
+        }
+        return methodProbes;
+    }
+
+    /** {@code known}, plus the calling thread's context class loader and its parents not in it yet. */
+    private static List<WeakReference<ClassLoader>> loaders(List<WeakReference<ClassLoader>> known) {
+        List<WeakReference<ClassLoader>> list = new ArrayList<WeakReference<ClassLoader>>();
+        List<ClassLoader> seen = new ArrayList<ClassLoader>();
+        for (WeakReference<ClassLoader> reference : known) {
+            ClassLoader loader = reference.get();
+            if (loader != null) {
+                seen.add(loader);
+                list.add(reference);
+            }
+        }
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        while (loader != null) {
+            boolean present = false;
+            for (ClassLoader candidate : seen) {
+                present |= candidate == loader;
+            }
+            if (!present) {
+                seen.add(loader);
+                list.add(new WeakReference<ClassLoader>(loader));
+            }
+            loader = loader.getParent();
+        }
+        return Collections.unmodifiableList(list);
     }
 
     private ApplicationMethodsSensor applicationMethods() {
@@ -190,6 +251,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());
+        map.put("methodProbes", methodProbes == null ? null : methodProbes.status());
         return map;
     }
 

@@ -74,6 +74,8 @@ class McpGuidanceTests {
                         "pentest_scan (bounded loopback probes)",
                         "vulnerabilities_scan (outbound OSV.dev queries)",
                         "database_advisor_scan (contacts the configured database",
+                        "start_method_probe",
+                        "recording metadata only; read-only policy refuses it",
                         "time and tool-call budget",
                         "run approved scans sequentially",
                         "assessed, unavailable, skipped, failed, or insufficient-evidence",

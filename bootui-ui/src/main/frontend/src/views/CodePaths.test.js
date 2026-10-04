@@ -211,6 +211,9 @@ describe('Code Paths panel', () => {
     const detail = wrapper.get('.code-paths-method-detail')
     expect(detail.get('.code-paths-callers').text()).toBe('QuoteController.quote')
     expect(detail.get('.code-paths-reach').text()).toContain('GET /api/stream')
+    // The selected method is the one Probe this method offers (M5-8).
+    expect(wrapper.get('#code-paths-probe-target').text()).toBe(QUOTE)
+    expect(wrapper.find('.code-paths-probe-start').exists()).toBe(true)
 
     await detail
       .findAll('.code-paths-reach button')
