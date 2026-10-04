@@ -133,5 +133,57 @@ public final class CliCommandPaths {
         return BY_TOOL.get(toolName);
     }
 
+    /**
+     * The {@code bootui} command line that calls {@code toolName} with these MCP arguments, quoted for a POSIX shell:
+     * the {@code id} positional first, then {@code --query}, {@code --limit}, {@code --scan-id}, and {@code --offset},
+     * the spelling the published CLI binds each schema argument to. A placeholder such as {@code <id>} is left bare.
+     *
+     * @throws IllegalArgumentException when the tool has no command or an argument has no command-line spelling
+     */
+    public static String command(String toolName, Map<String, ?> arguments) {
+        String path = BY_TOOL.get(toolName);
+        if (path == null) {
+            throw new IllegalArgumentException("No command for MCP tool " + toolName);
+        }
+        StringBuilder line = new StringBuilder("bootui ").append(path);
+        Object id = arguments.get("id");
+        boolean dashedId = id != null && String.valueOf(id).startsWith("-");
+        if (id != null && !dashedId) {
+            line.append(' ').append(quote(String.valueOf(id)));
+        }
+        for (Map.Entry<String, ?> argument : arguments.entrySet()) {
+            String flag =
+                    switch (argument.getKey()) {
+                        case "id" -> null;
+                        case "query" -> "--query";
+                        case "limit" -> "--limit";
+                        case "scanId" -> "--scan-id";
+                        case "offset" -> "--offset";
+                        default ->
+                            throw new IllegalArgumentException(
+                                    "No command-line spelling for argument " + argument.getKey());
+                    };
+            if (flag != null) {
+                line.append(' ').append(flag).append(' ').append(quote(String.valueOf(argument.getValue())));
+            }
+        }
+        if (dashedId) {
+            // After "--", picocli reads a value that starts with a dash as the positional, not as an option.
+            line.append(" -- ").append(quote(String.valueOf(id)));
+        }
+        return line.toString();
+    }
+
+    /**
+     * {@code value} as one shell word. Only characters no common shell treats specially stay bare: zsh's extended glob
+     * reads {@code #}, a leading {@code =} expands, and PowerShell splits on {@code ,} and splats on {@code @}.
+     */
+    static String quote(String value) {
+        if (value.matches("<[A-Za-z]+>") || value.matches("[A-Za-z0-9._/:-]+")) {
+            return value;
+        }
+        return "'" + value.replace("'", "'\\''") + "'";
+    }
+
     private CliCommandPaths() {}
 }

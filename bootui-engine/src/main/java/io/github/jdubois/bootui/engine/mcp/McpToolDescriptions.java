@@ -50,12 +50,14 @@ public final class McpToolDescriptions {
                             + "latency rows and omits only an insufficient repeated-selects row under 50 ms that ran "
                             + "fewer than 10 times in any request; a limitation names how many, and the query "
                             + "repeated-selects returns them. An empty list means not exercised only when limitations "
-                            + "say so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes."),
+                            + "say so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three "
+                            + "follow-up calls, each a tool with its arguments and the equivalent bootui command."),
             Map.entry(
                     "get_runtime_insight",
                     "Return one Runtime Insights observation by its id from get_runtime_insights, with every check "
                             + "to verify and at most 20 evidence rows. Drill down with get_request_profile on its "
-                            + "exemplar request. An unknown or evicted id returns available=false with a reason."),
+                            + "exemplar request. An unknown or evicted id returns available=false with a reason, and next names the call "
+                            + "that lists the current ids."),
             Map.entry(
                     "get_runtime_impact",
                     "For a route, bean, class, method (Class#method, with parameter types for one overload), "
@@ -63,18 +65,20 @@ public final class McpToolDescriptions {
                             + "it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS "
                             + "with candidates. With the BootUI agent, a method's observed routes are those whose "
                             + "requests executed it; notObserved routes ran without showing it, which proves nothing. "
-                            + "A checklist of what was and was not exercised, never a verdict that a change is safe."),
+                            + "A checklist of what was and was not exercised, never a verdict that a change is safe. For AMBIGUOUS, "
+                            + "NOT_FOUND, or UNAVAILABLE, next names the call that resolves it."),
             Map.entry(
                     "get_runtime_run_comparison",
                     "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run "
                             + "including runs without HTTP traffic; runs lists the others. Comparability first, then "
                             + "codeChanges (with the BootUI agent: changed and added methods, executed or not, and the "
                             + "routes that ran them), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
-                            + "mean no change. Call after tests to verify a change."),
+                            + "mean no change. Call after tests to verify a change. next names the follow-up calls, or the run ids to use "
+                            + "after an unknown one."),
             Map.entry(
                     "get_request_profile",
-                    "Open a profileable request or scheduled/message execution id from Live Activity or a Runtime "
-                            + "Insights exemplar. Returns source=journal with the recorded timeline, route or "
+                    "Open a profileable request or scheduled/message execution id from get_live_activity or a "
+                            + "get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or "
                             + "execution label, resources and touched metadata when retained, plus HTTP-exchange "
                             + "details when available; otherwise source=buffers "
                             + "with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation "
@@ -310,7 +314,7 @@ public final class McpToolDescriptions {
                             + "exception type, and calling frame, never argument or return values."),
             Map.entry(
                     "get_method_probe",
-                    "Return a method probe by id: its state (starting, active, ending, ended, failed), why it ended "
+                    "Return a method probe by the id start_method_probe returned: its state (starting, active, ending, ended, failed), why it ended "
                             + "or failed, and each recorded invocation's duration, thread kind, request id, outcome or "
                             + "exception type, and calling frame. Metadata only, never argument or return values. No "
                             + "invocations after the code ran is evidence the path never reached the method; an active "
@@ -529,7 +533,9 @@ public final class McpToolDescriptions {
         if (McpToolCatalog.byName(name)
                 .map(entry -> entry.schema() == McpToolSchema.RULE_VIOLATIONS)
                 .orElse(false)) {
-            return "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. "
+            return "Read one page of retained violations for the exact rule id from "
+                    + name.replace("_rule_violations", "_report")
+                    + " and that cached report's violationDetails.scanId. "
                     + "This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). "
                     + "Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, "
                     + "not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding "

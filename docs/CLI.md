@@ -240,6 +240,28 @@ esac
 
 ## Discovering what an application exposes
 
+`bootui --help` needs no running application and lists every command in one answer: its arguments, what it returns,
+where an `<id>` comes from, the words a `--query` understands, and one example. `bootui insights --help` lists one
+group the same way, and `bootui <command> --help` gives the whole description with the same example:
+
+```console
+$ bootui --help
+...
+  bootui insights impact <id>
+      For a route, bean, class, method (Class#method, with parameter types for
+      one overload), repository, table...
+      <id>: A route, bean, class, Class#method, repository, table, cache, host,
+      or event type.
+      Example: bootui insights impact 'OrderService#total'
+...
+```
+
+Values in angle brackets in an example, such as `<id>` or `<scanId>`, come from the command the `<id>` line names;
+every other value is typed as shown. A command without arguments is shown as it runs, and one that only some stacks
+offer says which. The examples are generated with
+the command table and a test runs each one, so they cannot drift from the commands. `bootui tools` and the Command
+Line panel do not show them.
+
 The command table below is what this CLI was *built* with. What a *specific* application answers depends on
 its stack and its panel settings, and `bootui tools` reports that:
 
