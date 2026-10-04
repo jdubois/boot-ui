@@ -5,9 +5,9 @@ name: JDK compatibility (21/25/27)
 # a weekly scheduled run.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 1.x ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 1.x ]
   schedule:
     # Every Monday at 07:05 UTC.
     - cron: '5 7 * * 1'

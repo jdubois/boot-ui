@@ -23,9 +23,11 @@ These override any instinct carried over from ordinary pull-request work, where 
 
 ## Conducting a release
 
-1. Establish the target. The version is `major.minor.patch` with no leading `v`, and must be exactly the next patch,
-   minor, or major after the latest stable tag; the workflow rejects anything else. Confirm which branch is being
-   released, usually `main`.
+1. Establish the target. The version is `major.minor.patch` with no leading `v`, and must be exactly the next patch or
+   minor after the latest stable tag of its own major, or `MAJOR.0.0` directly above the highest existing major; its
+   major must match the source branch's project version (or be one above it when opening a new major). The workflow
+   rejects anything else through `.github/scripts/release-version-policy.sh`. Confirm which branch is being released:
+   `main`, or the `N.x` maintenance branch for a patch to an older major; the workflow refuses any other branch.
 2. Preflight before dispatching, because most of this cannot be fixed after a tag exists:
    - The source branch is green on `build.yml` at the exact SHA to be released.
    - `bash .github/scripts/check-release-integrity.sh` passes locally.
@@ -41,8 +43,9 @@ These override any instinct carried over from ordinary pull-request work, where 
    stage: prepare and verify the versioned tree, commit exactly those contents, guard against source-branch
    advancement, create and verify the GPG-signed annotated tag, atomically push commit and tag, resolve the remote tag
    to its peeled SHA, check that SHA out detached, recheck Maven/npm/tag identity, publish the publication-only
-   reactor, poll every published coordinate, run the Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests, and
-   dispatch `pages.yml` at the immutable tag.
+   reactor, poll every published coordinate, run the Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests,
+   decide from the tags on origin whether the release is on the newest major, and only then dispatch `pages.yml` at
+   the immutable tag. A patch to an older major skips the documentation redeploy by design.
 5. Recover by matching the failure to its documented path, never by retagging:
    - Failed before Central accepted an upload: rerun the workflow at the existing tag.
    - Central created a failed deployment: drop that deployment in the Portal first, then rerun the same tagged SHA.
@@ -55,16 +58,22 @@ These override any instinct carried over from ordinary pull-request work, where 
    - Maven Central cannot find the signing key by fingerprint: upload it again. If macOS `gpg --send-keys` fails
      through dirmngr, use the HTTPS upload APIs for `keys.openpgp.org` and `keyserver.ubuntu.com`.
 6. Confirm the outcome from the published world rather than from a green job: every expected coordinate resolves on
-   Maven Central including the shaded `bootui-cli-<version>-all.jar`, `jbang bootui@jdubois/boot-ui` resolves the new
-   version, and the documentation site was redeployed from the tag.
+   Maven Central including the shaded `bootui-cli-<version>-all.jar`; for a newest-major release,
+   `jbang bootui@jdubois/boot-ui` resolves the new version and the documentation site was redeployed from the tag. JBang
+   reads the catalog from the default branch, so an older-major patch released from a maintenance branch leaves both
+   on the newest major.
 
 ## Changing release machinery
 
 7. Treat `release.yml` and `.github/scripts/check-release-integrity.sh` as one unit. The guard pins literal strings and
    their relative order — signed-tag creation and verification, the source-advancement guard, the atomic push, tag
    peeling, the immutable checkout, the publication-only reactor, the CLI uber-jar check, and the standalone consumer
-   smoke projects. Changing one file without the other fails every build, so change both in the same commit and run the
-   guard locally before pushing.
+   smoke projects. It also pins the release line (`.github/release-line`) in the version policy and on the tagged
+   contents, and the `release-line-gate.sh` gate that keeps `pages.yml` and `docker-publish.yml` from publishing a
+   branch whose release line is not on Maven Central or is superseded. Changing one file without the other fails every
+   build, so change both in the same commit and run the guard locally before pushing. For the `v2` merge, the `1.x`
+   maintenance branch, and the 2.0.0 release day, follow `docs/V2-RELEASE.md` and run
+   `.github/scripts/rehearse_v2_merge.py --release-day --live` first.
 8. Keep publication scope exact when modules are added or renamed. Published artifacts are the parent POM, core,
    engine, UI, Spring autoconfigure, both Spring starters, the Quarkus parent, runtime, and deployment, `bootui-client`,
    and `bootui-cli`. Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list,
@@ -91,7 +100,7 @@ These override any instinct carried over from ordinary pull-request work, where 
 
 Lead with release state in the published world, not with job status. Report the version and tag, the immutable release
 SHA, whether artifacts are public on Maven Central, whether the CLI uber-jar and JBang alias resolve, and whether the
-documentation site was redeployed from the tag. On failure, name the exact stage that failed, state plainly whether the
+documentation site was redeployed from the tag or, for an older-major patch, deliberately left on the newest major. On failure, name the exact stage that failed, state plainly whether the
 coordinate was consumed, and give the one documented recovery path that applies. If recovery needs a human action in
 the Sonatype Central Portal or a decision about a consumed coordinate, stop and say so rather than attempting a
 workaround.

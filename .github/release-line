@@ -1,0 +1,10 @@
+# The release line: the major version this branch's contents belong to. Required on every branch.
+#
+# `v2` prepares 2.0.0 while its project version is still 1.x, so the project version alone cannot tell
+# its contents apart from the 1.x line. The documentation site and the Docker Hub sample images publish
+# a branch only once its release line has a release on Maven Central and no newer major does
+# (.github/scripts/release-line-gate.sh), and the Release workflow publishes only versions of this line
+# (.github/scripts/release-version-policy.sh). `main` and `1.x` declare 1 until `v2` merges; the first
+# commit on a branch preparing the next major declares that major. A branch containing bootui-agent, which
+# exists only from 2.0, must declare at least 2: when a main-to-v2 sync conflicts on this file, keep 2.
+1

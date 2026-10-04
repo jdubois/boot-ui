@@ -2,9 +2,9 @@ name: Build (Java 17 baseline)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 1.x ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 1.x ]
   workflow_dispatch:
 
 concurrency:
@@ -35,6 +35,9 @@ jobs:
 
       - name: Check release workflow integrity
         run: bash .github/scripts/check-release-integrity.sh
+
+      - name: Test release version policy and integrity guard
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_release_*.py'
 
       - name: Check Docker workflow expressions
         run: >
