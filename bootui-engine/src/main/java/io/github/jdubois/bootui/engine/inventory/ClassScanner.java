@@ -16,6 +16,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -384,6 +386,9 @@ public final class ClassScanner {
         private int reused;
         private int skipped;
         private int unreadable;
+        /** Per directory root, the package paths discovery saw in it: one missing when read vanished meanwhile. */
+        private final Map<String, Set<String>> discovered = new HashMap<>();
+
         private String stopped;
 
         Scan(
@@ -444,6 +449,7 @@ public final class ClassScanner {
                             Root root = root(urls.nextElement(), path);
                             if (root != null && !testRoot(root.location())) {
                                 found.putIfAbsent(root.location(), root);
+                                discover(root, path);
                             }
                         }
                     } catch (IOException | RuntimeException ex) {
@@ -461,6 +467,12 @@ public final class ClassScanner {
                     Root root = classPathRoot(entry, paths, cache);
                     if (root != null && !testRoot(root.location())) {
                         found.putIfAbsent(root.location(), root);
+                        for (String path : paths) {
+                            if (root.directory() != null
+                                    && Files.isDirectory(root.directory().resolve(path))) {
+                                discover(root, path);
+                            }
+                        }
                     }
                 } catch (IOException ex) {
                     // Whether this entry holds a claimed package is unknown: its classes may be missing, not removed.
@@ -504,14 +516,27 @@ public final class ClassScanner {
         }
 
         /**
-         * Reads a directory root's packages; {@code false} when it no longer holds any of them, as a build output
-         * deleted since it was found, or one vanished while it was walked, as during a rebuild: what was read stays.
+         * Reads a directory root's packages; {@code false} when it no longer holds one discovery found in it, or any of
+         * them, as a build output deleted since it was found, or one vanished while it was walked, as during a
+         * rebuild: what was read stays.
          */
+        private void discover(Root root, String path) {
+            if (root.directory() != null) {
+                discovered
+                        .computeIfAbsent(root.location(), location -> new HashSet<>())
+                        .add(path);
+            }
+        }
+
         private boolean readDirectory(Root root) {
             boolean found = false;
+            boolean vanished = false;
+            Set<String> seen = discovered.getOrDefault(root.location(), Set.of());
             for (String name : packages) {
-                Path start = root.directory().resolve(name.replace('.', '/'));
+                String path = name.replace('.', '/');
+                Path start = root.directory().resolve(path);
                 if (!Files.isDirectory(start)) {
+                    vanished |= seen.contains(path);
                     continue;
                 }
                 found = true;
@@ -534,7 +559,7 @@ public final class ClassScanner {
                     return false;
                 }
             }
-            return found;
+            return found && !vanished;
         }
 
         private void readJar(Root root, JarFile jar) {

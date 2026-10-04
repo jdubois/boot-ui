@@ -289,6 +289,43 @@ class ClassScannerTests {
     }
 
     @Test
+    void aClaimedPackageThatVanishesFromARootReadingAnotherMakesTheScanPartial() throws Exception {
+        CodeInventoryHistory history = new CodeInventoryHistory(null, new ScanCache(100));
+        Path root = temp.resolve("both/classes");
+        Compiler.write(
+                root,
+                Compiler.compile(Map.of(
+                        "shop.Cart", "package shop; public class Cart { int size() { return 1; } }",
+                        "billing.Invoice", "package billing; public class Invoice { int total() { return 2; } }")));
+        try (URLClassLoader loader = loader(root)) {
+            history.record("dev:shop", KeptRun.of(1, scan(loader, List.of("shop", "billing"), 100, null)));
+        }
+        // Discovery finds shop, then a rebuild deletes it while billing is being found: one root, one package left.
+        ClassLoader rebuilding = new URLClassLoader(new URL[] {root.toUri().toURL()}, null) {
+            @Override
+            public java.util.Enumeration<URL> getResources(String name) throws java.io.IOException {
+                if ("billing".equals(name)) {
+                    try (Stream<Path> files = Files.walk(root.resolve("shop"))) {
+                        files.sorted(java.util.Comparator.reverseOrder())
+                                .forEach(path -> path.toFile().delete());
+                    }
+                }
+                return super.getResources(name);
+            }
+        };
+
+        ClassScanner.Result second = scan(rebuilding, List.of("shop", "billing"), 100, null);
+        CodeChanges changes = CodeChanges.diff(second, history.previous("dev:shop", 2));
+
+        assertThat(second.classes()).containsOnlyKeys("billing.Invoice");
+        assertThat(second.status()).isEqualTo(ClassScanner.PARTIAL);
+        assertThat(second.reason()).contains("1 class directory or jar could not be read");
+        assertThat(changes.removed())
+                .as("unknown, not the vanished package's methods")
+                .isEqualTo(-1);
+    }
+
+    @Test
     void aRootWhoseEveryClassFileIsMalformedFailsTheScan() throws Exception {
         Path root = temp.resolve("target/classes");
         Files.createDirectories(root.resolve("shop"));
