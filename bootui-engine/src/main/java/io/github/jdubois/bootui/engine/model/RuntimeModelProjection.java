@@ -3,8 +3,10 @@ package io.github.jdubois.bootui.engine.model;
 import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -92,6 +94,8 @@ public final class RuntimeModelProjection {
         }
         int owned = 0;
         int projected = 0;
+        int ambiguousWrites = 0;
+        int unverifiedPreparations = 0;
         for (int i = 0; i < ordered.size() && !overBudget; i++) {
             if (i % CLOCK_EVERY == 0 && clock.getAsLong() - started > budgetNanos) {
                 overBudget = true;
@@ -104,7 +108,26 @@ public final class RuntimeModelProjection {
                 continue;
             }
             owned++;
+            if (event.payload() instanceof SqlPayload sql
+                    && SqlShapes.writes(sql.sql()).stream().anyMatch(write -> !write.exact())) {
+                ambiguousWrites++;
+            }
+            if (event.payload() instanceof SqlPayload sql
+                    && event.durationNanos() <= 0
+                    && !SqlShapes.writes(sql.sql()).isEmpty()) {
+                unverifiedPreparations++;
+            }
             observe(builder, owner, event);
+        }
+        if (unverifiedPreparations > 0) {
+            limitations.add(unverifiedPreparations + " SQL event(s) had no measured execution duration; their"
+                    + " possible write targets are omitted from the model because preparation alone does not"
+                    + " establish a write.");
+        }
+        if (ambiguousWrites > 0) {
+            limitations.add(ambiguousWrites + " retained SQL event(s) named ambiguous write targets; their candidate"
+                    + " tables are not labelled as observed writes or reads, so change impact may omit routes that"
+                    + " touched them.");
         }
         if (overBudget) {
             // Edges come from the second pass, so it alone says how much of the journal the model reflects.

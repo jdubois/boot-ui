@@ -109,6 +109,25 @@ class RunComparisonTests {
     }
 
     @Test
+    void comparisonNamesAnAddedDmlSourceAsAReadNotAWrite() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("POST", "/audit", 200, 5);
+            after.request("POST", "/audit", 200, 5, sql("insert into audit_log select id from products"));
+        }
+
+        RuntimeRunComparisonDto comparison = compare(before, after, H2, H2);
+
+        assertThat(comparison.edges())
+                .extracting(edge -> edge.sentence())
+                .contains(
+                        "`POST /audit` writes table `audit_log`, 3 times, and not in run 4.",
+                        "`POST /audit` reads table `products`, 3 times, and not in run 4.")
+                .noneMatch(sentence -> sentence.contains("writes table `products`"));
+    }
+
+    @Test
     void fewerThanThreeRequestsOnEachSideIsInsufficientNeverNoChange() {
         Run before = new Run();
         Run after = new Run();

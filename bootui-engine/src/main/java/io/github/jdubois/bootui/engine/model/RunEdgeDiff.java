@@ -53,6 +53,11 @@ public record RunEdgeDiff(
         }
         AggregatesSnapshot before = previous.aggregates();
         String run = "Run " + previous.header().ordinal();
+        boolean legacyTableEdges = before.overflowed().containsKey(JournalAggregates.LEGACY_TABLE_EDGES);
+        if (legacyTableEdges) {
+            limitations.add(run + " used an older table-edge attribution, so table reads and writes cannot be"
+                    + " compared with this run.");
+        }
         if (before.edges().isEmpty() && previous.header().events() > 0) {
             limitations.add(run + " kept no edges, so every edge of this run is reported as added.");
         }
@@ -85,8 +90,12 @@ public record RunEdgeDiff(
                     + " requests of their trace spanned them, so an edge reported as removed may"
                     + " still occur.");
         }
-        Map<EdgeDiff.EdgeRef, ObservedEdge> earlier = byEdge(before.edges());
-        Map<EdgeDiff.EdgeRef, ObservedEdge> later = byEdge(current.edges());
+        Map<EdgeDiff.EdgeRef, ObservedEdge> earlier = byEdge(before.edges().stream()
+                .filter(edge -> !legacyTableEdges || edge.edge().toType() != NodeType.TABLE)
+                .toList());
+        Map<EdgeDiff.EdgeRef, ObservedEdge> later = byEdge(current.edges().stream()
+                .filter(edge -> !legacyTableEdges || edge.edge().toType() != NodeType.TABLE)
+                .toList());
         List<ObservedEdge> added = new ArrayList<>();
         later.forEach((edge, observed) -> {
             if (!earlier.containsKey(edge)) {

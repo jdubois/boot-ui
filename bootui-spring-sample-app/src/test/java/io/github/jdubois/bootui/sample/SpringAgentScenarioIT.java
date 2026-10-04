@@ -272,7 +272,9 @@ class SpringAgentScenarioIT {
             }
         }
         assertThat(farewellRow).as(methods.toString()).isNotNull();
-        assertThat(farewellRow.path("status").asText()).isEqualTo("NEVER_EXECUTED");
+        assertThat(farewellRow.path("status").asText())
+                .as(farewellRow.toString())
+                .isEqualTo("NEVER_EXECUTED");
         assertThat(greetRow).as(methods.toString()).isNotNull();
         assertThat(greetRow.path("status").asText()).isEqualTo("EXECUTED");
         assertThat(greetRow.path("firstRequestId").asText())

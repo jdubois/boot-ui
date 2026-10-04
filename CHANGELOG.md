@@ -48,6 +48,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Code Inventory no longer reports methods as removed when a class root could not be read.** A class directory or
   jar the scan cannot open or walk now counts as skipped, as a class file it cannot parse already did, and makes the
   scan partial (failed when nothing could be read) instead of complete.
+- **Runtime Insights write attribution and remote calls.** Anonymous access reports Quarkus Hibernate SQL as an
+  unverified preparation instead of a proven table write; hidden Hibernate evidence cannot promote it. Runtime model,
+  change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;
+  older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
+  alongside REST calls without double-counting a nested transport call
+  ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
+- **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
+  against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
+  recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,
+  ambiguity-aware request attribution for route child counts, time, and tokens as for runtime-model edges, including
+  late-request reclaim without double counting (PLAN-v2 §5.2, M3-3c, M4-11).
+
 - **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
   chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
   the request as soon as Quarkus completes that request on it, instead of staying charged to it for the whole
@@ -59,6 +71,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
   hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
   [Runtime Insights](docs/features/overview.md#runtime-insights)).
+
 - **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
   completion events now mark observations that examine those executions partial, while disabled optional evidence
   does not. Collection and Code Inventory checks do not count unrelated execution drops.
@@ -68,6 +81,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
   [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
   [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
+
 - **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
   pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
   `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own

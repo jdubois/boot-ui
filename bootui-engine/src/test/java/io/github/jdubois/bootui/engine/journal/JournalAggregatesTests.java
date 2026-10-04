@@ -499,6 +499,11 @@ class JournalAggregatesTests {
             assertThat(edge.edge().toKey()).isEqualTo("openai:gpt-4o");
             assertThat(edge.count()).isEqualTo(1);
         });
+        assertThat(snapshot.routes()).singleElement().satisfies(route -> {
+            assertThat(route.childCounts()).containsEntry(JournalSource.AI, 1L);
+            assertThat(route.childNanos()).containsEntry(JournalSource.AI, 1_000_000L);
+            assertThat(route.aiTokens()).isEqualTo(2);
+        });
         assertThat(snapshot.overflowed())
                 .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
                 .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, (long) JournalAggregates.MAX_PENDING_REQUESTS + 1);
@@ -543,6 +548,9 @@ class JournalAggregatesTests {
             assertThat(edge.edge().toKey()).isEqualTo("openai:gpt-4o");
             assertThat(edge.count()).isEqualTo(1);
         });
+        assertThat(snapshot.routes())
+                .singleElement()
+                .satisfies(route -> assertThat(route.childCounts()).containsEntry(JournalSource.AI, 1L));
         assertThat(snapshot.overflowed())
                 .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
                 .containsEntry(JournalAggregates.TRACE_AI_UNOWNED, (long) JournalAggregates.MAX_PENDING_REQUESTS);
@@ -581,6 +589,10 @@ class JournalAggregatesTests {
 
         AggregatesSnapshot snapshot = aggregates.snapshot();
         assertThat(snapshot.edges()).isEmpty();
+        assertThat(snapshot.routes()).allSatisfy(route -> {
+            assertThat(route.childCounts()).doesNotContainKey(JournalSource.AI);
+            assertThat(route.aiTokens()).isZero();
+        });
         assertThat(snapshot.overflowed())
                 .containsEntry(JournalAggregates.EDGES, 0L)
                 .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L);
@@ -659,6 +671,43 @@ class JournalAggregatesTests {
         assertThat(afterFinalizing.overflowed().get(JournalAggregates.EDGES))
                 .isEqualTo(beforeFinalizing.overflowed().get(JournalAggregates.EDGES))
                 .isEqualTo(1L);
+        RouteStats beforeRoute = beforeFinalizing.routes().stream()
+                .filter(routeStats -> routeStats.route().equals("GET /api/chat"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(afterFinalizing.routes())
+                .filteredOn(routeStats -> routeStats.route().equals("GET /api/chat"))
+                .singleElement()
+                .satisfies(afterRoute -> {
+                    assertThat(afterRoute.childCounts()).isEqualTo(beforeRoute.childCounts());
+                    assertThat(afterRoute.childNanos()).isEqualTo(beforeRoute.childNanos());
+                    assertThat(afterRoute.aiTokens()).isEqualTo(beforeRoute.aiTokens());
+                });
+    }
+
+    @Test
+    void aTraceOnlyAiCallWithoutAModelStillCountsForItsRoute() {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        publish(new RuntimeEvent(
+                JournalSource.AI,
+                1_050,
+                3_000_000,
+                null,
+                null,
+                "trace-1",
+                null,
+                null,
+                false,
+                new AiPayload(AiPayload.CHAT, "openai", null, 11L, 22L, "stop", true)));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+
+        assertThat(snapshot.edges()).isEmpty();
+        assertThat(snapshot.routes()).singleElement().satisfies(route -> {
+            assertThat(route.childCounts()).containsEntry(JournalSource.AI, 1L);
+            assertThat(route.childNanos()).containsEntry(JournalSource.AI, 3_000_000L);
+            assertThat(route.aiTokens()).isEqualTo(33);
+        });
     }
 
     @Test
