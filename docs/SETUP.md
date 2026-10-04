@@ -125,6 +125,7 @@ Everything below is optional.
 | Fix something that is not working                                  | [Troubleshooting](setup/troubleshooting.md)                      |
 | Look up a property                                                 | [Property reference](PROPERTIES.md)                              |
 | See what each panel does                                           | [Features](features/README.md)                                   |
+| Know what BootUI does not do yet, per stack                        | [Known limitations](KNOWN-LIMITATIONS.md)                        |
 
 ::: tip Using the MySQL panel
 The [MySQL panel](features/database.md#mysql) reuses a configured application JDBC datasource and MySQL Connector/J. It
