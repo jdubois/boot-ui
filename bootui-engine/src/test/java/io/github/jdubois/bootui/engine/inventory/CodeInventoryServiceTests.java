@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.jar.JarEntry;
@@ -265,6 +266,72 @@ class CodeInventoryServiceTests {
     }
 
     @Test
+    void disablingHttpExchangesHidesFirstRequestsAndRoutesAlreadyRetained() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            int[] ids = load(INIT, GREET, TOTAL, NEVER);
+            CodeInventoryService service = service(claim, loader, List.of());
+            AtomicInteger lookups = new AtomicInteger();
+            service.setRequestRoutes(requestIds -> {
+                lookups.incrementAndGet();
+                return Map.of("00000000000000cd", "GET /orders/{id}");
+            });
+            boolean[] httpExchanges = {true};
+            service.setRoutesVisible(() -> httpExchanges[0]);
+            service.start();
+            service.awaitScan();
+            CodeInventory.hit(ids[1]);
+            CodeInventory.hit(ids[2]);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    5_000L,
+                    ids[1],
+                    Long.parseUnsignedLong("00000000000000ab", 16),
+                    AgentRing.intern("GET /orders"),
+                    0L);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    6_000L,
+                    ids[2],
+                    Long.parseUnsignedLong("00000000000000cd", 16),
+                    0L,
+                    0L);
+            Map<String, CodeInventoryMethodDto> visible = rows(service);
+            assertThat(visible.get(GREET).firstRoute()).isEqualTo("GET /orders");
+            assertThat(visible.get(TOTAL).firstRoute()).isEqualTo("GET /orders/{id}");
+            long fingerprint = service.changesFingerprint();
+            int looked = lookups.get();
+
+            httpExchanges[0] = false;
+
+            Map<String, CodeInventoryMethodDto> hidden = rows(service);
+            assertThat(hidden.get(GREET).status()).isEqualTo(CodeInventoryService.EXECUTED);
+            assertThat(hidden.get(GREET).firstHitEpochMillis()).isEqualTo(5_000L);
+            assertThat(hidden.values()).allSatisfy(method -> {
+                assertThat(method.firstRoute()).isNull();
+                assertThat(method.firstRequestId()).isNull();
+            });
+            assertThat(service.dependencies(null, null, null).dependencies()).allSatisfy(row -> {
+                assertThat(row.firstRoute()).isNull();
+                assertThat(row.firstRequestId()).isNull();
+            });
+            assertThat(service.report().limitations()).contains(CodeInventoryService.ROUTES_HIDDEN);
+            assertThat(service.changesFingerprint()).isNotEqualTo(fingerprint);
+            assertThat(lookups.get()).as("no journal lookup while hidden").isEqualTo(looked);
+
+            httpExchanges[0] = true;
+
+            assertThat(rows(service).get(TOTAL).firstRoute()).isEqualTo("GET /orders/{id}");
+            assertThat(service.report().limitations()).doesNotContain(CodeInventoryService.ROUTES_HIDDEN);
+        }
+    }
+
+    @Test
     void lateAndFailedMethodsAreNotTrackedAndAClassNeverLoadedIsNeverExecuted() throws Exception {
         Path root = classes();
         try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
@@ -339,6 +406,12 @@ class CodeInventoryServiceTests {
                     .singleElement()
                     .satisfies(entry -> assertThat(entry.className()).isEqualTo("shop.OrderService"));
             long before = changed.fingerprint();
+            assertThat(changed.note()).isNull();
+            service.setRoutesVisible(() -> false);
+            assertThat(service.changedCode().note())
+                    .as("changed-code-not-executed names why its routes are left out")
+                    .isEqualTo(CodeInventoryService.ROUTES_HIDDEN);
+            service.setRoutesVisible(() -> true);
 
             CodeInventory.hit(ids[1]);
             tick();

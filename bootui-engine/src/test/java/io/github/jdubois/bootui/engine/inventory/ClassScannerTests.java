@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -234,6 +235,74 @@ class ClassScannerTests {
         }
     }
 
+    /** A class loader naming {@code stale} for {@code shop}, as one whose jar or directory was deleted since. */
+    private static ClassLoader staleLoader(URL stale, Path... roots) throws Exception {
+        return new URLClassLoader(loader(roots).getURLs(), null) {
+            @Override
+            public java.util.Enumeration<URL> getResources(String name) throws java.io.IOException {
+                List<URL> urls = new java.util.ArrayList<>(java.util.Collections.list(super.getResources(name)));
+                if ("shop".equals(name)) {
+                    urls.add(stale);
+                }
+                return java.util.Collections.enumeration(urls);
+            }
+        };
+    }
+
+    @Test
+    void anUnreadableJarFailsTheScanInsteadOfCompletingIt() throws Exception {
+        URL stale = new URL("jar:" + temp.resolve("gone/shop.jar").toUri() + "!/shop");
+
+        ClassScanner.Result result = scan(staleLoader(stale), List.of("shop"), 100, null);
+
+        assertThat(result.status()).isEqualTo(ClassScanner.FAILED);
+        assertThat(result.classes()).isEmpty();
+        assertThat(result.reason()).contains("1 class directory or jar could not be read");
+    }
+
+    @Test
+    void aVanishedDirectoryNextToAReadableRootMakesTheScanPartialAndRemovalsUnknown() throws Exception {
+        CodeInventoryHistory history = new CodeInventoryHistory(null, new ScanCache(100));
+        Path root = classes(service("Hello, ", "public int kept() { return 1; }"));
+        try (URLClassLoader loader = loader(root)) {
+            history.record("dev:shop", KeptRun.of(1, scan(loader, List.of("shop"), 100, null)));
+        }
+        Path other = temp.resolve("other/classes");
+        Compiler.write(other, Compiler.compile(Map.of("shop.Other", "package shop; public class Other {}")));
+        // The build deleted the main output while the loader still names it: only the other root can be read.
+        URL stale = root.resolve("shop").toUri().toURL();
+        try (Stream<Path> files = Files.walk(root)) {
+            files.sorted(java.util.Comparator.reverseOrder())
+                    .forEach(path -> path.toFile().delete());
+        }
+
+        ClassScanner.Result second = scan(staleLoader(stale, other), List.of("shop"), 100, null);
+        CodeChanges changes = CodeChanges.diff(second, history.previous("dev:shop", 2));
+
+        assertThat(second.status()).isEqualTo(ClassScanner.PARTIAL);
+        assertThat(second.classes()).containsOnlyKeys("shop.Other");
+        assertThat(second.reason()).contains("could not be read");
+        assertThat(changes.partial()).isTrue();
+        assertThat(changes.removed())
+                .as("unknown, not the vanished root's methods")
+                .isEqualTo(-1);
+    }
+
+    @Test
+    void aRootWhoseEveryClassFileIsMalformedFailsTheScan() throws Exception {
+        Path root = temp.resolve("target/classes");
+        Files.createDirectories(root.resolve("shop"));
+        Files.write(root.resolve("shop/Broken.class"), new byte[] {(byte) 0xCA, (byte) 0xFE, 1, 2});
+
+        try (URLClassLoader loader = loader(root)) {
+            ClassScanner.Result result = scan(loader, List.of("shop"), 100, null);
+
+            assertThat(result.status()).isEqualTo(ClassScanner.FAILED);
+            assertThat(result.skipped()).isEqualTo(1);
+            assertThat(result.reason()).contains("1 class file could not be parsed");
+        }
+    }
+
     @Test
     void aJarEntryRewrittenWithTheSameSizeAndTimeIsParsedAgain() throws Exception {
         Path jar = temp.resolve("lib/shop.jar");
@@ -299,6 +368,30 @@ class ClassScannerTests {
             assertThat(cache.jars()).as("each class-path jar's answer is kept").isEqualTo(2);
             ClassScanner.scan(loader, List.of("shop"), 100, Duration.ofSeconds(30), cache, System::nanoTime, classPath);
             assertThat(cache.jars()).as("and reused while the jar is unchanged").isEqualTo(2);
+        }
+    }
+
+    @Test
+    void aClassPathJarThatCannotBeInspectedMakesTheScanPartial() throws Exception {
+        Path root = classes(service("Hello, ", ""));
+        Path corrupt = temp.resolve("lib/corrupt.jar");
+        Files.createDirectories(corrupt.getParent());
+        Files.write(corrupt, new byte[] {'n', 'o', 't', ' ', 'a', ' ', 'z', 'i', 'p'});
+        try (URLClassLoader loader = loader(root)) {
+            ClassScanner.Result result = ClassScanner.scan(
+                    loader,
+                    List.of("shop"),
+                    100,
+                    Duration.ofSeconds(30),
+                    null,
+                    System::nanoTime,
+                    List.of(root.toString(), corrupt.toString()));
+
+            assertThat(result.classes()).isNotEmpty();
+            assertThat(result.status())
+                    .as("whether the jar held shop classes is unknown")
+                    .isEqualTo(ClassScanner.PARTIAL);
+            assertThat(result.reason()).contains("1 class directory or jar could not be read");
         }
     }
 
