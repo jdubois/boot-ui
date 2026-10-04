@@ -289,7 +289,8 @@ request's profile directly.
 Each correlated exception carries its `exceptionGroupId`, the id of its group in the
 [Exceptions panel](diagnostics.md#exceptions). Agents use `get_request_profile` or `bootui request-profile <id>`:
 these return the retained journal profile first (`source: "journal"`), with the HTTP-exchange profile
-(`source: "buffers"`) as fallback, rather than returning this REST DTO unchanged. Scheduled runs and consumed messages
+(`source: "buffers"`) as fallback, rather than returning this REST DTO unchanged. A request's profile, journal or
+buffers, is unavailable while the HTTP Exchanges panel is disabled, because it opens with that request's exchange. Scheduled runs and consumed messages
 can also be opened by execution id when retained; see
 [Investigate one request](../AI-AGENTS.md#investigate-one-request).
 
@@ -478,7 +479,8 @@ the live mode when it is read: never shown less masked than `MASKED`, and under 
 (log messages, exception messages, principals, email subjects and recipients) dropped while its structural label, such
 as `GET /orders → 200` or a SQL shape, stays. A stored row is also read only while the panel that owns it is enabled:
 disabling SQL Trace, Logs, or any other source panel hides its rows already written to durable history, as it does for
-live rows. A SQL statement that mixes a quote with a backslash or a `#`, which MySQL and MariaDB may read as an escaped
+live rows. A search of durable history matches only the text each row shows, so it never finds a row by text masked or
+withheld on read. A SQL statement that mixes a quote with a backslash or a `#`, which MySQL and MariaDB may read as an escaped
 quote or a comment, is cut at its first quote rather than guessed at.
 
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
@@ -734,7 +736,9 @@ in the panel is mistaken for a verdict on a route that never ran. Framework endp
 Actuator, and Quarkus's own extension and `/q/` endpoints, and catch-all patterns are left out; an application whose
 packages start with `io.quarkus`, such as the Quarkus samples, keeps its routes. Spring WebFlux routes, annotated or
 functional, are read from Actuator's mappings like Spring MVC's. When the declared routes cannot be read, as without
-Actuator's mappings endpoint, the report says so among its limitations instead of listing no route. **Export JSON** saves the report as the panel received it, with no new
+Actuator's mappings endpoint, the report says so among its limitations instead of listing no route. While the HTTP
+Exchanges panel is disabled, or the journal does not record HTTP requests, no route is listed and a limitation says
+why, since which routes were reached is that panel's evidence. **Export JSON** saves the report as the panel received it, with no new
 request.
 
 **Change impact** answers "what does my change reach?" for a route, a bean, a class, a repository, a table, a cache, or
@@ -768,7 +772,8 @@ samples, never as a measured time. JFR's CPU-time sampler is used on Linux with 
 sampler elsewhere; the results say which ran. Starting JFR takes about a third of a second and some 40 MB, and writes a
 temporary recording that is deleted once read. A runtime without JFR, or a journal that does not record the
 `resources` source, reports why no session can run, and `bootui.panels.runtime-insights.read-only` or
-`bootui.read-only` blocks starting one.
+`bootui.read-only` blocks starting one. While the HTTP Exchanges panel is disabled, the results keep their totals but
+list no route, and say so; re-enabling the panel shows the routes again.
 
 **Compared with the previous run** compares this run with the newest run whose summary is kept, including runs
 without HTTP requests, after a DevTools restart, a Quarkus live reload, or, with
