@@ -41,6 +41,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights write attribution and remote calls.** Anonymous access reports Quarkus Hibernate SQL as an
+  unverified preparation instead of a proven table write; hidden Hibernate evidence cannot promote it. Runtime model,
+  change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;
+  older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
+  alongside REST calls without double-counting a nested transport call
+  ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
 - **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
   against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
   recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,

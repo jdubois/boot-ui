@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
@@ -17,8 +18,8 @@ import java.util.Set;
 
 /**
  * {@code transaction-across-remote-call} ({@code docs/PLAN-v2.md} §5.5): a physical transaction still open when a REST
- * client call starts, per route and transactional method, with the connection it held and, as a labelled estimate, the
- * request rate at which this route alone would exhaust the pool: pool size ÷ hold time. A method is reported only
+ * client or AI call starts, per route and transactional method, with the connection it held and, as a labelled
+ * estimate, the request rate at which this route alone would exhaust the pool: pool size ÷ hold time. A method is reported only
  * once one of its calls took 20 ms or more, since the slowest call is what holds the connection longest and more
  * traffic would not make a faster call slow; it is insufficient below 3 transactions. A method whose calls were all
  * faster is named in the check's reason instead.
@@ -48,18 +49,21 @@ public final class TransactionAcrossRemoteCall implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.TRANSACTION, JournalSource.REST_CLIENT);
+        return Set.of(JournalSource.TRANSACTION);
     }
 
     @Override
     public Set<JournalSource> optionalReads() {
-        return Set.of(JournalSource.CONNECTION);
+        return Set.of(JournalSource.CONNECTION, JournalSource.REST_CLIENT, JournalSource.AI);
     }
 
     @Override
     public String notApplicable(InsightsSnapshot snapshot) {
-        return snapshot.stack() == InsightsStack.QUARKUS
-                ? "Quarkus transactions are not recorded, so calls cannot be placed in them."
+        if (snapshot.stack() == InsightsStack.QUARKUS) {
+            return "Quarkus transactions are not recorded, so calls cannot be placed in them.";
+        }
+        return !snapshot.available(JournalSource.REST_CLIENT) && !snapshot.available(JournalSource.AI)
+                ? "Neither REST client nor AI calls are recorded and visible, so calls cannot be placed in transactions."
                 : null;
     }
 
@@ -73,26 +77,52 @@ public final class TransactionAcrossRemoteCall implements Observation {
             Map<String, Method> methods = new LinkedHashMap<>();
             long routeEligible = 0;
             for (ProjectedRequest request : route.getValue()) {
-                List<RuntimeEvent> calls = request.children(JournalSource.REST_CLIENT);
+                List<RuntimeEvent> restCalls = snapshot.available(JournalSource.REST_CLIENT)
+                        ? request.children(JournalSource.REST_CLIENT)
+                        : List.of();
+                List<RuntimeEvent> aiCalls =
+                        snapshot.available(JournalSource.AI) ? request.children(JournalSource.AI) : List.of();
                 List<Window> windows = windows(request);
-                if (calls.isEmpty() || windows.isEmpty()) {
+                if (windows.isEmpty()
+                        || !(restCalls.stream().anyMatch(TransactionAcrossRemoteCall::timedRest)
+                                || aiCalls.stream().anyMatch(TransactionAcrossRemoteCall::timedAi))) {
                     continue;
                 }
                 routeEligible++;
                 Set<String> seen = new LinkedHashSet<>();
-                for (RuntimeEvent call : calls) {
-                    if (!(call.payload() instanceof RestClientPayload payload) || payload.completedNanos() < 0) {
+                List<Window> placedAi = new ArrayList<>();
+                for (RuntimeEvent call : aiCalls) {
+                    if (!timedAi(call)) {
                         continue;
                     }
+                    AiPayload payload = (AiPayload) call.payload();
                     long callStart = payload.completedNanos() - Math.max(0, call.durationNanos());
                     Window open = outermost(windows, callStart);
                     if (open == null) {
                         continue;
                     }
+                    placedAi.add(new Window("", callStart, payload.completedNanos()));
                     String method = open.method();
                     Connection held = connection(request, callStart);
                     methods.computeIfAbsent(method, m -> new Method())
-                            .add(request, open, call, payload, held, seen.add(method), snapshot.exposure());
+                            .add(request, open, call, describe(payload), held, seen.add(method));
+                }
+                for (RuntimeEvent call : restCalls) {
+                    if (!timedRest(call)) {
+                        continue;
+                    }
+                    RestClientPayload payload = (RestClientPayload) call.payload();
+                    long callStart = payload.completedNanos() - Math.max(0, call.durationNanos());
+                    Window open = outermost(windows, callStart);
+                    if (open == null
+                            || placedAi.stream()
+                                    .anyMatch(ai -> callStart >= ai.start() && payload.completedNanos() <= ai.end())) {
+                        continue;
+                    }
+                    String method = open.method();
+                    Connection held = connection(request, callStart);
+                    methods.computeIfAbsent(method, m -> new Method())
+                            .add(request, open, call, describe(payload, snapshot.exposure()), held, seen.add(method));
                 }
             }
             eligible += routeEligible;
@@ -199,10 +229,22 @@ public final class TransactionAcrossRemoteCall implements Observation {
         return windows;
     }
 
+    private static boolean timedAi(RuntimeEvent event) {
+        return event.payload() instanceof AiPayload payload
+                && payload.completedNanos() >= 0
+                && event.durationNanos() >= 0;
+    }
+
+    private static boolean timedRest(RuntimeEvent event) {
+        return event.payload() instanceof RestClientPayload payload
+                && payload.completedNanos() >= 0
+                && event.durationNanos() >= 0;
+    }
+
     private static Window outermost(List<Window> windows, long at) {
         Window found = null;
         for (Window window : windows) {
-            if (at >= window.start() && at <= window.end() && (found == null || window.span() > found.span())) {
+            if (at >= window.start() && at < window.end() && (found == null || window.span() > found.span())) {
                 found = window;
             }
         }
@@ -214,7 +256,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
             if (event.payload() instanceof ConnectionPayload connection
                     && connection.checkoutNanos() >= 0
                     && at >= connection.checkoutNanos()
-                    && at <= connection.checkoutNanos() + Math.max(0, event.durationNanos())) {
+                    && at < connection.checkoutNanos() + Math.max(0, event.durationNanos())) {
                 return new Connection(connection.dataSource(), Math.max(0, event.durationNanos()));
             }
         }
@@ -229,6 +271,18 @@ public final class TransactionAcrossRemoteCall implements Observation {
     }
 
     private record Connection(String dataSource, long heldNanos) {}
+
+    private static String describe(AiPayload payload) {
+        String operation = payload.operation() == null ? "AI call" : "AI " + payload.operation();
+        return payload.model() == null ? operation : operation + " (" + payload.model() + ")";
+    }
+
+    private static String describe(RestClientPayload payload, JournalTextExposure text) {
+        return ((payload.method() == null ? "" : payload.method() + " ")
+                        + (payload.authority() == null ? "" : payload.authority())
+                        + (payload.path() == null ? "" : text.path(payload.path())))
+                .trim();
+    }
 
     private static final class Method {
 
@@ -245,10 +299,9 @@ public final class TransactionAcrossRemoteCall implements Observation {
                 ProjectedRequest request,
                 Window open,
                 RuntimeEvent call,
-                RestClientPayload payload,
+                String described,
                 Connection held,
-                boolean newTransaction,
-                JournalTextExposure text) {
+                boolean newTransaction) {
             if (newTransaction) {
                 transactions++;
                 if (held != null) {
@@ -258,7 +311,6 @@ public final class TransactionAcrossRemoteCall implements Observation {
                     }
                 }
             }
-            String described = describe(payload, text);
             if (firstCall == null) {
                 firstCall = described;
             }
@@ -281,13 +333,6 @@ public final class TransactionAcrossRemoteCall implements Observation {
 
         long[] holdNanos() {
             return holds.stream().mapToLong(Long::longValue).toArray();
-        }
-
-        private static String describe(RestClientPayload payload, JournalTextExposure text) {
-            return ((payload.method() == null ? "" : payload.method() + " ")
-                            + (payload.authority() == null ? "" : payload.authority())
-                            + (payload.path() == null ? "" : text.path(payload.path())))
-                    .trim();
         }
     }
 }

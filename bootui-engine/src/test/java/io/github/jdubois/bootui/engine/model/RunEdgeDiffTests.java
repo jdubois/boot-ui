@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.CachePayload;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
@@ -14,6 +15,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.model.EdgeDiff.EdgeRef;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -110,6 +112,95 @@ class RunEdgeDiffTests {
                     assertThat(edge.firstSeenEpochMillis()).isEqualTo(2_000);
                     assertThat(edge.lastSeenEpochMillis()).isEqualTo(3_000);
                 });
+    }
+
+    @Test
+    void dmlReadSourcesNeverBecomeWritesInTheModelOrTheWholeRun() {
+        JournalFixture journal = new JournalFixture();
+        journal.request(
+                "POST",
+                "/api/copy",
+                child(JournalSource.SQL, sql("insert into audit_log select id from products")),
+                child(JournalSource.SQL, sql("delete from cart_items where id in (select id from carts)")),
+                child(JournalSource.SQL, sql("update orders set n = c.n from customers c")),
+                child(JournalSource.SQL, sql("update audit_log a join payroll p on true set p.amount = ?")));
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.onEntries(journal.entries());
+        RuntimeModel model = RuntimeModelProjectionTests.project(journal, null);
+
+        Map<EdgeRef, Long> edges = counts(aggregates.snapshot().edges());
+        assertThat(edges).isEqualTo(observed(model));
+        for (String target : List.of("audit_log", "cart_items", "orders")) {
+            assertThat(edges)
+                    .containsKey(
+                            new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.WRITES, NodeType.TABLE, target));
+        }
+        for (String source : List.of("products", "carts", "customers")) {
+            assertThat(edges)
+                    .containsKey(new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.READS, NodeType.TABLE, source))
+                    .doesNotContainKey(
+                            new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.WRITES, NodeType.TABLE, source));
+        }
+        assertThat(edges)
+                .doesNotContainKey(
+                        new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.WRITES, NodeType.TABLE, "payroll"));
+    }
+
+    @Test
+    void failedDmlDoesNotTurnItsTargetIntoARead() {
+        JournalFixture journal = new JournalFixture();
+        journal.request(
+                "POST",
+                "/api/copy",
+                child(
+                        JournalSource.SQL,
+                        new SqlPayload("insert into audit_log select id from products", null, "db", true)));
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.onEntries(journal.entries());
+
+        assertThat(counts(aggregates.snapshot().edges()))
+                .containsKey(new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.READS, NodeType.TABLE, "products"))
+                .doesNotContainKey(
+                        new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.READS, NodeType.TABLE, "audit_log"))
+                .doesNotContainKey(
+                        new EdgeRef(NodeType.ROUTE, "POST /api/copy", EdgeType.WRITES, NodeType.TABLE, "audit_log"));
+    }
+
+    @Test
+    void zeroDurationPreparedDmlDoesNotEstablishAnyTableAccessEdge() {
+        RuntimeEvent prepared = new RuntimeEvent(
+                JournalSource.SQL,
+                1_000,
+                0,
+                "r1",
+                null,
+                null,
+                "http-1",
+                null,
+                false,
+                sql("insert into audit_log select id from products"));
+        RuntimeEvent completed = new RuntimeEvent(
+                JournalSource.HTTP,
+                1_001,
+                1_000_000,
+                "r1",
+                null,
+                null,
+                "http-1",
+                null,
+                false,
+                new HttpPayload("POST", "/api/copy", "/api/copy", null, 200));
+        List<JournalEntry> entries = List.of(
+                new JournalEntry(1, prepared, prepared.estimatedBytes()),
+                new JournalEntry(2, completed, completed.estimatedBytes()));
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.onEntries(entries);
+        RuntimeModel model = RuntimeModelProjection.project(
+                entries, RouteTemplateResolver.empty(), null, 0, System::nanoTime, Long.MAX_VALUE);
+
+        assertThat(aggregates.snapshot().edges()).isEmpty();
+        assertThat(EdgeDiff.refs(model, Provenance.OBSERVED)).isEmpty();
+        assertThat(model.limitations()).anyMatch(reason -> reason.contains("preparation alone"));
     }
 
     @Test
