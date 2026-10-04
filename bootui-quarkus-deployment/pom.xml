@@ -90,10 +90,62 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            The BootUI agent, for BootUiAgentLiveReloadLeakIT, which failsafe runs with -javaagent and this jar's path
+            (${com.julien-dubois.bootui:bootui-agent:jar}), once the agent module has packaged it. Kept off every test
+            class path: an agent jar is only ever loaded by -javaagent.
+        -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-agent</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <plugin>
+                <!-- The agent's heap walk, for BootUiAgentLiveReloadLeakIT. -->
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!-- Ten live reloads of a minimal application in a JVM started with the BootUI agent, after package. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
+                    <skipTests>${skipTests}</skipTests>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                    <argLine>@{argLine} ${quarkus.test.argLine} -javaagent:${com.julien-dubois.bootui:bootui-agent:jar} -Xmx3g</argLine>
+                    <systemPropertyVariables>
+                        <bootui.agent.it.required>true</bootui.agent.it.required>
+                    </systemPropertyVariables>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <executions>

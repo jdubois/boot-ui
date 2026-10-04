@@ -14,6 +14,8 @@ import java.util.List;
  * @param columns the evidence columns
  * @param rows at most 20 evidence rows
  * @param truncated the rows left out
+ * @param next the calls that follow this observation up, or that find a current id when it is unavailable, at most
+ *     three
  */
 public record RuntimeInsightAgentDetailDto(
         boolean available,
@@ -23,12 +25,26 @@ public record RuntimeInsightAgentDetailDto(
         List<String> limitations,
         List<String> columns,
         List<RuntimeObservationRowDto> rows,
-        long truncated) {
+        long truncated,
+        List<RuntimeNextStepDto> next) {
 
     public RuntimeInsightAgentDetailDto {
         whatToCheck = DtoCollections.immutableCopy(whatToCheck);
         limitations = DtoCollections.immutableCopy(limitations);
         columns = DtoCollections.immutableCopy(columns);
         rows = DtoCollections.immutableCopy(rows);
+        next = DtoCollections.immutableCopy(next);
+    }
+
+    public RuntimeInsightAgentDetailDto(
+            boolean available,
+            String unavailableReason,
+            RuntimeInsightAgentDto observation,
+            List<String> whatToCheck,
+            List<String> limitations,
+            List<String> columns,
+            List<RuntimeObservationRowDto> rows,
+            long truncated) {
+        this(available, unavailableReason, observation, whatToCheck, limitations, columns, rows, truncated, List.of());
     }
 }

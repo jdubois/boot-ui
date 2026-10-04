@@ -93,6 +93,6 @@ public class BootUiAgentRecorder {
         if (access.present()) {
             AgentClaim.release(access, application, mode);
         }
-        return new RuntimeValue<>(QuarkusAgentClaim.none());
+        return new RuntimeValue<>(QuarkusAgentClaim.disabled());
     }
 }
