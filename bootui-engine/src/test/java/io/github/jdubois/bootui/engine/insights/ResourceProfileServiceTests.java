@@ -13,10 +13,12 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +38,12 @@ class ResourceProfileServiceTests {
     @Test
     void aSessionReportsItsSamplesByTheRouteTheJournalNamesForEachRequest() throws Exception {
         assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
-        ResourceProfileService service = new ResourceProfileService(journal, null, Duration.ofMinutes(1));
+        AtomicBoolean httpExchanges = new AtomicBoolean(true);
+        ResourceProfileService service = new ResourceProfileService(
+                journal,
+                null,
+                Duration.ofMinutes(1),
+                panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES) || httpExchanges.get());
         assertThat(service.status().state())
                 .as("reading the status starts nothing")
                 .isIn("IDLE", "COMPLETED");
@@ -79,6 +86,17 @@ class ResourceProfileServiceTests {
         assertThat(service.status().routes())
                 .as("the results stay until the next session")
                 .isEqualTo(done.routes());
+
+        httpExchanges.set(false);
+        RuntimeResourceProfileDto hidden = service.status();
+        assertThat(hidden.routes())
+                .as("disabling HTTP Exchanges after the session withholds its cached per-route rows")
+                .isEmpty();
+        assertThat(hidden.routesOmitted()).isZero();
+        assertThat(hidden.cpuSamples()).isEqualTo(done.cpuSamples());
+        assertThat(hidden.limitations()).contains(ResourceProfileService.ROUTES_HIDDEN);
+        httpExchanges.set(true);
+        assertThat(service.status().routes()).isEqualTo(done.routes());
     }
 
     @Test
@@ -87,13 +105,14 @@ class ResourceProfileServiceTests {
                 new RuntimeJournal(RuntimeJournalSettings.of(true, 1_000, null, 100, "http,sql"), RunIdentity.start());
         try {
             RuntimeResourceProfileDto refused =
-                    new ResourceProfileService(withoutResources, null, Duration.ofSeconds(5)).start();
+                    new ResourceProfileService(withoutResources, null, Duration.ofSeconds(5), null).start();
             assertThat(refused.state()).isEqualTo("UNAVAILABLE");
             assertThat(refused.reason()).isEqualTo(ResourceProfileService.RESOURCES_OFF);
         } finally {
             withoutResources.close();
         }
-        RuntimeResourceProfileDto disabled = new ResourceProfileService(null, null, Duration.ofSeconds(5)).status();
+        RuntimeResourceProfileDto disabled =
+                new ResourceProfileService(null, null, Duration.ofSeconds(5), null).status();
         assertThat(disabled.state()).isEqualTo("UNAVAILABLE");
         assertThat(disabled.reason()).isEqualTo(RuntimeInsightsService.DISABLED);
     }
