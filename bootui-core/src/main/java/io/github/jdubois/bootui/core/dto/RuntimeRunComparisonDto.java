@@ -6,7 +6,7 @@ import java.util.List;
  * The comparison of the current run with a previous one ({@code docs/PLAN-v2.md} §5.8). On a laptop, warmup and noise
  * dominate latency, while the work identical requests do is stable, so behavior comes first and latency last.
  *
- * @param status {@code COMPARED}; {@code INSUFFICIENT} when no route served enough requests in both runs to tell that
+ * @param status {@code COMPARED}; {@code INSUFFICIENT} when no route or execution recorded enough samples in both runs to tell that
  *     nothing changed; {@code NOT_COMPARABLE} when the runs differ in database, profiles, or cache;
  *     {@code NO_PREVIOUS_RUN}; or {@code UNAVAILABLE} when the journal does not record
  * @param reason why the status is not {@code COMPARED}, or {@code null}
@@ -14,7 +14,7 @@ import java.util.List;
  * @param previous the run compared with, or {@code null}
  * @param runs the kept runs that can be compared with, newest first
  * @param notComparableReasons the configuration differences that make the runs not comparable, the database first
- * @param behavior what the routes did differently: statements, calls, new statements and exceptions, status classes,
+ * @param behavior what the routes and executions did differently: statements, calls, new or gone statements and exceptions, status classes,
  *     routes newly hit, tokens, cache misses, and allocation, each over enough requests in both runs, or new
  * @param edges the runtime model's edges one run observed and the other did not, most observed first
  * @param restartCost the time to ready and the beans whose initialization moved, compared with the previous restart

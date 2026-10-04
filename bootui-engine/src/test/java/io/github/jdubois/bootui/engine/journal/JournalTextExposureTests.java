@@ -20,6 +20,32 @@ import org.junit.jupiter.api.Test;
 /** The live exposure rule for journal-rendered text ({@code PLAN-v2} §8): SQL, log text, and paths. */
 class JournalTextExposureTests {
 
+    @Test
+    void statementCountsMergeIndistinguishableShapesWithoutConsumingTheOverflowSentinel() {
+        java.util.Map<String, Long> shapes = JournalTextExposure.statementCounts(java.util.Map.of(
+                "insert into users(pw) values(\"zzsecretzz\")", 2L,
+                "insert into users(pw) values(\"otherSecret\")", 3L,
+                "Other", 7L));
+
+        assertThat(shapes)
+                .containsOnly(
+                        java.util.Map.entry("insert into users(pw) values(?)", 5L), java.util.Map.entry("Other", 7L));
+        assertThat(JournalTextExposure.statementCounts(shapes)).isEqualTo(shapes);
+    }
+
+    @Test
+    void safeShapesAreIdempotentEvenWhenQuotesAreAmbiguousOrUnterminated() {
+        for (String sql : List.of(
+                "insert into users(pw) values(\"zzsecretzz\")",
+                "select $$zzsecretzz",
+                "select $tag$zzsecretzz",
+                "select 'zzsecretzz")) {
+            String shape = JournalTextExposure.displayShape(sql);
+            assertThat(shape).doesNotContain("zzsecretzz");
+            assertThat(JournalTextExposure.displayShape(shape)).isEqualTo(shape);
+        }
+    }
+
     private static final Function<JournalEntry, String> EVENT_ID = entry -> "run-" + entry.sequence();
 
     private static final String SQL = "select * from users where name = 'alice' and token = \"s3cr3t\"";

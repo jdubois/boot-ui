@@ -42,9 +42,17 @@ export function changeMarker(change) {
 }
 
 /** A kept run as the run picker and the header name it, such as "Run 4 · 120 requests · baseline file". */
-export function runLabel(run) {
+export function runLabel(run, comparison) {
   if (!run) return ''
-  const parts = [`Run ${run.ordinal}`, `${formatNumber(run.requests)} ${run.requests === 1 ? 'request' : 'requests'}`]
+  const requestsHidden = comparison?.limitations?.some((limit) =>
+    /^Facts are not compared because http-exchanges is (disabled|unavailable)\.$/.test(limit)
+  )
+  const parts = [`Run ${run.ordinal}`]
+  parts.push(
+    requestsHidden
+      ? 'request count hidden'
+      : `${formatNumber(run.requests)} ${run.requests === 1 ? 'request' : 'requests'}`
+  )
   if (run.endedAt) parts.push(`ended ${formatClockTime(run.endedAt)}`)
   if (run.source === 'BASELINE_FILE') parts.push('baseline file')
   return parts.join(' · ')
@@ -62,7 +70,7 @@ export function isComparison(value) {
 export function comparisonSections(comparison) {
   if (!isComparison(comparison)) return []
   return [
-    {id: 'behavior', title: 'What the routes did', rows: comparison.behavior ?? []},
+    {id: 'behavior', title: 'What the routes and executions did', rows: comparison.behavior ?? []},
     {id: 'edges', title: 'Runtime model', rows: comparison.edges ?? []},
     {id: 'latency', title: 'Latency', note: 'noisy on a laptop', rows: comparison.latency ?? []}
   ].filter((section) => section.rows.length > 0)

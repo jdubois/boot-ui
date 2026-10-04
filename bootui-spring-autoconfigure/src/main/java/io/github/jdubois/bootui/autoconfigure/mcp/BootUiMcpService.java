@@ -427,6 +427,7 @@ public class BootUiMcpService {
             case LIMIT -> limitSchema();
             case QUERY_LIMIT -> querySchema();
             case ID -> idSchema();
+            case OPTIONAL_ID -> optionalIdSchema();
             case RULE_VIOLATIONS -> ruleViolationsSchema();
         };
     }
@@ -486,6 +487,14 @@ public class BootUiMcpService {
         required.add("id");
         schema.set("required", required);
         schema.put("additionalProperties", false);
+        return schema;
+    }
+
+    private static ObjectNode optionalIdSchema() {
+        ObjectNode schema = idSchema();
+        schema.remove("required");
+        ((ObjectNode) schema.get("properties").get("id"))
+                .put("description", "Optional run id; omitted or previous selects the newest kept run.");
         return schema;
     }
 

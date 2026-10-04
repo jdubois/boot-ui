@@ -298,8 +298,8 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    and the routes sharing its tables. `AMBIGUOUS` lists candidates; never guess one. The answer says what was and was
    not exercised, never that a change is safe.
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
-3. Read `bootui insights compare previous --json` (`get_runtime_run_comparison`). `previous` is the newest kept run
-   that served requests; `runs` lists the kept run ids. A new statement fingerprint or a higher statement count per
+3. Read `bootui insights compare --json` (`get_runtime_run_comparison`, optional `id`). Omitted `id` or `previous` selects the newest kept run,
+   including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint or a higher statement count per
    request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and `NOT_COMPARABLE` are not passes,
    never edit from a latency row, and a missing observation is not proof that a behavior is gone.
 

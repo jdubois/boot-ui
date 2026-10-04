@@ -115,10 +115,13 @@ final class CommandTree {
             spec.addPositional(PositionalParamSpec.builder()
                     .paramLabel("<id>")
                     .index("0")
-                    .arity("1")
-                    .required(true)
+                    .arity(tool.optionalId() ? "0..1" : "1")
+                    .required(!tool.optionalId())
                     .type(String.class)
-                    .description("The identifier of the resource to read.")
+                    .description(
+                            tool.optionalId()
+                                    ? "Run id to compare with (default: previous)."
+                                    : "The identifier of the resource to read.")
                     .setter(setter((String value) -> command.id = value))
                     .build());
         }
