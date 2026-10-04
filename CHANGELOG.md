@@ -48,7 +48,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Code Inventory no longer reports methods as removed when a class root could not be read.** A class directory or
   jar the scan cannot open or walk now counts as skipped, as a class file it cannot parse already did, and makes the
   scan partial (failed when nothing could be read) instead of complete.
-
+- **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
+  chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
+  the request as soon as Quarkus completes that request on it, instead of staying charged to it for the whole
+  transfer. Whatever the thread did back in its pool in between — unrelated work, or a task an agent propagated for
+  another request — is no longer added to the finished request's CPU time and allocation, and its
+  `bootui.ExecutionSegment` interval no longer covers that window, so **Profile resources** stops joining those JFR
+  samples and hot frames to the wrong route. An ordinary response was already attributed correctly, because the
+  worker writes it itself and the request is taken inline on that thread. A suspended chain — a blocking method
+  returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
+  hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
+  [Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
   completion events now mark observations that examine those executions partial, while disabled optional evidence
   does not. Collection and Code Inventory checks do not count unrelated execution drops.
@@ -82,7 +92,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
   top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
-
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
