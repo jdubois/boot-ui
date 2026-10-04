@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.core.dto.RuntimeCodeChangesDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightAgentDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightAgentDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
@@ -146,11 +147,26 @@ public final class RuntimeInsightsAgentView {
                 comparison.previous() == null ? null : comparison.previous().runId(),
                 comparison.runs(),
                 comparison.notComparableReasons(),
+                compact(comparison.codeChanges()),
                 head(comparison.behavior()),
                 omitted(comparison.behavior()),
                 head(comparison.edges()),
                 omitted(comparison.edges()),
                 limitations);
+    }
+
+    /** Code changes with at most {@value RuntimeRunComparisonAgentDto#MAX_ROWS} methods, the not executed first. */
+    static RuntimeCodeChangesDto compact(RuntimeCodeChangesDto changes) {
+        if (changes == null || changes.methods().size() <= RuntimeRunComparisonAgentDto.MAX_ROWS) {
+            return changes;
+        }
+        return new RuntimeCodeChangesDto(
+                changes.available(),
+                changes.unavailableReason(),
+                changes.counts(),
+                changes.methods().subList(0, RuntimeRunComparisonAgentDto.MAX_ROWS),
+                changes.methodsTotal(),
+                changes.limitations());
     }
 
     /** {@code previous}, blank, or {@code null} names the newest kept run; anything else is a run id. */

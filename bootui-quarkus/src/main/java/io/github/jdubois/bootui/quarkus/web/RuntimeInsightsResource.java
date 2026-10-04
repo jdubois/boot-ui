@@ -126,6 +126,15 @@ public class RuntimeInsightsResource {
         models.setInvocations(
                 () -> codePaths.isResolvable() ? codePaths.get().invocations() : List.of(),
                 () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
+        // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
+        this.impact.setCodePaths(
+                wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
+        this.impact.setCodeInventory((type, name) ->
+                codeInventory.isResolvable() ? codeInventory.get().lookup(type, name) : null);
+        this.comparison.setCodeChanges(
+                () -> codeInventory.isResolvable() && codeInventory.get().agentAttached(),
+                limit -> codeInventory.isResolvable() ? codeInventory.get().changesWithAccess(limit) : null,
+                wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
         this.insights.setCodePathsService(() -> codePaths.isResolvable() ? codePaths.get() : null);
     }
 

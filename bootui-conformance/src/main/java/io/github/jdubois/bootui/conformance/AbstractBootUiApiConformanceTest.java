@@ -1271,6 +1271,29 @@ public abstract class AbstractBootUiApiConformanceTest {
                         + coverage.path("archivesFirstParty").asInt())
                 .as("$.coverage archive counts must add up to archivesFound")
                 .isEqualTo(coverage.path("archivesFound").asInt());
+        // Runtime reach (PLAN-v2 §5.15): every adapter says whether rows carry it and, without it, why; a row never
+        // reads NOT_LOADED without the agent's evidence.
+        JsonNode reach = report.path("runtimeReach");
+        assertThat(reach.isObject()).as("$.runtimeReach must be an object").isTrue();
+        assertThat(reach.path("available").isBoolean())
+                .as("$.runtimeReach.available must be a boolean")
+                .isTrue();
+        for (JsonNode dependency : report.path("dependencies")) {
+            if (reach.path("available").asBoolean()) {
+                assertThat(dependency.path("runtimeReach").path("status").asText())
+                        .as("$.dependencies[].runtimeReach.status")
+                        .isIn("NOT_LOADED", "LOADED", "AFFECTED_CLASS_LOADED", "UNKNOWN");
+            } else {
+                assertThat(dependency.path("runtimeReach").isNull())
+                        .as("$.dependencies[].runtimeReach without reach")
+                        .isTrue();
+            }
+        }
+        if (!reach.path("available").asBoolean()) {
+            assertThat(reach.path("unavailableReason").asText())
+                    .as("$.runtimeReach.unavailableReason")
+                    .isNotBlank();
+        }
     }
 
     @Test
@@ -1612,6 +1635,16 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(unknown.json().path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
         assertThat(unknown.json().path("reason").asText()).isNotBlank();
         assertThat(unknown.json().path("observed").size()).isZero();
+
+        // A method is a symbol too (M5-7a): an unknown one answers the same shape on every stack, never guessed.
+        Response method = probe().get(api("/runtime-insights/impact?symbol="
+                + URLEncoder.encode("ConformanceUnknown#method(String)", StandardCharsets.UTF_8)));
+        assertThat(method.status()).isEqualTo(200);
+        assertJsonContract("change impact, unknown method", contract, method.json(), failures);
+        assertThat(failures).as("change impact contract, method").isEmpty();
+        assertThat(method.json().path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
+        assertThat(method.json().path("reason").asText()).isNotBlank();
+        assertThat(method.json().path("notObserved").size()).isZero();
     }
 
     @Test
@@ -1679,6 +1712,20 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(json.path("reason").asText()).isNotBlank();
         }
         assertThat(json.path("restartCost").path("status").asText()).isIn("COMPARED", "UNAVAILABLE");
+        // Code changes lead the comparison with the BootUI agent (M5-7a): null without it, the same shape on every
+        // stack with it, unavailable with its reason when it cannot list them.
+        JsonNode codeChanges = json.path("codeChanges");
+        if (!codeChanges.isNull()) {
+            assertThat(codeChanges.path("available").isBoolean())
+                    .as(codeChanges.toString())
+                    .isTrue();
+            assertThat(codeChanges.path("methods").isArray())
+                    .as(codeChanges.toString())
+                    .isTrue();
+            if (!codeChanges.path("available").asBoolean()) {
+                assertThat(codeChanges.path("unavailableReason").asText()).isNotBlank();
+            }
+        }
 
         Response unknown = probe.get(api(contract.relativePath() + "?run=conformance-unknown-run"));
         assertThat(unknown.status()).isEqualTo(200);

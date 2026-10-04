@@ -5,6 +5,7 @@ import {formatLoadError} from '../../utils/loadError.js'
 import {formatNumber} from '../../utils/format.js'
 import {
   changeMarker,
+  codeChanges,
   comparisonSections,
   comparisonStatusIcon,
   comparisonStatusLabel,
@@ -53,6 +54,7 @@ watch(() => props.refreshKey, load, {immediate: true})
 watch(selectedRun, load)
 
 const sections = computed(() => comparisonSections(comparison.value))
+const code = computed(() => codeChanges(comparison.value))
 const compared = computed(() => comparison.value?.status === 'COMPARED')
 const restart = computed(() => restartCostText(comparison.value?.restartCost))
 const extraReasons = computed(() => comparison.value?.notComparableReasons?.slice(1) ?? [])
@@ -100,6 +102,49 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
       <template v-else-if="comparison">
         <p v-if="comparison.previous" class="small text-muted mb-0 mt-1 insight-comparison-against">
           Against {{ runLabel(comparison.previous, comparison) }}
+        </p>
+        <div v-if="code?.available" class="insight-comparison-section" data-section="code-changes">
+          <h3 class="h6 mb-1">
+            Code changes
+            <span class="text-muted fw-normal small"> · {{ code.counts }}</span>
+          </h3>
+          <p v-if="code.rows.length === 0" class="small text-muted mb-0">No method changed or was added.</p>
+          <ul v-else class="list-unstyled mb-0 insight-comparison-rows">
+            <li v-for="row in code.rows" :key="row.key" class="insight-comparison-row">
+              <span class="insight-comparison-marker" :title="changeMarker(row.change).label">
+                <i class="bi" :class="changeMarker(row.change).icon" aria-hidden="true"></i>
+                <span class="visually-hidden">{{ row.changeLabel }}:{{ ' ' }}</span>
+              </span>
+              <span class="insight-comparison-sentence">
+                <code :title="row.key">{{ row.name }}</code
+                >{{ ' '
+                }}<span
+                  class="small insight-comparison-code-status"
+                  :class="row.ran ? 'text-body' : 'insight-comparison-not-run'"
+                  >{{ row.status }}</span
+                >
+                <template v-if="row.routes.length">
+                  <span class="small text-muted">{{ ' on ' }}</span>
+                  <code v-for="(route, index) in row.routes" :key="route" class="small"
+                    >{{ route }}<template v-if="Number(index) < row.routes.length - 1">, </template></code
+                  >
+                  <span v-if="row.moreRoutes" class="small text-muted"> and {{ row.moreRoutes }} more</span>
+                </template>
+                <span v-if="row.note" class="d-block small text-muted">{{ row.note }}</span>
+                <span v-if="row.notTrackedReason" class="d-block small text-muted">{{ row.notTrackedReason }}</span>
+              </span>
+            </li>
+          </ul>
+          <p v-if="code.more" class="small text-muted mb-0 mt-1">{{ formatNumber(code.more) }} more not listed.</p>
+          <details v-if="code.limitations.length" class="small text-muted mt-1 insight-comparison-limits">
+            <summary>Code change limits · {{ code.limitations.length }}</summary>
+            <ul class="mb-0 mt-1">
+              <li v-for="limitation in code.limitations" :key="limitation">{{ limitation }}</li>
+            </ul>
+          </details>
+        </div>
+        <p v-else-if="code" class="small text-muted mb-0 mt-2" data-testid="code-changes-unavailable">
+          Code changes unavailable: {{ code.reason }}
         </p>
         <p v-if="comparison.reason" class="mb-0 mt-2 insight-comparison-reason">{{ comparison.reason }}</p>
         <ul v-if="extraReasons.length" class="small mb-0 mt-1 insight-comparison-reason">
@@ -260,5 +305,10 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
 
 .insight-comparison-limits summary {
   cursor: pointer;
+}
+
+/* "Not run yet" is the line to act on: weighted, not colored, so it reads in both themes without a verdict hue. */
+.insight-comparison-not-run {
+  font-weight: 600;
 }
 </style>

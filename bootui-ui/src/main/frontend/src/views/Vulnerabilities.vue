@@ -21,6 +21,7 @@ const loading = ref(false)
 const initialLoading = ref(true)
 const search = ref('')
 const vulnerableOnly = ref(false)
+const reachFilter = ref('ALL')
 
 const {dismissLoading, dismiss, restore} = useDismissedRules(loadDependencies)
 
@@ -110,6 +111,93 @@ function emptyAdvisoryText(dependency) {
     : 'Unknown (assessment incomplete)'
 }
 
+// Runtime reach (the BootUI agent's evidence of which jars' classes loaded) is a prioritization hint: it never changes
+// a severity, the score, or a count, and the column only appears when the server says rows carry it.
+const runtimeReach = computed(() => data.value?.runtimeReach ?? null)
+const reachAvailable = computed(() => runtimeReach.value?.available === true)
+
+const reachLabels = {
+  NOT_LOADED: 'Not loaded yet',
+  LOADED: 'Loaded',
+  AFFECTED_CLASS_LOADED: 'Named class loaded',
+  UNKNOWN: 'Unknown'
+}
+
+const reachIcons = {
+  NOT_LOADED: 'bi-circle',
+  LOADED: 'bi-play-circle',
+  AFFECTED_CLASS_LOADED: 'bi-bullseye',
+  UNKNOWN: 'bi-question-circle'
+}
+
+const reachFilters = [
+  {value: 'ALL', label: 'Any runtime reach'},
+  {value: 'AFFECTED_CLASS_LOADED', label: 'Named class loaded'},
+  {value: 'LOADED_ANY', label: 'Loaded (any)'},
+  {value: 'NOT_LOADED', label: 'Not loaded yet'},
+  {value: 'UNKNOWN', label: 'Unknown'}
+]
+
+function reachStatus(item) {
+  return item?.runtimeReach?.status ?? 'UNKNOWN'
+}
+
+function reachLabel(item) {
+  return reachLabels[reachStatus(item)] ?? reachStatus(item)
+}
+
+function reachIcon(item) {
+  return reachIcons[reachStatus(item)] ?? 'bi-question-circle'
+}
+
+function hasClassLoads(item) {
+  return Number(item?.runtimeReach?.classesLoadedTotal ?? 0) > 0
+}
+
+function classCount(count) {
+  return count === 1 ? '1 class' : `${count} classes`
+}
+
+function reachTooltip(item) {
+  const reach = item?.runtimeReach
+  if (!reach) return ''
+  const parts = []
+  if (reach.status === 'NOT_LOADED') {
+    parts.push('No class of this jar has loaded in this JVM yet.')
+  } else if (reach.status === 'LOADED' || reach.status === 'AFFECTED_CLASS_LOADED') {
+    parts.push(
+      `${classCount(reach.classesLoaded)} loaded in this run, ${classCount(reach.classesLoadedTotal)} in this JVM.`
+    )
+  }
+  if (reach.loadedClasses?.length) parts.push(`Named in the advisory and loaded: ${reach.loadedClasses.join(', ')}.`)
+  const reason = reachReason(item)
+  if (reason) parts.push(reason)
+  return parts.join(' ')
+}
+
+// A reason shared by every unknown row is sent once, on the summary.
+function reachReason(item) {
+  const reach = item?.runtimeReach
+  if (!reach) return null
+  return reach.reason || (reach.status === 'UNKNOWN' ? runtimeReach.value?.incompleteReason : null) || null
+}
+
+function matchesReach(dependency) {
+  if (!reachAvailable.value || reachFilter.value === 'ALL') return true
+  const status = reachStatus(dependency)
+  if (reachFilter.value === 'LOADED_ANY') return status === 'LOADED' || status === 'AFFECTED_CLASS_LOADED'
+  return status === reachFilter.value
+}
+
+// Precomputed like aliasItems, so the template needs no index arithmetic.
+function loadedClassItems(item) {
+  return (item?.runtimeReach?.loadedClasses ?? []).map((className, index) => ({
+    className,
+    simpleName: className.substring(className.lastIndexOf('.') + 1),
+    showSeparator: index > 0
+  }))
+}
+
 const filteredDependencies = computed(() => {
   if (!data.value) return []
   const q = search.value.trim().toLowerCase()
@@ -118,10 +206,12 @@ const filteredDependencies = computed(() => {
       const matchesSearch =
         !q || dependency.packageName.toLowerCase().includes(q) || dependency.version.toLowerCase().includes(q)
       const matchesVulnerable = !vulnerableOnly.value || dependency.vulnerabilityCount > 0
-      return matchesSearch && matchesVulnerable
+      return matchesSearch && matchesVulnerable && matchesReach(dependency)
     })
     .sort(compareDependencies)
 })
+
+const tableColumns = computed(() => (reachAvailable.value ? 5 : 4))
 
 const maxSeverityCount = computed(() => {
   if (!data.value?.severityCounts?.length) return 1
@@ -463,11 +553,35 @@ onMounted(loadDependencies)
                 class="form-control form-control-sm dependency-search"
                 placeholder="Search group, artifact, or version"
               />
+              <select
+                v-if="reachAvailable"
+                v-model="reachFilter"
+                aria-label="Filter by runtime reach"
+                class="form-select form-select-sm reach-filter"
+              >
+                <option v-for="option in reachFilters" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
               <div class="form-check form-switch">
                 <input id="vulnerableOnly" v-model="vulnerableOnly" class="form-check-input" type="checkbox" />
                 <label class="form-check-label small" for="vulnerableOnly">Vulnerable only</label>
               </div>
             </div>
+          </div>
+          <div v-if="reachAvailable && runtimeReach.note" class="small text-muted mt-2 runtime-reach-note">
+            <i class="bi bi-info-circle me-1" aria-hidden="true"></i>{{ runtimeReach.note }}
+          </div>
+          <div
+            v-if="reachAvailable && runtimeReach.incompleteReason"
+            class="small text-muted mt-1 runtime-reach-incomplete"
+          >
+            <i class="bi bi-question-circle me-1" aria-hidden="true"></i>No dependency can be shown as not loaded yet:
+            {{ runtimeReach.incompleteReason }}
+          </div>
+          <div v-else-if="runtimeReach && !reachAvailable" class="small text-muted mt-2 runtime-reach-note">
+            <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Runtime reach is not shown:
+            {{ runtimeReach.unavailableReason }}
           </div>
         </div>
         <div class="table-responsive">
@@ -477,6 +591,7 @@ onMounted(loadDependencies)
                 <th>Dependency</th>
                 <th>Version</th>
                 <th>Risk</th>
+                <th v-if="reachAvailable">Runtime reach</th>
                 <th>Advisories</th>
               </tr>
             </thead>
@@ -490,6 +605,28 @@ onMounted(loadDependencies)
                   <span :class="severityClass(dependency.highestSeverity)" class="badge">
                     {{ dependency.highestSeverity }}
                   </span>
+                </td>
+                <td v-if="reachAvailable" class="runtime-reach">
+                  <span
+                    :class="`runtime-reach--${reachStatus(dependency).toLowerCase()}`"
+                    :title="reachTooltip(dependency)"
+                    class="badge runtime-reach__badge"
+                  >
+                    <i :class="reachIcon(dependency)" class="bi me-1" aria-hidden="true"></i
+                    >{{ reachLabel(dependency) }}
+                  </span>
+                  <div v-if="hasClassLoads(dependency)" class="small text-muted">
+                    {{ classCount(dependency.runtimeReach.classesLoaded) }} this run
+                  </div>
+                  <div v-if="dependency.runtimeReach?.firstRoute" class="small text-muted">
+                    first by <code>{{ dependency.runtimeReach.firstRoute }}</code>
+                  </div>
+                  <div
+                    v-if="reachStatus(dependency) === 'UNKNOWN' && reachReason(dependency)"
+                    class="small text-muted runtime-reach__reason"
+                  >
+                    {{ reachReason(dependency) }}
+                  </div>
                 </td>
                 <td>
                   <span v-if="dependency.vulnerabilities.length === 0" class="text-muted">
@@ -551,6 +688,20 @@ onMounted(loadDependencies)
                       <div class="small">
                         {{ vulnerability.summary || vulnerability.details || 'No advisory summary available.' }}
                       </div>
+                      <div
+                        v-if="reachAvailable && reachStatus(vulnerability) === 'AFFECTED_CLASS_LOADED'"
+                        :title="reachTooltip(vulnerability)"
+                        class="small runtime-reach__named"
+                      >
+                        <i class="bi bi-bullseye me-1" aria-hidden="true"></i>Named class loaded:
+                        <template v-for="item in loadedClassItems(vulnerability)" :key="item.className">
+                          <span v-if="item.showSeparator">, </span
+                          ><code :title="item.className">{{ item.simpleName }}</code>
+                        </template>
+                        <span v-if="vulnerability.advisorySymbolSource === 'ADVISORY_TEXT'" class="text-muted">
+                          (from the advisory text)</span
+                        >
+                      </div>
                       <div v-if="vulnerability.aliases.length" class="small text-muted">
                         <template v-for="item in aliasItems(vulnerability)" :key="item.alias">
                           <span v-if="item.showSeparator">, </span>
@@ -563,7 +714,9 @@ onMounted(loadDependencies)
                 </td>
               </tr>
               <tr v-if="filteredDependencies.length === 0">
-                <td class="text-muted text-center py-4" colspan="4">No dependencies match the current filters.</td>
+                <td :colspan="tableColumns" class="text-muted text-center py-4">
+                  No dependencies match the current filters.
+                </td>
               </tr>
             </tbody>
           </table>
@@ -585,5 +738,40 @@ onMounted(loadDependencies)
 .unidentified-archives {
   max-height: 14rem;
   overflow-y: auto;
+}
+
+.reach-filter {
+  width: auto;
+}
+
+.runtime-reach {
+  min-width: 9rem;
+  max-width: 16rem;
+}
+
+.runtime-reach__badge {
+  border: 1px solid var(--bs-border-color);
+  background-color: var(--bs-tertiary-bg);
+  color: var(--bs-emphasis-color);
+  font-weight: 500;
+}
+
+.runtime-reach--affected_class_loaded {
+  border-color: var(--bs-warning-border-subtle);
+  background-color: var(--bs-warning-bg-subtle);
+  color: var(--bs-warning-text-emphasis);
+}
+
+.runtime-reach--not_loaded,
+.runtime-reach--unknown {
+  color: var(--bs-secondary-color);
+}
+
+.runtime-reach__reason {
+  white-space: normal;
+}
+
+.runtime-reach__named {
+  color: var(--bs-warning-text-emphasis);
 }
 </style>

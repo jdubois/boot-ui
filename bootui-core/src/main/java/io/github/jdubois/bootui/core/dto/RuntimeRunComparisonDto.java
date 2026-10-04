@@ -20,6 +20,8 @@ import java.util.List;
  * @param restartCost the time to ready and the beans whose initialization moved, compared with the previous restart
  * @param latency the routes whose warm median moved, labelled noisy, last
  * @param limitations what the comparison cannot see
+ * @param codeChanges the methods changed, added, and removed since the previous run, which ran, and where: shown first;
+ *     {@code null} without the BootUI agent, and unavailable with the reason when the agent cannot list them
  */
 public record RuntimeRunComparisonDto(
         String status,
@@ -32,7 +34,8 @@ public record RuntimeRunComparisonDto(
         List<RuntimeRunChangeDto> edges,
         RuntimeRestartCostDto restartCost,
         List<RuntimeRunChangeDto> latency,
-        List<String> limitations) {
+        List<String> limitations,
+        RuntimeCodeChangesDto codeChanges) {
 
     /** The rows each list holds at most. */
     public static final int MAX_ROWS = 200;
@@ -44,5 +47,53 @@ public record RuntimeRunComparisonDto(
         edges = DtoCollections.immutableCopy(edges);
         latency = DtoCollections.immutableCopy(latency);
         limitations = DtoCollections.immutableCopy(limitations);
+    }
+
+    /** Why code changes are not listed when the inventory gave no reason. */
+    public static final String NO_CODE_CHANGES =
+            "Code changes need the BootUI agent's inventory sensor: see the Java" + " Agent panel.";
+
+    public RuntimeRunComparisonDto(
+            String status,
+            String reason,
+            RuntimeRunRefDto current,
+            RuntimeRunRefDto previous,
+            List<RuntimeRunRefDto> runs,
+            List<String> notComparableReasons,
+            List<RuntimeRunChangeDto> behavior,
+            List<RuntimeRunChangeDto> edges,
+            RuntimeRestartCostDto restartCost,
+            List<RuntimeRunChangeDto> latency,
+            List<String> limitations) {
+        this(
+                status,
+                reason,
+                current,
+                previous,
+                runs,
+                notComparableReasons,
+                behavior,
+                edges,
+                restartCost,
+                latency,
+                limitations,
+                null);
+    }
+
+    /** This comparison with {@code codeChanges}. */
+    public RuntimeRunComparisonDto withCodeChanges(RuntimeCodeChangesDto codeChanges) {
+        return new RuntimeRunComparisonDto(
+                status,
+                reason,
+                current,
+                previous,
+                runs,
+                notComparableReasons,
+                behavior,
+                edges,
+                restartCost,
+                latency,
+                limitations,
+                codeChanges);
     }
 }

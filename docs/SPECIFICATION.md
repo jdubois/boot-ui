@@ -1065,6 +1065,22 @@ Features:
 - Preserve DTO fields and `advisoryId::packageName` dismissal keys, independent of installed version. Count advisory
   occurrences per dependency, not unique CVEs; alias-cluster merging is deferred. REST, MCP, and CLI use the same
   interpretation and unchanged names/arguments. Shared local-only/Host/cross-site-write/read-only policy is unchanged.
+- Normalize each advisory to the classes or methods it names (`advisorySymbols`, Java binary names, at most 20) with
+  their provenance (`advisorySymbolSource`): `OSV` from the matching `affected[]` entries' `ecosystem_specific` or
+  `database_specific` `imports[].symbols`, `affected_functions`, or `symbols`; else `ADVISORY_TEXT` from fully qualified
+  class names in the summary and details; else an explicit `NONE`.
+- Runtime reach (PLAN-v2 §5.15, M5-9a): with the BootUI agent's `inventory` sensor recording this run, both
+  `GET {api}/vulnerabilities` and `POST {api}/vulnerabilities/scan`, and so `get_vulnerabilities_report` and
+  `vulnerabilities_scan`, carry `runtimeReach` on the report (`available`, `unavailableReason`, `generation`, `note`,
+  and `incompleteReason`, said once when no dependency can be shown as not loaded),
+  on each dependency, and on each advisory (`status`, `reason`, `classesLoaded` in this run, `classesLoadedTotal` in this
+  JVM, `loadedThisRun`, `firstRoute`, `loadedClasses`). Reach is read when answered, from the agent's in-memory
+  class-load evidence and never with the cached scan, and only while the Code Inventory panel, whose evidence it is, is
+  enabled; otherwise `available` is false with the reason and rows carry `null`. Statuses: `AFFECTED_CLASS_LOADED` (a
+  class the advisory names loaded from the dependency's own jar), `LOADED`, `NOT_LOADED` (no class of the jar loaded in
+  this JVM, said only when the evidence could have shown a load), and `UNKNOWN` with its reason. `firstRoute` is HTTP
+  Exchanges evidence, omitted while that panel is not visible. The UI adds a **Runtime reach** column and filter only
+  when `available` is true.
 
 Acceptance criteria:
 
@@ -1082,6 +1098,14 @@ Acceptance criteria:
 - An unreadable Spring `pom.properties` resource, a malformed or unreadable SBOM, and an unreadable classpath archive
   are each logged and skipped without discarding entries that did resolve; Quarkus continues to use its build-time
   resolved runtime dependency model and fails soft on malformed entries.
+- The panel's and the Scorecard's scores, severities, counts, evidence, and penalties are identical with the BootUI
+  agent on and off: runtime reach only adds `runtimeReach` fields.
+- An unknown runtime reach never reads as `NOT_LOADED`: without the agent's class-name evidence, with its class-load
+  recorder not running or not done walking the loaded classes, with code sources past its limit, when the dependency's
+  jar was not found or holds no classes, when a class of one of its jar's packages was defined without a code-source
+  location, or with a loaded jar that may be the dependency (no Maven metadata and the artifact in its file name, or
+  shaded coordinates naming it), reach is `UNKNOWN`, as it is for web-resource jars and artifacts whose classes the agent
+  never records.
 
 Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
@@ -1704,7 +1728,15 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   run, the mapped routes that reach it and did not, and the routes outside its reach that use a table, cache, or host
   the routes through it touched, with the structural reach as a count. A route is its own impact: it is listed itself,
   with the routes sharing what it touched. A known handler method (`Class#method`, with `#` URL-encoded as `%23`)
-  narrows the answer to that method's mapped routes; the class alone still includes the whole bean. Whole-run route
+  narrows the answer to that method's mapped routes (`observedFrom=HANDLER_MAPPING`); the class alone still includes
+  the whole bean (`observedFrom=STRUCTURE`). With the BootUI agent's `code-paths` sensor, any application method is a
+  symbol: `Class#method`, `Class.method(...)`, or `METHOD fq.Class#method`, with Java parameter types or a JVM
+  descriptor naming one overload (M5-7a, [PLAN-v2.md](PLAN-v2.md) §5.17). Its observed routes
+  (`observedFrom=ROUTE_TREES`) are those whose requests' own call trees ran it, at any depth, from each route's tree
+  amended by late fragments, or Code Inventory's first-request route, never composed from `INVOKES` edges; each carries
+  `executedRequests` and `partial`. `methods` lists the method keys it names, `methodStatus` what Code Inventory says,
+  and `notObserved` the routes reaching its bean that ran without their trees showing it, with why that proves nothing;
+  such a route is in `notExercised` only when Code Inventory saw every overload never run in this run. Whole-run route
   counts survive event eviction; when aggregate route counts overflow, an unknown route is not called unexercised,
   and `notExercisedUndetermined=true` marks the list incomplete. Disabled source-panel facts are omitted and named
   as limitations only when relevant evidence was recorded; when HTTP Exchanges is disabled the answer is
@@ -1721,7 +1753,11 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
   removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
-  list holds at most 200 rows.
+  list holds at most 200 rows. `codeChanges`, shown first, lists with the BootUI agent the methods Code Inventory found
+  changed or added since the previous run, not run yet first, each with its status and the routes whose call trees ran
+  it, with the change counts, removed methods counted only (M5-7a). It is `null` without the agent, and
+  `available=false` with the reason while the inventory sensor or the Code Inventory panel cannot answer, or against a
+  run other than the previous one.
 - `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
   §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
@@ -2987,9 +3023,9 @@ Initial endpoints:
 | `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
 | `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, limitations, and the declared routes not exercised in this run |
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
-| `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, method (`Class#method`, read from the route trees with the BootUI agent), repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |

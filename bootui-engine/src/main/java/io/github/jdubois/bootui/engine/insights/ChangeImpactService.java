@@ -4,6 +4,9 @@ import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactRouteDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
+import io.github.jdubois.bootui.engine.codepaths.MethodRoutes;
+import io.github.jdubois.bootui.engine.codepaths.TracedMethods;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
@@ -14,6 +17,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.VisibleJournalEntries;
 import io.github.jdubois.bootui.engine.model.AppEventPublications;
+import io.github.jdubois.bootui.engine.model.BeanInvocations;
 import io.github.jdubois.bootui.engine.model.EdgeType;
 import io.github.jdubois.bootui.engine.model.ModelEdge;
 import io.github.jdubois.bootui.engine.model.ModelNode;
@@ -38,6 +42,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -94,6 +101,8 @@ public final class ChangeImpactService {
     private final Predicate<String> panelEnabled;
 
     private volatile InsightsStack stack;
+    private volatile Function<Predicate<String>, MethodRoutes> codePaths;
+    private volatile BiFunction<String, String, CodeInventoryService.MethodLookup> inventory;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -123,6 +132,23 @@ public final class ChangeImpactService {
         this.stack = stack;
     }
 
+    /**
+     * Installs how the routes whose requests executed a method are read, such as {@link
+     * io.github.jdubois.bootui.engine.codepaths.CodePathsService#methodRoutes}, so a method's observed routes come from
+     * the route trees (M5-7a); without it, only handler methods are checked.
+     */
+    public void setCodePaths(Function<Predicate<String>, MethodRoutes> codePaths) {
+        this.codePaths = codePaths;
+    }
+
+    /**
+     * Installs how a method's overloads, status, and first route are read from Code Inventory, such as {@link
+     * CodeInventoryService#lookup} (M5-7a).
+     */
+    public void setCodeInventory(BiFunction<String, String, CodeInventoryService.MethodLookup> inventory) {
+        this.inventory = inventory;
+    }
+
     /** What a change to {@code symbol} reaches in this run. */
     public RuntimeChangeImpactDto impact(String symbol) {
         String asked = symbol == null ? "" : symbol.strip();
@@ -135,7 +161,7 @@ public final class ChangeImpactService {
         if (asked.isEmpty()) {
             return new RuntimeChangeImpactDto(
                     NOT_FOUND,
-                    "Name a route, a bean, a class, a repository, a table, a cache, or a host.",
+                    "Name a route, a bean, a class, a method, a repository, a table, a cache, or a host.",
                     asked,
                     null,
                     List.of(),
@@ -158,18 +184,25 @@ public final class ChangeImpactService {
         Set<String> omitted = omittedEvidence(recorded, visible);
         List<JournalEntry> entries = visibleEntries(recorded, visible);
         StructureSnapshot structure = models.structure();
-        HandlerMethod method = HandlerMethod.parse(asked);
+        MethodSymbol method = MethodSymbol.parse(asked, false);
         if (method != null) {
-            return method(asked, model, structure, method, entries, visible, omitted);
+            return method(asked, model, structure, method, entries, visible, omitted, false);
         }
         List<ModelNode> candidates = candidates(model, structure, asked);
         if (candidates.isEmpty()) {
+            MethodSymbol dotted = MethodSymbol.parse(asked, true);
+            RuntimeChangeImpactDto byMethod =
+                    dotted == null ? null : method(asked, model, structure, dotted, entries, visible, omitted, true);
+            if (byMethod != null) {
+                return byMethod;
+            }
             if (structure.beansUnavailable() != null) {
                 return unavailable(asked, structure.beansUnavailable());
             }
             return new RuntimeChangeImpactDto(
                     NOT_FOUND,
-                    "No route, bean, repository, table, cache, or host named `" + asked + "` is in this run's model.",
+                    "No route, bean, repository, table, cache, host, or method named `" + asked
+                            + "` is in this run's model.",
                     asked,
                     null,
                     List.of(),
@@ -212,7 +245,7 @@ public final class ChangeImpactService {
             List<JournalEntry> entries,
             Map<String, Boolean> visible,
             Set<String> omitted) {
-        return resolved(asked, model, structure, start, null, entries, visible, omitted);
+        return resolved(asked, model, structure, start, null, entries, visible, omitted, List.of());
     }
 
     /**
@@ -227,7 +260,8 @@ public final class ChangeImpactService {
             MappedMethod mapped,
             List<JournalEntry> entries,
             Map<String, Boolean> visible,
-            Set<String> omitted) {
+            Set<String> omitted,
+            List<String> extraLimitations) {
         boolean resource = start != null && RESOURCES.contains(start.type());
         boolean routeStart = start != null && ROUTES.contains(start.type());
         Map<Integer, Integer> closure = mapped != null
@@ -270,35 +304,11 @@ public final class ChangeImpactService {
                 undetermined = true;
             }
         }
-        Set<Integer> touched = new LinkedHashSet<>();
-        if (resource) {
-            touched.add(start.id());
-        } else {
-            for (int route : observedRoutes) {
-                for (ModelEdge edge : model.outgoing(route)) {
-                    if (ACCESS.contains(edge.type())
-                            && RESOURCES.contains(model.node(edge.to()).type())) {
-                        touched.add(edge.to());
-                    }
-                }
-            }
+        List<RuntimeImpactRouteDto> shared =
+                sharedResources(model, observedRoutes, closure, resource ? start : null, stats, exemplars, visible);
+        if (start != null) {
+            shared.removeIf(row -> row.route().equals(start.key()) && ROUTES.contains(start.type()));
         }
-        List<RuntimeImpactRouteDto> shared = new ArrayList<>();
-        Map<Integer, Set<String>> sharedBy = new HashMap<>();
-        for (int resourceId : touched) {
-            for (ModelEdge edge : model.incoming(resourceId)) {
-                ModelNode from = model.node(edge.from());
-                if (ACCESS.contains(edge.type())
-                        && (from.type() == NodeType.ROUTE || from.type() == NodeType.GRAPHQL_OPERATION)
-                        && !closure.containsKey(edge.from())
-                        && (start == null || edge.from() != start.id())) {
-                    sharedBy.computeIfAbsent(edge.from(), ignored -> new LinkedHashSet<>())
-                            .add(label(model.node(resourceId)));
-                }
-            }
-        }
-        sharedBy.forEach((id, resources) ->
-                shared.add(row(model, model.node(id), stats, exemplars, List.copyOf(resources), null, visible)));
         Comparator<RuntimeImpactRouteDto> busiest = Comparator.comparingLong(RuntimeImpactRouteDto::requests)
                 .reversed()
                 .thenComparing(RuntimeImpactRouteDto::route);
@@ -325,6 +335,7 @@ public final class ChangeImpactService {
                     + " it is not counted, and its overloads count as one method. Name its class to check the whole"
                     + " bean.");
         }
+        limitations.addAll(extraLimitations);
         if (structure.beansUnavailable() != null) {
             limitations.add(structure.beansUnavailable());
         }
@@ -346,57 +357,136 @@ public final class ChangeImpactService {
                 capped(shared),
                 shared.size(),
                 limitations,
-                undetermined);
+                undetermined,
+                mapped != null ? RuntimeChangeImpactDto.FROM_HANDLER_MAPPING : RuntimeChangeImpactDto.FROM_STRUCTURE,
+                List.of(),
+                null,
+                List.of(),
+                0);
     }
 
     /**
-     * A handler method's impact: the routes mapped to exactly one handler class's method of that name, ambiguous when
-     * classes in several packages share the simple name asked for, and never guessed when no route is mapped to it.
+     * The routes outside {@code closure} that touch what the observed routes touched, or, for a resource,
+     * {@code resource} itself: they share a table, cache, host, or event with the changed code, not code.
+     */
+    private List<RuntimeImpactRouteDto> sharedResources(
+            RuntimeModel model,
+            Set<Integer> observedRoutes,
+            Map<Integer, Integer> closure,
+            ModelNode resource,
+            Map<String, RouteStats> stats,
+            Map<String, List<String>> exemplars,
+            Map<String, Boolean> visible) {
+        Set<Integer> touched = new LinkedHashSet<>();
+        if (resource != null) {
+            touched.add(resource.id());
+        } else {
+            for (int route : observedRoutes) {
+                for (ModelEdge edge : model.outgoing(route)) {
+                    if (ACCESS.contains(edge.type())
+                            && RESOURCES.contains(model.node(edge.to()).type())) {
+                        touched.add(edge.to());
+                    }
+                }
+            }
+        }
+        Map<Integer, Set<String>> sharedBy = new LinkedHashMap<>();
+        for (int resourceId : touched) {
+            for (ModelEdge edge : model.incoming(resourceId)) {
+                ModelNode from = model.node(edge.from());
+                if (ACCESS.contains(edge.type())
+                        && ROUTES.contains(from.type())
+                        && !closure.containsKey(edge.from())
+                        && !observedRoutes.contains(edge.from())) {
+                    sharedBy.computeIfAbsent(edge.from(), ignored -> new LinkedHashSet<>())
+                            .add(label(model.node(resourceId)));
+                }
+            }
+        }
+        List<RuntimeImpactRouteDto> shared = new ArrayList<>();
+        sharedBy.forEach((id, resources) ->
+                shared.add(row(model, model.node(id), stats, exemplars, List.copyOf(resources), null, visible)));
+        return shared;
+    }
+
+    // --- methods (M5-7a)
+    // ----------------------------------------------------------------------------------------------
+
+    /**
+     * A method's impact ({@code docs/PLAN-v2.md} §5.7, §5.17, M5-7a). With the agent's code-paths sensor, its observed
+     * routes are those whose requests' own call trees executed it, never routes merely reaching its bean, nor composed
+     * from calls observed across requests; a route that reaches it and ran without its trees showing it is listed apart,
+     * as not observed, unless Code Inventory saw the method never run in this run. Without the sensor, only a handler
+     * method is checked, through the routes mapped to it.
+     *
+     * @param fallback whether {@code Class.name} was tried only because no other symbol matched: answers {@code null}
+     *     instead of not found
      */
     private RuntimeChangeImpactDto method(
             String asked,
             RuntimeModel model,
             StructureSnapshot structure,
-            HandlerMethod method,
+            MethodSymbol method,
             List<JournalEntry> entries,
             Map<String, Boolean> visible,
-            Set<String> omitted) {
-        Map<String, List<String>> routesByHandler = new HashMap<>();
-        for (StructureSnapshot.RouteHandler route : structure.routes()) {
-            if (method.handles(route)) {
-                routesByHandler
-                        .computeIfAbsent(route.handlerClass(), ignored -> new ArrayList<>())
-                        .add(route.route());
+            Set<String> omitted,
+            boolean fallback) {
+        // Traffic first: every request it counts had ended, so its call had set Code Inventory's flag and sent its
+        // fragments before either is read, and a route is never said not to have run what one of its requests ran.
+        var aggregate = aggregates.snapshot();
+        MethodRoutes paths = methodRoutes(method);
+        CodeInventoryService.MethodLookup lookup = lookup(method);
+        Map<String, Map<String, CodeInventoryService.InventoryMethod>> byClass = new TreeMap<>();
+        if (lookup != null) {
+            for (CodeInventoryService.InventoryMethod found : lookup.methods()) {
+                if (method.name().equals(found.method().name())
+                        && method.namesClass(found.method().className())
+                        && method.matchesDescriptor(found.method().descriptor())) {
+                    byClass.computeIfAbsent(found.method().className(), ignored -> new TreeMap<>())
+                            .put(found.method().key(), found);
+                }
             }
         }
-        if (routesByHandler.isEmpty()) {
-            return new RuntimeChangeImpactDto(
-                    NOT_FOUND,
-                    "No route in this run is mapped to a handler method `" + method.name() + "` of `" + method.type()
-                            + "`: name its class to check the whole bean.",
-                    asked,
-                    null,
-                    List.of(),
-                    0,
-                    List.of(),
-                    0,
-                    List.of(),
-                    0,
-                    List.of(),
-                    0,
-                    limitations(model, omitted));
+        Set<String> executedKeys = new LinkedHashSet<>(paths.routesByKey().keySet());
+        executedKeys.addAll(paths.unrouted().keySet());
+        for (String key : executedKeys) {
+            byClass.computeIfAbsent(key.substring(0, key.indexOf('#')), ignored -> new TreeMap<>())
+                    .putIfAbsent(key, null);
         }
-        List<String> handlers = routesByHandler.keySet().stream().sorted().toList();
-        if (handlers.size() > 1) {
+        Map<String, List<String>> handlers = new TreeMap<>();
+        for (StructureSnapshot.RouteHandler route : structure.routes()) {
+            if (route.handlerClass() != null
+                    && method.name().equals(route.handlerMethod())
+                    && method.namesClass(route.handlerClass())) {
+                handlers.computeIfAbsent(route.handlerClass(), ignored -> new ArrayList<>())
+                        .add(route.route());
+                byClass.computeIfAbsent(route.handlerClass(), ignored -> new TreeMap<>());
+            }
+        }
+        if (byClass.isEmpty()) {
+            if (fallback) {
+                return null;
+            }
+            if (paths.failed()) {
+                return unavailable(asked, paths.unavailableReason());
+            }
+            String reason = paths.available()
+                    ? "No method `" + method.name() + "` of `" + method.type() + "` is in this run's Code Inventory or"
+                            + " call trees, and no route is mapped to it as its handler."
+                    : "No route in this run is mapped to a handler method `" + method.name() + "` of `"
+                            + method.type() + "`: without the BootUI agent's code-paths sensor, only handler methods"
+                            + " can be checked (" + stripPeriod(paths.unavailableReason())
+                            + "): name its class to check the whole bean.";
+            return notFound(asked, reason, limitations(model, omitted));
+        }
+        if (byClass.size() > 1) {
+            List<String> labels = byClass.keySet().stream().map(method::label).toList();
             return new RuntimeChangeImpactDto(
                     AMBIGUOUS,
-                    "`" + asked + "` names " + handlers.size() + " handler methods: name one of them.",
+                    "`" + asked + "` names methods of " + labels.size() + " classes: name one of them.",
                     asked,
                     null,
-                    handlers.stream()
-                            .limit(RuntimeChangeImpactDto.MAX_ROWS)
-                            .map(handler -> new MappedMethod(handler + "#" + method.name(), List.of()).label())
-                            .toList(),
+                    labels.stream().limit(RuntimeChangeImpactDto.MAX_ROWS).toList(),
                     0,
                     List.of(),
                     0,
@@ -406,75 +496,403 @@ public final class ChangeImpactService {
                     0,
                     List.of());
         }
-        String handler = handlers.get(0);
-        return resolved(
-                asked,
-                model,
-                structure,
-                null,
-                new MappedMethod(handler + "#" + method.name(), routesByHandler.get(handler)),
-                entries,
-                visible,
+        String className = byClass.keySet().iterator().next();
+        Map<String, CodeInventoryService.InventoryMethod> keys = byClass.get(className);
+        List<String> mapped = handlers.getOrDefault(className, List.of());
+        if (!paths.available()) {
+            if (paths.failed() && mapped.isEmpty()) {
+                return unavailable(asked, paths.unavailableReason());
+            }
+            if (mapped.isEmpty()) {
+                return notFound(
+                        asked,
+                        "`" + className + "#" + method.name() + "` is the handler of no route in this run: without"
+                                + " the BootUI agent's code-paths sensor, only handler methods can be checked ("
+                                + stripPeriod(paths.unavailableReason()) + "): name its class to check the whole bean.",
+                        limitations(model, omitted));
+            }
+            return resolved(
+                    asked,
+                    model,
+                    structure,
+                    null,
+                    new MappedMethod(className + "#" + method.name(), mapped),
+                    entries,
+                    visible,
+                    omitted,
+                    List.of("With the BootUI agent's code-paths sensor, a method's observed routes are those whose"
+                            + " requests executed it, at any depth: " + paths.unavailableReason()));
+        }
+        return traced(
+                asked, model, structure, method, className, keys, mapped, paths, lookup, aggregate, entries, visible,
                 omitted);
     }
 
-    /**
-     * A method symbol, such as {@code ProductController#list}, {@code com.example.ProductController#list(Pageable)}, or
-     * a candidate's {@code METHOD com.example.ProductController#list}.
-     *
-     * @param type the class as asked, fully qualified or simple
-     * @param name the method's name; parameter types are not compared
-     */
-    private record HandlerMethod(String type, String name) {
+    /** A method's impact read from the route trees. */
+    private RuntimeChangeImpactDto traced(
+            String asked,
+            RuntimeModel model,
+            StructureSnapshot structure,
+            MethodSymbol method,
+            String className,
+            Map<String, CodeInventoryService.InventoryMethod> keys,
+            List<String> mapped,
+            MethodRoutes paths,
+            CodeInventoryService.MethodLookup lookup,
+            JournalAggregates.AggregatesSnapshot aggregate,
+            List<JournalEntry> entries,
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
+        Map<String, RouteStats> stats = new HashMap<>();
+        aggregate.routes().forEach(route -> stats.put(route.route(), route));
+        boolean routeOverflow = aggregate.overflowed().getOrDefault("routes", 0L) > 0;
+        Map<String, List<String>> exemplars = exemplars(entries);
 
-        static final String KIND = "METHOD";
-
-        /** The method {@code symbol} names, or {@code null} when it does not name one. */
-        static HandlerMethod parse(String symbol) {
-            String text = symbol.startsWith(KIND + " ")
-                    ? symbol.substring(KIND.length() + 1).strip()
-                    : symbol;
-            int hash = text.indexOf('#');
-            if (hash <= 0 || text.indexOf('#', hash + 1) >= 0) {
-                return null;
+        // Observed: the routes whose requests' own trees executed it, or Code Inventory's first request's route.
+        Map<String, Long> executed = new LinkedHashMap<>();
+        for (String key : keys.keySet()) {
+            paths.routesByKey()
+                    .getOrDefault(key, Map.of())
+                    .forEach((route, count) -> executed.merge(route, count, Math::max));
+        }
+        Set<String> firstOnly = new LinkedHashSet<>();
+        for (CodeInventoryService.InventoryMethod found : keys.values()) {
+            String route = found == null ? null : found.method().firstRoute();
+            if (route != null
+                    && !executed.containsKey(route)
+                    && (stats.containsKey(route) || routeNode(model, route) != null)) {
+                executed.put(route, 1L);
+                firstOnly.add(route);
             }
-            String type = text.substring(0, hash);
-            String name = text.substring(hash + 1);
-            int parenthesis = name.indexOf('(');
-            if (parenthesis >= 0) {
-                if (!name.endsWith(")")) {
-                    return null;
+        }
+        List<RuntimeImpactRouteDto> observed = new ArrayList<>();
+        Set<Integer> observedIds = new LinkedHashSet<>();
+        for (Map.Entry<String, Long> route : executed.entrySet()) {
+            ModelNode node = routeNode(model, route.getKey());
+            if (node != null) {
+                observedIds.add(node.id());
+            }
+            MethodRoutes.RouteEvidence evidence = paths.routes().get(route.getKey());
+            observed.add(routeRow(
+                    model,
+                    route.getKey(),
+                    node,
+                    stats,
+                    exemplars,
+                    List.of(),
+                    null,
+                    visible,
+                    route.getValue(),
+                    firstOnly.contains(route.getKey()) || (evidence != null && evidence.partial())));
+        }
+
+        // Declared: the routes mapped to it, and those reaching a bean of its class through the bean graph.
+        Map<String, String> types = beanTypes(structure);
+        Map<Integer, Integer> closure = new HashMap<>();
+        boolean bean = false;
+        for (ModelNode node : model.nodes()) {
+            if ((node.type() == NodeType.BEAN || node.type() == NodeType.REPOSITORY)
+                    && className.equals(BeanInvocations.userClass(types.get(node.key())))) {
+                bean = true;
+                ReverseClosure.of(model, node.id(), CODE, ReverseClosure.MAX_DEPTH)
+                        .forEach((id, depth) -> closure.merge(id, depth, Math::min));
+            }
+        }
+        Set<Integer> declared = new LinkedHashSet<>();
+        for (String route : mapped) {
+            ModelNode node = routeNode(model, route);
+            if (node != null) {
+                declared.add(node.id());
+            }
+        }
+        for (int id : closure.keySet()) {
+            if (ROUTES.contains(model.node(id).type())) {
+                declared.add(id);
+            }
+        }
+
+        boolean proven = neverRan(method, keys, lookup);
+        List<String> silence = silence(className, method, keys, paths);
+        List<RuntimeImpactRouteDto> notExercised = new ArrayList<>();
+        List<RuntimeImpactRouteDto> notObserved = new ArrayList<>();
+        boolean undetermined = false;
+        for (int id : declared) {
+            ModelNode node = model.node(id);
+            if (executed.containsKey(node.key())) {
+                continue;
+            }
+            RouteStats routeStats = stats.get(node.key());
+            long requests = routeStats != null ? routeStats.requests() : model.executions(id);
+            if (requests == 0) {
+                if (routeOverflow) {
+                    undetermined = true;
+                } else {
+                    notExercised.add(routeRow(
+                            model,
+                            node.key(),
+                            node,
+                            stats,
+                            exemplars,
+                            List.of(),
+                            "Exercise `" + node.key() + "` before relying on this change: no request reached it in"
+                                    + " this run.",
+                            visible,
+                            0L,
+                            false));
                 }
-                name = name.substring(0, parenthesis);
+            } else if (proven) {
+                notExercised.add(routeRow(
+                        model,
+                        node.key(),
+                        node,
+                        stats,
+                        exemplars,
+                        List.of(),
+                        "`" + node.key() + "` served " + requests(requests) + " in this run, and Code Inventory saw"
+                                + " the method never run: send a request of `" + node.key() + "` that reaches it.",
+                        visible,
+                        0L,
+                        false));
+            } else {
+                undetermined = true;
+                MethodRoutes.RouteEvidence evidence = paths.routes().get(node.key());
+                List<String> why = new ArrayList<>(silence);
+                if (evidence == null) {
+                    why.add("none of its requests has a call tree");
+                } else {
+                    if (evidence.requests() < requests) {
+                        why.add("only " + evidence.requests() + " of its " + requests(requests) + " have a call tree");
+                    }
+                    why.addAll(evidence.reasons());
+                }
+                notObserved.add(routeRow(
+                        model,
+                        node.key(),
+                        node,
+                        stats,
+                        exemplars,
+                        List.of(),
+                        "`" + node.key() + "` served " + requests(requests) + " in this run without its call trees"
+                                + " showing the method, which does not prove it did not run"
+                                + (why.isEmpty() ? "" : ": " + String.join("; ", why)) + ".",
+                        visible,
+                        0L,
+                        evidence == null || evidence.partial()));
             }
-            return javaName(type) && javaName(name) && !name.contains(".") ? new HandlerMethod(type, name) : null;
         }
 
-        boolean handles(StructureSnapshot.RouteHandler route) {
-            String handler = route.handlerClass();
-            return handler != null
-                    && name.equals(route.handlerMethod())
-                    && (handler.equals(type)
-                            || handler.replace('$', '.').equals(type)
-                            || simpleName(handler).equals(type));
-        }
+        List<RuntimeImpactRouteDto> shared =
+                sharedResources(model, observedIds, closure, null, stats, exemplars, visible);
+        Comparator<RuntimeImpactRouteDto> busiest = Comparator.comparingLong(RuntimeImpactRouteDto::requests)
+                .reversed()
+                .thenComparing(RuntimeImpactRouteDto::route);
+        observed.sort(Comparator.comparingLong(RuntimeImpactRouteDto::executedRequests)
+                .reversed()
+                .thenComparing(busiest));
+        notObserved.sort(busiest);
+        shared.sort(busiest);
+        notExercised.sort(Comparator.comparing(RuntimeImpactRouteDto::route));
 
-        private static boolean javaName(String text) {
-            if (text.isEmpty()) {
+        List<String> limitations = new ArrayList<>(limitations(model, omitted));
+        limitations.add("A route is observed only when its requests' own call trees executed the method, its first"
+                + " request, executor work the agent followed, and fragments that arrived late included, or when Code"
+                + " Inventory saw a request of it run the method first; route traffic alone never counts, and calls"
+                + " observed across requests are never composed into a route.");
+        if (!method.overloadNamed() && keys.size() > 1) {
+            limitations.add("`" + method.name() + "` names " + keys.size() + " overloads, checked as one method: add"
+                    + " its parameter types, such as `" + method.name() + "(String)`, to check one.");
+        }
+        if (!silence.isEmpty()) {
+            limitations.add("The call trees can miss this method: " + String.join("; ", silence) + ".");
+        }
+        long unrouted = 0;
+        for (String key : keys.keySet()) {
+            unrouted += paths.unrouted().getOrDefault(key, 0L);
+        }
+        if (unrouted > 0) {
+            limitations.add(unrouted + (unrouted == 1 ? " request tree" : " request trees") + " without a known route,"
+                    + " or past the route trees' bounds, executed it.");
+        }
+        limitations.addAll(paths.limitations());
+        if (proven) {
+            limitations.add(
+                    "Code Inventory saw no call of it in this run: " + CodeInventoryService.NOT_SEEN_BEFORE_CLAIM);
+        } else if (lookup == null) {
+            limitations.add("Code Inventory is unavailable, so a route that ran without its call trees showing the"
+                    + " method is never said not to have run it.");
+        }
+        if (!notObserved.isEmpty()) {
+            limitations.add("Executor work still running, or that the agent did not follow onto its thread, is in no"
+                    + " call tree.");
+        }
+        if (!bean && mapped.isEmpty()) {
+            limitations.add("`" + className + "` is no bean of this run, so the routes that could reach the method"
+                    + " are not known: only the routes that ran it are listed.");
+        }
+        if (structure.beansUnavailable() != null) {
+            limitations.add(structure.beansUnavailable());
+        }
+        if (routeOverflow && undetermined) {
+            limitations.add("The route aggregate reached its cardinality limit: routes absent from its counts and"
+                    + " the retained journal cannot be classified as not exercised.");
+        }
+        List<String> methods = new ArrayList<>(keys.keySet());
+        return new RuntimeChangeImpactDto(
+                RESOLVED,
+                null,
+                asked,
+                method.label(className),
+                List.of(),
+                closure.isEmpty() ? declared.size() : closure.size(),
+                capped(observed),
+                observed.size(),
+                capped(notExercised),
+                notExercised.size(),
+                capped(shared),
+                shared.size(),
+                limitations,
+                undetermined,
+                RuntimeChangeImpactDto.FROM_ROUTE_TREES,
+                methods.size() <= RuntimeChangeImpactDto.MAX_ROWS
+                        ? methods
+                        : methods.subList(0, RuntimeChangeImpactDto.MAX_ROWS),
+                methodStatus(keys),
+                capped(notObserved),
+                notObserved.size());
+    }
+
+    /**
+     * Whether Code Inventory proves the method never ran in this run: every overload it names has an inventory row, all
+     * {@code NEVER_EXECUTED}, from a complete scan unless one overload was named.
+     */
+    private static boolean neverRan(
+            MethodSymbol method,
+            Map<String, CodeInventoryService.InventoryMethod> keys,
+            CodeInventoryService.MethodLookup lookup) {
+        if (lookup == null || keys.isEmpty() || (!method.overloadNamed() && !lookup.complete())) {
+            return false;
+        }
+        for (CodeInventoryService.InventoryMethod found : keys.values()) {
+            if (found == null
+                    || !CodeInventoryService.NEVER_EXECUTED.equals(
+                            found.method().status())) {
                 return false;
             }
-            for (String part : text.split("\\.", -1)) {
-                if (part.isEmpty() || !Character.isJavaIdentifierStart(part.charAt(0))) {
-                    return false;
-                }
-                for (int i = 1; i < part.length(); i++) {
-                    if (!Character.isJavaIdentifierPart(part.charAt(i))) {
-                        return false;
-                    }
-                }
-            }
-            return true;
         }
+        return true;
+    }
+
+    /** Why the call trees may not show the method even when a request ran it. */
+    private static List<String> silence(
+            String className,
+            MethodSymbol method,
+            Map<String, CodeInventoryService.InventoryMethod> keys,
+            MethodRoutes paths) {
+        List<String> why = new ArrayList<>();
+        boolean untraced = false;
+        boolean unknown = keys.isEmpty();
+        for (Map.Entry<String, CodeInventoryService.InventoryMethod> key : keys.entrySet()) {
+            String descriptor = key.getKey().substring(key.getKey().indexOf('('));
+            int access = key.getValue() == null ? -1 : key.getValue().access();
+            Boolean traced = key.getValue() == null && paths.routesByKey().containsKey(key.getKey())
+                    ? Boolean.TRUE
+                    : TracedMethods.traced(className, method.name(), descriptor, access, paths.beanClasses());
+            if (Boolean.FALSE.equals(traced)) {
+                untraced = true;
+            } else if (traced == null) {
+                unknown = true;
+            }
+        }
+        if (untraced) {
+            why.add(TracedMethods.NOT_TRACED);
+        } else if (unknown) {
+            why.add("whether the code-paths sensor times it is unknown, as Code Inventory has not read its class");
+        }
+        if (!paths.excluded().isEmpty()) {
+            why.add("the code-paths sensor adaptively excluded it in this run, so later calls are in no call tree");
+        }
+        return why;
+    }
+
+    /** Code Inventory's word on the methods: executed if any ran, never executed if none did and all were tracked. */
+    private static String methodStatus(Map<String, CodeInventoryService.InventoryMethod> keys) {
+        boolean any = false;
+        boolean never = true;
+        boolean untracked = false;
+        for (CodeInventoryService.InventoryMethod found : keys.values()) {
+            if (found == null) {
+                never = false;
+                continue;
+            }
+            any = true;
+            String status = found.method().status();
+            if (CodeInventoryService.EXECUTED.equals(status) || CodeInventoryService.GENERATED.equals(status)) {
+                return CodeInventoryService.EXECUTED;
+            }
+            if (!CodeInventoryService.NEVER_EXECUTED.equals(status)) {
+                never = false;
+                untracked |= CodeInventoryService.NOT_TRACKED.equals(status);
+            }
+        }
+        if (!any) {
+            return null;
+        }
+        if (never) {
+            return CodeInventoryService.NEVER_EXECUTED;
+        }
+        return untracked ? CodeInventoryService.NOT_TRACKED : null;
+    }
+
+    /** The routes' executed methods for {@code method}, or unavailable with the reason; never throws. */
+    private MethodRoutes methodRoutes(MethodSymbol method) {
+        Function<Predicate<String>, MethodRoutes> source = codePaths;
+        if (source == null) {
+            return MethodRoutes.unavailable("the BootUI agent is not attached.");
+        }
+        try {
+            MethodRoutes routes = source.apply(method::matchesKey);
+            return routes == null ? MethodRoutes.unavailable("the BootUI agent is not attached.") : routes;
+        } catch (RuntimeException ex) {
+            return MethodRoutes.unavailable(
+                    MethodRoutes.READ_FAILED + ex.getClass().getSimpleName() + ".");
+        }
+    }
+
+    /** Code Inventory's methods of that name and class, or {@code null} when it cannot answer; never throws. */
+    private CodeInventoryService.MethodLookup lookup(MethodSymbol method) {
+        BiFunction<String, String, CodeInventoryService.MethodLookup> source = inventory;
+        if (source == null) {
+            return null;
+        }
+        try {
+            CodeInventoryService.MethodLookup lookup = source.apply(method.type(), method.name());
+            return lookup == null || lookup.unavailableReason() != null ? null : lookup;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static ModelNode routeNode(RuntimeModel model, String route) {
+        return model.node(NodeType.ROUTE, route)
+                .or(() -> model.node(NodeType.GRAPHQL_OPERATION, route))
+                .orElse(null);
+    }
+
+    private static String requests(long count) {
+        return count + (count == 1 ? " request" : " requests");
+    }
+
+    private static String stripPeriod(String text) {
+        if (text == null) {
+            return "";
+        }
+        String stripped = text.strip();
+        return stripped.endsWith(".") ? stripped.substring(0, stripped.length() - 1) : stripped;
+    }
+
+    private static RuntimeChangeImpactDto notFound(String asked, String reason, List<String> limitations) {
+        return new RuntimeChangeImpactDto(
+                NOT_FOUND, reason, asked, null, List.of(), 0, List.of(), 0, List.of(), 0, List.of(), 0, limitations);
     }
 
     /**
@@ -486,16 +904,17 @@ public final class ChangeImpactService {
     private record MappedMethod(String handler, List<String> routes) {
 
         String label() {
-            return HandlerMethod.KIND + " " + handler;
+            return MethodSymbol.KIND + " " + handler;
         }
 
         /** The model's nodes for its routes, each one step from the method, as a closure would give them. */
         Map<Integer, Integer> reach(RuntimeModel model) {
             Map<Integer, Integer> reach = new HashMap<>();
             for (String route : routes) {
-                model.node(NodeType.ROUTE, route)
-                        .or(() -> model.node(NodeType.GRAPHQL_OPERATION, route))
-                        .ifPresent(node -> reach.put(node.id(), 1));
+                ModelNode node = routeNode(model, route);
+                if (node != null) {
+                    reach.put(node.id(), 1);
+                }
             }
             return reach;
         }
@@ -666,6 +1085,48 @@ public final class ChangeImpactService {
                 writes,
                 shared,
                 check);
+    }
+
+    /** A route's row by label, its reads and writes from the model when it has a node there. */
+    private RuntimeImpactRouteDto routeRow(
+            RuntimeModel model,
+            String route,
+            ModelNode node,
+            Map<String, RouteStats> stats,
+            Map<String, List<String>> exemplars,
+            List<String> shared,
+            String check,
+            Map<String, Boolean> visible,
+            long executedRequests,
+            boolean partial) {
+        RuntimeImpactRouteDto base = node != null
+                ? row(model, node, stats, exemplars, shared, check, visible)
+                : new RuntimeImpactRouteDto(
+                        route,
+                        stats.get(route) == null ? 0 : stats.get(route).requests(),
+                        stats.get(route) == null || !visible.getOrDefault(BootUiPanels.SECURITY_LOGS, false)
+                                ? 0
+                                : stats.get(route).authorization().anonymous(),
+                        stats.get(route) == null
+                                ? 0
+                                : stats.get(route).statusClasses().get(4),
+                        exemplars.getOrDefault(route, List.of()),
+                        List.of(),
+                        List.of(),
+                        shared,
+                        check);
+        return new RuntimeImpactRouteDto(
+                base.route(),
+                base.requests(),
+                base.anonymous(),
+                base.errors(),
+                base.exemplarRequestIds(),
+                base.reads(),
+                base.writes(),
+                base.shared(),
+                base.check(),
+                executedRequests,
+                partial);
     }
 
     /** Up to three of each route's most recent retained requests. */

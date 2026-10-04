@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.core.dto.CodeInventoryPackageDto;
 import io.github.jdubois.bootui.core.dto.CodeInventoryReport;
 import io.github.jdubois.bootui.core.dto.CodeInventoryRunDto;
 import io.github.jdubois.bootui.core.dto.CodeInventoryScanDto;
+import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.engine.inventory.ClassFileHasher.MethodHash;
@@ -309,6 +310,14 @@ public final class CodeInventoryService implements AutoCloseable {
         }
     }
 
+    /** The roots the current run's scan read, for tests. */
+    List<String> scanResultForTests() {
+        synchronized (lock) {
+            ClassScanner.Result result = run == null ? null : run.scan.result();
+            return result == null ? List.of() : result.roots();
+        }
+    }
+
     /** Waits for the current run's scan, for tests. */
     void awaitScan() throws InterruptedException {
         Thread thread;
@@ -574,6 +583,65 @@ public final class CodeInventoryService implements AutoCloseable {
     }
 
     /**
+     * {@code report} with each dependency's and advisory's runtime reach ({@link VulnerabilityReach}), read from this
+     * run's code sources and the bridge's class-name evidence without building the method view; with the reason, and no
+     * reach, when the inventory sensor does not record this run. Every other field is unchanged. Never throws.
+     */
+    public DependenciesReport withRuntimeReach(DependenciesReport report) {
+        if (report == null) {
+            return null;
+        }
+        try {
+            // The Code Inventory panel owns this evidence, and HTTP Exchanges the first routes (PLAN-v2 §8, M5-11).
+            AgentEvidence.Read read = read();
+            String reason = readReason(read);
+            if (reason != null) {
+                return VulnerabilityReach.unavailable(report, reason);
+            }
+            start();
+            Run current;
+            synchronized (lock) {
+                current = run;
+            }
+            if (current == null) {
+                return VulnerabilityReach.unavailable(report, unavailableNow());
+            }
+            if (current.drainer != null) {
+                current.drainer.drainNow();
+            }
+            Set<String> roots = new HashSet<>();
+            ClassScanner.Result scanned = current.scan.result();
+            if (scanned != null) {
+                for (String root : scanned.roots()) {
+                    roots.add(canonical(root));
+                }
+            }
+            boolean routes = read.requests();
+            // Reading jars may load classes (a nested jar's URL handler): BootUI's own work, not the application's.
+            boolean previous = access.bootUiWork(true);
+            try {
+                return new VulnerabilityReach(
+                                access,
+                                current.generation,
+                                current.records,
+                                routes,
+                                ids -> routesOf(current, ids),
+                                access.codeSources(),
+                                access.classEvidence(),
+                                roots,
+                                current.claim.claimedPackages(),
+                                Archives.of(loader.get()))
+                        .annotate(report);
+            } finally {
+                access.bootUiWork(previous);
+            }
+        } catch (RuntimeException ex) {
+            return VulnerabilityReach.unavailable(
+                    report, "Runtime reach could not be read: " + ex.getClass().getSimpleName() + ".");
+        }
+    }
+
+    /**
      * What {@code changed-code-not-executed} reads: per class, its changed and added methods with their status, and the
      * routes known to have executed its methods, with the scan's status; with the reason, and nothing else, when the
      * sensor does not record this run, or the Code Inventory panel is hidden.
@@ -628,6 +696,133 @@ public final class CodeInventoryService implements AutoCloseable {
                 view.scan.status(),
                 view.scan.reason());
     }
+
+    /**
+     * The scanned methods named {@code methodName} of the classes {@code className} names, by binary name, by its
+     * source form ({@code Outer.Inner}), or by simple name, with their status, change, and access flags, for change
+     * impact by method ({@code docs/PLAN-v2.md} §5.7, M5-7a); with the reason, and nothing else, when the sensor does not
+     * record this run.
+     */
+    public MethodLookup lookup(String className, String methodName) {
+        AgentEvidence.Read read = read();
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
+        if (view == null) {
+            return new MethodLookup(reason == null ? unavailableNow() : reason, null, List.of());
+        }
+        ClassScanner.Result result = view.scan.result();
+        List<InventoryMethod> found = new ArrayList<>();
+        for (CodeInventoryMethodDto method : view.methods) {
+            if (!method.name().equals(methodName) || !namesClass(method.className(), className)) {
+                continue;
+            }
+            int access = -1;
+            ScannedClass scanned = result == null ? null : result.classes().get(method.className());
+            if (scanned != null) {
+                for (MethodHash hash : scanned.hashes().methods()) {
+                    if (hash.name().equals(method.name()) && hash.descriptor().equals(method.descriptor())) {
+                        access = hash.access();
+                        break;
+                    }
+                }
+            }
+            found.add(new InventoryMethod(method, access));
+        }
+        return new MethodLookup(null, view.scan.status(), found);
+    }
+
+    /**
+     * The changed and added methods, at most {@code limit}, with the access flags the scan read for them, under one read
+     * of the panels ({@code docs/PLAN-v2.md} §5.8, M5-7a): the run comparison's code changes.
+     */
+    public ChangesRead changesWithAccess(int limit) {
+        AgentEvidence.Read read = read();
+        String reason = readReason(read);
+        View view = reason == null ? view(read) : null;
+        if (view == null) {
+            return new ChangesRead(
+                    new CodeInventoryChangesReport(
+                            false, reason == null ? unavailableNow() : reason, null, List.of(), emptyPage(limit)),
+                    Map.of());
+        }
+        PagedList.Result<CodeInventoryMethodDto> page = PagedList.from(view.changes, 0, limit);
+        Map<String, Integer> flags = new HashMap<>();
+        ClassScanner.Result result = view.scan.result();
+        for (CodeInventoryMethodDto method : page.items()) {
+            ScannedClass scanned = result == null ? null : result.classes().get(method.className());
+            if (scanned == null) {
+                continue;
+            }
+            for (MethodHash hash : scanned.hashes().methods()) {
+                if (hash.name().equals(method.name()) && hash.descriptor().equals(method.descriptor())) {
+                    flags.put(method.key(), hash.access());
+                    break;
+                }
+            }
+        }
+        return new ChangesRead(
+                new CodeInventoryChangesReport(true, null, view.changeCounts, page.items(), page.page()), flags);
+    }
+
+    /**
+     * The code changes {@link #changesWithAccess} read.
+     *
+     * @param report the changed and added methods
+     * @param accessFlags their access flags from the class files, by key; a key the scan did not read is absent
+     */
+    public record ChangesRead(CodeInventoryChangesReport report, Map<String, Integer> accessFlags) {
+
+        public ChangesRead {
+            accessFlags = Map.copyOf(accessFlags);
+        }
+    }
+
+    /** Whether the BootUI agent is attached to this JVM, whatever this application's claim. Never throws. */
+    public boolean agentAttached() {
+        try {
+            return access.attached();
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    /** Whether {@code asked} names the class {@code className}: its binary name, source form, or simple name. */
+    static boolean namesClass(String className, String asked) {
+        if (className.equals(asked) || className.replace('$', '.').equals(asked)) {
+            return true;
+        }
+        String simple = simpleName(className);
+        int dollar = simple.lastIndexOf('$');
+        return simple.equals(asked)
+                || simple.replace('$', '.').equals(asked)
+                || (dollar >= 0 && simple.substring(dollar + 1).equals(asked));
+    }
+
+    /**
+     * The methods {@link #lookup} found.
+     *
+     * @param unavailableReason why the inventory sensor cannot answer this run, or {@code null}
+     * @param scanStatus the scan's status: only {@link ClassScanner#COMPLETE} lists every method of a class
+     * @param methods the matching methods
+     */
+    public record MethodLookup(String unavailableReason, String scanStatus, List<InventoryMethod> methods) {
+
+        public MethodLookup {
+            methods = List.copyOf(methods);
+        }
+
+        public boolean complete() {
+            return unavailableReason == null && ClassScanner.COMPLETE.equals(scanStatus);
+        }
+    }
+
+    /**
+     * One method {@link #lookup} found.
+     *
+     * @param method its inventory row
+     * @param access its access flags from the class file, or -1 when the scan has not read them
+     */
+    public record InventoryMethod(CodeInventoryMethodDto method, int access) {}
 
     /**
      * A cheap number that changes whenever {@link #changedCode()} may answer something else: this application's
@@ -1257,7 +1452,12 @@ public final class CodeInventoryService implements AutoCloseable {
             rows.add(row(current, dependency, source, ready));
         }
         for (Source source : seen) {
-            if (!matched.contains(source) && !source.identity().directory()) {
+            // A jar only BootUI's own work loaded classes from is no dependency the application used.
+            if (!matched.contains(source)
+                    && !source.identity().directory()
+                    && longValue(source.counters().get("total"))
+                                    + longValue(source.counters().get("beforeClaim"))
+                            > 0) {
                 rows.add(row(current, null, source, ready));
             }
         }

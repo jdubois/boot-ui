@@ -68,6 +68,18 @@ public final class RouteTree {
      */
     private final Map<Long, long[]> firstPairs = new HashMap<>();
 
+    /**
+     * Per method id, the requests of this route whose own tree executed it, the first recorded included, read from each
+     * request tree before this tree folds any of its nodes, and amended by late fragments (M5-7a).
+     */
+    private final MethodCounts executed = new MethodCounts();
+
+    private int methodStamp;
+    private boolean methodsPartial;
+    private long incompleteRequests;
+    private long amendments;
+    private boolean amendedWithoutTree;
+
     private long warm;
     private long assemblyRequests;
     private long ownNanos;
@@ -95,6 +107,7 @@ public final class RouteTree {
      * id, since trees settle in about the order their requests ended, not started.
      */
     void offer(RequestTree tree, boolean assemblyOnly) {
+        countMethods(tree);
         if (!first) {
             first = true;
             firstStartNanos = tree.startNanos();
@@ -188,6 +201,66 @@ public final class RouteTree {
             histogram[node * BUCKETS + bucket(time)]++;
             min[node] = Math.min(min[node], time);
             max[node] = Math.max(max[node], time);
+        }
+    }
+
+    /**
+     * Counts the methods one request's tree executed, once each, executor work included; a tree with an Other node or
+     * calls recorded in no node may have executed methods it does not name, so it counts as incomplete.
+     */
+    private void countMethods(RequestTree tree) {
+        int stamp = ++methodStamp;
+        boolean incomplete = tree.droppedCalls() > 0;
+        int[] methods = tree.method();
+        for (int node = 1; node < tree.nodeCount(); node++) {
+            int id = methods[node];
+            if (id == RequestTree.OTHER) {
+                incomplete = true;
+            } else if (id >= 0) {
+                countMethod(id, stamp);
+            }
+        }
+        if (incomplete) {
+            incompleteRequests++;
+        }
+    }
+
+    private void countMethod(int id, int stamp) {
+        if (!executed.contains(id) && (executed.size() >= owner.maxMethodsPerRoute() || !owner.reserveMethod())) {
+            methodsPartial = true;
+            return;
+        }
+        executed.count(id, stamp, true);
+    }
+
+    /**
+     * Amends this route's executed methods with a fragment that arrived after its request's tree was merged here: each
+     * method of {@code added} that {@code before}, the request's tree before the fragment, did not execute counts one
+     * more request. With {@code before} {@code null}, the request's tree is no longer kept, so only methods this route
+     * never executed are added, once each, and the counts become approximate.
+     */
+    void amend(int[] before, int[] added, boolean becameIncomplete) {
+        int stamp = ++methodStamp;
+        amendments++;
+        MethodCounts known = null;
+        if (before == null) {
+            amendedWithoutTree = true;
+        } else {
+            known = new MethodCounts();
+            for (int id : before) {
+                if (id >= 0) {
+                    known.count(id, 0, true);
+                }
+            }
+        }
+        for (int id : added) {
+            if (id < 0 || (known != null ? known.contains(id) : executed.contains(id))) {
+                continue;
+            }
+            countMethod(id, stamp);
+        }
+        if (becameIncomplete) {
+            incompleteRequests++;
         }
     }
 
@@ -561,5 +634,45 @@ public final class RouteTree {
     /** Stamped calls no route-tree node holds: their fragment was missing, arrived late, or past the bound, or homeless. */
     public long unplacedCalls() {
         return unplaced.stampedUnplaced() + homelessCalls;
+    }
+
+    // --- executed methods (M5-7a) ------------------------------------------------------------------------------------
+
+    /** The requests merged here, warm and first, each counted once. */
+    public long requestsSeen() {
+        return warm + (first ? 1 : 0);
+    }
+
+    /**
+     * The requests of this route whose own tree executed method {@code id}, the first recorded included, executor work
+     * the agent followed and late fragments included; 0 when none did, or when the route's method table was full.
+     */
+    public long executedRequests(int id) {
+        return executed.count(id);
+    }
+
+    /** Every method id a request of this route executed, unordered: a copy. */
+    public int[] executedMethods() {
+        return executed.ids();
+    }
+
+    /** Whether some executed methods are missing from {@link #executedRequests}: its table or the run's was full. */
+    public boolean methodsPartial() {
+        return methodsPartial;
+    }
+
+    /** The requests whose tree had an Other node or calls in no node, so may have executed methods it does not name. */
+    public long incompleteRequests() {
+        return incompleteRequests;
+    }
+
+    /** The late fragments that amended this route's executed methods after their request's tree was merged. */
+    public long amendments() {
+        return amendments;
+    }
+
+    /** Whether a late fragment amended it after its request's tree was no longer kept: its counts are approximate. */
+    public boolean amendedWithoutTree() {
+        return amendedWithoutTree;
     }
 }

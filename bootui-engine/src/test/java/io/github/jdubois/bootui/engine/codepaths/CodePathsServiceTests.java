@@ -384,6 +384,48 @@ class CodePathsServiceTests {
     }
 
     /**
+     * M5-7a: which routes' requests ran a method, from each route's own trees, the first request included; hidden with
+     * the Code Paths panel, and emptied by a clear, which says so.
+     */
+    @Test
+    void methodRoutesNameTheRoutesWhoseTreesRanAMethodUnderTheEvidenceRead() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome(id.endsWith("9") ? "GET /api/other" : "GET /api/quote", 200, false));
+            }
+            return named;
+        });
+        int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
+        int pricing = CodeInventory.methodId("shop.SlowPricingService#quote()I");
+        for (int i = 1; i <= 3; i++) {
+            request(String.format("%016x", i), () -> call(controller, () -> call(pricing, null)));
+        }
+        request("0000000000000009", () -> call(controller, null));
+        awaitFragments(4);
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        MethodRoutes routes = service.methodRoutes(key -> key.startsWith("shop.SlowPricingService#"));
+        assertThat(routes.available()).isTrue();
+        assertThat(routes.routesByKey())
+                .containsOnlyKeys("shop.SlowPricingService#quote()I")
+                .containsEntry("shop.SlowPricingService#quote()I", Map.of("GET /api/quote", 3L));
+        assertThat(routes.routes().get("GET /api/quote").requests()).isEqualTo(3);
+        assertThat(routes.routes().get("GET /api/other").requests()).isEqualTo(1);
+        assertThat(routes.beanClasses()).isNotNull();
+
+        hiddenPanels.add(BootUiPanels.CODE_PATHS);
+        assertThat(service.methodRoutes(key -> true).available()).isFalse();
+        hiddenPanels.clear();
+
+        evidence.clear();
+        MethodRoutes cleared = service.methodRoutes(key -> true);
+        assertThat(cleared.routesByKey()).isEmpty();
+        assertThat(cleared.limitations()).contains(CodePathsService.RECORDING_CLEARED);
+    }
+
+    /**
      * M5-4c against the real bridge: a statement stamped where it ran, inside the service method, shows under that
      * method in the route tree and leaves its own time; the observed calls between classes map to beans; Beans at
      * runtime lists them beside the declared dependencies, with a declared dependency on a traced bean not called in

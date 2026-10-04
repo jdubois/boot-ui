@@ -231,7 +231,10 @@ the classpath) are simply not advertised.
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last
-  completed report without starting another scan.
+  completed report without starting another scan. With the BootUI agent, the vulnerabilities report's `runtimeReach`
+  says whether each dependency's classes, or a class its advisory names, loaded in this JVM; it is read when answered,
+  never changes a severity, and `NOT_LOADED` means not loaded yet, not unreachable
+  ([Runtime reach](features/advisors.md#runtime-reach)).
 - **Cached per-rule violations (reads):** `get_architecture_rule_violations`, `get_hibernate_rule_violations`,
   `get_spring_rule_violations`, `get_rest_api_rule_violations`, `get_memory_rule_violations`,
   `get_security_rule_violations`, and `get_database_advisor_rule_violations` page the retained details from that
@@ -316,8 +319,8 @@ read tools return short, stable facts rather than a dashboard:
 | --- | --- | --- |
 | `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, and a `verify` line. Past the limit every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (every observation, including latency rows, except an insufficient repeated-selects row under 50 ms that ran fewer than 10 times in any request), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile` |
-| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
-| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then at most 8 route/execution behavior rows and edges; latency is left out |
+| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
+| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then at most 8 route/execution behavior rows and edges; latency is left out |
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
 never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
@@ -331,21 +334,25 @@ configuration comparability and restart timings are independent facts. The `diag
 with `get_runtime_insights`, then one `get_request_profile`, and for a slow route whose time is in its handler,
 `get_code_paths` when the agent is attached; the
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
-calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
+calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
+known, runs the tests, calls
 `get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
 
 **Change, then verify.** An agent editing code uses the four tools as one loop:
 
 1. Before editing `OrderService`, `bootui insights impact OrderService --json` lists the routes this run exercised
    through it, the mapped routes it reaches that no request did, and the routes sharing its tables. Those are what the
-   tests must reach.
+   tests must reach. With the BootUI agent, `bootui insights impact 'OrderService#total' --json` narrows that to the
+   routes whose requests ran the method itself; a route under `notObserved` ran without showing it, which is not proof
+   it never does.
 2. After the edit and a DevTools restart or Quarkus live reload, run the tests, then
    `bootui insights list --query repeated-selects --json`. The default list keeps a sufficient repeated SELECT, including
    a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times in any
    request, so that query shows whether a weak cheap repeat is gone. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
-3. Then `bootui insights compare --json` (or `compare previous`), and stop. Omitted `id` or `previous` selects the
-   newest kept run, including listener-only and idle runs. A new statement fingerprint or a higher statement count
+3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
+   come first: the methods changed since the previous run, which ran, and on which routes. Omitted `id` or `previous`
+   selects the newest kept run, including listener-only and idle runs. A new statement fingerprint or a higher statement count
    per request on a route is a behavior change the agent caused; `INSUFFICIENT` means the tests did not reach the
    route 3 times in both runs, not that nothing changed. Do not edit from a latency row.
 

@@ -102,6 +102,57 @@ describe('ChangeImpact', () => {
     expect(list.text()).not.toContain('Every mapped route that reaches it ran.')
   })
 
+  it('reads a method from the route trees: who ran it, who ran without showing it, and Code Inventory', async () => {
+    const method = {
+      ...resolved,
+      symbol: 'ProductService#findAll',
+      node: 'METHOD com.example.ProductService#findAll',
+      observedFrom: 'ROUTE_TREES',
+      methods: ['com.example.ProductService#findAll()Ljava/util/List;', 'com.example.ProductService#findAll(I)V'],
+      methodStatus: 'EXECUTED',
+      observed: [{...resolved.observed[0], executedRequests: 3, partial: true}],
+      notObserved: [
+        {
+          ...resolved.notExercised[0],
+          requests: 4,
+          check: '`GET /api/products/{id}` served 4 requests in this run without its call trees showing the method.'
+        }
+      ],
+      notObservedTotal: 1,
+      notExercised: [],
+      notExercisedTotal: 0,
+      notExercisedUndetermined: true
+    }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(method))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountImpact()
+    await wrapper.find('input').setValue('ProductService#findAll(String)')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `symbol=${encodeURIComponent('ProductService#findAll(String)')}`
+    )
+    expect(wrapper.find('.insight-impact-node').text().replace(/\s+/g, ' ')).toBe(
+      'method com.example.ProductService#findAll'
+    )
+    expect(wrapper.find('.insight-impact-method').text().replace(/\s+/g, ' ')).toBe(
+      'Code Inventory: ran in this run · 2 overloads checked as one'
+    )
+    expect(wrapper.findAll('[data-list]').map((list) => list.attributes('data-list'))).toEqual([
+      'observed',
+      'not-observed',
+      'not-exercised',
+      'shared'
+    ])
+    const observed = wrapper.find('[data-list="observed"]')
+    expect(observed.find('h3').text()).toContain('Ran it in this run')
+    expect(observed.text()).toContain('3 ran it of 12 requests · 2 anonymous · 1 error · partial')
+    expect(wrapper.find('[data-list="not-observed"]').text()).toContain('Ran without showing it')
+    expect(wrapper.find('[data-list="not-observed"]').text()).toContain('without its call trees showing the method')
+    expect(wrapper.find('[data-list="not-exercised"]').text()).toContain('No route is proven not to have run it')
+  })
+
   it('shows a failed read as its message, never as an object', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Request failed with status 403')))
     wrapper = mountImpact()

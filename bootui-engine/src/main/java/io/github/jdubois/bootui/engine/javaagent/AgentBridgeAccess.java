@@ -55,6 +55,7 @@ public final class AgentBridgeAccess {
     private final MethodHandle release;
     private final Inventory inventory;
     private final CodePathsHandles codePaths;
+    private final ClassEvidenceHandles classEvidence;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -112,6 +113,7 @@ public final class AgentBridgeAccess {
         this.release = releaseHandle;
         this.inventory = releaseHandle == null ? null : Inventory.bind(bridge);
         this.codePaths = this.inventory == null ? null : CodePathsHandles.bind(bridge);
+        this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
     }
 
     /**
@@ -422,6 +424,67 @@ public final class AgentBridgeAccess {
         }
     }
 
+    /**
+     * Whether the bridge keeps class-name evidence ({@code CodeInventory.classEvidence} and {@code classLoads}): an
+     * agent of the same protocol from before M5-9a does not, and then no reach can be told from it.
+     */
+    public boolean classEvidenceSupported() {
+        return inventorySupported() && classEvidence != null;
+    }
+
+    /**
+     * How complete the inventory sensor's class-name evidence is ({@code CodeInventory.classEvidence}): a copy, or
+     * {@code null} without it or on failure.
+     */
+    public Map<String, Object> classEvidence() {
+        if (!classEvidenceSupported()) {
+            return null;
+        }
+        try {
+            Object value = classEvidence.evidence.invoke();
+            return value instanceof Map<?, ?> ? copy(value) : null;
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /**
+     * When the classes {@code binaryNames} of code source {@code sourceId} last loaded, and by whom
+     * ({@code CodeInventory.classLoads}): two values per name, or {@code null} without the evidence, for an unknown
+     * code source, or on failure.
+     */
+    public long[] classLoads(int sourceId, String[] binaryNames) {
+        if (!classEvidenceSupported()) {
+            return null;
+        }
+        try {
+            Object value = classEvidence.loads.invoke(sourceId, binaryNames);
+            return value instanceof long[] loads && loads.length == binaryNames.length * 2 ? loads : null;
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /** The class-name evidence's bridge entry points, bound once; {@code null} when the bridge has none. */
+    private record ClassEvidenceHandles(MethodHandle evidence, MethodHandle loads) {
+
+        static ClassEvidenceHandles bind(Class<?> bridge) {
+            try {
+                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                Class<?> codeInventory = Class.forName(CODE_INVENTORY_CLASS, false, bridge.getClassLoader());
+                return new ClassEvidenceHandles(
+                        lookup.findStatic(codeInventory, "classEvidence", MethodType.methodType(Map.class)),
+                        lookup.findStatic(
+                                codeInventory,
+                                "classLoads",
+                                MethodType.methodType(long[].class, int.class, String[].class)));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-9a: no class-name evidence.
+                return null;
+            }
+        }
+    }
+
     /** The code-paths sensor's bridge entry points, bound once; {@code null} when the bridge has none. */
     private record CodePathsHandles(MethodHandle drain, MethodHandle exclude, MethodHandle excluded) {
 
@@ -506,7 +569,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Reads {@code key} of a bridge map as a map, or an empty map. */
-    static Map<String, Object> map(Map<String, ?> source, String key) {
+    public static Map<String, Object> map(Map<String, ?> source, String key) {
         Object value = source == null ? null : source.get(key);
         return value instanceof Map<?, ?> ? copy(value) : Map.of();
     }
@@ -518,7 +581,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Reads {@code key} of a bridge map as a number, or {@code null}. */
-    static Long number(Map<String, ?> source, String key) {
+    public static Long number(Map<String, ?> source, String key) {
         Object value = source == null ? null : source.get(key);
         return value instanceof Number number ? number.longValue() : null;
     }

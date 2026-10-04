@@ -4,11 +4,16 @@ import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.inventory.VulnerabilityReach;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import io.github.jdubois.bootui.quarkus.OsvVulnerabilityScanner;
 import io.github.jdubois.bootui.quarkus.QuarkusDependencyProvider;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -38,6 +43,9 @@ import org.eclipse.microprofile.config.Config;
  * engine {@code LocalhostGuard} (the Vert.x safety filter) already enforces the local-only write floor on
  * the {@code POST}.</p>
  *
+ * <p>Both answers carry each dependency's runtime reach from Code Inventory, read when answered and never cached with
+ * the scan ({@link VulnerabilityReach}), exactly as on Spring; it never changes a finding's severity or any count.</p>
+ *
  * <p>It is {@code @ApplicationScoped} because it caches the last report in a {@code volatile} field across
  * requests — the CDI analogue of the Spring controller's singleton with a {@code volatile lastScanReport}.</p>
  */
@@ -52,6 +60,8 @@ public class VulnerabilitiesResource {
     private final Config config;
 
     private final DismissedRulesStore dismissedRules;
+    private final Instance<CodeInventoryService> codeInventory;
+    private final Instance<QuarkusPanelAvailability> panels;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     private volatile DependenciesReport lastScanReport;
@@ -61,11 +71,23 @@ public class VulnerabilitiesResource {
             QuarkusDependencyProvider dependencyProvider,
             OsvVulnerabilityScanner vulnerabilityScanner,
             Config config,
-            DismissedRulesStore dismissedRules) {
+            DismissedRulesStore dismissedRules,
+            Instance<CodeInventoryService> codeInventory,
+            Instance<QuarkusPanelAvailability> panels) {
         this.dependencyProvider = dependencyProvider;
         this.vulnerabilityScanner = vulnerabilityScanner;
         this.config = config;
         this.dismissedRules = dismissedRules;
+        this.codeInventory = codeInventory;
+        this.panels = panels;
+    }
+
+    /** The report as answered: dismissals marked, then runtime reach read now. */
+    private DependenciesReport answer(DependenciesReport report) {
+        return VulnerabilityReach.annotate(
+                DependencyReports.applyDismissals(report, dismissedRules.load()),
+                () -> codeInventory.isResolvable() ? codeInventory.get() : null,
+                () -> panels.isResolvable() && panels.get().isPanelEnabled(BootUiPanels.CODE_INVENTORY));
     }
 
     @GET
@@ -73,7 +95,7 @@ public class VulnerabilitiesResource {
     public DependenciesReport dependencies() {
         DependenciesReport cached = this.lastScanReport;
         if (cached != null) {
-            return DependencyReports.applyDismissals(cached, dismissedRules.load());
+            return answer(cached);
         }
         DependencyInventory inventory = dependencyProvider.inventory();
         DependenciesReport report = DependencyReports.report(
@@ -85,7 +107,7 @@ public class VulnerabilitiesResource {
                 0,
                 inventory.dependencies(),
                 inventory.coverage());
-        return DependencyReports.applyDismissals(report, dismissedRules.load());
+        return answer(report);
     }
 
     @POST
@@ -111,7 +133,7 @@ public class VulnerabilitiesResource {
         if (!"DISABLED".equals(report.status())) {
             this.lastScanReport = report;
         }
-        return DependencyReports.applyDismissals(report, dismissedRules.load());
+        return answer(report);
     }
 
     private boolean osvEnabled() {

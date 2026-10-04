@@ -447,8 +447,179 @@ class CodeInventoryTests {
             assertThat(AgentBridge.bootUiWork(false)).isTrue();
         }
 
-        assertThat(sources()).doesNotContainKey("file:/libs/scanned.jar");
+        assertThat(sources().get("file:/libs/scanned.jar"))
+                .as("kept for its class names, but none of its loads counted as the application's")
+                .containsEntry("total", 0L)
+                .containsEntry("loaded", 0L)
+                .containsEntry("bootUiLoads", 1L)
+                .containsEntry("namesKept", 1);
         assertThat(CodeInventory.status()).containsEntry("bootUiLoadsSkipped", 1L);
+        int id = ((Integer) sources().get("file:/libs/scanned.jar").get("id")).intValue();
+        assertThat(CodeInventory.classLoads(id, new String[] {"com.scanned.A"}))
+                .containsExactly(CodeInventory.currentGeneration(), CodeInventory.BY_BOOTUI);
+    }
+
+    @Test
+    void classNamesAreKeptPerJarWithTheirLastLoadAndOrigin() {
+        CodeInventory.recorderStarted();
+        CodeInventory.loadedBeforeClaim("file:/libs/shop.jar", "com.shop.Early");
+        CodeInventory.recorderWalked();
+        long first = claim();
+        long generation = CodeInventory.currentGeneration();
+        CodeInventory.classLoaded("file:/libs/shop.jar", "com/shop/Cart");
+        CodeInventory.classLoaded("file:/app/target/classes/", "com/example/Shop");
+        // A later walk keeps only names it has not seen, and counts only those.
+        CodeInventory.loadedWhileUnrecorded("file:/libs/shop.jar", "com.shop.Cart");
+        CodeInventory.loadedBeforeClaim("file:/libs/shop.jar", "com.shop.Cart");
+        CodeInventory.loadedWhileUnrecorded("file:/libs/unrecorded.jar", "com.unrecorded.A");
+        CodeInventory.loadedWhileUnrecorded("file:/libs/unrecorded.jar", "com.unrecorded.A");
+        assertThat(sources().get("file:/libs/unrecorded.jar"))
+                .as("loaded while the recorder was off: counted once, apart")
+                .containsEntry("beforeClaim", 1L)
+                .containsEntry("total", 0L);
+
+        Map<String, Object> shop = sources().get("file:/libs/shop.jar");
+        assertThat(shop)
+                .containsEntry("beforeClaim", 1L)
+                .containsEntry("total", 1L)
+                .containsEntry("namesKept", 2)
+                .containsEntry("namesDropped", 0L);
+        assertThat(sources().get("file:/app/target/classes/"))
+                .as("a class directory keeps no names")
+                .containsEntry("namesKept", 0);
+        int id = ((Integer) shop.get("id")).intValue();
+        assertThat(CodeInventory.classLoads(
+                        id, new String[] {"com.shop.Early", "com.shop.Cart", "com.shop.Gone", null}))
+                .containsExactly(
+                        CodeInventory.BEFORE_RECORDING,
+                        CodeInventory.BY_APPLICATION,
+                        generation,
+                        CodeInventory.BY_APPLICATION,
+                        CodeInventory.NOT_SEEN,
+                        0L,
+                        CodeInventory.NOT_SEEN,
+                        0L);
+        assertThat(CodeInventory.classLoads(9999, new String[] {"com.shop.Cart"}))
+                .isNull();
+        assertThat(CodeInventory.classLoads(id, null)).isNull();
+        assertThat(CodeInventory.classEvidence())
+                .containsEntry("recorder", "complete")
+                .containsEntry("recorderStarts", 1L)
+                .containsEntry("namesKept", 3);
+        assertThat(first).isNotZero();
+    }
+
+    @Test
+    void classNamesAreBoundedPerJarAndOverall() {
+        claim();
+        for (int i = 0; i < CodeInventory.MAX_NAMES_PER_SOURCE + 5; i++) {
+            CodeInventory.classLoaded("file:/libs/big.jar", "com/big/C" + i);
+        }
+        Map<String, Object> big = sources().get("file:/libs/big.jar");
+        assertThat(big)
+                .containsEntry("namesKept", CodeInventory.MAX_NAMES_PER_SOURCE)
+                .containsEntry("namesDropped", 5L)
+                .containsEntry("total", (long) CodeInventory.MAX_NAMES_PER_SOURCE + 5);
+        int id = ((Integer) big.get("id")).intValue();
+        assertThat(CodeInventory.classLoads(id, new String[] {"com.big.C0", "com.big.C8191"}))
+                .containsExactly(
+                        CodeInventory.currentGeneration(),
+                        CodeInventory.BY_APPLICATION,
+                        CodeInventory.currentGeneration(),
+                        CodeInventory.BY_APPLICATION);
+
+        int jars = CodeInventory.MAX_NAMES / CodeInventory.MAX_NAMES_PER_SOURCE;
+        for (int jar = 0; jar < jars; jar++) {
+            for (int i = 0; i < CodeInventory.MAX_NAMES_PER_SOURCE; i++) {
+                CodeInventory.classLoaded("file:/libs/more" + jar + ".jar", "com/more/C" + i);
+            }
+        }
+        assertThat(CodeInventory.classEvidence()).containsEntry("namesKept", CodeInventory.MAX_NAMES);
+        assertThat(sources().get("file:/libs/more" + (jars - 1) + ".jar"))
+                .as("the overall cap reached, the last jar drops names")
+                .containsEntry("namesDropped", (long) CodeInventory.MAX_NAMES_PER_SOURCE);
+    }
+
+    @Test
+    void theRecordersLifeAndClassesWithoutALocationAreReported() {
+        assertThat(CodeInventory.classEvidence()).containsEntry("recorder", "off");
+        CodeInventory.recorderStarted();
+        assertThat(CodeInventory.classEvidence()).containsEntry("recorder", "walking");
+        CodeInventory.recorderWalked();
+        assertThat(CodeInventory.classEvidence()).containsEntry("recorder", "complete");
+        CodeInventory.recorderStopped();
+        CodeInventory.recorderWalked();
+        assertThat(CodeInventory.classEvidence()).containsEntry("recorder", "stopped");
+        CodeInventory.recorderStarted();
+        CodeInventory.recorderWalked();
+        assertThat(CodeInventory.classEvidence())
+                .containsEntry("recorder", "complete")
+                .containsEntry("recorderStarts", 2L);
+
+        CodeInventory.classLoadedWithoutLocation("com/defined/Plugin");
+        CodeInventory.classLoadedWithoutLocation("com.defined.Other");
+        CodeInventory.classLoadedWithoutLocation("com/shop/Cart$$SpringCGLIB$$0");
+        CodeInventory.classLoadedWithoutLocation("com/sun/proxy/$Proxy12");
+        CodeInventory.classLoadedWithoutLocation("Script1");
+        CodeInventory.classLoadedWithoutLocation(null);
+        assertThat(CodeInventory.classEvidence())
+                .containsEntry("unlocatedLoads", 2L)
+                .containsEntry("unlocatedPackageOverflow", 0L)
+                .satisfies(evidence ->
+                        assertThat((String[]) evidence.get("unlocatedPackages")).containsExactly("com.defined"));
+    }
+
+    @Test
+    void concurrentAddsGrowTheTableWithoutLosingANameOrTheBudget() throws Exception {
+        CodeInventory.ClassNames names = new CodeInventory.ClassNames(true);
+        int threads = 8;
+        int perThread = 1000;
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        List<Thread> workers = new ArrayList<>();
+        AtomicInteger added = new AtomicInteger();
+        for (int t = 0; t < threads; t++) {
+            int offset = t;
+            Thread worker = new Thread(() -> {
+                try {
+                    start.await();
+                } catch (InterruptedException ex) {
+                    return;
+                }
+                // Every thread adds the same names, interleaved with lookups, so adds race on the same slots.
+                for (int i = 0; i < perThread; i++) {
+                    int name = (i + offset * 7) % perThread;
+                    if (names.put("com.race.C" + name, offset + 1, CodeInventory.BY_APPLICATION, false)
+                            == CodeInventory.ClassNames.ADDED) {
+                        added.incrementAndGet();
+                    }
+                    names.get(CodeInventory.ClassNames.hash("com.race.C" + i));
+                }
+            });
+            workers.add(worker);
+            worker.start();
+        }
+        start.countDown();
+        for (Thread worker : workers) {
+            worker.join(30_000);
+        }
+
+        for (int i = 0; i < perThread; i++) {
+            long[] entry = names.get(CodeInventory.ClassNames.hash("com.race.C" + i));
+            assertThat(entry[0]).as("com.race.C%d", i).isBetween(1L, (long) threads);
+            assertThat(entry[1]).isEqualTo(CodeInventory.BY_APPLICATION);
+        }
+        assertThat(names.size()).isEqualTo(added.get()).isBetween(perThread, perThread * threads);
+        assertThat(CodeInventory.classEvidence())
+                .as("the global budget holds exactly the names kept")
+                .containsEntry("namesKept", names.size());
+    }
+
+    @Test
+    void classNameHashesReadSlashesAsDots() {
+        assertThat(CodeInventory.ClassNames.hash("com/shop/Cart"))
+                .isEqualTo(CodeInventory.ClassNames.hash("com.shop.Cart"))
+                .isNotEqualTo(CodeInventory.ClassNames.hash("com.shop.Cars"))
+                .isNotZero();
     }
 
     @Test

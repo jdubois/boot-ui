@@ -30,6 +30,9 @@ final class CodeSources {
 
     private static final int MAX_CACHED = 8192;
 
+    /** The most {@code pom.properties} read from one jar. */
+    static final int MAX_METADATA = 64;
+
     private static final ConcurrentHashMap<String, Identity> CACHE = new ConcurrentHashMap<>();
 
     private CodeSources() {}
@@ -44,6 +47,7 @@ final class CodeSources {
      * @param artifactId its Maven artifact, or {@code null}
      * @param version its version, or {@code null}
      * @param coordinates every {@code groupId:artifactId} its Maven metadata names (a shaded jar names several)
+     * @param coordinatesTruncated whether it names more than {@value #MAX_METADATA}, so {@code coordinates} is partial
      */
     record Identity(
             String location,
@@ -52,7 +56,8 @@ final class CodeSources {
             String groupId,
             String artifactId,
             String version,
-            List<String> coordinates) {
+            List<String> coordinates,
+            boolean coordinatesTruncated) {
 
         /** Whether it is one of BootUI's own artifacts or the BootUI agent. */
         boolean bootUi() {
@@ -104,6 +109,10 @@ final class CodeSources {
         } catch (IOException | RuntimeException ex) {
             // Unreadable: identified by its file name only.
         }
+        boolean truncated = metadata.size() > MAX_METADATA;
+        if (truncated) {
+            metadata = metadata.subList(0, MAX_METADATA);
+        }
         String[] main = pick(metadata, fileName);
         List<String> coordinates = new ArrayList<>();
         for (String[] gav : metadata) {
@@ -116,7 +125,8 @@ final class CodeSources {
                 main == null ? null : main[0],
                 main == null ? null : main[1],
                 main == null ? null : main[2],
-                List.copyOf(coordinates));
+                List.copyOf(coordinates),
+                truncated);
     }
 
     /** A class directory's name, such as {@code target/classes}, so a reader can tell modules apart. */
@@ -130,7 +140,7 @@ final class CodeSources {
     private static List<String[]> metadata(JarFile jar) {
         List<String[]> found = new ArrayList<>();
         Enumeration<JarEntry> entries = jar.entries();
-        while (entries.hasMoreElements() && found.size() < 64) {
+        while (entries.hasMoreElements() && found.size() <= MAX_METADATA) {
             JarEntry entry = entries.nextElement();
             String name = entry.getName();
             if (name.startsWith("META-INF/maven/") && name.endsWith("/pom.properties")) {

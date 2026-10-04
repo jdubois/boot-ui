@@ -58,15 +58,18 @@ public final class McpToolDescriptions {
                             + "exemplar request. An unknown or evicted id returns available=false with a reason."),
             Map.entry(
                     "get_runtime_impact",
-                    "For a route, bean, class, repository, table, cache, host, or event type id: the routes this run "
-                            + "exercised through it, those it did not, and those sharing a resource with it, at most 8 "
-                            + "each, or AMBIGUOUS with candidates. A checklist of what was and was not exercised, never "
-                            + "a verdict that a change is safe."),
+                    "For a route, bean, class, method (Class#method, with parameter types for one overload), "
+                            + "repository, table, cache, host, or event type id: the routes this run exercised through "
+                            + "it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS "
+                            + "with candidates. With the BootUI agent, a method's observed routes are those whose "
+                            + "requests executed it; notObserved routes ran without showing it, which proves nothing. "
+                            + "A checklist of what was and was not exercised, never a verdict that a change is safe."),
             Map.entry(
                     "get_runtime_run_comparison",
                     "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run "
-                            + "including runs without HTTP traffic; runs lists the others. Comparability first, then at most "
-                            + "8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
+                            + "including runs without HTTP traffic; runs lists the others. Comparability first, then "
+                            + "codeChanges (with the BootUI agent: changed and added methods, executed or not, and the "
+                            + "routes that ran them), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
                             + "mean no change. Call after tests to verify a change."),
             Map.entry(
                     "get_request_profile",
@@ -249,7 +252,10 @@ public final class McpToolDescriptions {
                             + "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
                             + "`coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results "
                             + "retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the "
-                            + "inventory provider's accounting, not shaded-library discovery or exploitability."),
+                            + "inventory provider's accounting, not shaded-library discovery or exploitability. With the "
+                            + "BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory "
+                            + "names, loaded in this JVM: a prioritization hint that never changes severity, and "
+                            + "NOT_LOADED means not loaded yet, not unreachable."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "
