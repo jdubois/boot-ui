@@ -663,7 +663,10 @@ WebSockets Next endpoint's path. So the observations that read a unit of work's 
 logs also cover jobs and listeners, counted in runs or messages. Those that read what only a request has (its status,
 method, phases, authorization, or measured resources) stay on HTTP requests.
 
-Every observation reports whether it ran. One whose journal source is not recorded, whose panel is disabled, or which
+Every observation reports whether it ran. With no eligible work, a check reports **Not enough evidence**, not that it
+ran. Eligibility follows the evidence's unit: `heap-growth-after-gc` examines collections, so it can run with zero
+requests; a stable heap names the collections examined without inventing a request count or a finding.
+One whose journal source is not recorded, whose panel is disabled, or which
 does not apply to this stack says so with its reason, so an empty list never reads as healthy. One that reads SQL is
 **unavailable** when this application's SQL cannot be recorded: BootUI records JDBC statements through a traced
 `DataSource` (and, on Quarkus, Hibernate ORM's statements), never R2DBC or a reactive SQL client, so an R2DBC
@@ -736,21 +739,42 @@ temporary recording that is deleted once read. A runtime without JFR, or a journ
 `resources` source, reports why no session can run, and `bootui.panels.runtime-insights.read-only` or
 `bootui.read-only` blocks starting one.
 
-**Compared with the previous run** compares this run with the newest run whose summary is kept and that served HTTP
-requests, after a DevTools restart, a Quarkus live reload, or, with `bootui.runtime-journal.baseline-file`, a full JVM
-restart. DevTools can restart twice for one change, so a newer kept run that served nothing is skipped, and a limitation
-names it; when no kept run served a request, the newest is used. A picker chooses another kept run. On a laptop,
-warmup and noise dominate latency while the work identical requests do is stable, so the
-comparison leads with behavior: per route, the statements, REST calls, AI calls, cache misses, and tokens per request,
-the Hibernate flushes and entities in the persistence context per request when both runs recorded sessions,
-the share of 4xx and 5xx answers, and the memory allocated per request, each once the route served 3 requests in both
-runs; and, from their first occurrence, the statements and exceptions a route did not have before and the routes newly
-hit. The runtime model's edges come next, such as "`GET /api/orders` calls host `pay.internal:8443`, 15 times, and not in
+**Compared with the previous run** compares this run with the newest run whose summary is kept, including runs
+without HTTP requests, after a DevTools restart, a Quarkus live reload, or, with
+`bootui.runtime-journal.baseline-file`, a full JVM restart. An idle previous run reports insufficient evidence rather
+than being silently skipped. A picker chooses another kept run. On a laptop, warmup and noise dominate latency while
+the work identical requests do is stable, so comparison leads with behavior: per route or execution (scheduled jobs
+and consumed messages), the statements, REST calls, AI calls, cache misses, and tokens per request or execution.
+Statement groups are compared and displayed only as literal-free shapes, in the browser, MCP and CLI under every
+exposure mode. Summary format v10 persists these shapes too and sanitizes v8/v9 fingerprints on read. Shapes made
+indistinguishable by masking share their counts and histograms; quoted identifiers cannot always be distinguished from
+dialect-specific literals, so comparison does not claim their separate identities.
+New statement fingerprints are listed from their first occurrence; gone fingerprints need 3 current samples, and
+capped fingerprint maps cannot prove that a statement disappeared. Source-specific counters and edges are compared
+only when both runs recorded their sources and their owning panels remain enabled and available.
+Disabled panels' facts, fingerprints, exception classes, execution names, and edges are omitted, with an explicit
+“not compared because &lt;panel&gt; is disabled” limitation. Messaging follows each broker's panel independently.
+Disabling HTTP Exchanges also hides the request totals in all run references: the JSON retains `requests: 0` for
+compatibility, but the UI labels them **request count hidden**, never zero traffic. Configuration comparability facts
+and restart/bean timings are not journal-source evidence and remain available. If every observed root is hidden,
+comparison is **Unavailable**, not a suggestion to send more traffic.
+Allocation compares a bounded histogram's median, not its mean;
+summaries from the previous codec remain readable but cannot supply an allocation median or execution aggregates.
+It also compares Hibernate flushes and entities in the persistence context per request or execution when both runs
+recorded sessions. For HTTP routes, it compares the share of 4xx and 5xx answers and the memory allocated per request,
+each once the route served 3 requests in both runs; new exceptions and routes are listed from their first occurrence.
+The runtime model's edges come next, such as "`GET /api/orders` calls host `pay.internal:8443`, 15 times, and not in
 run 4", then the restart cost: the time to ready and the beans whose initialization moved by 200 ms and 50 %, compared
-only between two restarts, never with a cold start, and on Spring only. Latency comes last and is labelled noisy: the
+only between immediately adjacent restarts in the same JVM, never with a cold start or a baseline file, and on Spring.
+Quarkus's `StartupEvent` supplies no complete live-reload duration or reload start timestamp; restart cost explicitly
+reports this limitation instead of estimating it. If a reloadable run-history holder cannot keep history and no
+usable baseline is available, comparison reports **Unavailable**, with the baseline file as the remedy, rather than
+**No previous run**. Latency comes last and is labelled noisy: the
 warm median, leaving out each route's first request, with 10 warm requests on each side and a move of 50 % and 20 ms.
 Runs on another database, profile, or cache are **not comparable**, with the difference first; too little traffic is
 **needs more traffic**, never "no change".
+
+![Run comparison with route and execution behavior and an explicitly adjacent restart](../images/bootui-run-comparison.webp)
 
 Live Activity links here in two places. Under its KPIs, **Why is … slow?** opens the slowest route's time breakdown. In
 a request's drawer, **Why this route is slow** loads that route's breakdown on demand and links to it.

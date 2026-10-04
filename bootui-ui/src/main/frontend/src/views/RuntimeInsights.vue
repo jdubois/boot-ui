@@ -170,8 +170,13 @@ function statusClass(status) {
 
 function checkStatusLabel(status) {
   return (
-    {NOT_APPLICABLE: 'Not applicable', UNAVAILABLE: 'Unavailable', PARTIAL: 'Partial', EVALUATED: 'Ran'}[status] ??
-    status
+    {
+      NOT_APPLICABLE: 'Not applicable',
+      UNAVAILABLE: 'Unavailable',
+      INSUFFICIENT: 'Not enough evidence',
+      PARTIAL: 'Partial',
+      EVALUATED: 'Ran'
+    }[status] ?? status
   )
 }
 
@@ -565,7 +570,7 @@ const windowText = computed(() => {
           <div v-if="unrun.length" :class="report.notExercised?.length ? 'col-xl-5' : 'col-12'">
             <section v-if="unrun.length" class="card h-100 insight-unrun" aria-labelledby="insight-unrun-title">
               <div class="card-body">
-                <h2 id="insight-unrun-title" class="h6 mb-2">Checks that could not fully run</h2>
+                <h2 id="insight-unrun-title" class="h6 mb-2">Checks and their limits</h2>
                 <ul class="list-unstyled small mb-0">
                   <li v-for="check in unrun" :key="check.kind" class="mb-1">
                     <span class="fw-semibold">{{ check.title }}</span>

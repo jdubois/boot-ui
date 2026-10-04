@@ -386,6 +386,11 @@ messages under `METADATA_ONLY`.
 
 ## Every command
 
+`bootui insights compare` respects source-panel policy and names disabled or unavailable evidence in `limitations`.
+Read these before treating an empty comparison as unchanged behavior. When HTTP Exchanges is hidden, every run
+reference retains `requests: 0` for JSON compatibility; the named limitation means that count is hidden, not zero
+traffic. Each broker's panel gates its messaging executions and edges independently.
+
 MCP tool names are listed so a mapping between an agent conversation and a shell script stays obvious. `all`
 means every stack advertises the tool; anything else names the stacks that do. Whether an application really
 exposes a tool is still what `bootui tools` says.
@@ -431,7 +436,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui http exchanges` | `get_http_exchanges` | `--limit` | read | all |
 | `bootui http routes` | `get_http_routes` | `--limit` | read | all |
 | `bootui http sessions` | `get_http_sessions` | — | read | Spring MVC |
-| `bootui insights compare` | `get_runtime_run_comparison` | `<id>` (`previous` or a run id) | read | all |
+| `bootui insights compare` | `get_runtime_run_comparison` | `[<id>]` (defaults to `previous`, or a run id) | read | all |
 | `bootui insights impact` | `get_runtime_impact` | `<id>` | read | all |
 | `bootui insights list` | `get_runtime_insights` | `--query`, `--limit` | read | all |
 | `bootui insights show` | `get_runtime_insight` | `<id>` | read | all |

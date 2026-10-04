@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExceptionGroupStats;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExecutionStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteAuthorization;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteOrm;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
@@ -37,12 +38,15 @@ import java.util.function.ToLongFunction;
  * reference by index, then the aggregates. Numbers are variable-length, and histograms keep only their non-empty
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
+ *
+ * <p>Version 10 keeps only literal-free SQL display shapes, merging indistinguishable groups with their counts and
+ * histograms. Version 8 and 9 fingerprints are sanitized on read too, before any summary reaches a consumer.</p>
  */
 final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 8;
+    private static final int VERSION = 10;
 
     private RunSummaryCodec() {}
 
@@ -85,14 +89,45 @@ final class RunSummaryCodec {
                 in.number(),
                 in.number(),
                 in.number());
-        List<RouteStats> routes = in.list(() -> new RouteStats(
+        List<RouteStats> routes = in.list(in::route);
+        List<StatementStats> statements = statementShapes(in.list(
+                () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap())));
+        List<ExceptionGroupStats> groups = in.list(
+                () -> new ExceptionGroupStats(in.string(), in.string(), in.string(), in.number(), in.stringMap()));
+        List<TransactionalMethodStats> methods =
+                in.list(() -> new TransactionalMethodStats(in.string(), in.number(), in.number(), in.histogram()));
+        List<ThreadFamilyStats> families =
+                in.list(() -> new ThreadFamilyStats(in.string(), in.sourceMap(), in.sourceMap()));
+        List<ObservedEdge> edges = in.edges();
+        Map<String, Long> overflowed = in.stringMap();
+        boolean executionsRecorded = in.version >= 9 && in.number() != 0;
+        List<ExecutionStats> executions = in.version >= 9
+                ? in.list(() -> new ExecutionStats(In.SOURCES.get(in.string()), in.route()))
+                : List.of();
+        return new RunSummary(
+                header,
+                new AggregatesSnapshot(
+                        routes,
+                        statements,
+                        groups,
+                        methods,
+                        families,
+                        edges,
+                        run,
+                        overflowed,
+                        executions,
+                        executionsRecorded));
+    }
+
+    private static RouteStats readRoute(In in) {
+        return new RouteStats(
                 in.string(),
                 in.number(),
                 List.of(in.number(), in.number(), in.number(), in.number(), in.number()),
                 in.histogram(),
                 in.sourceMap(),
                 in.sourceMap(),
-                in.stringMap(),
+                JournalTextExposure.statementCounts(in.stringMap()),
                 in.number(),
                 new RouteResources(
                         in.number(),
@@ -102,24 +137,13 @@ final class RunSummaryCodec {
                         in.number(),
                         in.number(),
                         in.number(),
-                        in.number()),
+                        in.number(),
+                        in.version >= 9 && in.number() != 0 ? in.histogram() : null),
                 in.histogram(),
                 in.number(),
                 in.number(),
                 new RouteAuthorization(in.number(), in.number(), in.number(), in.number(), in.number(), in.number()),
-                new RouteOrm(in.number(), in.number(), in.number(), in.number(), in.number(), in.histogram())));
-        List<StatementStats> statements = in.list(
-                () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap()));
-        List<ExceptionGroupStats> groups = in.list(
-                () -> new ExceptionGroupStats(in.string(), in.string(), in.string(), in.number(), in.stringMap()));
-        List<TransactionalMethodStats> methods =
-                in.list(() -> new TransactionalMethodStats(in.string(), in.number(), in.number(), in.histogram()));
-        List<ThreadFamilyStats> families =
-                in.list(() -> new ThreadFamilyStats(in.string(), in.sourceMap(), in.sourceMap()));
-        List<ObservedEdge> edges = in.edges();
-        Map<String, Long> overflowed = in.stringMap();
-        return new RunSummary(
-                header, new AggregatesSnapshot(routes, statements, groups, methods, families, edges, run, overflowed));
+                new RouteOrm(in.number(), in.number(), in.number(), in.number(), in.number(), in.histogram()));
     }
 
     private static byte[] encode(
@@ -136,43 +160,11 @@ final class RunSummaryCodec {
         body.number(run.openRequests());
         body.number(aggregates.routes().size());
         for (RouteStats route : aggregates.routes()) {
-            body.string(route.route());
-            body.number(route.requests());
-            route.statusClasses().forEach(body::number);
-            body.histogram(route.latency());
-            body.sourceMap(route.childCounts());
-            body.sourceMap(route.childNanos());
-            body.stringMap(route.statements());
-            body.number(route.connectionWaitNanos());
-            RouteResources resources = route.resources();
-            body.number(resources.measuredRequests());
-            body.number(resources.partialRequests());
-            body.number(resources.unmeasuredRequests());
-            body.number(resources.cpuNanos());
-            body.number(resources.allocatedBytes());
-            body.number(resources.gcPauses());
-            body.number(resources.requestsWithGcPause());
-            body.number(resources.gcPauseNanos());
-            body.histogram(route.warmLatency());
-            body.number(route.cacheMisses());
-            body.number(route.aiTokens());
-            RouteAuthorization authorization = route.authorization();
-            body.number(authorization.anonymous());
-            body.number(authorization.authenticated());
-            body.number(authorization.none());
-            body.number(authorization.unknown());
-            body.number(authorization.anonymousSuccesses());
-            body.number(authorization.denied());
-            RouteOrm orm = route.orm();
-            body.number(orm.requests());
-            body.number(orm.flushes());
-            body.number(orm.autoFlushes());
-            body.number(orm.entityRequests());
-            body.number(orm.entities());
-            body.histogram(orm.time());
+            writeRoute(body, route);
         }
-        body.number(aggregates.statements().size());
-        for (StatementStats statement : aggregates.statements()) {
+        List<StatementStats> statements = statementShapes(aggregates.statements());
+        body.number(statements.size());
+        for (StatementStats statement : statements) {
             body.string(statement.fingerprint());
             body.number(statement.executions());
             body.number(statement.failures());
@@ -213,6 +205,12 @@ final class RunSummaryCodec {
             body.number(observed.lastSeenEpochMillis());
         }
         body.stringMap(aggregates.overflowed());
+        body.number(aggregates.executionsRecorded() ? 1 : 0);
+        body.number(aggregates.executions().size());
+        for (ExecutionStats execution : aggregates.executions()) {
+            body.string(execution.source() == null ? null : execution.source().propertyName());
+            writeRoute(body, execution.stats());
+        }
 
         Out out = new Out();
         out.fixedInt(MAGIC);
@@ -233,7 +231,79 @@ final class RunSummaryCodec {
         return out.bytes.toByteArray();
     }
 
+    private static void writeRoute(Out body, RouteStats route) {
+        body.string(route.route());
+        body.number(route.requests());
+        route.statusClasses().forEach(body::number);
+        body.histogram(route.latency());
+        body.sourceMap(route.childCounts());
+        body.sourceMap(route.childNanos());
+        body.stringMap(JournalTextExposure.statementCounts(route.statements()));
+        body.number(route.connectionWaitNanos());
+        RouteResources resources = route.resources();
+        body.number(resources.measuredRequests());
+        body.number(resources.partialRequests());
+        body.number(resources.unmeasuredRequests());
+        body.number(resources.cpuNanos());
+        body.number(resources.allocatedBytes());
+        body.number(resources.gcPauses());
+        body.number(resources.requestsWithGcPause());
+        body.number(resources.gcPauseNanos());
+        body.number(resources.allocation() == null ? 0 : 1);
+        if (resources.allocation() != null) {
+            body.histogram(resources.allocation());
+        }
+        body.histogram(route.warmLatency());
+        body.number(route.cacheMisses());
+        body.number(route.aiTokens());
+        RouteAuthorization authorization = route.authorization();
+        body.number(authorization.anonymous());
+        body.number(authorization.authenticated());
+        body.number(authorization.none());
+        body.number(authorization.unknown());
+        body.number(authorization.anonymousSuccesses());
+        body.number(authorization.denied());
+        RouteOrm orm = route.orm();
+        body.number(orm.requests());
+        body.number(orm.flushes());
+        body.number(orm.autoFlushes());
+        body.number(orm.entityRequests());
+        body.number(orm.entities());
+        body.histogram(orm.time());
+    }
+
     /** The most entries any aggregate or nested count holds, where trimming starts halving. */
+    private static List<StatementStats> statementShapes(List<StatementStats> statements) {
+        Map<String, StatementStats> shapes = new LinkedHashMap<>();
+        for (StatementStats statement : statements) {
+            String shape = JournalTextExposure.statementShape(statement.fingerprint());
+            StatementStats previous = shapes.get(shape);
+            if (previous == null) {
+                shapes.put(
+                        shape,
+                        new StatementStats(
+                                shape,
+                                statement.executions(),
+                                statement.failures(),
+                                statement.latency().copy(),
+                                statement.callSites()));
+            } else {
+                previous.latency().merge(statement.latency());
+                Map<String, Long> sites = new LinkedHashMap<>(previous.callSites());
+                statement.callSites().forEach((site, count) -> sites.merge(site, count, Long::sum));
+                shapes.put(
+                        shape,
+                        new StatementStats(
+                                shape,
+                                previous.executions() + statement.executions(),
+                                previous.failures() + statement.failures(),
+                                previous.latency(),
+                                Collections.unmodifiableMap(sites)));
+            }
+        }
+        return List.copyOf(shapes.values());
+    }
+
     private static int largestDimension(AggregatesSnapshot aggregates) {
         int largest = Math.max(
                 Math.max(aggregates.routes().size(), aggregates.statements().size()),
@@ -246,6 +316,10 @@ final class RunSummaryCodec {
                                         aggregates.edges().size()))));
         for (RouteStats route : aggregates.routes()) {
             largest = Math.max(largest, route.statements().size());
+        }
+        largest = Math.max(largest, aggregates.executions().size());
+        for (ExecutionStats execution : aggregates.executions()) {
+            largest = Math.max(largest, execution.stats().statements().size());
         }
         for (StatementStats statement : aggregates.statements()) {
             largest = Math.max(largest, statement.callSites().size());
@@ -306,8 +380,40 @@ final class RunSummaryCodec {
                 limit,
                 Function.identity());
         List<ObservedEdge> edges = top(aggregates.edges(), ObservedEdge::count, limit, Function.identity());
+        List<ExecutionStats> executions = top(
+                aggregates.executions(),
+                value -> value.stats().requests(),
+                limit,
+                value -> new ExecutionStats(value.source(), trimRoute(value.stats(), limit)));
         return new AggregatesSnapshot(
-                routes, statements, groups, methods, families, edges, aggregates.run(), aggregates.overflowed());
+                routes,
+                statements,
+                groups,
+                methods,
+                families,
+                edges,
+                aggregates.run(),
+                aggregates.overflowed(),
+                executions,
+                aggregates.executionsRecorded());
+    }
+
+    private static RouteStats trimRoute(RouteStats route, int limit) {
+        return new RouteStats(
+                route.route(),
+                route.requests(),
+                route.statusClasses(),
+                route.latency(),
+                route.childCounts(),
+                route.childNanos(),
+                top(route.statements(), limit),
+                route.connectionWaitNanos(),
+                route.resources(),
+                route.warmLatency(),
+                route.cacheMisses(),
+                route.aiTokens(),
+                route.authorization(),
+                route.orm());
     }
 
     private static <T> List<T> top(List<T> entries, ToLongFunction<T> weight, int limit, Function<T, T> nested) {
@@ -337,7 +443,11 @@ final class RunSummaryCodec {
                 + aggregates.exceptionGroups().size()
                 + aggregates.transactionalMethods().size()
                 + aggregates.threadFamilies().size()
-                + aggregates.edges().size();
+                + aggregates.edges().size()
+                + aggregates.executions().size();
+        for (ExecutionStats execution : aggregates.executions()) {
+            entries += execution.stats().statements().size();
+        }
         for (RouteStats route : aggregates.routes()) {
             entries += route.statements().size();
         }
@@ -487,6 +597,11 @@ final class RunSummaryCodec {
         private final byte[] bytes;
         private int position;
         private List<String> table = List.of();
+        private int version;
+
+        RouteStats route() {
+            return readRoute(this);
+        }
 
         In(byte[] bytes) {
             this.bytes = bytes;
@@ -497,9 +612,9 @@ final class RunSummaryCodec {
             for (int i = 0; i < 4; i++) {
                 magic = (magic << 8) | (next() & 0xFF);
             }
-            int version = next();
-            if (magic != MAGIC || version != VERSION) {
-                throw new IllegalArgumentException("Not a run summary of version " + VERSION);
+            version = next();
+            if (magic != MAGIC || (version != VERSION && version != 9 && version != 8)) {
+                throw new IllegalArgumentException("Not a supported run summary (versions 8, 9 and " + VERSION + ")");
             }
             return new RunSummary.Header(
                     text(),
