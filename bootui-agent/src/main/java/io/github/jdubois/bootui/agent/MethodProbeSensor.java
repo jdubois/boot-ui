@@ -204,11 +204,13 @@ final class MethodProbeSensor {
             fail(request, ex.getMessage());
             return;
         }
-        if (!MethodProbes.activate(request.slot, request.id)) {
+        if (MethodProbes.poll(request.slot, request.id) != MethodProbes.STARTING) {
             // Stopped, or its run ended, before it was installed: nothing to remove.
             MethodProbes.removed(request.slot, request.id, null);
             return;
         }
+        // Installed before it is active: a probe reported active must advise a class its run loads from then on. Its
+        // advice records nothing until activation.
         Installed probe = new Installed(request, descriptor, matching);
         Install action = new Install(probe);
         try {
@@ -227,6 +229,9 @@ final class MethodProbeSensor {
             installed.remove(Long.valueOf(request.id));
             reset(probe);
             fail(request, problem);
+        } else if (!MethodProbes.activate(request.slot, request.id)) {
+            // Stopped, or its run ended, while it was being installed.
+            remove(probe);
         } else if (probe.advised) {
             // Only now: the transformer ran inside the retransformation, before the JVM installed the new code.
             MethodProbes.advised(request.slot, request.id, descriptor);
