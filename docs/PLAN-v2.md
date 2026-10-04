@@ -2085,7 +2085,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Application thread: snapshot, envelope, and `offer` | < 2 µs p99 on a reference machine; never blocks |
 | Sample-app throughput, journal on versus off | Within 5 % |
 | Retained rows | ≤ the smaller of 32 MB and 5 % of the maximum heap, evictions counted |
-| Persisted Live Activity SELECT bookkeeping | At most 1,024 open requests with 16 distinct fingerprints each; overlong fingerprints use SHA-256, and overflowed shapes are counted. Repeated shapes already kept continue counting |
+| Live and persisted Live Activity SELECT bookkeeping | The same literal-free fingerprints determine N+1 badges in both views. Persisted capture keeps at most 1,024 open requests with 16 distinct fingerprints each; overlong fingerprints use SHA-256. At capacity, the least frequent fingerprint is replaced and counted as overflow, so a later repeated shape can enter; repeated shapes already kept continue counting |
 | Scope readings (§5.11) | About 0.85 µs per scope segment, included in the overhead scenario; removing `resources` from `sources` turns them off |
 | Resource sampler (§5.11) | About 0.4 ms per second at 300 threads, on a BootUI daemon thread, with a thread cap |
 | JFR attribution (§5.11) | About 330 ms and 42 MB to start; opt-in, user-triggered, and bounded by `jfr.max-duration` |

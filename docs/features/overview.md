@@ -176,8 +176,8 @@ under full value exposure.
 Each row carries a timestamp, a type icon, a severity (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a
 duration. Failed rows are highlighted. Slow requests are tinted on a graduated yellow-to-red heat scale crossing 100,
 200, 500, and 1000 ms, with a matching latency badge. A request whose correlated SQL looks like an N+1 access pattern
-carries a red **N+1** badge in the row itself, computed with the same threshold and logic the profiler uses, so the two
-views never disagree.
+carries a red **N+1** badge in the row itself, computed from literal-free SQL shapes with the same threshold for live
+and persisted rows when the same SQL events are available.
 
 When the feed is unfiltered, signals BootUI can pin to a request are **nested chronologically beneath it** and expanded
 by default, so one click shows exactly what a single request did, in order. Requests that triggered a security event are

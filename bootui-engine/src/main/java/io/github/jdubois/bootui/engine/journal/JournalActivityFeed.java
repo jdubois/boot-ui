@@ -213,9 +213,7 @@ public final class JournalActivityFeed {
                 executions.putIfAbsent(event.executionId(), event.executionId());
             }
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
-                selectsByRequest
-                        .computeIfAbsent(event.requestId(), id -> new HashMap<>())
-                        .merge(whitespaceNormalized(sql.sql()), 1, Integer::sum);
+                countSelect(selectsByRequest.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql());
             }
         }
 
@@ -1105,7 +1103,7 @@ public final class JournalActivityFeed {
         return sql != null && sql.stripLeading().regionMatches(true, 0, "select", 0, 6);
     }
 
-    /** Returns false when a fingerprint is discarded or replaces a singleton at the per-request cap. */
+    /** Returns false when a fingerprint replaces another at the per-request cap. */
     static boolean countSelect(Map<String, Integer> selects, String sql) {
         String fingerprint = SqlShapes.fingerprint(sql);
         if (fingerprint.length() > MAX_SELECT_FINGERPRINT_LENGTH) {
@@ -1119,23 +1117,15 @@ public final class JournalActivityFeed {
         }
         boolean overflow = false;
         if (!selects.containsKey(fingerprint) && selects.size() >= MAX_SELECTS_PER_REQUEST) {
-            String single = selects.entrySet().stream()
-                    .filter(entry -> entry.getValue() == 1)
-                    .map(Map.Entry::getKey)
-                    .findFirst()
-                    .orElse(null);
-            if (single == null) {
-                return false;
-            }
-            selects.remove(single);
+            String leastFrequent = selects.entrySet().stream()
+                    .min(Map.Entry.comparingByValue())
+                    .orElseThrow()
+                    .getKey();
+            selects.remove(leastFrequent);
             overflow = true;
         }
         selects.merge(fingerprint, 1, Integer::sum);
         return !overflow;
-    }
-
-    private static String whitespaceNormalized(String sql) {
-        return sql == null ? "" : sql.replaceAll("\\s+", " ").trim();
     }
 
     private static Long millis(RuntimeEvent event) {
