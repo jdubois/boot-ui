@@ -174,6 +174,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                 throwable.getMessage(),
                 frames,
                 causes,
+                exceptionTypes(throwable),
                 thread,
                 method,
                 path,
@@ -205,6 +206,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String rawMessage,
             List<Frame> frames,
             List<Cause> causes,
+            List<String> types,
             String thread,
             String method,
             String path,
@@ -254,7 +256,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                     thread,
                     null,
                     true,
-                    new ExceptionPayload(fingerprint, className, signature(className, safeFrames))));
+                    new ExceptionPayload(fingerprint, className, signature(className, safeFrames), types)));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the exception's capture.
         }
@@ -412,6 +414,31 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             depth++;
         }
         return causes;
+    }
+
+    private static List<String> exceptionTypes(Throwable throwable) {
+        List<Throwable> chain = new ArrayList<>();
+        for (Throwable current = throwable;
+                current != null && chain.size() <= MAX_CAUSE_DEPTH && !chain.contains(current);
+                current = current.getCause()) {
+            chain.add(current);
+        }
+        List<String> types = new ArrayList<>();
+        for (int i = chain.size() - 1; i >= 0 && types.size() < ExceptionPayload.MAX_TYPES; i--) {
+            for (Class<?> type = chain.get(i).getClass();
+                    type != null
+                            && type != Throwable.class
+                            && type != Exception.class
+                            && type != RuntimeException.class
+                            && type != Error.class
+                            && types.size() < ExceptionPayload.MAX_TYPES;
+                    type = type.getSuperclass()) {
+                if (!types.contains(type.getName())) {
+                    types.add(type.getName());
+                }
+            }
+        }
+        return List.copyOf(types);
     }
 
     private Cause toCause(Throwable cause, Throwable enclosing) {
