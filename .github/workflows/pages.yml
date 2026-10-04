@@ -1,5 +1,10 @@
 name: Pages
 
+# The site follows the newest released major. A push to `main` or a manual run deploys only when
+# release-line-gate.sh finds the branch's release line (.github/release-line) on Maven Central and no
+# newer major there, so merging `v2` into `main` publishes no 2.0 documentation before the signed
+# v2.0.0 tag and its artifacts exist. The Release workflow dispatches this workflow at the release tag
+# once the artifacts are available. check-release-integrity.sh pins the gate.
 on:
   push:
     branches: [ main ]
@@ -18,9 +23,16 @@ jobs:
     permissions:
       contents: read
       pages: read
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Decide whether this branch may publish the site
+        id: gate
+        if: github.event_name != 'pull_request'
+        run: bash .github/scripts/release-line-gate.sh
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -91,14 +103,14 @@ jobs:
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: docs/.vuepress/dist
 
   deploy:
     name: Deploy documentation site
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.build.outputs.publish == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:

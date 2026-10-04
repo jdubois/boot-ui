@@ -169,8 +169,10 @@ before their children rather than leaving the children blocked by references.
 
 Use **Run workflow** with `cleanup_only=true` to run retention without rebuilding.
 Set `prune_dry_run=true` to preview **both tag and manifest deletion** without deleting
-anything. A dry run still preserves an inventory artifact. Destructive cleanup runs
-only on `main`; other branches may preview. All publish runs are serialized across
+anything. A dry run still preserves an inventory artifact. Run it from `main`: the
+`docker-hub` environment accepts only `main`, so a preview from another branch is
+refused. The workflow also publishes only through its release-line gate
+([Releasing 2.0](docs/V2-RELEASE.md)). All publish runs are serialized across
 branches to prevent concurrent registry changes. `DOCKERHUB_TOKEN` must have
 **Read, Write, Delete** permissions; `DOCKERHUB_UNTAGGED_PRUNE` is no longer used.
 
@@ -529,12 +531,33 @@ Central uploads are published automatically; set `-Dcentral.autoPublish=false`
 to stage for manual publishing instead.
 
 To prepare and publish a release, run the **Release** GitHub Actions workflow
-from the branch you want to release, usually `main`, and enter the target version
-without the leading `v`. The target must be exactly the next patch, minor, or major
-version after the latest stable release tag. For example, after `v1.13.1`, the
-workflow accepts only `1.13.2`, `1.14.0`, or `2.0.0`. The workflow updates all
-Maven module versions and refreshes the documentation dependency examples in the
-working tree and optionally verifies with the `release` Maven profile. Before any
+from `main`, or from an older major's maintenance branch such as `1.x` (no other
+branch is accepted, and a tag is published only when its commit is on one of
+them), and enter the target version
+without the leading `v`. Versions advance within a major version, so an older major
+can still receive patches after a newer major ships. The target must be exactly the
+next patch or minor after the latest stable tag of its own major, or `MAJOR.0.0`
+directly above the highest existing major, and its major must match the source
+branch's project version (or be one above it when opening a new major). For example,
+with only `v1.13.1` tagged, the workflow accepts `1.13.2`, `1.14.0`, or `2.0.0`. With
+`v1.20.0` and `v2.0.0` tagged, a branch on 1.x accepts `1.20.1` or `1.21.0`, a branch
+on 2.x accepts `2.0.1`, `2.1.0`, or `3.0.0`, and `1.19.5` or a second `2.0.0` is
+rejected. `.github/scripts/release-version-policy.sh` holds this rule.
+
+Every branch also declares its release line, the major its contents belong to, in
+`.github/release-line`, and the workflow releases only versions of that line. `v2`
+declares `2` while it still carries a 1.x project version, so once it is merged,
+`main` releases 2.0.0 and never another 1.x version, and a `1.x` maintenance branch
+releases 1.x patches and never 2.0.0. The documentation site and the Docker Hub
+sample images build from a branch rather than a tag, so they follow the same line:
+`.github/scripts/release-line-gate.sh` lets `pages.yml` and `docker-publish.yml`
+publish only when the branch's line has a release on Maven Central and no newer
+major does. [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the `v2` merge,
+its rehearsal, and the `1.x` maintenance branch.
+
+The workflow updates all Maven module versions and refreshes the documentation
+dependency examples in the working tree and optionally verifies with the `release`
+Maven profile. Before any
 Maven Central upload, it commits those exact contents, creates a GPG-signed
 annotated version tag, and atomically pushes the source branch plus tag. If the
 source branch advanced during preparation, the workflow aborts; it never rebases
@@ -555,6 +578,9 @@ SHA in detached state, rechecks the Maven/npm/tag identity, and publishes exactl
 that checkout. After auto-publication it polls every published coordinate, runs the
 Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests, and dispatches the
 Pages workflow at the immutable tag rather than at a branch that may have advanced.
+The documentation site follows the newest major only: the workflow redeploys it when
+the release's major is at least the highest major among the stable tags on origin,
+and skips the redeploy, with a notice, for a patch to an older major.
 
 The same workflow (`.github/workflows/release.yml`) also runs on manually pushed
 `v*` tags, or manually with an empty version when the selected ref is already
@@ -575,7 +601,7 @@ and signed tag are already pushed before that upload. After publishing the stage
 deployment in the Portal, rerun **Release** at the existing tag with an empty
 version, `auto_publish` enabled, and `resume_after_publish` enabled. This skips a
 duplicate Maven deploy and performs availability polling, consumer smoke tests, and
-tag-pinned documentation deployment.
+tag-pinned documentation deployment for a newest-major release.
 
 Never move or recreate a release tag after a failure. If deployment failed before
 Central accepted an upload, rerun the workflow at the existing tag. If Central
@@ -591,7 +617,13 @@ with:
 
 ```bash
 bash .github/scripts/check-release-integrity.sh
+python3 -B -m unittest discover -s .github/scripts -p 'test_release_*.py'
 ```
+
+The second command tests the per-major version, release-line, and newest-major
+documentation rules, the release-line gate against a local stand-in for Maven
+Central, and the integrity guard itself, which also pins the gates in `pages.yml`
+and `docker-publish.yml`.
 
 ## Submitting a change
 
