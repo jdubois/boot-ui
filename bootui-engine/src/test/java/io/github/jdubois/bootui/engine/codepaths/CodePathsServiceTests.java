@@ -258,6 +258,8 @@ class CodePathsServiceTests {
         for (int i = 1; i <= 3; i++) {
             request(String.format("%016x", i), () -> call(controller, CodePathsServiceTests::spin));
         }
+        awaitFragments(3);
+        assertThat(service.status()).containsEntry("fragments", 3L);
         clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
         assertThat(service.report().routes()).isNotEmpty();
         assertThat(service.handlerMethods("GET /api/quote")).isNotNull();
@@ -309,6 +311,19 @@ class CodePathsServiceTests {
             context.set(CorrelationContext.NONE);
         }
         service.tree(requestId);
+    }
+
+    /**
+     * Waits until the run has taken {@code count} fragments: the drain thread may have taken them off the bridge before
+     * a read's drain, and must add them before the clock moves, or they would settle only later.
+     */
+    private void awaitFragments(long count) {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        while (((Number) service.status().get("fragments")).longValue() < count) {
+            assertThat(System.nanoTime()).as("fragments drained in time").isLessThan(deadline);
+            Thread.onSpinWait();
+            service.tree("0000000000000001");
+        }
     }
 
     private static void spin() {
