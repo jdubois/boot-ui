@@ -98,7 +98,7 @@ methods they spend their time in, or one route's hottest method nodes (see [Code
 Destructive, database-mutating, arbitrary-command, heap-capture and download, HTTP-probe, GitHub-write, and
 dev-service-restart operations are not exposed.
 
-Clients with prompt support can also select `diagnose_runtime_issue`, `review_application`, or `assess_application`.
+Clients with prompt support can also select `diagnose_runtime_issue`, `verify_after_change`, `review_application`, or `assess_application`.
 These are instructions for the external agent, not new scan tools. The assessment workflow collects bounded evidence,
 reports coverage, and proposes a versioned action plan before stopping for approval of specific action IDs. See
 [assess an application and approve an action plan](../AI-AGENTS.md#assess-an-application-and-approve-an-action-plan).

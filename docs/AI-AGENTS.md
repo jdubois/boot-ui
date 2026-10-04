@@ -565,7 +565,8 @@ When you do not know which panel to investigate first, ask your coding agent for
 The BootUI skill — installed [on its own](#install-the-bootui-agent-skill) or through the
 [Claude Code plugin](#install-the-bootui-claude-code-plugin) — teaches this workflow through MCP, the CLI, or the plain
 HTTP command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
-three argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `review_application` for a focused
+four argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `verify_after_change` to run the tests,
+compare with the previous run, and stop, `review_application` for a focused
 advisor review, and `assess_application` for a broader assessment and approval-gated plan. Clients without prompt support
 can use the skill and the request above; there is no `bootui assess` command or new assessment tool.
 

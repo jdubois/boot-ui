@@ -371,7 +371,82 @@ describe('LiveActivity', () => {
 
     expect(wrapper.find('#activity-run-filter').exists()).toBe(false)
     expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
-    expect(wrapper.text()).toContain('persisted history keeps no run or request grouping')
+    expect(wrapper.find('#activity-feed-source').exists()).toBe(false)
+    expect(wrapper.text()).toContain('keeps no run or request grouping')
+  })
+
+  it('does not send a feed source while persisted history serves the feed', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    const persisted = activityReport({
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+    })
+    const fetchMock = stubFetch(persisted, requestProfile())
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith('api/activity'))
+    expect(urls.length).toBeGreaterThan(0)
+    expect(urls.every((url) => !url.includes('source='))).toBe(true)
+  })
+
+  it('does not blame hidden journal filters for an empty persisted page', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    let persistedNow = false
+    const base = {entries: [], typeCounts: {}, sources: ['Runtime journal']}
+    const memory = activityReport({...base, pageInfo: {persistent: false, hasMore: false, nextCursor: null}})
+    const persisted = activityReport({...base, pageInfo: {persistent: true, hasMore: false, nextCursor: null}})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(persistedNow ? persisted : memory)))
+    )
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('#activity-route-filter').setValue('GET /x')
+    persistedNow = true
+    await wrapper.get('#activity-errors-only').setValue(true)
+    await wrapper.get('#activity-errors-only').setValue(false)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    await flushPromises()
+
+    expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('No activity matches the current filters')
+    expect(wrapper.text()).toContain('No visible rows on this page')
+  })
+
+  it('does not claim nothing was recorded when persisted rows are all hidden', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    const persisted = activityReport({
+      entries: [],
+      typeCounts: {},
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+    })
+    vi.stubGlobal('fetch', stubFetch(persisted, requestProfile()))
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No visible rows on this page')
+    expect(wrapper.text()).not.toContain('No activity recorded yet')
+    expect(wrapper.text()).not.toContain('older history is available')
+  })
+
+  it('explains an empty persisted page that still has older history', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    const persisted = activityReport({
+      entries: [],
+      typeCounts: {},
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: true, nextCursor: 'abc'}
+    })
+    vi.stubGlobal('fetch', stubFetch(persisted, requestProfile()))
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No visible rows on this page')
+    expect(wrapper.text()).not.toContain('No activity recorded yet')
+    expect(wrapper.text()).toContain('Load older activity')
   })
 
   it('asks for one run only when a run id is entered', async () => {
