@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
@@ -38,17 +39,22 @@ final class ThreadSensor {
         {"Thread.start", THREAD, "key"},
         {"VirtualThread.start", VIRTUAL_THREAD, "key"},
         {"Thread.run", THREAD, "apply"},
+        {"VirtualThread.run", VIRTUAL_THREAD, "apply"},
         {"Thread subclass run", "(claimed packages)", "apply"}
     };
 
     private final Instrumentation instrumentation;
     private final boolean privileged;
+    /** Hooks left out of the transformer: only ever non-empty in BootUI's own mutation tests. */
+    private final Set<String> omitted;
+
     private final TransformStats stats = new TransformStats();
     private volatile List<String> packages = Collections.emptyList();
     private SubclassMatcher installedSubclasses;
     private volatile ResettableClassFileTransformer transformer;
     private volatile String state = "off";
-    private volatile long durationMillis = -1;
+    private volatile long installMillis = -1;
+    private volatile long selfTestMillis = -1;
     private volatile Map<String, String> selfTest = new LinkedHashMap<String, String>();
     private volatile Map<String, String> selfTestSteps = new LinkedHashMap<String, String>();
     private volatile long generation;
@@ -65,8 +71,13 @@ final class ThreadSensor {
     private static final int REFINE = 4;
 
     ThreadSensor(Instrumentation instrumentation, boolean privileged) {
+        this(instrumentation, privileged, Collections.<String>emptySet());
+    }
+
+    ThreadSensor(Instrumentation instrumentation, boolean privileged, Set<String> omitted) {
         this.instrumentation = instrumentation;
         this.privileged = privileged;
+        this.omitted = omitted;
     }
 
     /** Installs the sensor once and self-tests it, off the claiming thread. */
@@ -130,7 +141,9 @@ final class ThreadSensor {
         Map<String, Object> map = new LinkedHashMap<String, Object>();
         map.put("id", ThreadPropagation.SENSOR);
         map.put("state", state);
-        map.put("durationMillis", Long.valueOf(durationMillis));
+        map.put("durationMillis", Long.valueOf(ExecutorSensor.durationMillis(installMillis, selfTestMillis)));
+        map.put("installMillis", Long.valueOf(installMillis));
+        map.put("selfTestMillis", Long.valueOf(selfTestMillis));
         map.put("selfTestPassed", Boolean.valueOf(selfTestPassed));
         map.put("selfTestError", selfTestError);
         map.put("selfTestSteps", new LinkedHashMap<String, String>(selfTestSteps));
@@ -185,6 +198,7 @@ final class ThreadSensor {
         state = "installing";
         SubclassMatcher subclasses = newSubclassMatcher();
         InstallAction action = new InstallAction(subclasses);
+        selfTestMillis = -1;
         try {
             transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
         } catch (Throwable ex) {
@@ -194,8 +208,11 @@ final class ThreadSensor {
                 }
             }
             throw ex;
+        } finally {
+            long elapsed = System.nanoTime() - started;
+            stats.retransformedFor(elapsed);
+            installMillis = elapsed / 1_000_000L;
         }
-        durationMillis = (System.nanoTime() - started) / 1_000_000L;
         state = "installed";
     }
 
@@ -210,12 +227,17 @@ final class ThreadSensor {
                 classes.add(type);
             }
         }
-        for (Class<?> type : classes) {
-            try {
-                instrumentation.retransformClasses(type);
-            } catch (Throwable ex) {
-                stats.failure(type.getName() + ": " + ex);
+        long started = System.nanoTime();
+        try {
+            for (Class<?> type : classes) {
+                try {
+                    instrumentation.retransformClasses(type);
+                } catch (Throwable ex) {
+                    stats.failure(type.getName() + ": " + ex);
+                }
             }
+        } finally {
+            stats.retransformedFor(System.nanoTime() - started);
         }
     }
 
@@ -234,13 +256,19 @@ final class ThreadSensor {
             state = stuck ? "release-failed" : "released";
             return;
         }
-        boolean restored = installed.reset(
-                instrumentation,
-                AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
-                AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
-                new AgentBuilder.RedefinitionStrategy.Listener.Compound(
-                        AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
-                        stats.redefinitionFailures()));
+        long started = System.nanoTime();
+        boolean restored;
+        try {
+            restored = installed.reset(
+                    instrumentation,
+                    AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
+                    AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
+                    new AgentBuilder.RedefinitionStrategy.Listener.Compound(
+                            AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
+                            stats.redefinitionFailures()));
+        } finally {
+            stats.retransformedFor(System.nanoTime() - started);
+        }
         if (!restored) {
             stuck = true;
             ThreadPropagation.disable(claimGeneration, true);
@@ -275,26 +303,43 @@ final class ThreadSensor {
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(THREAD, VIRTUAL_THREAD, TPE)
                         .or(subclasses)))
                 .type(ElementMatchers.named(THREAD))
-                .transform(new ExecutorSensor.Visit(Advice.to(ThreadAdvice.Start.class)
-                                .on(ElementMatchers.named("start")
-                                        .and(ElementMatchers.takesArguments(0).or(ElementMatchers.takesArguments(1)))))
-                        .and(MemberSubstitution.relaxed()
-                                .method(ElementMatchers.is(run))
-                                .replaceWith(runThreadTask)
-                                .on(ElementMatchers.named("run")
-                                        .and(ElementMatchers.takesArguments(0))
-                                        .or(ElementMatchers.named("runWith")))))
+                .transform(new ExecutorSensor.Visit(omitted)
+                        .and(
+                                "Thread.start",
+                                Advice.to(ThreadAdvice.Start.class)
+                                        .on(ElementMatchers.named("start")
+                                                .and(ElementMatchers.takesArguments(0)
+                                                        .or(ElementMatchers.takesArguments(1)))))
+                        // One run point on JDK 21+ (runWith) for platform and virtual threads: counted per kind.
+                        .and(
+                                "Thread.run",
+                                "VirtualThread.run",
+                                MemberSubstitution.relaxed()
+                                        .method(ElementMatchers.is(run))
+                                        .replaceWith(runThreadTask)
+                                        .on(ElementMatchers.named("run")
+                                                .and(ElementMatchers.takesArguments(0))
+                                                .or(ElementMatchers.named("runWith")))))
                 .type(ElementMatchers.named(VIRTUAL_THREAD))
-                .transform(new ExecutorSensor.Visit(Advice.to(ThreadAdvice.VirtualStart.class)
-                        .on(ElementMatchers.named("start").and(ElementMatchers.takesArguments(1)))))
+                .transform(new ExecutorSensor.Visit(omitted)
+                        .and(
+                                "VirtualThread.start",
+                                Advice.to(ThreadAdvice.VirtualStart.class)
+                                        .on(ElementMatchers.named("start").and(ElementMatchers.takesArguments(1)))))
                 .type(ElementMatchers.named(TPE))
-                .transform(new ExecutorSensor.Visit(Advice.to(ThreadAdvice.AddingWorker.class)
-                        .on(ElementMatchers.named("addWorker").and(ElementMatchers.takesArguments(2)))))
+                .transform(new ExecutorSensor.Visit(omitted)
+                        .and(
+                                null,
+                                Advice.to(ThreadAdvice.AddingWorker.class)
+                                        .on(ElementMatchers.named("addWorker").and(ElementMatchers.takesArguments(2)))))
                 .type(subclasses)
-                .transform(new ExecutorSensor.Visit(Advice.to(ThreadAdvice.SubclassRun.class)
-                        .on(ElementMatchers.named("run")
-                                .and(ElementMatchers.takesArguments(0))
-                                .and(ElementMatchers.not(ElementMatchers.isAbstract())))));
+                .transform(new ExecutorSensor.Visit(omitted)
+                        .and(
+                                "Thread subclass run",
+                                Advice.to(ThreadAdvice.SubclassRun.class)
+                                        .on(ElementMatchers.named("run")
+                                                .and(ElementMatchers.takesArguments(0))
+                                                .and(ElementMatchers.not(ElementMatchers.isAbstract())))));
     }
 
     /** {@code Thread} subclasses in the claimed packages: their own {@code run()} bypasses {@code Thread.run}. */
@@ -355,6 +400,7 @@ final class ThreadSensor {
     // ---- self-test -----------------------------------------------------------------------------------------------
 
     void selfTest(long claimGeneration) {
+        long started = System.nanoTime();
         Map<String, String> steps = new LinkedHashMap<String, String>();
         Map<String, Object> seen;
         ThreadPropagation.beginSelfTest();
@@ -367,6 +413,7 @@ final class ThreadSensor {
             seen = ThreadPropagation.endSelfTest();
         }
         Map<String, String> results = evaluate(seen, steps);
+        selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
         selfTest = results;
         selfTestSteps = steps;
         List<String> failed = new ArrayList<String>();
@@ -399,6 +446,9 @@ final class ThreadSensor {
                 "VirtualThread.start",
                 result(keyed, "VirtualThread.start", ExecutorSensor.present(VIRTUAL_THREAD), steps.get("virtual")));
         results.put("Thread.run", result(applied, "Thread.run", true, steps.get("platform")));
+        results.put(
+                "VirtualThread.run",
+                result(applied, "VirtualThread.run", ExecutorSensor.present(VIRTUAL_THREAD), steps.get("virtual")));
         results.put("Thread subclass run", "not-exercised");
         return results;
     }

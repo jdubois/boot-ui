@@ -6,9 +6,11 @@ import java.lang.instrument.Instrumentation;
 import java.security.PrivilegedAction;
 import java.security.ProtectionDomain;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -50,9 +52,13 @@ final class ExecutorSensor {
     static final String ASYNC_SUPPLY = "java.util.concurrent.CompletableFuture$AsyncSupply";
     static final String ASYNC_RUN = "java.util.concurrent.CompletableFuture$AsyncRun";
 
-    /** Every hook: its id, the type it transforms, and whether it keys or applies. */
+    /**
+     * Every hook: its id, the type it transforms, and whether it keys or applies. Each distinct key or apply path has its
+     * own row and its own self-test counter, so one path's evidence never vouches for a sibling's.
+     */
     static final String[][] HOOKS = {
-        {"ThreadPoolExecutor", TPE, "key"},
+        {"ThreadPoolExecutor.addWorker", TPE, "key"},
+        {"ThreadPoolExecutor.queue", TPE, "key"},
         {"ScheduledThreadPoolExecutor", STPE, "key"},
         {"ForkJoinPool", FJP, "key"},
         {"ForkJoinTask adapters", RUNNABLE_EXECUTE_ACTION, "key"},
@@ -61,18 +67,28 @@ final class ExecutorSensor {
         {"CompletableFuture.ThreadPerTaskExecutor", THREAD_PER_TASK, "key"},
         {"ThreadPoolExecutor.runWorker", TPE, "apply"},
         {"ForkJoinTask.doExec", FJT, "apply"},
-        {"CompletableFuture.Async", ASYNC_SUPPLY, "apply"}
+        {"CompletableFuture.AsyncSupply", ASYNC_SUPPLY, "apply"},
+        {"CompletableFuture.AsyncRun", ASYNC_RUN, "apply"}
     };
 
     /** The hooks every supported JDK has: a self-test failure of one of them disables propagation. */
-    static final String[] CORE = {"ThreadPoolExecutor", "ThreadPoolExecutor.runWorker", "ForkJoinTask.doExec"};
+    static final String[] CORE = {
+        "ThreadPoolExecutor.addWorker",
+        "ThreadPoolExecutor.queue",
+        "ThreadPoolExecutor.runWorker",
+        "ForkJoinTask.doExec"
+    };
 
     private final Instrumentation instrumentation;
     private final boolean privileged;
+    /** Hooks left out of the transformer: only ever non-empty in BootUI's own mutation tests. */
+    private final Set<String> omitted;
+
     private final TransformStats stats = new TransformStats();
     private volatile ResettableClassFileTransformer transformer;
     private volatile String state = "off";
-    private volatile long durationMillis = -1;
+    private volatile long installMillis = -1;
+    private volatile long selfTestMillis = -1;
     private volatile Map<String, String> selfTest = new LinkedHashMap<String, String>();
     private volatile boolean selfTestPassed;
     private volatile String selfTestError;
@@ -82,8 +98,13 @@ final class ExecutorSensor {
     private boolean releasing;
 
     ExecutorSensor(Instrumentation instrumentation, boolean privileged) {
+        this(instrumentation, privileged, Collections.<String>emptySet());
+    }
+
+    ExecutorSensor(Instrumentation instrumentation, boolean privileged, Set<String> omitted) {
         this.instrumentation = instrumentation;
         this.privileged = privileged;
+        this.omitted = omitted;
     }
 
     /** Installs the sensor once, then self-tests it, off the claiming thread; later claims test again after a failure. */
@@ -112,7 +133,9 @@ final class ExecutorSensor {
         Map<String, Object> map = new LinkedHashMap<String, Object>();
         map.put("id", TaskPropagation.SENSOR);
         map.put("state", state);
-        map.put("durationMillis", Long.valueOf(durationMillis));
+        map.put("durationMillis", Long.valueOf(durationMillis(installMillis, selfTestMillis)));
+        map.put("installMillis", Long.valueOf(installMillis));
+        map.put("selfTestMillis", Long.valueOf(selfTestMillis));
         map.put("selfTestPassed", Boolean.valueOf(selfTestPassed));
         map.put("selfTestError", selfTestError);
         map.put("selfTestSteps", new LinkedHashMap<String, String>(selfTestSteps));
@@ -170,12 +193,25 @@ final class ExecutorSensor {
         }
     }
 
+    /** Until a class's own hook passes the next self-test, the pool hooks apply its async tasks. */
+    static void unverifyAsync() {
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_SUPPLY, false);
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_RUN, false);
+    }
+
     void install() {
+        unverifyAsync();
         long started = System.nanoTime();
         state = "installing";
         InstallAction action = new InstallAction();
-        transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
-        durationMillis = (System.nanoTime() - started) / 1_000_000L;
+        selfTestMillis = -1;
+        try {
+            transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
+        } finally {
+            long elapsed = System.nanoTime() - started;
+            stats.retransformedFor(elapsed);
+            installMillis = elapsed / 1_000_000L;
+        }
         state = "installed";
     }
 
@@ -183,16 +219,23 @@ final class ExecutorSensor {
         ResettableClassFileTransformer installed = transformer;
         transformer = null;
         selfTestPassed = false;
+        unverifyAsync();
         if (installed == null) {
             return;
         }
-        boolean restored = installed.reset(
-                instrumentation,
-                AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
-                AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
-                new AgentBuilder.RedefinitionStrategy.Listener.Compound(
-                        AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
-                        stats.redefinitionFailures()));
+        long started = System.nanoTime();
+        boolean restored;
+        try {
+            restored = installed.reset(
+                    instrumentation,
+                    AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
+                    AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
+                    new AgentBuilder.RedefinitionStrategy.Listener.Compound(
+                            AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
+                            stats.redefinitionFailures()));
+        } finally {
+            stats.retransformedFor(System.nanoTime() - started);
+        }
         state = restored ? "released" : "release-failed";
     }
 
@@ -213,45 +256,88 @@ final class ExecutorSensor {
                 .assureReadEdgeTo(instrumentation, TaskPropagation.class)
                 .ignore(ElementMatchers.not(executorTypes()))
                 .type(ElementMatchers.named(TPE))
-                .transform(new Visit(Advice.to(ExecutorAdvice.AddWorker.class)
-                                .on(ElementMatchers.named("addWorker").and(ElementMatchers.takesArguments(2))))
-                        .and(Advice.to(ExecutorAdvice.Remove.class)
-                                .on(ElementMatchers.named("remove")
-                                        .and(ElementMatchers.takesArguments(Runnable.class))))
-                        .and(MemberSubstitution.relaxed()
-                                .method(ElementMatchers.is(queueOffer))
-                                .replaceWith(bridgeOffer)
-                                .on(ElementMatchers.named("execute")
-                                        .and(ElementMatchers.takesArguments(Runnable.class))))
-                        .and(MemberSubstitution.relaxed()
-                                .method(ElementMatchers.is(run))
-                                .replaceWith(runTask)
-                                .on(ElementMatchers.named("runWorker"))))
+                .transform(new Visit(omitted)
+                        .and(
+                                "ThreadPoolExecutor.addWorker",
+                                Advice.to(ExecutorAdvice.AddWorker.class)
+                                        .on(ElementMatchers.named("addWorker").and(ElementMatchers.takesArguments(2))))
+                        .and(
+                                null,
+                                Advice.to(ExecutorAdvice.Remove.class)
+                                        .on(ElementMatchers.named("remove")
+                                                .and(ElementMatchers.takesArguments(Runnable.class))))
+                        .and(
+                                "ThreadPoolExecutor.queue",
+                                MemberSubstitution.relaxed()
+                                        .method(ElementMatchers.is(queueOffer))
+                                        .replaceWith(bridgeOffer)
+                                        .on(ElementMatchers.named("execute")
+                                                .and(ElementMatchers.takesArguments(Runnable.class))))
+                        .and(
+                                "ThreadPoolExecutor.runWorker",
+                                MemberSubstitution.relaxed()
+                                        .method(ElementMatchers.is(run))
+                                        .replaceWith(runTask)
+                                        .on(ElementMatchers.named("runWorker"))))
                 .type(ElementMatchers.named(STPE))
-                .transform(new Visit(Advice.to(ExecutorAdvice.DelayedExecute.class)
-                        .on(ElementMatchers.named("delayedExecute").and(ElementMatchers.takesArguments(1)))))
+                .transform(new Visit(omitted)
+                        .and(
+                                "ScheduledThreadPoolExecutor",
+                                Advice.to(ExecutorAdvice.DelayedExecute.class)
+                                        .on(ElementMatchers.named("delayedExecute")
+                                                .and(ElementMatchers.takesArguments(1)))))
                 .type(ElementMatchers.named(FJP))
-                .transform(new Visit(Advice.to(ExecutorAdvice.ForkJoinRoot.class)
-                                .on(ElementMatchers.named("externalSubmit")
-                                        .and(ElementMatchers.takesArguments(ForkJoinTask.class))))
-                        .and(Advice.to(ExecutorAdvice.ForkJoinPoolSubmit.class)
-                                .on(ElementMatchers.named("poolSubmit")
-                                        .and(ElementMatchers.takesArguments(boolean.class, ForkJoinTask.class)))))
+                .transform(new Visit(omitted)
+                        .and(
+                                "ForkJoinPool",
+                                Advice.to(ExecutorAdvice.ForkJoinRoot.class)
+                                        .on(ElementMatchers.named("externalSubmit")
+                                                .and(ElementMatchers.takesArguments(ForkJoinTask.class))))
+                        .and(
+                                "ForkJoinPool",
+                                Advice.to(ExecutorAdvice.ForkJoinPoolSubmit.class)
+                                        .on(ElementMatchers.named("poolSubmit")
+                                                .and(ElementMatchers.takesArguments(
+                                                        boolean.class, ForkJoinTask.class)))))
                 .type(ElementMatchers.named(FJT))
-                .transform(new Visit(Advice.to(ExecutorAdvice.DoExec.class).on(ElementMatchers.named("doExec")))
-                        .and(Advice.to(ExecutorAdvice.Fork.class)
-                                .on(ElementMatchers.named("fork").and(ElementMatchers.takesArguments(0)))))
+                .transform(new Visit(omitted)
+                        .and(
+                                "ForkJoinTask.doExec",
+                                Advice.to(ExecutorAdvice.DoExec.class).on(ElementMatchers.named("doExec")))
+                        .and(
+                                "ForkJoinTask.fork",
+                                Advice.to(ExecutorAdvice.Fork.class)
+                                        .on(ElementMatchers.named("fork").and(ElementMatchers.takesArguments(0)))))
                 .type(ElementMatchers.nameStartsWith(ADAPTED).or(ElementMatchers.named(RUNNABLE_EXECUTE_ACTION)))
-                .transform(new Visit(Advice.to(ExecutorAdvice.Adapter.class).on(ElementMatchers.isConstructor())))
+                .transform(new Visit(omitted)
+                        .and(
+                                "ForkJoinTask adapters",
+                                Advice.to(ExecutorAdvice.Adapter.class).on(ElementMatchers.isConstructor())))
                 .type(ElementMatchers.named(DELAYED))
-                .transform(new Visit(Advice.to(ExecutorAdvice.Delayed.class)
-                        .on(ElementMatchers.isConstructor().and(ElementMatchers.takesArguments(6)))))
+                .transform(new Visit(omitted)
+                        .and(
+                                "DelayScheduler",
+                                Advice.to(ExecutorAdvice.Delayed.class)
+                                        .on(ElementMatchers.isConstructor().and(ElementMatchers.takesArguments(6)))))
                 .type(ElementMatchers.named(THREAD_PER_TASK))
-                .transform(new Visit(Advice.to(ExecutorAdvice.ThreadPerTask.class)
-                        .on(ElementMatchers.named("execute").and(ElementMatchers.takesArguments(Runnable.class)))))
-                .type(ElementMatchers.namedOneOf(ASYNC_SUPPLY, ASYNC_RUN))
-                .transform(new Visit(Advice.to(ExecutorAdvice.AsyncRun.class)
-                        .on(ElementMatchers.named("run").and(ElementMatchers.takesArguments(0)))));
+                .transform(new Visit(omitted)
+                        .and(
+                                "CompletableFuture.ThreadPerTaskExecutor",
+                                Advice.to(ExecutorAdvice.ThreadPerTask.class)
+                                        .on(ElementMatchers.named("execute")
+                                                .and(ElementMatchers.takesArguments(Runnable.class)))))
+                .type(ElementMatchers.named(ASYNC_SUPPLY))
+                .transform(new Visit(omitted)
+                        .and(
+                                "CompletableFuture.AsyncSupply",
+                                Advice.to(ExecutorAdvice.AsyncSupply.class)
+                                        .on(ElementMatchers.named("run").and(ElementMatchers.takesArguments(0)))))
+                .type(ElementMatchers.named(ASYNC_RUN))
+                .transform(new Visit(omitted)
+                        .and(
+                                "CompletableFuture.AsyncRun",
+                                Advice.to(ExecutorAdvice.AsyncRun.class)
+                                        .on(ElementMatchers.named("run").and(ElementMatchers.takesArguments(0)))));
     }
 
     static ElementMatcher.Junction<TypeDescription> executorTypes() {
@@ -272,18 +358,27 @@ final class ExecutorSensor {
         }
     }
 
-    /** Applies a list of visitors to a type. */
+    /** Applies a list of visitors to a type, leaving out those of omitted hooks. */
     static final class Visit implements AgentBuilder.Transformer {
 
+        private final Set<String> omitted;
         private final List<net.bytebuddy.asm.AsmVisitorWrapper> visitors = new ArrayList<>();
 
-        Visit(net.bytebuddy.asm.AsmVisitorWrapper visitor) {
-            visitors.add(visitor);
+        Visit(Set<String> omitted) {
+            this.omitted = omitted;
         }
 
-        Visit and(net.bytebuddy.asm.AsmVisitorWrapper visitor) {
-            visitors.add(visitor);
+        /** Adds the visitor of {@code hook}, or of no reported hook when {@code null}. */
+        Visit and(String hook, net.bytebuddy.asm.AsmVisitorWrapper visitor) {
+            if (hook == null || !omitted.contains(hook)) {
+                visitors.add(visitor);
+            }
             return this;
+        }
+
+        /** Adds a visitor two hooks share, such as one call site both thread kinds run through: omitting either drops it. */
+        Visit and(String hook, String sharedWith, net.bytebuddy.asm.AsmVisitorWrapper visitor) {
+            return omitted.contains(sharedWith) ? this : and(hook, visitor);
         }
 
         @Override
@@ -308,9 +403,11 @@ final class ExecutorSensor {
 
     private static Map<String, String> stepOfHook() {
         Map<String, String> map = new LinkedHashMap<String, String>();
-        map.put("ThreadPoolExecutor", "thread-pool");
+        map.put("ThreadPoolExecutor.addWorker", "thread-pool");
+        map.put("ThreadPoolExecutor.queue", "thread-pool");
         map.put("ThreadPoolExecutor.runWorker", "thread-pool");
-        map.put("CompletableFuture.Async", "thread-pool");
+        map.put("CompletableFuture.AsyncSupply", "thread-pool");
+        map.put("CompletableFuture.AsyncRun", "thread-pool");
         map.put("ScheduledThreadPoolExecutor", "scheduled");
         map.put("ForkJoinPool", "fork-join");
         map.put("ForkJoinTask adapters", "fork-join");
@@ -327,8 +424,9 @@ final class ExecutorSensor {
      * last, with a short wait.
      */
     void selfTest(long generation) {
+        long started = System.nanoTime();
         Map<String, String> steps = new LinkedHashMap<String, String>();
-        TaskPropagation.asyncApplies(present(ASYNC_SUPPLY));
+        unverifyAsync();
         ThreadPoolExecutor pool = new ThreadPoolExecutor(
                 1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<Runnable>(), new SelfTestThreads());
         ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, new SelfTestThreads());
@@ -353,9 +451,13 @@ final class ExecutorSensor {
             forkJoin.shutdownNow();
         }
         Map<String, String> results = evaluate(seen, steps);
+        selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
         selfTest = results;
         selfTestSteps = steps;
-        TaskPropagation.asyncApplies("passed".equals(results.get("CompletableFuture.Async")));
+        TaskPropagation.asyncApplies(
+                TaskPropagation.APPLY_ASYNC_SUPPLY, "passed".equals(results.get("CompletableFuture.AsyncSupply")));
+        TaskPropagation.asyncApplies(
+                TaskPropagation.APPLY_ASYNC_RUN, "passed".equals(results.get("CompletableFuture.AsyncRun")));
         List<String> failed = new ArrayList<String>();
         for (String core : CORE) {
             if ("failed".equals(results.get(core))) {
@@ -370,6 +472,11 @@ final class ExecutorSensor {
             selfTestPassed = false;
             TaskPropagation.disable(generation, "self-test failed for " + failed + " " + steps);
         }
+    }
+
+    /** The last installation and its self-test together: {@code -1} until the installation finished. */
+    static long durationMillis(long installMillis, long selfTestMillis) {
+        return installMillis < 0 ? -1L : installMillis + Math.max(0L, selfTestMillis);
     }
 
     /** Runs a step with a timeout in seconds: {@code ok}, {@code timeout}, or {@code error: ...}. */
@@ -428,12 +535,22 @@ final class ExecutorSensor {
 
         @Override
         public void run(int seconds) throws Exception {
+            // The first task starts the pool's only worker (addWorker) and holds it, so every later one is queued.
             CountDownLatch gate = new CountDownLatch(1);
-            pool.execute(new Await(gate));
-            java.util.concurrent.Future<?> queued = pool.submit(new Noop());
-            gate.countDown();
+            java.util.concurrent.Future<?> queued;
+            CompletableFuture<Object> supplied;
+            CompletableFuture<Void> ran;
+            try {
+                pool.execute(new Await(gate));
+                queued = pool.submit(new Noop());
+                supplied = CompletableFuture.supplyAsync(new Value(), pool);
+                ran = CompletableFuture.runAsync(new Noop(), pool);
+            } finally {
+                gate.countDown();
+            }
             queued.get(seconds, TimeUnit.SECONDS);
-            CompletableFuture.supplyAsync(new Value(), pool).get(seconds, TimeUnit.SECONDS);
+            supplied.get(seconds, TimeUnit.SECONDS);
+            ran.get(seconds, TimeUnit.SECONDS);
         }
     }
 

@@ -283,6 +283,32 @@ class ExecutionProfileAssemblerTests {
             assertThat(section(profile, "SQL").tier()).isEqualTo("PROPAGATED");
             assertThat(profile.notes())
                     .anyMatch(note -> note.startsWith("SQL statements recorded in tasks the BootUI agent propagated"));
+            assertThat(profile.correlationTiers())
+                    .as("a profile never uses a tier its own tier table calls unavailable")
+                    .contains(new RequestProfileTierDto("PROPAGATED", true, null));
+            assertThat(profile.notes())
+                    .contains(ExecutionProfileAssembler.RETAINED_PROPAGATION_NOTE
+                            + ProfileCapabilities.PROPAGATION_REASON);
+        }
+
+        @Test
+        void aProfileWithoutPropagatedWorkKeepsThePropagatedTierUnavailableWithoutTheRetainedNote() {
+            HttpExchangeDto request = stamped(request("0123456789abcdef", "/orders", null, null, 1_000L, 50L));
+            ProfileEvidence evidence = new Evidence(request)
+                    .sql(inExecution(sql(1, "select 1", null, 2L, 1_010L), "0123456789abcdef", null))
+                    .build();
+            String reason = JavaAgentService.PROPAGATION_REQUIREMENT + ": the sensor is failed.";
+
+            RequestProfileDto profile =
+                    assembler.requestProfile("0123456789abcdef", evidence, capabilities.withPropagation(reason));
+            RequestProfileDto propagating =
+                    assembler.requestProfile("0123456789abcdef", evidence, capabilities.withPropagation(null));
+
+            assertThat(profile.correlationTiers()).contains(new RequestProfileTierDto("PROPAGATED", false, reason));
+            assertThat(profile.notes())
+                    .noneMatch(note -> note.startsWith(ExecutionProfileAssembler.RETAINED_PROPAGATION_NOTE));
+            assertThat(propagating.notes())
+                    .noneMatch(note -> note.startsWith(ExecutionProfileAssembler.RETAINED_PROPAGATION_NOTE));
         }
 
         @Test

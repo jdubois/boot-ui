@@ -109,7 +109,7 @@ describe('Java Agent panel', () => {
         abandoned: false
       },
       retransformation: {
-        state: 'COMPLETE',
+        state: 'installed',
         transformed: 12,
         retransformed: 3,
         failed: 0,
@@ -130,7 +130,9 @@ describe('Java Agent panel', () => {
     expect(text).toContain('1.53 ms')
     expect(text).toContain('orders@abcd')
     expect(text).toContain('com.example.orders')
-    expect(text).toContain('Retransformation')
+    expect(text).toContain('Class transformation')
+    expect(text).toContain('Install and release time (summed)')
+    expect(text).toContain('aggregate work rather than a wall-clock interval')
     expect(text).toContain('Counters')
   })
 
@@ -163,15 +165,21 @@ describe('Java Agent panel', () => {
         {
           id: 'executors',
           state: 'installed',
+          active: true,
           instrumentedTypes: 9,
           failures: [],
           durationMillis: 87,
+          installMillis: 80,
+          selfTestMillis: 7,
+          retransformMillis: 64,
+          transformedTypes: 2,
+          retransformedTypes: 9,
           selfTestPassed: true,
           selfTestError: null,
           selfTestSteps: {'thread-pool': 'passed'},
           hooks: [
             {
-              id: 'ThreadPoolExecutor',
+              id: 'ThreadPoolExecutor.addWorker',
               kind: 'key',
               type: 'java.util.concurrent.ThreadPoolExecutor',
               present: true,
@@ -211,9 +219,12 @@ describe('Java Agent panel', () => {
     await flushPromises()
 
     const text = wrapper.text()
-    expect(text).toContain('installed in 87.0 ms')
+    expect(text).toContain('installed in 87.0 ms (install 80.0 ms, self-test 7.00 ms)')
+    expect(text).toContain('active')
+    expect(text).not.toContain('inactive')
+    expect(text).toContain('9 in 64.0 ms')
     expect(text).toContain('passed')
-    expect(text).toContain('ThreadPoolExecutor')
+    expect(text).toContain('ThreadPoolExecutor.addWorker')
     expect(text).toContain('receives tasks')
     expect(text).toContain('unsupported on this JDK')
     expect(text).toContain('Never applied 3')
@@ -231,6 +242,7 @@ describe('Java Agent panel', () => {
         {
           id: 'threads',
           state: 'installed',
+          active: false,
           instrumentedTypes: 3,
           failures: [],
           durationMillis: 41,
@@ -274,6 +286,7 @@ describe('Java Agent panel', () => {
     const text = wrapper.text()
     expect(text).toContain('Thread.start')
     expect(text).toContain('starts threads')
+    expect(text).toContain('inactive')
     expect(text).toContain('Library threads skipped 6')
     expect(text).toContain('Pool workers skipped 2')
     expect(text).not.toContain('Periodic tasks skipped')

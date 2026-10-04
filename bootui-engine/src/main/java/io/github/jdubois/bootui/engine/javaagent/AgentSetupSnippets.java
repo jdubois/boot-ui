@@ -123,8 +123,53 @@ public final class AgentSetupSnippets {
                 ? (GRADLE.equals(buildTool) ? "./gradlew quarkusDev" : "./mvnw quarkus:dev")
                 : (GRADLE.equals(buildTool) ? "./gradlew bootRun" : "./mvnw spring-boot:run");
         snippets.add(new JavaAgentSnippetDto(
-                "java-tool-options", "JAVA_TOOL_OPTIONS", "shell", "JAVA_TOOL_OPTIONS=\"" + bare + "\" " + run));
+                "java-tool-options", "JAVA_TOOL_OPTIONS", "shell", javaToolOptions(jarPath, run)));
         return List.copyOf(snippets);
+    }
+
+    /**
+     * {@code run} with {@code JAVA_TOOL_OPTIONS} set to the agent option for {@code jarPath}. The JVM splits
+     * {@code JAVA_TOOL_OPTIONS} on whitespace, so the option is quoted inside the value ({@link #jvmOption}), then the
+     * value is quoted for a POSIX shell.
+     */
+    static String javaToolOptions(String jarPath, String run) {
+        return "JAVA_TOOL_OPTIONS=" + shellQuoted(jvmOption("-javaagent:" + jarPath)) + " " + run;
+    }
+
+    /**
+     * {@code option} as one token of {@code JAVA_TOOL_OPTIONS}: unchanged without whitespace or quotes, otherwise
+     * double-quoted, with each double quote it contains as a single-quoted fragment. HotSpot joins adjacent quoted
+     * fragments into one option.
+     */
+    static String jvmOption(String option) {
+        boolean plain = option.chars().noneMatch(c -> Character.isWhitespace(c) || c == '"' || c == '\'');
+        if (plain) {
+            return option;
+        }
+        StringBuilder quoted = new StringBuilder();
+        StringBuilder run = new StringBuilder();
+        for (int i = 0; i < option.length(); i++) {
+            char c = option.charAt(i);
+            if (c == '"') {
+                if (!run.isEmpty()) {
+                    quoted.append('"').append(run).append('"');
+                    run.setLength(0);
+                }
+                quoted.append("'\"'");
+            } else {
+                run.append(c);
+            }
+        }
+        if (!run.isEmpty()) {
+            quoted.append('"').append(run).append('"');
+        }
+        return quoted.toString();
+    }
+
+    /** {@code value} as one POSIX shell word: double-quoted when it holds only safe characters, else single-quoted. */
+    static String shellQuoted(String value) {
+        boolean safe = value.chars().allMatch(c -> Character.isLetterOrDigit(c) || "-_./:@%+=,~\\".indexOf(c) >= 0);
+        return safe ? "\"" + value + "\"" : "'" + value.replace("'", "'\\''") + "'";
     }
 
     /**
