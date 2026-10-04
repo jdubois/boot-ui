@@ -19,6 +19,8 @@ import java.util.List;
  * @param limitations what it cannot see
  * @param tier the weakest correlation tier its evidence used, when it is known to be stronger than the kind's {@link
  *     Observation#minimumTier()}, or {@code null} for the kind's
+ * @param unlisted why the default list leaves it out ({@code docs/PLAN-v2.md} M4-19), such as a route under the
+ *     prominence threshold, or {@code null} when it is listed
  */
 public record Finding(
         String key,
@@ -32,7 +34,8 @@ public record Finding(
         List<String> columns,
         List<List<String>> rows,
         List<String> limitations,
-        CorrelationTier tier) {
+        CorrelationTier tier,
+        String unlisted) {
 
     public Finding {
         whatToCheck = List.copyOf(whatToCheck);
@@ -42,7 +45,37 @@ public record Finding(
         limitations = List.copyOf(limitations);
     }
 
-    /** A finding at its kind's minimum tier. */
+    /** A listed finding at {@code tier}. */
+    public Finding(
+            String key,
+            String subject,
+            boolean sufficient,
+            String sentence,
+            long eligible,
+            long affected,
+            List<String> whatToCheck,
+            List<String> exemplarRequestIds,
+            List<String> columns,
+            List<List<String>> rows,
+            List<String> limitations,
+            CorrelationTier tier) {
+        this(
+                key,
+                subject,
+                sufficient,
+                sentence,
+                eligible,
+                affected,
+                whatToCheck,
+                exemplarRequestIds,
+                columns,
+                rows,
+                limitations,
+                tier,
+                null);
+    }
+
+    /** A listed finding at its kind's minimum tier. */
     public Finding(
             String key,
             String subject,
@@ -68,5 +101,31 @@ public record Finding(
                 rows,
                 limitations,
                 null);
+    }
+
+    /** Whether the default list shows it. */
+    public boolean listed() {
+        return unlisted == null;
+    }
+
+    /** This finding, left out of the default list for {@code reason}; a finding already left out keeps its reason. */
+    public Finding unlisted(String reason) {
+        if (unlisted != null || reason == null) {
+            return this;
+        }
+        return new Finding(
+                key,
+                subject,
+                sufficient,
+                sentence,
+                eligible,
+                affected,
+                whatToCheck,
+                exemplarRequestIds,
+                columns,
+                rows,
+                limitations,
+                tier,
+                reason);
     }
 }

@@ -425,6 +425,95 @@ class RouteTimeBreakdownTests {
         assertThat(admin.whatToCheck().get(0)).contains("authorization");
     }
 
+    /**
+     * A breakdown is listed by default only when prominent ({@code docs/PLAN-v2.md} M4-19): a warm median of 20 ms or
+     * more, or authorization taking 20 % of the time or 50 decisions a request (D36). The others stay in the report.
+     */
+    @Test
+    void onlyProminentRoutesAreListedByDefaultWithAuthorizationAsATrigger() {
+        for (int i = 0; i < 6; i++) {
+            request("/api/slow", 25 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 24 * MS));
+            request("/api/fast", 4 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 3 * MS));
+            request(
+                    "/api/guarded",
+                    4 * MS,
+                    new RequestTiming(clock, 1 * MS, 2 * MS, 3 * MS),
+                    new Child(
+                            JournalSource.AUTHORIZATION,
+                            1 * MS,
+                            new AuthorizationPayload("REQUEST", null, null, "AUTHENTICATED", true, 1)));
+            Child[] decisions = new Child[50];
+            for (int d = 0; d < decisions.length; d++) {
+                decisions[d] = new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("METHOD", "Rows#read", "hasRole('USER')", "AUTHENTICATED", true, 1));
+            }
+            request("/api/rows", 6 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 5 * MS), decisions);
+        }
+        request("/api/rare", 30 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 29 * MS));
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        List<RuntimeObservationDto> observations = service.report().observations();
+
+        assertThat(bySubject(observations, "GET /api/slow").listed()).isTrue();
+        assertThat(bySubject(observations, "GET /api/fast").listed()).isFalse();
+        assertThat(bySubject(observations, "GET /api/fast").unlistedReason())
+                .isEqualTo(RouteTimeBreakdown.NOT_PROMINENT);
+        assertThat(bySubject(observations, "GET /api/guarded").listed())
+                .as("authorization takes 25 % of a 4 ms request")
+                .isTrue();
+        RuntimeObservationDto rows = bySubject(observations, "GET /api/rows");
+        assertThat(rows.listed()).as("50 authorization decisions a request").isTrue();
+        assertThat(rows.sentence()).contains("Median 50 authorization decisions per request.");
+        assertThat(rows.whatToCheck()).anyMatch(check -> check.contains("one per returned row"));
+        assertThat(bySubject(observations, "GET /api/rare").unlistedReason())
+                .isEqualTo(RouteTimeBreakdown.TOO_FEW_WARM);
+    }
+
+    /**
+     * Fewer than five warm requests split nothing (M4-19), but a route whose two to four warm requests have a median of
+     * 100 ms or more is listed as insufficient with its median, while one slow warm request, or a fast unmarked route,
+     * is not; an unmarked route follows the same floor.
+     */
+    @Test
+    void aFewSlowWarmRequestsAreListedButOneSlowRequestOrAFewFastOnesAreNot() {
+        for (int i = 0; i < 5; i++) {
+            request("/api/report", 800 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 799 * MS));
+        }
+        for (int i = 0; i < 2; i++) {
+            request("/api/once", 539 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 538 * MS));
+        }
+        for (int i = 0; i < 3; i++) {
+            request("/api/quick", 30 * MS, new RequestTiming(clock, 1 * MS, 2 * MS, 29 * MS));
+        }
+        for (int i = 0; i < 2; i++) {
+            request("/actuator/health", 25 * MS, RequestTiming.startedAt(clock));
+        }
+
+        List<RuntimeObservationDto> observations = new RuntimeInsightsService(
+                        journal, null, null, InsightsStack.SPRING_MVC, null)
+                .report()
+                .observations();
+
+        RuntimeObservationDto report = bySubject(observations, "GET /api/report");
+        assertThat(report.status()).isEqualTo("INSUFFICIENT");
+        assertThat(report.listed()).as("four warm requests at 800 ms").isTrue();
+        assertThat(report.sentence())
+                .isEqualTo("`GET /api/report`: warm median 800 ms over 4 requests; phases need 5 warm requests."
+                        + " First request 800 ms (cold).");
+        assertThat(report.exemplarRequestIds()).hasSize(3);
+        assertThat(bySubject(observations, "GET /api/once").unlistedReason())
+                .as("one slow warm request may be warm-up")
+                .isEqualTo(RouteTimeBreakdown.TOO_FEW_WARM);
+        assertThat(bySubject(observations, "GET /api/quick").unlistedReason())
+                .isEqualTo(RouteTimeBreakdown.TOO_FEW_WARM);
+        assertThat(bySubject(observations, "GET /actuator/health").unlistedReason())
+                .as("an unmarked route with one 25 ms warm request is not listed either")
+                .isEqualTo(RouteTimeBreakdown.TOO_FEW_WARM);
+    }
+
     @Test
     void withoutPhasesTheTimeAroundTheCallsIsUnattributed() {
         for (int i = 0; i < 6; i++) {

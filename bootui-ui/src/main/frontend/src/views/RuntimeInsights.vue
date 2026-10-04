@@ -14,9 +14,11 @@ import {
   emptyState,
   groupObservations,
   evidenceShares,
+  isListed,
   isMachineColumn,
   numericColumns,
-  textParts
+  textParts,
+  unlistedSummary
 } from '../utils/runtimeInsights.js'
 import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -42,6 +44,10 @@ const route = useRoute()
 const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
 const theme = ref(typeof route?.query?.theme === 'string' ? route.query.theme : '')
 const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
+// Show all routes (docs/PLAN-v2.md M4-19): the default list leaves out short routes and other noise; ?all=1, as the
+// Memory panel links, or a deep link to a row the default leaves out shows every row.
+const showAll = ref(route?.query?.all === '1' || route?.query?.all === 'true')
+let deepLinkChecked = false
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
 const detail = ref(null)
 // The "Copy for AI" preview of the open observation, built from the detail already loaded; copying sends nothing.
@@ -71,6 +77,11 @@ async function fetchReport() {
   try {
     report.value = await getJson('api/runtime-insights')
     lastFetched.value = Date.now()
+    if (!deepLinkChecked) {
+      deepLinkChecked = true
+      const linked = report.value?.observations?.find((observation) => observation.id === selectedId.value)
+      if (linked && !isListed(linked)) showAll.value = true
+    }
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load Runtime Insights')
   }
@@ -82,7 +93,26 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport,
 })
 
 const themes = computed(() => availableThemes(report.value))
-const groups = computed(() => groupObservations(report.value, {query: query.value, theme: theme.value}))
+const groups = computed(() =>
+  groupObservations(report.value, {
+    query: query.value,
+    theme: theme.value,
+    all: showAll.value,
+    selectedId: selectedId.value
+  })
+)
+const unlisted = computed(() =>
+  unlistedSummary(report.value, {
+    query: query.value,
+    theme: theme.value,
+    all: showAll.value,
+    selectedId: selectedId.value
+  })
+)
+const anyUnlisted = computed(() => (report.value?.observations ?? []).some((observation) => !isListed(observation)))
+const unlistedText = computed(() =>
+  unlisted.value.groups.map((group) => `${formatNumber(group.count)} ${group.title}`).join(', ')
+)
 const visibleObservations = computed(() => groups.value.flatMap((group) => group.observations))
 const coverage = computed(() => coverageSummary(report.value))
 const sources = computed(() => coverageSources(report.value))
@@ -375,9 +405,28 @@ const windowText = computed(() => {
                 {{ chip.label }}
               </button>
             </div>
+            <button
+              v-if="anyUnlisted"
+              type="button"
+              class="btn btn-sm insight-show-all"
+              :class="showAll ? 'btn-primary' : 'btn-outline-secondary'"
+              :aria-pressed="showAll"
+              title="Also list short routes and the other rows the default list leaves out"
+              @click="showAll = !showAll"
+            >
+              Show all routes
+            </button>
           </div>
 
-          <div v-if="groups.length === 0" class="text-muted small mb-3">No observation matches this search.</div>
+          <div v-if="groups.length === 0" class="text-muted small mb-3 insight-none-listed">
+            <template v-if="unlisted.total > 0">
+              Nothing is listed by default here. {{ formatNumber(unlisted.total) }} not listed: {{ unlistedText }}.
+              <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="showAll = true">
+                Show all routes
+              </button>
+            </template>
+            <template v-else>No observation matches this search.</template>
+          </div>
 
           <div v-else class="row g-3 mb-3">
             <div class="col-lg-5">
@@ -403,9 +452,18 @@ const windowText = computed(() => {
                       <span v-if="observation.eligible > 0" class="d-block small text-muted mt-1">
                         {{ formatNumber(observation.affected) }} of {{ formatNumber(observation.eligible) }} requests
                       </span>
+                      <span v-if="!isListed(observation)" class="d-block small mt-1 insight-unlisted-label">
+                        Not listed by default
+                      </span>
                     </button>
                   </div>
                 </div>
+                <p v-if="unlisted.total > 0" class="small text-muted mb-0 insight-unlisted">
+                  {{ formatNumber(unlisted.total) }} more not listed by default: {{ unlistedText }}.
+                  <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="showAll = true">
+                    Show all routes
+                  </button>
+                </p>
               </nav>
             </div>
 
@@ -437,6 +495,13 @@ const windowText = computed(() => {
                       <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
                     </button>
                   </div>
+                  <p v-if="!isListed(selected)" class="small mb-2 insight-unlisted-reason">
+                    {{
+                      selected.unlistedReason
+                        ? `Not listed by default: ${selected.unlistedReason}`
+                        : 'Not listed by default'
+                    }}
+                  </p>
                   <p class="small text-muted mb-3">
                     <template v-if="selected.eligible > 0">
                       {{ formatNumber(selected.affected) }} of {{ formatNumber(selected.eligible) }} requests · linked
@@ -739,5 +804,19 @@ const windowText = computed(() => {
   background: transparent;
   color: inherit;
   border-color: currentColor;
+}
+
+.insight-unlisted-label,
+.insight-unlisted-reason {
+  color: var(--bs-secondary-color);
+  font-style: italic;
+}
+
+.list-group-item-action.active .insight-unlisted-label {
+  color: inherit;
+}
+
+.insight-unlisted {
+  margin-top: -0.25rem;
 }
 </style>

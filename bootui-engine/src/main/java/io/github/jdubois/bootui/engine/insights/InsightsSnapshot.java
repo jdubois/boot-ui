@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -37,6 +38,7 @@ public final class InsightsSnapshot {
     private final List<ProjectedRequest> requests;
     private final List<RuntimeEvent> collections;
     private final List<RuntimeEvent> markers;
+    private final List<RuntimeEvent> unownedErrorLogs;
     private final Map<String, List<ProjectedRequest>> byRoute;
     private final List<ProjectedRequest> httpRequests;
     private final Map<String, List<ProjectedRequest>> httpByRoute;
@@ -53,6 +55,7 @@ public final class InsightsSnapshot {
             List<ProjectedRequest> requests,
             List<RuntimeEvent> collections,
             List<RuntimeEvent> markers,
+            List<RuntimeEvent> unownedErrorLogs,
             Map<JournalSource, long[]> coverage,
             JournalStatus status,
             Predicate<JournalSource> recorded,
@@ -63,6 +66,7 @@ public final class InsightsSnapshot {
         this.requests = Collections.unmodifiableList(requests);
         this.collections = Collections.unmodifiableList(collections);
         this.markers = Collections.unmodifiableList(markers);
+        this.unownedErrorLogs = Collections.unmodifiableList(unownedErrorLogs);
         Map<String, List<ProjectedRequest>> routes = new LinkedHashMap<>();
         for (ProjectedRequest request : requests) {
             routes.computeIfAbsent(request.route(), route -> new ArrayList<>()).add(request);
@@ -164,6 +168,7 @@ public final class InsightsSnapshot {
         List<RuntimeEvent> traced = new ArrayList<>();
         List<RuntimeEvent> collections = new ArrayList<>();
         List<RuntimeEvent> markers = new ArrayList<>();
+        List<RuntimeEvent> unownedErrorLogs = new ArrayList<>();
         AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         for (JournalEntry entry : ordered) {
             RuntimeEvent event = entry.event();
@@ -194,6 +199,8 @@ public final class InsightsSnapshot {
                     collections.add(event);
                 } else if (event.payload() instanceof LifecyclePayload lifecycle && lifecycle.marker()) {
                     markers.add(event);
+                } else if (event.payload() instanceof LogPayload log && isError(log.level())) {
+                    unownedErrorLogs.add(event);
                 }
                 continue;
             }
@@ -237,7 +244,8 @@ public final class InsightsSnapshot {
                     payload.resources(),
                     event.traceId(),
                     event.thread(),
-                    ProjectedRequest.Kind.HTTP));
+                    ProjectedRequest.Kind.HTTP,
+                    payload.status() >= 500));
         }
         for (Map.Entry<String, RuntimeEvent> execution : executions.entrySet()) {
             RuntimeEvent event = execution.getValue();
@@ -260,12 +268,23 @@ public final class InsightsSnapshot {
                     event.thread(),
                     event.payload() instanceof ScheduledPayload
                             ? ProjectedRequest.Kind.SCHEDULED
-                            : ProjectedRequest.Kind.MESSAGE));
+                            : ProjectedRequest.Kind.MESSAGE,
+                    executionFailed(event)));
         }
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));
         return new InsightsSnapshot(
-                requests, collections, markers, coverage, status, recorded, visible, stack, previousRun, poolSizes);
+                requests,
+                collections,
+                markers,
+                unownedErrorLogs,
+                coverage,
+                status,
+                recorded,
+                visible,
+                stack,
+                previousRun,
+                poolSizes);
     }
 
     /** Every garbage collection retained, in the order the journal recorded them, each with a {@link GcPayload}. */
@@ -279,6 +298,20 @@ public final class InsightsSnapshot {
      */
     public List<RuntimeEvent> markers() {
         return markers;
+    }
+
+    /**
+     * The {@code ERROR} log events retained that no request or execution owned, such as a container's errors while
+     * parsing a request or an error at startup, in the order the journal recorded them, each with a {@link LogPayload}
+     * ({@code docs/PLAN-v2.md} M4-19).
+     */
+    public List<RuntimeEvent> unownedErrorLogs() {
+        return unownedErrorLogs;
+    }
+
+    /** Whether a log level, as Logback or {@code java.util.logging} names it, is an error. */
+    static boolean isError(String level) {
+        return "ERROR".equals(level) || "SEVERE".equals(level) || "FATAL".equals(level);
     }
 
     /** Every completed request, scheduled run, and consumed message retained, oldest first. */
@@ -312,6 +345,17 @@ public final class InsightsSnapshot {
         return event.payload() instanceof ScheduledPayload
                 || (event.payload() instanceof MessagingPayload message && !message.sent())
                 || (event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution());
+    }
+
+    /** Whether an execution ended with an exception nothing caught: a failed scheduled run, message, or WebSocket handler. */
+    static boolean executionFailed(RuntimeEvent event) {
+        if (event.payload() instanceof ScheduledPayload job) {
+            return job.exceptionClass() != null;
+        }
+        if (event.payload() instanceof MessagingPayload message) {
+            return message.failed();
+        }
+        return event.payload() instanceof WebSocketPayload webSocket && webSocket.failed();
     }
 
     /** An execution's name, like a route's: {@code @Scheduled OrderJob.run} or {@code consume kafka:orders}. */

@@ -48,7 +48,9 @@ class McpGuidanceTests {
                 .singleElement()
                 .satisfies(prompt -> assertThat(prompt.text())
                         .contains("For a slow route whose time is in its handler, call get_code_paths")
-                        .contains("it needs the BootUI agent"));
+                        .contains("it needs the BootUI agent")
+                        .as("the default list leaves rows out, so the prompt says how to reach them (M4-19)")
+                        .contains("the query all or the route"));
     }
 
     @ParameterizedTest

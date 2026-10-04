@@ -213,6 +213,49 @@ public final class LazySqlAfterHandler implements Observation {
                 "If every request reads the same reference data, such as the options of a select, cache it.");
     }
 
+    /**
+     * Whether {@code repeatedSelects} already reports {@code finding}'s statement where the default list shows it
+     * ({@code docs/PLAN-v2.md} M4-19): a finding with the same key, the route and the statement's fingerprint, that
+     * shares one of its call sites, or names none when this one names none either. It must be at least as sufficient as
+     * this one and above the agent list's floor, so the fact is never left out of both.
+     */
+    static boolean reportedBy(Finding finding, List<Finding> repeatedSelects) {
+        Set<String> sites = callSites(finding);
+        for (Finding repeated : repeatedSelects) {
+            if (!repeated.key().equals(finding.key())
+                    || !repeated.listed()
+                    || (finding.sufficient() && !repeated.sufficient())
+                    || repeated.limitations().contains(RepeatedSelects.UNDER_DEFAULT_FLOOR)) {
+                continue;
+            }
+            Set<String> repeatedSites = callSites(repeated);
+            if (sites.isEmpty() && repeatedSites.isEmpty()) {
+                return true;
+            }
+            for (String site : sites) {
+                if (repeatedSites.contains(site)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The non-empty values of a finding's {@code Call site} evidence column. */
+    private static Set<String> callSites(Finding finding) {
+        int column = finding.columns().indexOf("Call site");
+        Set<String> sites = new HashSet<>();
+        if (column < 0) {
+            return sites;
+        }
+        for (List<String> row : finding.rows()) {
+            if (column < row.size() && !row.get(column).isBlank()) {
+                sites.add(row.get(column));
+            }
+        }
+        return sites;
+    }
+
     /** Whether {@code frames} show a template engine rendering the view the statement ran under. */
     static boolean renderingView(ApplicationFrames frames) {
         if (frames == null) {

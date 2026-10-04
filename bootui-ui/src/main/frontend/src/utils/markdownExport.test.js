@@ -507,6 +507,15 @@ describe('insightMarkdown', () => {
     expect(markdown).toContain('| r-1 | select a \\| b from t |')
     expect(markdown).toContain('not a verdict')
     expect(omissions).toEqual(['2 evidence rows beyond the first 1.'])
+    expect(markdown).not.toContain('Not listed by default')
+  })
+
+  it('says why a row the default list leaves out is left out, so an AI does not over-weight it', () => {
+    const {markdown} = insightMarkdown({
+      ...detail,
+      observation: {...detail.observation, listed: false, unlistedReason: 'Its warm median is under 20 ms.'}
+    })
+    expect(markdown).toContain('- **Not listed by default:** Its warm median is under 20 ms.')
   })
 
   it('says why an observation is unavailable instead of exporting nothing', () => {

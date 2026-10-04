@@ -11,8 +11,10 @@ import {
   emptyState,
   groupObservations,
   isMachineColumn,
+  isListed,
   textParts,
-  themeOf
+  themeOf,
+  unlistedSummary
 } from './runtimeInsights.js'
 
 const report = {
@@ -76,6 +78,42 @@ describe('runtimeInsights helpers', () => {
     expect(groupObservations(report, {query: '/api/orders', theme: 'time'})[0].observations[0].id).toBe('c')
     expect(groupObservations(report, {theme: 'errors'})).toEqual([])
     expect(themeOf('ai-usage-by-route')).toBe('ai')
+  })
+
+  it('shows only the rows listed by default unless every row or a search is asked for, listed rows first', () => {
+    const withUnlisted = {
+      ...report,
+      observations: [
+        ...report.observations,
+        {
+          id: 'd',
+          kind: 'route-time-breakdown',
+          subject: 'GET /api/fast',
+          sentence: 'warm median 3 ms',
+          status: 'OBSERVED',
+          affected: 50,
+          listed: false,
+          unlistedReason: 'Its warm median is under 20 ms.'
+        }
+      ]
+    }
+    const ids = (options) =>
+      groupObservations(withUnlisted, options)
+        .flatMap((group) => group.observations)
+        .map((observation) => observation.id)
+
+    expect(ids()).toEqual(['c', 'b', 'a'])
+    // Listed first, even past a more affected unlisted row.
+    expect(ids({all: true})).toEqual(['c', 'd', 'b', 'a'])
+    expect(ids({query: '/api/fast'})).toEqual(['d'])
+    expect(unlistedSummary(withUnlisted)).toEqual({
+      total: 1,
+      groups: [{kind: 'route-time-breakdown', title: 'Route time breakdown', count: 1}]
+    })
+    expect(unlistedSummary(withUnlisted, {all: true}).total).toBe(0)
+    expect(unlistedSummary(withUnlisted, {theme: 'queries'}).total).toBe(0)
+    expect(isListed({})).toBe(true)
+    expect(themeOf('gc-inflated-latency')).toBe('memory')
   })
 
   it('offers only the themes whose checks the report carries', () => {

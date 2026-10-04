@@ -36,8 +36,8 @@ import java.util.function.Supplier;
 public final class RuntimeInsightsAgentView {
 
     /**
-     * The observation kinds that only describe latency. The default list includes them (M4-18b); {@code query=latency}
-     * still selects only these.
+     * The observation kinds that only describe latency. The default list includes a prominent route's breakdown (M4-18b,
+     * M4-19); {@code query=latency} selects every row of these kinds.
      */
     static final Set<String> LATENCY_KINDS = Set.of(RouteTimeBreakdown.KIND, GcInflatedLatency.KIND);
 
@@ -58,18 +58,23 @@ public final class RuntimeInsightsAgentView {
         return name -> tools.get().stream().anyMatch(tool -> tool.name().equals(name));
     }
 
+    /** The query that lists every observation, including those the default list leaves out (M4-19). */
+    static final String ALL = "all";
+
     /** {@link #list(RuntimeInsightsReportDto, String, Integer, Predicate)} naming any tool as a next step. */
     public static RuntimeInsightsAgentReportDto list(RuntimeInsightsReportDto report, String query, Integer limit) {
         return list(report, query, limit, null);
     }
 
     /**
-     * The report's observations matching {@code query}, at most {@code limit}: empty for every observation, including
-     * latency rows, except an insufficient repeated-selects row under 50 ms that ran fewer than 10 times in any one
-     * request; {@code latency} for latency rows only; {@code security} for anonymous access; {@code new} or {@code diff}
-     * for what the previous run did not show; an observation kind for that kind; anything else for observations naming
-     * that route, table, bean, or class. When more match than {@code limit}, every kind's most affected observation
-     * comes before any kind's second, so one prolific kind cannot hide the others.
+     * The report's observations matching {@code query}, at most {@code limit}: empty for the default list, the
+     * observations the panel lists by default (M4-19) except an insufficient repeated-selects row under 50 ms that ran
+     * fewer than 10 times in any one request; {@code all} for every observation; {@code latency} for latency rows only;
+     * {@code security} for anonymous access; {@code new} or {@code diff} for what the previous run did not show; an
+     * observation kind for that kind; anything else for observations naming that route, table, bean, or class. Every
+     * query but the empty one matches rows the default list leaves out. When more match than {@code limit}, listed rows
+     * come first and every kind's most affected observation comes before any kind's second, so one prolific kind cannot
+     * hide the others.
      */
     public static RuntimeInsightsAgentReportDto list(
             RuntimeInsightsReportDto report, String query, Integer limit, Predicate<String> callable) {
@@ -116,14 +121,20 @@ public final class RuntimeInsightsAgentView {
                     "what changed since the previous run: statements, calls, routes, and edges");
         }
         long dropped = 0;
+        String unlisted = null;
         if (asked.isEmpty()) {
             dropped = report.observations().stream()
-                    .filter(RuntimeInsightsAgentView::underFloor)
+                    .filter(observation -> observation.listed() && underFloor(observation))
                     .count();
             if (dropped > 0) {
                 limitations.add(floorDropped(dropped));
             }
-            limitations.add("Latency rows are included.");
+            unlisted = unlisted(report.observations());
+            if (unlisted != null) {
+                limitations.add(unlisted);
+            }
+            limitations.add("Latency rows are included for prominent routes: a warm median of 20 ms or more, or"
+                    + " authorization taking 20 % of the time or 50 decisions a request.");
         }
         String leftOut = leftOut(matching, listed);
         if (leftOut != null) {
@@ -144,6 +155,9 @@ public final class RuntimeInsightsAgentView {
                     "query",
                     RepeatedSelects.KIND,
                     "the cheap repeated-selects rows the default list leaves out");
+        }
+        if (unlisted != null) {
+            asks.add("get_runtime_insights", "query", ALL, "every row, including those the default list leaves out");
         }
         if (listed.isEmpty() && requests == 0 && report.observations().isEmpty()) {
             asks.add("get_runtime_insights", "again after running the application's tests or sending it traffic");
@@ -181,7 +195,7 @@ public final class RuntimeInsightsAgentView {
 
     /**
      * One observation with its evidence; an unknown or evicted id answers unavailable with the reason, and names the
-     * call that lists the current ids.
+     * call that lists the current ids. One the default list leaves out says why first among its limitations.
      */
     public static RuntimeInsightAgentDetailDto detail(RuntimeObservationDetailDto detail, Predicate<String> callable) {
         NextSteps next = new NextSteps(callable);
@@ -200,12 +214,17 @@ public final class RuntimeInsightsAgentView {
                     next.list());
         }
         follow(next, observation, false);
+        List<String> limitations = new ArrayList<>();
+        if (!observation.listed() && observation.unlistedReason() != null) {
+            limitations.add("Not listed by default: " + observation.unlistedReason());
+        }
+        limitations.addAll(observation.limitations());
         return new RuntimeInsightAgentDetailDto(
                 true,
                 null,
                 compact(observation),
                 observation.whatToCheck(),
-                observation.limitations(),
+                limitations,
                 detail.columns(),
                 detail.rows(),
                 detail.truncated(),
@@ -472,7 +491,28 @@ public final class RuntimeInsightsAgentView {
                         : observation.exemplarRequestIds().get(0),
                 observation.whatToCheck().isEmpty()
                         ? null
-                        : observation.whatToCheck().get(0));
+                        : observation.whatToCheck().get(0),
+                observation.listed());
+    }
+
+    /**
+     * How many rows of each kind the default list leaves out, in report order, and how to list them, or {@code null}
+     * when it leaves none out.
+     */
+    private static String unlisted(List<RuntimeObservationDto> observations) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (RuntimeObservationDto observation : observations) {
+            if (!observation.listed()) {
+                counts.merge(observation.kind(), 1, Integer::sum);
+            }
+        }
+        if (counts.isEmpty()) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        counts.forEach((kind, count) -> parts.add(kind + " " + count));
+        return "Not listed by default: " + String.join(", ", parts) + ". Pass the query all, a kind, or a route to"
+                + " list them; get_runtime_insight on one says why it is left out.";
     }
 
     /**
@@ -526,7 +566,10 @@ public final class RuntimeInsightsAgentView {
         String kind = observation.kind();
         switch (query.toLowerCase(Locale.ROOT)) {
             case "" -> {
-                return !underFloor(observation);
+                return observation.listed() && !underFloor(observation);
+            }
+            case ALL -> {
+                return true;
             }
             case "latency" -> {
                 return LATENCY_KINDS.contains(kind);
@@ -547,29 +590,31 @@ public final class RuntimeInsightsAgentView {
     }
 
     /**
-     * At most {@code max} of {@code rows}, kept in report order: every kind's first row before any kind's second, and so
-     * on, so the answer stays as broad as the limit allows.
+     * At most {@code max} of {@code rows}, the listed ones first and each part in report order: every kind's first row
+     * before any kind's second, and so on, so the answer stays as broad as the limit allows.
      */
     private static List<RuntimeObservationDto> breadthFirst(List<RuntimeObservationDto> rows, int max) {
-        if (rows.size() <= max) {
-            return rows;
-        }
-        Map<String, Integer> seen = new HashMap<>();
-        int[] rank = new int[rows.size()];
-        for (int i = 0; i < rows.size(); i++) {
-            rank[i] = seen.merge(rows.get(i).kind(), 1, Integer::sum);
-        }
+        // A query reaching rows the default list leaves out keeps the listed ones first, so a prolific kind's short
+        // routes never crowd out its prominent ones.
+        Comparator<Integer> listedFirst = Comparator.comparing(i -> !rows.get(i).listed());
         List<Integer> order = new ArrayList<>();
         for (int i = 0; i < rows.size(); i++) {
             order.add(i);
         }
-        order.sort(Comparator.comparing(
-                        (Integer i) -> "INSUFFICIENT".equals(rows.get(i).status()))
-                .thenComparingInt(i -> rank[i])
-                .thenComparingInt(i -> i));
-        List<Integer> chosen = new ArrayList<>(order.subList(0, max));
-        chosen.sort(Comparator.naturalOrder());
-        return chosen.stream().map(rows::get).toList();
+        if (rows.size() > max) {
+            Map<String, Integer> seen = new HashMap<>();
+            int[] rank = new int[rows.size()];
+            for (int i = 0; i < rows.size(); i++) {
+                rank[i] = seen.merge(rows.get(i).kind() + ":" + rows.get(i).listed(), 1, Integer::sum);
+            }
+            order.sort(listedFirst
+                    .thenComparing(i -> "INSUFFICIENT".equals(rows.get(i).status()))
+                    .thenComparingInt(i -> rank[i])
+                    .thenComparingInt(i -> i));
+            order = new ArrayList<>(order.subList(0, max));
+        }
+        order.sort(listedFirst.thenComparingInt(i -> i));
+        return order.stream().map(rows::get).toList();
     }
 
     /** Which kinds lost rows to {@code limit}, and how to list them, or {@code null} when nothing was left out. */

@@ -98,8 +98,8 @@ public final class McpToolGuide {
 
     private static final Map<String, String> QUERY_WORDS = Map.of(
             "get_runtime_insights",
-            "empty (every observation), new, security, diff, latency, an observation kind such as repeated-selects,"
-                    + " or a route, table, bean, or class",
+            "empty (the default list), all (every observation), new, security, diff, latency, an observation kind"
+                    + " such as repeated-selects, or a route, table, bean, or class",
             "get_code_inventory",
             "changed (the default), never-executed, not-tracked, executed, dependencies, or a package or class",
             "get_code_paths",

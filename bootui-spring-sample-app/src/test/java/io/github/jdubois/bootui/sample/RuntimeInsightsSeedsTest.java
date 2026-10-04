@@ -235,6 +235,52 @@ class RuntimeInsightsSeedsTest {
         client.stop();
     }
 
+    /**
+     * The default list (docs/PLAN-v2.md M4-19): the seeded run lists each seed's observation except where a rule leaves
+     * it out, and every row it leaves out says why.
+     */
+    @Test
+    void theDefaultListLeavesOutNoiseDuplicatesAndNotYetValidatedChecksWithTheirReason() {
+        assertThat(listed("repeated-selects")).contains("GET /api/insights/orders", "GET /api/insights/orders/report");
+        assertThat(unlisted("lazy-sql-after-handler"))
+                .as("Repeated SELECTs already reports the report's statement from the same call site")
+                .contains("GET /api/insights/orders/report");
+        assertThat(listed("lazy-sql-after-handler")).isEmpty();
+        for (String kind : List.of("transactional-listener-skipped", "after-commit-writes", "orm-auto-flush")) {
+            assertThat(listed(kind)).as(kind).isEmpty();
+            assertThat(unlisted(kind)).as(kind).isNotEmpty();
+        }
+        assertThat(unlisted("exception-hotspots"))
+                .as("the unreadable body answered 400")
+                .contains("POST /api/insights/orders");
+        assertThat(listed("exception-hotspots")).contains("Behind 4xx responses");
+        assertThat(unlisted("framework-warnings-by-route")).contains("POST /api/insights/orders");
+        assertThat(listed("route-time-breakdown"))
+                .as("only prominent routes, and the seeds' routes are short")
+                .doesNotContain("GET /api/insights/orders", "GET /api/sample/products");
+        assertThat(observations)
+                .filteredOn(observation -> !observation.path("listed").asBoolean())
+                .allSatisfy(observation ->
+                        assertThat(observation.path("unlistedReason").asText()).isNotBlank());
+        assertThat(listed("anonymous-data-reach")).contains("POST /api/insights/debug/reset-totals");
+    }
+
+    private List<String> listed(String kind) {
+        return subjectsListed(kind, true);
+    }
+
+    private List<String> unlisted(String kind) {
+        return subjectsListed(kind, false);
+    }
+
+    private List<String> subjectsListed(String kind, boolean listed) {
+        return observations.stream()
+                .filter(observation -> observation.path("kind").asText().equals(kind))
+                .filter(observation -> observation.path("listed").asBoolean() == listed)
+                .map(observation -> observation.path("subject").asText())
+                .toList();
+    }
+
     private List<String> subjects(String kind, String status) {
         return observations.stream()
                 .filter(observation -> observation.path("kind").asText().equals(kind))

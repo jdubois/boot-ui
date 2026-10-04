@@ -3,9 +3,10 @@ import {expect, test} from './fixtures.js'
 import {seedInsights} from '../scripts/insights-demo.mjs'
 
 /**
- * The scripted Runtime Insights demo on Quarkus (docs/PLAN-v2.md M3-6, §5.5): with tracing off, the seeded traffic shows
- * one observation per seed this stack records, the secured route's time breakdown opens with its evidence, and its
- * exemplar request opens in Live Activity.
+ * The scripted Runtime Insights demo on Quarkus (docs/PLAN-v2.md M3-6, §5.5): with tracing off, the seeded traffic lists
+ * one observation per seed this stack records, the secured route's time breakdown opens with its evidence, through
+ * **Show all routes** when it is too short to be listed by default (M4-19), and its exemplar request opens in Live
+ * Activity.
  */
 test.describe('Runtime Insights demo', () => {
   test('shows each seeded observation and follows the secured route to its request', async ({openView, page}) => {
@@ -32,6 +33,11 @@ test.describe('Runtime Insights demo', () => {
       'InsightOrderEvents#audit'
     )
 
+    // A short route is not listed by default (M4-19): Show all routes reaches it when the stack serves it quickly.
+    const toggle = page.locator('.insight-show-all')
+    if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-pressed')) === 'false') {
+      await toggle.click()
+    }
     await page.locator('.insight-item', {hasText: 'GET /api/secure/products'}).first().click()
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')

@@ -13,13 +13,17 @@ import java.util.List;
  *     when a source it reads dropped events
  * @param sentence one sentence naming what was counted
  * @param eligible the requests that could have shown it
- * @param affected the requests that did
+ * @param affected the requests that did, or, for a row no request is eligible for, such as framework errors without
+ *     a request, the events it counted
  * @param minimumTier the weakest correlation tier its evidence was linked by, such as {@code REQUEST_ID}: the
  *     observation's minimum, or a stronger tier when every signal behind it was joined more exactly
  * @param whatToCheck one to three conditional checks
  * @param exemplarRequestIds at most three request ids to open in Live Activity
  * @param evidenceRows the evidence rows its detail lists, at most 20
  * @param limitations what it cannot see
+ * @param listed whether the default list shows it ({@code docs/PLAN-v2.md} M4-19); a row left out stays reachable
+ *     through <b>Show all routes</b>, a search, its id, and an agent query naming its kind or route, or {@code all}
+ * @param unlistedReason why the default list leaves it out, or {@code null} when it is listed
  */
 public record RuntimeObservationDto(
         String id,
@@ -33,7 +37,9 @@ public record RuntimeObservationDto(
         List<String> whatToCheck,
         List<String> exemplarRequestIds,
         int evidenceRows,
-        List<String> limitations) {
+        List<String> limitations,
+        boolean listed,
+        String unlistedReason) {
 
     public RuntimeObservationDto {
         whatToCheck = DtoCollections.immutableCopy(whatToCheck);

@@ -135,7 +135,51 @@ describe('Memory', () => {
   it('links the snapshot to the run-wide heap trend in Runtime Insights', async () => {
     const wrapper = await mountWithReport(advisorReport([]))
     const link = wrapper.findAll('a').find((anchor) => anchor.text() === 'Runtime Insights')
-    expect(JSON.parse(link.attributes('href'))).toEqual({path: '/runtime-insights', query: {theme: 'memory'}})
+    expect(JSON.parse(link.attributes('href'))).toEqual({path: '/runtime-insights', query: {theme: 'memory', all: '1'}})
+  })
+
+  it('counts the garbage collection and heap rows Runtime Insights leaves out of its default list', async () => {
+    const insights = {
+      available: true,
+      observations: [
+        {id: 'heap-growth-after-gc:heap', kind: 'heap-growth-after-gc', status: 'OBSERVED', listed: false},
+        {id: 'gc-inflated-latency:a', kind: 'gc-inflated-latency', status: 'INSUFFICIENT', listed: false},
+        {id: 'repeated-selects:a', kind: 'repeated-selects', status: 'OBSERVED', listed: true}
+      ]
+    }
+    const report = advisorReport([])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          new Response(JSON.stringify(String(url).includes('runtime-insights') ? insights : report), {status: 200})
+        )
+      )
+    )
+    const wrapper = mount(Memory, {
+      global: {stubs: {RouterLink: {props: ['to'], template: '<a :href="JSON.stringify(to)"><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.memory-insights-count').text()).toBe('2 rows, 1 observed')
+    expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('shows no count when Runtime Insights is not available', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(advisorReport([])), {status: 200})))
+    )
+    const wrapper = mount(Memory, {
+      global: {
+        provide: {panels: {value: {panels: [{id: 'runtime-insights', available: false}]}}},
+        stubs: {RouterLink: {props: ['to'], template: '<a :href="JSON.stringify(to)"><slot /></a>'}}
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.memory-insights-count').exists()).toBe(false)
+    expect(fetch.mock.calls.map(([url]) => String(url))).not.toContain('api/runtime-insights')
   })
 
   it('offers the shared BootUI memory offload next to the scan action', async () => {

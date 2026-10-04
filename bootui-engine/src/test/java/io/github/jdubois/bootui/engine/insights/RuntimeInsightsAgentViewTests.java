@@ -166,11 +166,18 @@ class RuntimeInsightsAgentViewTests {
                 List.of(),
                 List.of(),
                 0,
-                List.of());
+                List.of(),
+                false,
+                DefaultListing.MEMORY);
 
         RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(idleReport(List.of(heap), 0), null, null);
 
-        assertThat(list.observations()).hasSize(1);
+        assertThat(list.observations())
+                .as("heap rows are reached from the Memory panel")
+                .isEmpty();
+        assertThat(RuntimeInsightsAgentView.list(idleReport(List.of(heap), 0), "all", null)
+                        .observations())
+                .hasSize(1);
         assertThat(list.limitations().get(0))
                 .contains("not exercised, not healthy", "Run the application's tests")
                 .doesNotContain("empty list")
@@ -199,6 +206,52 @@ class RuntimeInsightsAgentViewTests {
                     assertThat(step.tool()).isEqualTo("get_runtime_run_comparison");
                     assertThat(step.arguments()).containsExactly(java.util.Map.entry("id", "previous"));
                 });
+    }
+
+    /**
+     * The empty query lists what the panel lists by default (M4-19); {@code all}, a kind, or a route reach the rest,
+     * listed rows first, and a limitation counts what the default left out.
+     */
+    @Test
+    void theDefaultListLeavesOutUnlistedRowsAndSaysHowToReachThem() {
+        List<RuntimeObservationDto> observations = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            observations.add(unlisted(
+                    observation(i, RouteTimeBreakdown.KIND, "GET /api/fast/" + i, "warm median 3 ms"),
+                    RouteTimeBreakdown.NOT_PROMINENT));
+        }
+        observations.add(observation(6, RouteTimeBreakdown.KIND, "GET /api/slow", "warm median 120 ms"));
+        observations.add(unlisted(
+                observation(7, GcInflatedLatency.KIND, "GET /api/slow", "a pause completed during"),
+                DefaultListing.MEMORY));
+        RuntimeInsightsReportDto report = idleReport(observations, 0);
+
+        RuntimeInsightsAgentReportDto byDefault = RuntimeInsightsAgentView.list(report, "", 8);
+        assertThat(byDefault.observations()).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("GET /api/slow");
+            assertThat(observation.listed()).isTrue();
+        });
+        assertThat(byDefault.omitted()).isZero();
+        assertThat(byDefault.limitations())
+                .contains("Not listed by default: route-time-breakdown 6, gc-inflated-latency 1. Pass the query all,"
+                        + " a kind, or a route to list them; get_runtime_insight on one says why it is left out.");
+
+        assertThat(byDefault.next())
+                .as("the next calls name the query that lists what the default left out")
+                .anyMatch(step -> "all".equals(step.arguments().get("query")));
+        assertThat(RuntimeInsightsAgentView.list(report, "all", 50).observations())
+                .hasSize(8);
+        RuntimeInsightsAgentReportDto byKind = RuntimeInsightsAgentView.list(report, RouteTimeBreakdown.KIND, 2);
+        assertThat(byKind.observations())
+                .extracting(observation -> observation.subject())
+                .as("the listed row comes first, whatever the report order")
+                .containsExactly("GET /api/slow", "GET /api/fast/0");
+        assertThat(byKind.observations().get(1).listed()).isFalse();
+        assertThat(byKind.limitations()).noneMatch(limitation -> limitation.startsWith("Not listed by default"));
+
+        RuntimeInsightAgentDetailDto detail = RuntimeInsightsAgentView.detail(
+                new RuntimeObservationDetailDto(true, null, observations.get(0), List.of("Phase"), List.of(), 0));
+        assertThat(detail.limitations().get(0)).isEqualTo("Not listed by default: " + RouteTimeBreakdown.NOT_PROMINENT);
     }
 
     @Test
@@ -460,6 +513,26 @@ class RuntimeInsightsAgentViewTests {
                 List.of("Check the call site.", "Then the join."),
                 List.of("r-" + i, "r-x"),
                 1,
-                limitations);
+                limitations,
+                true,
+                null);
+    }
+
+    private static RuntimeObservationDto unlisted(RuntimeObservationDto observation, String reason) {
+        return new RuntimeObservationDto(
+                observation.id(),
+                observation.kind(),
+                observation.subject(),
+                observation.status(),
+                observation.sentence(),
+                observation.eligible(),
+                observation.affected(),
+                observation.minimumTier(),
+                observation.whatToCheck(),
+                observation.exemplarRequestIds(),
+                observation.evidenceRows(),
+                observation.limitations(),
+                false,
+                reason);
     }
 }

@@ -12,7 +12,8 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
       expect(greeting.ok()).toBeTruthy()
     }
 
-    await page.goto('/bootui/#/runtime-insights')
+    // ?all=1 is Show all routes (M4-19): a short route without phases is reachable but not listed by default.
+    await page.goto('/bootui/#/runtime-insights?all=1')
     await expect(page.getByText('What this run did that no single panel shows.')).toBeVisible()
 
     const item = page.locator('.insight-item', {hasText: '/api/greetings/{name}'}).first()

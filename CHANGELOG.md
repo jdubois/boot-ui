@@ -270,6 +270,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Runtime Insights lists less noise by default.** The panel, `get_runtime_insights`, and `bootui insights list` now
+  show a default list, and every observation carries `listed` and, when left out, `unlistedReason`. A route's time
+  breakdown is listed only when prominent: a warm median of 20 ms or more, authorization taking 20 % of its time, or a
+  median of 50 authorization decisions a request, which replaces the planned authorization-cost check; a route with two
+  to four warm requests is listed as not enough evidence when their median reaches 100 ms. Exception hotspots lists
+  groups behind a 5xx, a failed run or message, a redirect, or not seen in the previous run, and collapses those seen
+  only behind 4xx responses, and those caught in runs or messages that completed, into one counted row each. SQL after
+  the handler drops a statement Repeated SELECTs already lists from the same call site. Framework warnings leaves out
+  `WARN` messages without a specific check and counts, in a **No request** row, the framework `ERROR` events that
+  carried no request id, except those a container wrote on a failed request's thread just after it ended. Garbage
+  collection and heap rows are reached from the Memory panel, which counts them and opens the **Memory** theme with
+  every row, and the four ORM and application-event checks stay out of the default list until their counterexample
+  fixtures pass. **Show all routes**, a search, a deep link, and the agent query `all` (formerly a plain text search), a
+  kind, or a route still reach every row, which says why it was left out ([Runtime
+  Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-19).
 - **The documentation site and the Docker Hub sample images follow the released major.** Every branch declares its
   release line in `.github/release-line`, and `pages.yml` and `docker-publish.yml` publish a branch only when its line
   has a release on Maven Central and no newer major does, so merging `v2` into `main` publishes no 2.0 site or image
