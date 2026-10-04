@@ -655,7 +655,8 @@ public final class BootUiApiContractCatalog {
                     "methods", JsonType.ARRAY,
                     "methodStatus", JsonType.NULLABLE_STRING,
                     "notObserved", JsonType.ARRAY,
-                    "notObservedTotal", JsonType.INTEGER));
+                    "notObservedTotal", JsonType.INTEGER,
+                    "next", JsonType.ARRAY));
 
     /**
      * The symbols change impact can check that match what was typed, a read of the {@code runtime-insights} panel

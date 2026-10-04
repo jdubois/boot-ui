@@ -285,6 +285,49 @@ class BootUiCliTests {
     }
 
     @Test
+    void rootHelpListsEveryCommandWithItsArgumentsAndOneExample() {
+        Result result = runPiped("--help");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.SUCCESS);
+        for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
+            assertThat(result.out).as(tool.command()).contains("  " + tool.synopsis() + System.lineSeparator());
+            assertThat(result.out).as(tool.command()).contains(tool.example());
+            if (!tool.idHelp().isEmpty()) {
+                assertThat(result.out)
+                        .as(tool.command())
+                        .contains("<id>: " + tool.idHelp().split(" ")[0]);
+            }
+        }
+        assertThat(result.out)
+                .contains("bootui insights show <id>", "<id>: An observation id from 'bootui insights list'.")
+                .contains("Example: bootui insights impact 'OrderService#total'")
+                .contains("bootui tools", "bootui mcp status|enable|disable")
+                .contains("(only on spring mvc, spring webflux)")
+                .doesNotContain("\u001B[");
+    }
+
+    @Test
+    void groupHelpListsOnlyTheGroupsCommandsInFull() {
+        Result result = run("insights", "--help");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(result.out)
+                .contains("bootui insights list [--query <text>] [--limit <count>]")
+                .contains("bootui insights compare [<id>]", "Example: bootui insights compare previous")
+                .doesNotContain("bootui beans");
+    }
+
+    @Test
+    void commandHelpShowsItsExampleAndWhereItsIdComesFrom() {
+        Result result = run("request-profile", "--help");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(result.out)
+                .contains("Example: bootui request-profile <id>")
+                .contains("'bootui activity'", "'bootui insights list'");
+    }
+
+    @Test
     void commandHelpNamesTheMcpToolItProjects() {
         Result result = run("beans", "--help");
 

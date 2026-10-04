@@ -9,6 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **One help call instead of many, and answers that name the next call.** `bootui --help` lists every command with
+  its arguments, what it returns, where its `<id>` comes from, the words its `--query` understands, and one example,
+  and `bootui <group> --help` lists a group the same way; every example is generated from the MCP tool registry and run
+  by a test. Every Runtime Insights answer (`get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`,
+  `get_runtime_run_comparison`, and their `bootui insights` commands) gains `next`: at most three follow-up calls, each
+  with its `command`, MCP `tool` and `arguments`, and `why`, naming only tools the application advertises, on Spring
+  MVC, Spring WebFlux, and Quarkus. An unknown observation id names the list, an unknown run id the runs still kept, and
+  an ambiguous or unknown impact symbol the candidates or the beans and mappings to search. A tool called without its
+  required `id` now says where the id comes from, such as `Missing required argument: id (an observation id from
+  get_runtime_insights)`; the error code is unchanged. The how-to-ask hints in `get_runtime_insights` limitations
+  moved to `next` ([Command line](docs/CLI.md#discovering-what-an-application-exposes),
+  [AI agents](docs/AI-AGENTS.md#runtime-insights-for-agents), PLAN-v2 M4-21).
 - **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
   any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
   and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth

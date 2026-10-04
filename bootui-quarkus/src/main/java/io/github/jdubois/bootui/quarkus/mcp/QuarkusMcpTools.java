@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * Builds the catalog of MCP tools exposed by the BootUI MCP server on Quarkus.
@@ -370,27 +371,30 @@ public class QuarkusMcpTools {
                         McpToolDescriptions.quarkus("get_method_probe"),
                         args -> codePaths.agentProbe(args.id())));
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
+        // Read at call time, so a next step never names a tool this application does not advertise (M4-21).
+        Predicate<String> advertised = RuntimeInsightsAgentView.advertisedBy(this::tools);
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_runtime_insights",
                         McpToolDescriptions.quarkus("get_runtime_insights"),
-                        args -> RuntimeInsightsAgentView.list(runtimeInsights.report(), args.query(), args.limit())));
+                        args -> RuntimeInsightsAgentView.list(
+                                runtimeInsights.report(), args.query(), args.limit(), advertised)));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_runtime_insight",
                         McpToolDescriptions.quarkus("get_runtime_insight"),
-                        args -> RuntimeInsightsAgentView.detail(runtimeInsights.insight(args.id()))));
+                        args -> RuntimeInsightsAgentView.detail(runtimeInsights.insight(args.id()), advertised)));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_runtime_impact",
                         McpToolDescriptions.quarkus("get_runtime_impact"),
-                        args -> runtimeInsights.impact(args.id())));
+                        args -> RuntimeInsightsAgentView.impact(runtimeInsights.impact(args.id()), advertised)));
         addIfAvailable(
                 registry,
                 availability,
@@ -398,7 +402,9 @@ public class QuarkusMcpTools {
                         "get_runtime_run_comparison",
                         McpToolDescriptions.quarkus("get_runtime_run_comparison"),
                         args -> RuntimeInsightsAgentView.comparison(
-                                runtimeInsights.comparison(RuntimeInsightsAgentView.runId(args.id())))));
+                                runtimeInsights.comparison(RuntimeInsightsAgentView.runId(args.id())),
+                                args.id(),
+                                advertised)));
         addIfAvailable(
                 registry,
                 availability,

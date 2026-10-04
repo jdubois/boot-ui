@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.client.JsonWriter;
 import io.github.jdubois.bootui.engine.cli.CliCommandPaths;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.mcp.McpToolGuide;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -43,12 +44,35 @@ final class ToolManifestGenerator {
                             .map(JsonValue::of)
                             .toList()));
             tool.put("summary", JsonValue.of(summary(entry.name())));
+            tool.put(
+                    "example", JsonValue.of(CliCommandPaths.command(entry.name(), McpToolGuide.example(entry.name()))));
+            McpToolGuide.IdSource source = McpToolGuide.idSource(entry.name());
+            if (source != null) {
+                tool.put("idHelp", JsonValue.of(idHelp(source)));
+            }
+            String queryWords = McpToolGuide.queryWords(entry.name());
+            if (queryWords != null) {
+                tool.put("queryHelp", JsonValue.of(queryWords));
+            }
             tools.add(JsonValue.object(tool));
         }
 
         Map<String, JsonValue> manifest = new LinkedHashMap<>();
         manifest.put("tools", JsonValue.array(tools));
         return JsonWriter.pretty(JsonValue.object(manifest)) + "\n";
+    }
+
+    /** Where an id comes from, phrased with the commands rather than the MCP tools that return it. */
+    private static String idHelp(McpToolGuide.IdSource source) {
+        String noun =
+                Character.toUpperCase(source.noun().charAt(0)) + source.noun().substring(1);
+        if (source.fromTools().isEmpty()) {
+            return noun + ".";
+        }
+        List<String> commands = source.fromTools().stream()
+                .map(tool -> "'bootui " + CliCommandPaths.commandFor(tool) + "'")
+                .toList();
+        return noun + " from " + String.join(" or ", commands) + ".";
     }
 
     /**
