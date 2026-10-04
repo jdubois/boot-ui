@@ -34,6 +34,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private long generation;
     private boolean armed;
     private List<String> packages = Collections.emptyList();
+    private List<String> claimedSensors = Collections.emptyList();
 
     AgentHandler(
             Instrumentation instrumentation,
@@ -62,15 +63,16 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 generation = requested;
                 armed = true;
                 packages = strings(request.get("packages"));
+                claimedSensors = strings(request.get("sensors"));
                 hook.onClaim(Collections.unmodifiableMap(new LinkedHashMap<String, Object>(request)));
                 List<String> probe = hook.probePackages();
                 if (!probe.isEmpty()) {
                     installer().install(probe);
                 }
-                if (strings(request.get("sensors")).contains(TaskPropagation.SENSOR)) {
+                if (claimedSensors.contains(TaskPropagation.SENSOR)) {
                     executors().claimed(generation);
                 }
-                if (strings(request.get("sensors")).contains(ThreadPropagation.SENSOR)) {
+                if (claimedSensors.contains(ThreadPropagation.SENSOR)) {
                     threads().claimed(generation, packages);
                 }
                 return answer("ok", null);
@@ -93,6 +95,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 generation = requested;
                 armed = false;
+                claimedSensors = Collections.emptyList();
                 if (installer != null) {
                     installer.release();
                 }
@@ -112,14 +115,14 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
 
     private ThreadSensor threads() {
         if (threads == null) {
-            threads = new ThreadSensor(instrumentation, hook.privilegedInstall());
+            threads = new ThreadSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
         }
         return threads;
     }
 
     private ExecutorSensor executors() {
         if (executors == null) {
-            executors = new ExecutorSensor(instrumentation, hook.privilegedInstall());
+            executors = new ExecutorSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
         }
         return executors;
     }
@@ -143,14 +146,20 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         map.put("packages", new ArrayList<String>(packages));
         List<Object> sensors = new ArrayList<Object>();
         if (executors != null) {
-            sensors.add(executors.status());
+            sensors.add(active(executors.status()));
         }
         if (threads != null) {
-            sensors.add(threads.status());
+            sensors.add(active(threads.status()));
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());
         return map;
+    }
+
+    /** Whether the armed claim enabled the sensor: a sensor an earlier claim installed may still be reported. */
+    private Map<String, Object> active(Map<String, Object> sensor) {
+        sensor.put("active", Boolean.valueOf(armed && claimedSensors.contains(sensor.get("id"))));
+        return sensor;
     }
 
     private static Map<String, Object> answer(String status, String reason) {

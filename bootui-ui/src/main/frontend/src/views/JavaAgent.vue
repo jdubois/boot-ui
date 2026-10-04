@@ -133,9 +133,16 @@ function sensorCounters(sensor) {
 
 function sensorState(sensor) {
   if (sensor.state === 'installed' && sensor.durationMillis != null) {
+    if (sensor.installMillis != null && sensor.selfTestMillis != null) {
+      return `installed in ${formatMillis(sensor.durationMillis)} ms (install ${formatMillis(sensor.installMillis)} ms, self-test ${formatMillis(sensor.selfTestMillis)} ms)`
+    }
     return `installed in ${formatMillis(sensor.durationMillis)} ms`
   }
   return sensor.state
+}
+
+function sensorRetransformation(sensor) {
+  return `${formatNumber(sensor.retransformedTypes ?? 0)} in ${formatMillis(sensor.retransformMillis ?? 0)} ms`
 }
 
 function hookRole(sensor, hook) {
@@ -204,7 +211,7 @@ const retransformationStats = computed(() => {
     {label: 'Retransformed', value: formatNumber(value.retransformed)},
     {label: 'Failed', value: formatNumber(value.failed)},
     {label: 'Skipped', value: formatNumber(value.skipped)},
-    {label: 'Duration', value: `${formatMillis(value.durationMillis)} ms`},
+    {label: 'Install and release time (summed)', value: `${formatMillis(value.durationMillis)} ms`},
     {label: 'Running', value: value.running ? 'Yes' : 'No'}
   ]
 })
@@ -404,8 +411,10 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                   <tr>
                     <th scope="col">Sensor</th>
                     <th scope="col">State</th>
+                    <th scope="col">This claim</th>
                     <th scope="col">Self-test</th>
                     <th scope="col" class="text-end">Instrumented types</th>
+                    <th scope="col" class="text-end">Retransformed</th>
                     <th scope="col">Failures</th>
                   </tr>
                 </thead>
@@ -416,6 +425,10 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                     </td>
                     <td>{{ sensorState(sensor) }}</td>
                     <td>
+                      <span v-if="sensor.active" class="text-success-emphasis">active</span>
+                      <span v-else class="text-muted">inactive</span>
+                    </td>
+                    <td>
                       <span v-if="sensor.selfTestPassed" class="text-success-emphasis">passed</span>
                       <span v-else-if="sensor.selfTestError" class="text-danger-emphasis">{{
                         sensor.selfTestError
@@ -423,6 +436,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                       <span v-else class="text-muted">not run</span>
                     </td>
                     <td class="text-end">{{ formatNumber(sensor.instrumentedTypes) }}</td>
+                    <td class="text-end">{{ sensorRetransformation(sensor) }}</td>
                     <td>
                       <span v-if="!sensor.failures?.length" class="text-muted">—</span>
                       <ul v-else class="mb-0 ps-3">
@@ -489,8 +503,12 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
           <section class="card h-100" aria-labelledby="java-agent-retransform-title">
             <div class="card-body p-4">
               <h3 id="java-agent-retransform-title" class="h6 fw-bold mb-3">
-                <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Retransformation
+                <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Class transformation
               </h3>
+              <p class="small text-muted mb-3">
+                All sensors since the JVM started, summed: transformers stay installed across claims, and sensors
+                install one after another, so the time is aggregate work rather than a wall-clock interval.
+              </p>
               <div class="java-agent-strip">
                 <div v-for="stat in retransformationStats" :key="stat.label" class="java-agent-stat">
                   <div class="java-agent-stat__value">{{ stat.value }}</div>

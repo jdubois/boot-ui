@@ -29,9 +29,11 @@ public final class ThreadPropagation {
 
     public static final int APPLY_THREAD_RUN = 0;
     public static final int APPLY_SUBCLASS_RUN = 1;
+    /** The same run point as {@link #APPLY_THREAD_RUN}, reached by a virtual thread: counted apart, tested apart. */
+    public static final int APPLY_VIRTUAL_RUN = 2;
 
     static final String[] KEY_HOOKS = {"Thread.start", "VirtualThread.start"};
-    static final String[] APPLY_HOOKS = {"Thread.run", "Thread subclass run"};
+    static final String[] APPLY_HOOKS = {"Thread.run", "Thread subclass run", "VirtualThread.run"};
 
     /**
      * Threads inside {@code ThreadPoolExecutor.addWorker}, with their nesting depth (a thread factory may itself add a
@@ -179,7 +181,8 @@ public final class ThreadPropagation {
      * lives from a thread's start to its first run point, so another thread's {@code run()} called directly finds none.
      */
     public static void runThreadTask(Runnable task) {
-        Object handle = enter(Thread.currentThread(), task, APPLY_THREAD_RUN);
+        Thread current = Thread.currentThread();
+        Object handle = enter(current, task, isVirtual(current) ? APPLY_VIRTUAL_RUN : APPLY_THREAD_RUN);
         if (handle == null) {
             task.run();
             return;

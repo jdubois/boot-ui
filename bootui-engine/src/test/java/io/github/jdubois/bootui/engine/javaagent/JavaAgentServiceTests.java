@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
+import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSnippetDto;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -136,22 +138,27 @@ class JavaAgentServiceTests {
         Bridges.StubAgent stub = Bridges.StubAgent.install();
         Map<String, Object> installer = new LinkedHashMap<>();
         installer.put("state", "installed");
-        installer.put("transformed", 3);
-        installer.put("retransformed", 12);
-        installer.put("failed", 1);
-        installer.put("skipped", 2);
-        installer.put("durationMillis", 45L);
-        installer.put("running", false);
+        installer.put("retransformed", 99);
         stub.installer = installer;
-        stub.sensors = List.of(Map.of(
-                "id",
-                "executor-propagation",
-                "state",
-                "active",
-                "instrumentedTypes",
-                4,
-                "failures",
-                List.of("com.example.Broken: boom")));
+        Map<String, Object> executors = new LinkedHashMap<>();
+        executors.put("id", "executors");
+        executors.put("state", "installed");
+        executors.put("instrumentedTypes", 4);
+        executors.put("failures", List.of("com.example.Broken: boom"));
+        executors.put("transformed", 3);
+        executors.put("retransformed", 12);
+        executors.put("failed", 1);
+        executors.put("skipped", 2);
+        executors.put("retransformMillis", 45L);
+        executors.put("installMillis", 50L);
+        executors.put("selfTestMillis", 7L);
+        executors.put("durationMillis", 57L);
+        Map<String, Object> threads = new LinkedHashMap<>();
+        threads.put("id", AgentSensorSettings.THREADS);
+        threads.put("state", "installing");
+        threads.put("retransformed", 5);
+        threads.put("retransformMillis", 10L);
+        stub.sensors = List.of(executors, threads);
         claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
         JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
 
@@ -167,13 +174,24 @@ class JavaAgentServiceTests {
         assertThat(armed.claim().armed()).isTrue();
         assertThat(armed.claim().armedAt()).isPositive();
         assertThat(armed.counters().claims()).isEqualTo(1L);
-        assertThat(armed.retransformation().retransformed()).isEqualTo(12);
-        assertThat(armed.retransformation().durationMillis()).isEqualTo(45L);
-        assertThat(armed.sensors()).singleElement().satisfies(sensor -> {
-            assertThat(sensor.id()).isEqualTo("executor-propagation");
+        assertThat(armed.retransformation())
+                .as("the production sensors' summed cost, never the test-only installer")
+                .isEqualTo(new JavaAgentRetransformationDto("installing", 3, 17, 1, 2, 55L, true));
+        assertThat(armed.sensors()).first().satisfies(sensor -> {
+            assertThat(sensor.id()).isEqualTo("executors");
+            assertThat(sensor.active()).isTrue();
             assertThat(sensor.instrumentedTypes()).isEqualTo(4);
             assertThat(sensor.failures()).containsExactly("com.example.Broken: boom");
+            assertThat(sensor.transformedTypes()).isEqualTo(3);
+            assertThat(sensor.retransformedTypes()).isEqualTo(12);
+            assertThat(sensor.installMillis()).isEqualTo(50L);
+            assertThat(sensor.selfTestMillis()).isEqualTo(7L);
+            assertThat(sensor.durationMillis()).isEqualTo(57L);
+            assertThat(sensor.retransformMillis()).isEqualTo(45L);
         });
+        assertThat(armed.sensors().get(1).active())
+                .as("the default claim does not use the threads sensor")
+                .isFalse();
         assertThat(armed.warnings()).isEmpty();
 
         claim.get().disarm();
@@ -182,6 +200,17 @@ class JavaAgentServiceTests {
         assertThat(disarmed.state()).isEqualTo(JavaAgentReport.DISARMED);
         assertThat(disarmed.reason()).isEqualTo(JavaAgentService.DISARMED_REASON);
         assertThat(disarmed.claim().armed()).isFalse();
+        assertThat(disarmed.sensors()).noneMatch(JavaAgentSensorDto::active);
+
+        threads.put("state", "released");
+        executors.put("state", "released");
+        assertThat(service.report().retransformation())
+                .as("once every sensor is released, the summed cost no longer reads installed")
+                .isEqualTo(new JavaAgentRetransformationDto("off", 3, 17, 1, 2, 55L, false));
+        executors.put("state", "installed");
+        assertThat(service.report().retransformation().state()).isEqualTo("installed");
+        threads.put("state", "self-test-failed (release-failed)");
+        assertThat(service.report().retransformation().state()).isEqualTo("failed");
     }
 
     @Test
@@ -239,7 +268,7 @@ class JavaAgentServiceTests {
                 "hooks",
                 List.of(
                         Map.of(
-                                "id", "ThreadPoolExecutor",
+                                "id", "ThreadPoolExecutor.addWorker",
                                 "kind", "key",
                                 "type", "java.util.concurrent.ThreadPoolExecutor",
                                 "present", true,
@@ -282,7 +311,7 @@ class JavaAgentServiceTests {
             assertThat(row.hooks())
                     .extracting(JavaAgentHookDto::id, JavaAgentHookDto::kind, JavaAgentHookDto::fired)
                     .containsExactly(
-                            org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor", "key", 1L),
+                            org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor.addWorker", "key", 1L),
                             org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor.runWorker", "apply", 0L));
             assertThat(row.executors()).isNotNull();
             assertThat(row.executors().pending()).isEqualTo(1L);
@@ -373,6 +402,58 @@ class JavaAgentServiceTests {
         claim.get().attach(new AgentHandoffs(null, null, null));
         claim.get().disarm();
         assertThat(service.propagating()).as("a disarmed claim").isFalse();
+    }
+
+    @Test
+    void aLaterClaimWithoutTheExecutorsSensorNeitherPropagatesNorShowsTheStillInstalledSensorActive() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> sensor = new LinkedHashMap<>();
+        sensor.put("id", "executors");
+        sensor.put("state", "installed");
+        stub.sensors = List.of(sensor);
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        claim.get().attach(new AgentHandoffs(null, null, null));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        assertThat(service.propagating()).isTrue();
+        assertThat(service.report().sensors())
+                .singleElement()
+                .satisfies(row -> assertThat(row.active()).isTrue());
+
+        claim.get().disarm();
+        claim.set(AgentClaim.claim(
+                Bridges.access(),
+                "petclinic",
+                "petclinic@2",
+                "dev",
+                List.of("com.example"),
+                new AgentSensorSettings(List.of(), List.of(), List.of(), null)));
+        claim.get().attach(new AgentHandoffs(null, null, null));
+
+        assertThat(service.recording()).isTrue();
+        assertThat(service.propagating()).isFalse();
+        assertThat(service.propagationUnavailableReason()).contains("this application's claim does not use it");
+        assertThat(service.report().sensors()).singleElement().satisfies(row -> {
+            assertThat(row.state()).as("the transformer stays installed (D34)").isEqualTo("installed");
+            assertThat(row.active()).isFalse();
+        });
+    }
+
+    @Test
+    void anExecutorsSensorTheAgentReportsInactiveDoesNotPropagate() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> sensor = new LinkedHashMap<>();
+        sensor.put("id", "executors");
+        sensor.put("state", "installed");
+        sensor.put("active", false);
+        stub.sensors = List.of(sensor);
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        claim.get().attach(new AgentHandoffs(null, null, null));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(service.propagationUnavailableReason()).endsWith("inactive for this application's claim.");
+        assertThat(service.report().sensors())
+                .singleElement()
+                .satisfies(row -> assertThat(row.active()).isFalse());
     }
 
     @Test
