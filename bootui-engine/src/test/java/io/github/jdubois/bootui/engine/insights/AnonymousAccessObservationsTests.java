@@ -222,7 +222,7 @@ class AnonymousAccessObservationsTests {
     }
 
     @Test
-    void unprovenAnonymityIsExcludedFromEligibilityOnEveryStackNotAnInsufficientFinding() {
+    void unprovenAnonymityIsExcludedAndMakesTheCheckInsufficientOnEveryStackWithoutInventingFindings() {
         request("POST", "/unchecked", 200, null, sql("insert into users values (?)"));
         request("POST", "/unknown", 200, decision("UNKNOWN", true, null), sql("insert into users values (?)"));
         request("POST", "/none", 200, decision("NONE", true, null), sql("insert into users values (?)"));
@@ -235,8 +235,9 @@ class AnonymousAccessObservationsTests {
                     .filteredOn(check -> check.kind().startsWith("anonymous-"))
                     .hasSize(2)
                     .allSatisfy(check -> {
-                        assertThat(check.status()).isEqualTo("EVALUATED");
+                        assertThat(check.status()).isEqualTo("INSUFFICIENT");
                         assertThat(check.eligibleRequests()).isZero();
+                        assertThat(check.reason()).contains("No eligible work was recorded");
                     });
         }
     }

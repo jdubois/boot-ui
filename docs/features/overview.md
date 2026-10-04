@@ -657,8 +657,8 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 
 Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
-but no request proving anonymity, they remain **EVALUATED** with zero eligible requests, not an insufficient finding.
-A missing required source makes the check **NOT_APPLICABLE**.
+but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented
+anonymous requests or per-route findings. A missing required source makes the check **NOT_APPLICABLE**.
 
 Anonymous-write evidence counts **captured DML texts**, not affected rows or prepared-batch executions. Plain JDBC
 statement batches retain at most five previews, each truncated at 256 characters; prepared batches retain one SQL
