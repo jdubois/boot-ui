@@ -496,17 +496,65 @@ class JournalFactObservationsTests {
                                         "pricing", "RETRY", "Pricing.lookup", "SUCCESS", 2, null, null, false, true))
                         .inTask("2"));
 
+        // Counterexample: a failed task the request joined and handled before its response.
+        request(
+                "/api/orders/{id}",
+                200,
+                child(
+                                JournalSource.AGENT_EXECUTORS,
+                                new AsyncHandoffPayload(
+                                        "async-3",
+                                        null,
+                                        "CompletableFuture$AsyncSupply",
+                                        "ThreadPoolExecutor.runWorker",
+                                        1_000,
+                                        0,
+                                        null,
+                                        true,
+                                        "java.io.UncheckedIOException",
+                                        false,
+                                        null,
+                                        false))
+                        .inAsync("3"));
+        // A warning in one task is not excused by a retry another task recovered.
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException").inTask("4"),
+                child(
+                                JournalSource.FAULT_TOLERANCE,
+                                new FaultTolerancePayload(
+                                        "pricing",
+                                        "RETRY",
+                                        "Pricing.lookup",
+                                        "RETRY",
+                                        1,
+                                        null,
+                                        "IllegalArgumentException",
+                                        true,
+                                        true))
+                        .inTask("4"),
+                child(
+                                JournalSource.FAULT_TOLERANCE,
+                                new FaultTolerancePayload(
+                                        "pricing", "RETRY", "Pricing.lookup", "SUCCESS", 2, null, null, false, true))
+                        .inTask("4"),
+                child(
+                                JournalSource.LOG,
+                                new LogPayload("Pricing", "WARN", "gave up", "java.lang.IllegalArgumentException"))
+                        .inTask("5"));
+
         Map<String, RuntimeObservationDto> found = byKind(service(null, null).report(), ErrorsBehind2xx.KIND).stream()
                 .collect(Collectors.toMap(RuntimeObservationDto::id, Function.identity()));
 
         RuntimeObservationDto unrecovered =
                 found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":unrecovered"));
-        assertThat(unrecovered.sentence()).endsWith("in 1 of 2 successful requests: 1 request whose own task failed.");
-        assertThat(unrecovered.exemplarRequestIds()).containsExactly("r1");
+        assertThat(unrecovered.sentence()).endsWith("in 2 of 4 successful requests: 2 requests whose own task failed.");
+        assertThat(unrecovered.exemplarRequestIds()).containsExactly("r1", "r4");
         assertThat(found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":recovered"))
                         .exemplarRequestIds())
-                .as("the retried task's exception is recovered, and its warning is not a failure")
-                .containsExactly("r2");
+                .as("the retried tasks' exceptions are recovered, and the retrying task's warning is not a failure")
+                .containsExactly("r2", "r4");
     }
 
     @Test

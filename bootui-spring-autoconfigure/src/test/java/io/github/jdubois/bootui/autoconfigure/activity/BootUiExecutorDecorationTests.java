@@ -94,7 +94,54 @@ class BootUiExecutorDecorationTests {
                     assertThat(runs.subList(0, 2))
                             .as("a periodic task belongs to its request on its first run only")
                             .containsExactly("r4", "null");
+
+                    // A trigger, as a cron @Scheduled or schedule(task, cronTrigger) uses: Spring reschedules and
+                    // decorates each next run from the worker, inside the previous one.
+                    java.util.List<String> triggered = new java.util.concurrent.CopyOnWriteArrayList<>();
+                    java.util.concurrent.CountDownLatch thrice = new java.util.concurrent.CountDownLatch(3);
+                    java.util.concurrent.ScheduledFuture<?> cron;
+                    try (BootUiCorrelation.Scope ignored =
+                            BootUiCorrelation.open(CorrelationContext.forRequest("r5"))) {
+                        cron = scheduler.schedule(
+                                () -> {
+                                    triggered.add(String.valueOf(
+                                            BootUiCorrelation.current().requestId()));
+                                    thrice.countDown();
+                                },
+                                new org.springframework.scheduling.support.PeriodicTrigger(
+                                        java.time.Duration.ofMillis(10)));
+                    }
+                    assertThat(thrice.await(5, TimeUnit.SECONDS)).isTrue();
+                    cron.cancel(false);
+                    assertThat(triggered.subList(0, 3))
+                            .as("a trigger's second and third runs are not the request's")
+                            .containsExactly("r5", "null", "null");
                 });
+    }
+
+    @Test
+    void bootsCompositeOfBootUisAndAnotherDecoratorComposedAgainPropagatesOnce() throws Exception {
+        AtomicInteger executions = new AtomicInteger();
+        TaskDecorator counting = runnable -> () -> {
+            executions.incrementAndGet();
+            runnable.run();
+        };
+        ThreadPoolTaskExecutor pool = pool();
+        pool.setTaskDecorator(new org.springframework.core.task.support.CompositeTaskDecorator(
+                java.util.List.of(new BootUiTaskDecorator(), counting)));
+        assertThat(BootUiExecutorDecoration.decorate(pool)).isEqualTo(BootUiExecutorDecoration.Outcome.COMPOSED);
+        pool.initialize();
+        try {
+            CompletableFuture<CorrelationContext> seen = new CompletableFuture<>();
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+                pool.execute(() -> seen.complete(BootUiCorrelation.current()));
+            }
+            CorrelationContext task = seen.get(5, TimeUnit.SECONDS);
+            assertThat(task.executionId()).startsWith("task-");
+            assertThat(executions.get()).isEqualTo(1);
+        } finally {
+            pool.shutdown();
+        }
     }
 
     @Test

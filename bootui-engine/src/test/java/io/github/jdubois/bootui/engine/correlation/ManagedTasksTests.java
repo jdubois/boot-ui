@@ -93,4 +93,62 @@ class ManagedTasksTests {
         assertThat(seen.get().requestId()).isEqualTo("r1");
         assertThat(seen.get().executionId()).startsWith("task-");
     }
+
+    @Test
+    void aTaskIsPropagatedOnceHoweverManyDecoratorsCarryBootUis() {
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+            Runnable once = ManagedTasks.propagate(() -> {});
+            assertThat(ManagedTasks.propagate(once)).isSameAs(once);
+        }
+    }
+
+    @Test
+    void aScheduledFutureDecoratedWhileAPropagatedTaskRunsIsATriggerReschedulingAndBelongsToNoRequest()
+            throws Exception {
+        java.util.concurrent.ScheduledThreadPoolExecutor scheduler =
+                new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+        try {
+            java.util.concurrent.RunnableScheduledFuture<?> next = (java.util.concurrent.RunnableScheduledFuture<?>)
+                    scheduler.schedule(() -> {}, 1, java.util.concurrent.TimeUnit.HOURS);
+            AtomicReference<Runnable> rescheduled = new AtomicReference<>();
+            Runnable task;
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+                // What Spring's ReschedulingRunnable does at the end of each run: decorate its next future.
+                task = ManagedTasks.propagate(() -> rescheduled.set(ManagedTasks.propagate(next)));
+                assertThat(ManagedTasks.propagate(next))
+                        .as("scheduled from the request itself, the first run is the request's")
+                        .isNotSameAs(next);
+            }
+            Thread worker = new Thread(task);
+            worker.start();
+            worker.join();
+
+            assertThat(rescheduled.get())
+                    .as("the next cron run belongs to no request")
+                    .isSameAs(next);
+        } finally {
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    void aPlainTaskSubmittedFromAPropagatedTaskStillBelongsToTheRequest() throws Exception {
+        AtomicReference<CorrelationContext> seen = new AtomicReference<>();
+        AtomicReference<Runnable> inner = new AtomicReference<>();
+        Runnable outer;
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+            outer = ManagedTasks.propagate(
+                    () -> inner.set(ManagedTasks.propagate(() -> seen.set(BootUiCorrelation.current()))));
+        }
+        Thread first = new Thread(outer);
+        first.start();
+        first.join();
+        Thread second = new Thread(inner.get());
+        second.start();
+        second.join();
+
+        assertThat(seen.get().requestId())
+                .as("a nested @Async call keeps its request")
+                .isEqualTo("r1");
+    }
 }

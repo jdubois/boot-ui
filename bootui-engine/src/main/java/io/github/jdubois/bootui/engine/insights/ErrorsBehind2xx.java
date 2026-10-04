@@ -29,8 +29,12 @@ import java.util.Set;
  * <p>A request's tasks are the work it handed to a framework-managed executor ({@code task-} executions, M4-15, M4-22)
  * or that the BootUI agent propagated ({@code async-}, M5-2). Their failures are reported as the task's, never as the
  * request thread's: an exception, an {@code ERROR} log, a {@code WARN} log carrying an exception, which is how a task
- * such as JHipster's {@code @Async} mail sender reports what it swallowed, or a task the agent saw fail. Nobody reads a
- * task's failure but its logs, so the request's 2xx is the only answer its caller ever gets.</p>
+ * such as JHipster's {@code @Async} mail sender reports what it swallowed, or a task the agent saw fail after the
+ * response had started. A failed task the request waited for and could have handled, such as a joined
+ * {@code CompletableFuture}, is not counted from the agent's outcome alone.</p>
+ *
+ * <p>On Quarkus, a {@code ManagedExecutor} task that runs where its request's context is already current keeps the
+ * request's execution, so its failures count as the request's own exception or {@code ERROR} log.</p>
  */
 public final class ErrorsBehind2xx implements Observation {
 
@@ -165,10 +169,14 @@ public final class ErrorsBehind2xx implements Observation {
         Map<Evidence, List<String>> evidence = new EnumMap<>(Evidence.class);
         Map<Evidence, List<String>> recovered = new EnumMap<>(Evidence.class);
         Set<Integer> recoveredExceptions = recoveredExceptions(request, readable);
-        Set<String> recoveredClasses = new java.util.HashSet<>();
+        // By execution, as recovery is matched on one thread: a retry in one task never excuses another's warning.
+        Map<String, Set<String>> recoveredClasses = new java.util.HashMap<>();
         for (int index : recoveredExceptions) {
-            if (request.children().get(index).payload() instanceof ExceptionPayload exception) {
-                recoveredClasses.add(InsightText.simpleName(exception.exceptionClass()));
+            RuntimeEvent recoveredEvent = request.children().get(index);
+            if (recoveredEvent.payload() instanceof ExceptionPayload exception) {
+                recoveredClasses
+                        .computeIfAbsent(String.valueOf(recoveredEvent.executionId()), id -> new java.util.HashSet<>())
+                        .add(InsightText.simpleName(exception.exceptionClass()));
             }
         }
         for (int i = 0; i < request.children().size(); i++) {
@@ -181,9 +189,12 @@ public final class ErrorsBehind2xx implements Observation {
             if (task && !recoveredExceptions.contains(i)) {
                 String failure = taskFailure(payload);
                 // A task's WARN log of an exception a retry or fallback then recovered is that retry, not a failure.
-                boolean recoveredWarning = payload instanceof LogPayload log
+                boolean recoveredWarning = failure != null
+                        && payload instanceof LogPayload log
                         && "WARN".equalsIgnoreCase(log.level())
-                        && recoveredClasses.contains(failure);
+                        && recoveredClasses
+                                .getOrDefault(String.valueOf(event.executionId()), Set.of())
+                                .contains(failure);
                 if (failure != null && !recoveredWarning) {
                     add(evidence, Evidence.TASK_FAILURE, failure);
                     continue;
@@ -223,7 +234,7 @@ public final class ErrorsBehind2xx implements Observation {
 
     /**
      * What failed in one of the request's tasks, or {@code null} when {@code payload} is not a failure: an exception, an
-     * {@code ERROR} log, a {@code WARN} log carrying an exception, or a task the agent saw fail. A {@code WARN} log without
+     * {@code ERROR} log, a {@code WARN} log carrying an exception, or a task the agent saw fail after the response. A {@code WARN} log without
      * an exception is a warning, not a failure.
      */
     private static String taskFailure(Object payload) {
@@ -241,10 +252,24 @@ public final class ErrorsBehind2xx implements Observation {
             }
             return null;
         }
-        if (payload instanceof AsyncHandoffPayload handoff && handoff.failed()) {
+        if (payload instanceof AsyncHandoffPayload handoff && handoff.failed() && failedAfterResponse(handoff)) {
             return handoff.exceptionClass() == null ? "task" : InsightText.simpleName(handoff.exceptionClass());
         }
         return null;
+    }
+
+    /**
+     * Whether a failed task the agent followed failed once its request's response had started, so the request could not
+     * have handled it: its confirmed failure time first, then its body's, then its run's.
+     */
+    private static boolean failedAfterResponse(AsyncHandoffPayload handoff) {
+        if (handoff.failureAfterResponse() != null) {
+            return handoff.failureAfterResponse();
+        }
+        if (handoff.bodyAfterResponse() != null) {
+            return handoff.bodyAfterResponse();
+        }
+        return Boolean.TRUE.equals(handoff.afterResponse());
     }
 
     private static Set<Integer> recoveredExceptions(ProjectedRequest request, Set<JournalSource> readable) {
