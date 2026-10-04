@@ -25,6 +25,10 @@ name: Publish Docker images
 # short-SHA release tags are applied later by the merge phase, after the combined
 # index also receives its own unique build-<run>-<attempt>-index retention tag.
 #
+#   0. gate - publish only from a branch whose release line is released on Maven Central
+#      and not superseded by a newer major (.github/scripts/release-line-gate.sh). Otherwise
+#      every phase but prune is skipped.
+#
 #   1. docker-config - validate the sample app's full Docker stack (the "docker"
 #      Spring profile: PostgreSQL, Redis and Ollama from
 #      bootui-spring-sample-app/compose.yaml). Runs the full Maven test suite and then the
@@ -109,9 +113,29 @@ permissions:
   contents: read
 
 jobs:
+  # The images follow the newest released major, like the documentation site: a branch publishes
+  # only when its release line (.github/release-line) is on Maven Central and no newer major is, so
+  # merging `v2` into `main` publishes no 2.0 sample image under a 1.x version before 2.0.0 is out.
+  # Skipping docker-config skips build and merge with it; prune still runs. check-release-integrity.sh
+  # pins this gate.
+  gate:
+    name: Decide whether this branch may publish images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check the release line on Maven Central
+        id: gate
+        run: bash .github/scripts/release-line-gate.sh
+
   docker-config:
     name: Validate the Docker-based configuration
-    if: ${{ !inputs.cleanup_only }}
+    needs: gate
+    if: ${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

@@ -10,7 +10,7 @@ Every application ran with its own Maven repository seeded with that build, and 
 reviewers on different models judged every observation independently, with the application's source at hand; the
 operator who ran each application gathered facts and code pointers but judged nothing.
 
-## Release gates
+## Release gates, first run
 
 | Measure | Target | Result |
 | --- | --- | --- |
@@ -20,6 +20,99 @@ operator who ran each application gathered facts and code pointers but judged no
 
 The external-validity result also trips §2.3's gate after M3: fewer than 50 % of external-application observations
 were judged useful.
+
+## Release sign-off
+
+**Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's rerun fills
+every `TODO` below under its registered protocol, and the maintainer signs it off. Done is not passed: a measure that
+was run but missed its target is recorded as **Not met**, with its exception, never left out or rounded up. 2.0.0 is
+not released while any row reads `TODO`.
+
+| Field | Value |
+| --- | --- |
+| Release candidate | TODO: `v2` commit and its BootUI version |
+| Rerun date | TODO |
+| Registered protocol | TODO: link to the protocol committed before the rerun (M4-20) |
+| Applications | TODO: the five tuned applications and the two holdouts, with their pins |
+| Reviewers and adjudicator | TODO: two reviewers; the maintainer adjudicates every misleading row and every disagreement |
+| Known limitations | TODO: [Known limitations](KNOWN-LIMITATIONS.md) updated to the shipped scope |
+| Decision | TODO: release 2.0.0, or not, and why |
+
+### Success measures
+
+One row per §2.2 measure. **Result** is the measured value; **Status** is **Met**, **Not met**, or **Not measured**.
+
+| Measure | Target | How it is verified | Result | Status |
+| --- | --- | --- | --- | --- |
+| Exact correlation | ≥ 99 % of request-thread events carry their request id on Spring MVC and Quarkus, with and without tracing; WebFlux reports its measured coverage | The concurrency scenario on the sample apps, in CI | TODO: per stack, with and without tracing | TODO |
+| Capture overhead, application thread | < 2 µs p99 for the full application-thread path on a reference machine | The timed engine test | TODO | TODO |
+| Capture overhead, throughput | Sample-app throughput within 5 % with the journal on versus off | The sample-app benchmark scenario, BootUI on in both runs | TODO | TODO |
+| Java agent overhead | Sample-app throughput within 10 % with the default sensors claimed | The `agent-overhead` job | TODO | TODO |
+| External validity, tuned applications | ≥ 70 % of default-visible distinct facts judged actionable or informative by both reviewers, none misleading | The rerun on the five tuned applications | TODO | TODO |
+| External validity, holdout applications | The same target, scored apart | The rerun on the two holdout applications | TODO | TODO |
+| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools; five refusal fixtures where the right answer is not to edit | The local agent benchmark, 1.x baseline measured first | TODO | TODO |
+| Agent effectiveness, with the agent | An eleventh investigation ("did my change run?") and a sixth refusal fixture, once M5-10 delivers them | The same benchmark with the agent attached | TODO, or **Not measured** if M5-10 is not in 2.0 | TODO |
+| Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | A scripted walkthrough on each stack | TODO: Spring MVC, Spring WebFlux, Quarkus | TODO |
+| Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation, and the rerun's `INSUFFICIENT` and `NOT_APPLICABLE` rows judged apart | TODO | TODO |
+
+### Gates
+
+§2.3's gates and D35's escalation, applied to the rerun.
+
+| Gate | Rule | Result | Outcome |
+| --- | --- | --- | --- |
+| After M1 | Exact correlation ≥ 95 % on Spring MVC and Quarkus | Passed: 100 % on every stack (M1-6f) | Recorded |
+| After M3, global | Default-visible score ≥ 30 %, otherwise every kind missing its per-kind gate folds and Runtime Insights is presented as a Live Activity view | TODO | TODO |
+| After M3, holdouts | Holdout applications no more than 20 points below the tuned ones, with the same consequence | TODO | TODO |
+| Before 2.0.0, overhead | Journal throughput within 5 %; if missed, the journal ships disabled by default and the release notes say so | TODO | TODO |
+
+### Per-kind gates
+
+A kind passes with at least 3 default-visible facts on at least 2 applications, at least 50 % of them useful to both
+reviewers, and nothing misleading still listed by default. Below that it folds into its panel or stays hidden; a kind
+that stays silent on every application stays listed, marked as not externally validated. **Outcome** is one of
+**Listed**, **Folded into** a named panel, **Hidden**, or **Listed, not externally validated**.
+
+| Kind | Facts | Applications | Useful to both | Misleading | Gate | Outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+| `route-time-breakdown` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `repeated-selects` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `lazy-sql-after-handler` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `exception-hotspots` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `errors-behind-2xx` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `connections-per-request` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `safe-method-dml` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `transaction-across-remote-call` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `split-transaction-writes` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `after-commit-writes` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `transactional-listener-skipped` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `proxy-bypass` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `framework-warnings-by-route` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `event-loop-blocking` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `ai-usage-by-route` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `anonymous-data-reach` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `anonymous-success-on-restricted-route` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `orm-auto-flush` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `large-persistence-context` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `gc-inflated-latency` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `heap-growth-after-gc` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `work-after-response` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `changed-code-not-executed` | TODO | TODO | TODO | TODO | TODO | TODO |
+
+### Exceptions
+
+Every measure, gate, or kind that ships without meeting its target, and every deliberate deviation from the registered
+protocol, with who accepted it and what the release notes say.
+
+| # | Measure, gate, or kind | Deviation | Reason | Accepted by | Release note |
+| --- | --- | --- | --- | --- | --- |
+| TODO | | | | | |
+
+### Sign-off
+
+| Role | Name | Date |
+| --- | --- | --- |
+| Maintainer | TODO | TODO |
 
 ## How to judge an observation
 

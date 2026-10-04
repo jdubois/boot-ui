@@ -76,9 +76,44 @@ Spring claims the agent from `BootUiAgentClaimEnvironmentPostProcessor`, registe
 soon as BootUI's activation is resolved, with the main application class's package and `bootui.agent.packages`. The claim
 is refined with the auto-configuration packages when the application context refreshes, disarmed on close or startup
 failure, and released when BootUI is inactive or `bootui.agent.enabled=false`, so the agent removes its transformers.
+A `SpringApplication` run inside another one's, as Spring Cloud's bootstrap context (or an environment carrying its
+`bootstrap` property source), neither claims nor releases: it would otherwise claim with its own sources' packages, or,
+resolving BootUI to disabled without the application's configuration, release the claim the application makes or keeps
+armed across DevTools restarts.
 
 Quarkus claims from a `STATIC_INIT` recorder in dev and test launch modes, refines on startup, and disarms on shutdown.
-Production launch mode never claims the agent and reports `DISABLED` with reason `Quarkus production mode`.
+Production launch mode never claims the agent and reports `DISABLED` with reason `Quarkus production mode`. The
+`bootui.agent.*` properties are build-time on Quarkus, so the panel reports the `bootui.agent.enabled` the build claimed
+or released with, never a runtime value, which changes nothing.
+
+**When the claim happens.** On Spring, the claim is made once the environment is prepared, before any bean is created.
+In Spring PetClinic and the Spring sample, both started with DevTools on JDK 26, it came at about 0.6 to 0.75 s of JVM
+uptime in each restart's thread. By then the restart class loader had loaded only the main class (and, in the sample, the
+primary source and a listener its main method registers). On Quarkus, a static-init step makes the claim. In the Quarkus
+sample on JDK 17, it came about 0.5 to 1 s after static init began. By then three application classes had loaded for
+earlier static-init steps: a configuration mapping, an exception class, and an AI service interface, none of whose code
+runs then. Classes loaded before the claim are instrumented when the sensors install, and marked late for that run.
+
+**What the first claim costs.** The first claim in a JVM installs the sensors off the claiming thread. These figures were
+measured on a shared 10-core laptop running other builds, at load averages of 21 to 35. They are upper bounds, not typical
+values:
+
+- In PetClinic, the agent's own start took about 25 ms.
+- Installing the sensors, including retransforming the classes already loaded, took 0.63 to 0.80 s in total, within the
+  1 s budget. The `executors` sensor's share of the retransformation was 0.59 to 0.73 s, and the `inventory` sensor's
+  0.05 to 0.07 s.
+- PetClinic's first start took a median of 6.3 s of JVM uptime with the agent claimed, against 5.4 s without it. A DevTools
+  restart, whose claim finds the sensors installed, took 0.83 s against 0.70 s.
+- The Quarkus sample's install took 1.1 to 1.5 s, but that was measured at load averages of 55 to 90, which also made its
+  start times too noisy to compare.
+
+**Across restarts and reloads.** Tests restart the Spring sample ten times with DevTools, and live-reload a minimal
+Quarkus application ten times, with the agent claimed again at each run, then walk the heap from the agent (its classes'
+statics, its instances, and its threads): no earlier run's class loader, the first included, is reachable from it. A
+second walk of the same heap, which also starts from a thread the test names as an agent thread and makes keep the first
+run, must find that run, so the walk is shown to catch such a hold. Earlier runs can stay in
+the heap for reasons of their own, such as Spring Data's static type caches, Spring Boot's shutdown hook keeping the
+first run's logging system, or a timer thread whose context class loader is the first Quarkus run's.
 
 `bootui.agent.mode=auto` resolves to `test` under JUnit, TestNG, Cucumber, Spring Boot test, or Quarkus test launch
 mode; otherwise it resolves to `dev`. A dev application can take over from a test application, and DevTools restarts or
@@ -385,7 +420,7 @@ is `null`, as the inventory sensor's `executors` is.
 
 Accepted limits: calls made before BootUI claims the agent (typically the main class's, or a restarted context's
 startup code before its claim) are not seen, though in the agent's first run the classes already loaded are marked
-late; a method HotSwapped without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
+late; a method [HotSwapped](#hotswap) without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
 sensor's check, so a stubbed method does not count as executed, while a spy's real call does. The `inventory` sensor
 shares its transformer with the [`code-paths` sensor](#the-code-paths-sensor).
 
@@ -493,6 +528,24 @@ builds it, not its execution; a request's handler phase cannot yet be split by t
 Paths panel); calls made before BootUI claims the agent are not seen; and an agent jar from before this sensor leaves
 it unavailable while the other sensors keep working.
 
+## HotSwap
+
+A debugger's HotSwap, as IntelliJ IDEA's **Reload Changed Classes** through JDI, or another agent's
+`Instrumentation.redefineClasses`, hands the edited class's bytes to the agent's transformer like any redefinition: the
+`inventory` and `code-paths` advice is applied again to the new bytes, with the same method ids, so the edited method
+keeps being tracked and timed, and nothing is marked late or failed. A HotSwapped method keeps its executed flag for the
+run, and its first request and route stay those of the call before the edit; the next run counts it afresh. A schema
+change (an added or removed method or field) is refused by the JVM, unless it supports enhanced redefinition, as the
+JetBrains Runtime does, and the class keeps running as it was, still instrumented. Since the agent's transformer runs
+before the JVM decides, a method a HotSwap adds is not tracked until its class loads again, at the next restart or
+reload. A release restores the HotSwapped
+body without the advice. On JDK 17, a retransformation starts from the bytes the class was loaded with rather than the
+HotSwapped ones (JDK-7124710, fixed in JDK 20): a release, or a claim that adds or removes a sensor, retransforms the
+claimed classes and so reverts a HotSwap made since the class loaded, as any other agent's retransformation would; apply
+it again, or restart. Code Inventory hashes the application's class files when a run starts, so a HotSwapped method
+is compared with the previous run only after the next DevTools restart or Quarkus live reload, never on the HotSwap
+itself. Forked-JVM tests redefine an instrumented bean class both ways, through JDI and through `Instrumentation`.
+
 ## Coexistence and class data sharing
 
 The BootUI agent coexists with the OpenTelemetry Java agent and with JaCoCo. Put JaCoCo's Surefire/Failsafe placeholder
@@ -536,8 +589,8 @@ to its own events:
 ## Privacy and dependency inventory
 
 The agent is local-only. It does not export telemetry, open a network connection, or record anything until a running
-BootUI instance claims it. The dependency catalog and Vulnerabilities panel ignore the BootUI agent jar as an
-application library when its manifest contains `BootUI-Agent-Protocol`.
+BootUI instance claims it. The dependency catalog, the Vulnerabilities panel, and the GraalVM readiness dependency scan
+ignore the BootUI agent jar as an application library when its manifest contains `BootUI-Agent-Protocol`.
 
 ## Configuration
 
@@ -789,6 +842,9 @@ How it works:
   instrumented it), and never counted as executed or never executed. A method that executed but has no class file in
   the scanned roots, as in a generated class, is counted apart as **generated**. Methods called before BootUI claimed
   the agent are not seen.
+- A HotSwap (a debugger's **Reload Changed Classes**) keeps the agent tracking the edited methods, but the class files
+  are hashed only when a run starts: the edit shows in **Changed** after the next DevTools restart or Quarkus live
+  reload ([HotSwap](#hotswap)).
 
 API, all `GET`, paged with `offset` and `limit` where they list:
 

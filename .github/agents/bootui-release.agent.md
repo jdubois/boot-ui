@@ -27,7 +27,7 @@ These override any instinct carried over from ordinary pull-request work, where 
    minor after the latest stable tag of its own major, or `MAJOR.0.0` directly above the highest existing major; its
    major must match the source branch's project version (or be one above it when opening a new major). The workflow
    rejects anything else through `.github/scripts/release-version-policy.sh`. Confirm which branch is being released:
-   usually `main`, or a maintenance branch for a patch to an older major.
+   `main`, or the `N.x` maintenance branch for a patch to an older major; the workflow refuses any other branch.
 2. Preflight before dispatching, because most of this cannot be fixed after a tag exists:
    - The source branch is green on `build.yml` at the exact SHA to be released.
    - `bash .github/scripts/check-release-integrity.sh` passes locally.
@@ -68,8 +68,12 @@ These override any instinct carried over from ordinary pull-request work, where 
 7. Treat `release.yml` and `.github/scripts/check-release-integrity.sh` as one unit. The guard pins literal strings and
    their relative order — signed-tag creation and verification, the source-advancement guard, the atomic push, tag
    peeling, the immutable checkout, the publication-only reactor, the CLI uber-jar check, and the standalone consumer
-   smoke projects. Changing one file without the other fails every build, so change both in the same commit and run the
-   guard locally before pushing.
+   smoke projects. It also pins the release line (`.github/release-line`) in the version policy and on the tagged
+   contents, and the `release-line-gate.sh` gate that keeps `pages.yml` and `docker-publish.yml` from publishing a
+   branch whose release line is not on Maven Central or is superseded. Changing one file without the other fails every
+   build, so change both in the same commit and run the guard locally before pushing. For the `v2` merge, the `1.x`
+   maintenance branch, and the 2.0.0 release day, follow `docs/V2-RELEASE.md` and run
+   `.github/scripts/rehearse_v2_merge.py --release-day --live` first.
 8. Keep publication scope exact when modules are added or renamed. Published artifacts are the parent POM, core,
    engine, UI, Spring autoconfigure, both Spring starters, the Quarkus parent, runtime, and deployment, `bootui-client`,
    `bootui-cli`, and `bootui-agent` (smoke-tested as a dormant `-javaagent` with an agent-only runtime classpath).

@@ -274,7 +274,7 @@ the classpath) are simply not advertised.
 - **Code Inventory read:** `get_code_inventory`, whether the code changed since the previous run executed in this run;
   see [Did my change run?](#did-my-change-run).
 - **Code Paths read:** `get_code_paths`, which application methods each route spends its time in; see
-  [Where does the handler's time go?](#where-does-the-handlers-time-go).
+  [Where does the handler's time go?](#where-does-the-handler-s-time-go).
 - **Method probes:** `start_method_probe`, an action that needs the user's separate approval, and `get_method_probe`;
   see [Did this method run, and how?](#did-this-method-run-and-how).
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
