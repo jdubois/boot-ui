@@ -17,13 +17,18 @@ import io.github.jdubois.bootui.engine.insights.RepeatedSelects;
 import io.github.jdubois.bootui.engine.insights.RouteTimeBreakdown;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.spi.BeanProvider;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
 import javax.sql.DataSource;
@@ -82,6 +87,44 @@ class RuntimeInsightsControllerTests {
     }
 
     @Test
+    void comparisonReadsLiveSourcePanelPolicyOnBothSpringStacks() {
+        JournalAggregates captured = new JournalAggregates();
+        RuntimeEvent request = RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000,
+                1_000_000,
+                CorrelationContext.forRequest("captured"),
+                "worker",
+                null,
+                false,
+                new HttpPayload("GET", "/private", "/private", null, 200));
+        captured.onEntries(List.of(new JournalEntry(1, request, request.estimatedBytes())));
+        try (GenericApplicationContext servlet = new GenericApplicationContext();
+                GenericReactiveWebApplicationContext reactive = new GenericReactiveWebApplicationContext()) {
+            for (GenericApplicationContext context : List.of(servlet, reactive)) {
+                context.registerBean(RuntimeJournal.class, () -> journal);
+                context.registerBean(JournalAggregates.class, () -> captured);
+                context.refresh();
+                BootUiProperties properties = new BootUiProperties();
+                RuntimeInsightsController controller = new RuntimeInsightsController(
+                        context,
+                        properties,
+                        context.getBeanProvider(RuntimeJournal.class),
+                        context.getBeanProvider(JournalAggregates.class),
+                        context.getBeanProvider(MappingProvider.class),
+                        context.getBeanProvider(BeanProvider.class));
+                assertThat(controller.comparison(null).current().requests()).isEqualTo(1);
+                properties.panel(BootUiPanels.HTTP_EXCHANGES).setEnabled(false);
+                assertThat(controller.comparison(null).current().requests()).isZero();
+                assertThat(controller.comparison(null).limitations())
+                        .contains("Facts are not compared because http-exchanges is disabled.");
+                properties.panel(BootUiPanels.HTTP_EXCHANGES).setEnabled(true);
+                assertThat(controller.comparison(null).current().requests()).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
     void listsTheDeclaredRoutesNoRequestOfThisRunReached() throws Exception {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(RuntimeJournal.class, () -> journal);
@@ -121,7 +164,11 @@ class RuntimeInsightsControllerTests {
             reactive.refresh();
 
             assertThat(eventLoopCheck(servlet).status()).isEqualTo("NOT_APPLICABLE");
-            assertThat(eventLoopCheck(reactive).status()).isEqualTo("EVALUATED");
+            assertThat(eventLoopCheck(reactive)).satisfies(check -> {
+                assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                assertThat(check.eligibleRequests()).isZero();
+                assertThat(check.reason()).contains("No eligible work");
+            });
         }
     }
 
@@ -154,10 +201,16 @@ class RuntimeInsightsControllerTests {
                     .satisfies(check -> assertThat(check.reason()).isEqualTo(SqlCapture.NOT_RECORDED));
             assertThat(check(reactive, EventLoopBlocking.KIND).status()).isEqualTo("UNAVAILABLE");
             assertThat(check(disabled, RepeatedSelects.KIND).reason()).isEqualTo(SqlCapture.DISABLED);
-            assertThat(check(traced, RepeatedSelects.KIND).status()).isEqualTo("EVALUATED");
+            assertThat(check(traced, RepeatedSelects.KIND)).satisfies(check -> {
+                assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                assertThat(check.eligibleRequests()).isZero();
+                assertThat(check.reason()).contains("No eligible work");
+            });
             assertThat(check(reactive, RouteTimeBreakdown.KIND).status())
-                    .as("an observation that only optionally reads SQL still runs, and says what it cannot count")
-                    .isEqualTo("EVALUATED");
+                    .as("an empty run has no eligible breakdown, and still says what it cannot capture")
+                    .isEqualTo("INSUFFICIENT");
+            assertThat(check(reactive, RouteTimeBreakdown.KIND).eligibleRequests())
+                    .isZero();
             assertThat(check(reactive, RouteTimeBreakdown.KIND).reason()).contains(SqlCapture.NOT_RECORDED);
         }
     }
