@@ -24,6 +24,67 @@ class JournalAggregatesTests {
     private long sequence;
 
     @Test
+    void aFailedWebSocketHandlerRecordsAnExecutionFailure() {
+        publish(execution("ws", JournalSource.WEBSOCKET, WebSocketPayload.handled("/chat", "/room", 10L, true)));
+        assertThat(aggregates.snapshot().executions()).singleElement().satisfies(work -> {
+            assertThat(work.source()).isEqualTo(JournalSource.WEBSOCKET);
+            assertThat(work.stats().requests()).isEqualTo(1);
+            assertThat(work.stats().statusClasses()).containsExactly(0L, 0L, 0L, 0L, 1L);
+        });
+    }
+
+    @Test
+    void anExecutionWithoutDurationStillCountsItsCompletedWork() {
+        publish(RuntimeEvent.of(
+                JournalSource.MESSAGING,
+                1000,
+                -1,
+                CorrelationContext.forExecution("message"),
+                "worker",
+                null,
+                false,
+                new MessagingPayload("rabbitmq", false, "orders", false)));
+        assertThat(aggregates.snapshot().executions()).singleElement().satisfies(work -> {
+            assertThat(work.stats().requests()).isEqualTo(1);
+            assertThat(work.stats().latency().count()).isZero();
+        });
+    }
+
+    @Test
+    void unfinishedExecutionWorkCannotEvictAnInflightRequestsChildren() {
+        publish(sql("request", "select * from orders", 1, null, false));
+        for (int i = 0; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(execution("job-" + i, JournalSource.SQL, new SqlPayload("select 1", null, "db", false)));
+        }
+        publish(http("request", "/orders", 200, 1));
+        assertThat(aggregates.snapshot().routes())
+                .singleElement()
+                .satisfies(route -> assertThat(route.statements()).containsEntry("select * from orders", 1L));
+        assertThat(aggregates.snapshot().run().unattributedRequests()).isZero();
+        assertThat(aggregates.snapshot().overflowed()).containsEntry("unattributedExecutions", 1L);
+    }
+
+    @Test
+    void completedExecutionIgnoresLateChildrenInCountersButKeepsTheirEdges() {
+        publish(execution("job", JournalSource.SQL, new SqlPayload("select * from orders", null, "db", false)));
+        publish(execution("job", JournalSource.SCHEDULED, new ScheduledPayload("Job.run", null)));
+        publish(execution("job", JournalSource.SQL, new SqlPayload("select * from lines", null, "db", false)));
+        assertThat(aggregates.snapshot().executions())
+                .singleElement()
+                .satisfies(work -> assertThat(work.stats().statements()).containsOnlyKeys("select * from orders"));
+        assertThat(aggregates.snapshot().edges())
+                .extracting(edge -> edge.edge().toKey())
+                .contains("orders", "lines");
+        aggregates.clear();
+        assertThat(aggregates.snapshot().executions()).isEmpty();
+    }
+
+    private static RuntimeEvent execution(String id, JournalSource source, RuntimeEventPayload payload) {
+        return RuntimeEvent.of(
+                source, 1000, 1_000_000, CorrelationContext.forExecution(id), "worker", null, false, payload);
+    }
+
+    @Test
     void aRequestsChildrenFoldIntoItsRouteWhenItCompletes() {
         publish(sql("r1", "select * from orders where id = ?", 2_000_000, "OrderRepository.find:42", false));
         publish(sql("r1", "select * from orders where id = ?", 1_000_000, "OrderRepository.find:42", false));

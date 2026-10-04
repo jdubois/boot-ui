@@ -7,18 +7,24 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunRefDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExceptionGroupStats;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExecutionStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LatencyHistogram;
 import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
 import io.github.jdubois.bootui.engine.model.EdgeDiff.EdgeRef;
 import io.github.jdubois.bootui.engine.model.EdgeType;
+import io.github.jdubois.bootui.engine.model.NodeType;
 import io.github.jdubois.bootui.engine.model.ObservedEdge;
 import io.github.jdubois.bootui.engine.model.RunEdgeDiff;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -26,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 
 /**
  * Compares the current run with a previous run's summary ({@code docs/PLAN-v2.md} §5.8). On a laptop, warmup and noise
@@ -36,6 +43,7 @@ import java.util.Set;
  * {@value #MIN_TAIL_SAMPLES}.
  */
 public final class RunComparison {
+    private static final Logger LOG = Logger.getLogger(RunComparison.class.getName());
 
     public static final String COMPARED = "COMPARED";
     public static final String INSUFFICIENT = "INSUFFICIENT";
@@ -73,20 +81,48 @@ public final class RunComparison {
             List<RunSummary.Header> kept,
             String noPreviousReason,
             String baselineRunId) {
+        return compare(current, now, start, previous, kept, noPreviousReason, baselineRunId, false);
+    }
+
+    public static RuntimeRunComparisonDto compare(
+            RunIdentity current,
+            AggregatesSnapshot now,
+            RunStart start,
+            RunSummary previous,
+            List<RunSummary.Header> kept,
+            String noPreviousReason,
+            String baselineRunId,
+            boolean historyUnavailable) {
+        return compare(
+                current, now, start, previous, kept, noPreviousReason, baselineRunId, historyUnavailable, Map.of());
+    }
+
+    public static RuntimeRunComparisonDto compare(
+            RunIdentity current,
+            AggregatesSnapshot now,
+            RunStart start,
+            RunSummary previous,
+            List<RunSummary.Header> kept,
+            String noPreviousReason,
+            String baselineRunId,
+            boolean historyUnavailable,
+            Map<String, String> hiddenPanels) {
+        boolean httpVisible = !hiddenPanels.containsKey(BootUiPanels.HTTP_EXCHANGES);
+        List<String> limitations = panelLimitations(now, start, previous, kept, hiddenPanels);
         RuntimeRunRefDto currentRef = new RuntimeRunRefDto(
                 current.id(),
                 current.ordinal(),
                 current.startedAtEpochMillis(),
                 null,
-                now.run().requests(),
+                httpVisible ? now.run().requests() : 0,
                 "CURRENT");
         List<RuntimeRunRefDto> runs = new ArrayList<>();
         for (RunSummary.Header header : kept) {
-            runs.add(ref(header, baselineRunId));
+            runs.add(ref(header, baselineRunId, httpVisible));
         }
         if (previous == null) {
             return new RuntimeRunComparisonDto(
-                    NO_PREVIOUS_RUN,
+                    historyUnavailable ? UNAVAILABLE : NO_PREVIOUS_RUN,
                     noPreviousReason,
                     currentRef,
                     null,
@@ -96,16 +132,16 @@ public final class RunComparison {
                     List.of(),
                     unavailable("No previous run is kept."),
                     List.of(),
-                    List.of());
+                    limitations);
         }
         RunSummary.Header before = previous.header();
-        RuntimeRunRefDto previousRef = ref(before, baselineRunId);
+        RuntimeRunRefDto previousRef = ref(before, baselineRunId, httpVisible);
         String run = "run " + before.ordinal();
-        List<String> limitations = new ArrayList<>();
         RunStart previousStart = before.runStart();
         if (start != null && previousStart != null) {
             List<String> reasons = start.facts().notComparableReasons(previousStart.facts());
             if (!reasons.isEmpty()) {
+                limitations.addAll(start.facts().limitations(previousStart.facts()));
                 return new RuntimeRunComparisonDto(
                         NOT_COMPARABLE,
                         reasons.get(0),
@@ -117,7 +153,7 @@ public final class RunComparison {
                         List.of(),
                         unavailable("The runs are not comparable."),
                         List.of(),
-                        start.facts().limitations(previousStart.facts()));
+                        limitations);
             }
             limitations.addAll(start.facts().limitations(previousStart.facts()));
         } else if (previousStart == null) {
@@ -134,8 +170,31 @@ public final class RunComparison {
         }
 
         AggregatesSnapshot then = previous.aggregates();
+        Set<JournalSource> sharedSources = sharedSources(start, previousStart, now, then);
+        sharedSources.removeIf(source -> !sourceVisible(source, hiddenPanels));
+        if (start == null || previousStart == null) {
+            limitations.add(
+                    "Without both runs' source settings, source-specific facts are compared only when both recorded that source.");
+        }
+        if (!then.executionsRecorded() || !now.executionsRecorded()) {
+            limitations.add(
+                    "A run summary predates execution aggregates; scheduled jobs and consumed messages are not compared.");
+        }
+        if (then.routes().stream()
+                .anyMatch(route -> route.resources().measuredRequests() > 0
+                        && route.resources().allocation() == null)) {
+            limitations.add(
+                    "The previous summary kept allocation totals but no histogram; median allocation is not compared.");
+        }
+        if (now.overflowed().getOrDefault("unattributedExecutions", 0L) > 0
+                || then.overflowed().getOrDefault("unattributedExecutions", 0L) > 0) {
+            limitations.add(
+                    "Work whose execution completion was not recorded exceeded its pending bound in a run; per-execution counters omit that work.");
+        }
         Map<String, RouteStats> previousRoutes = new HashMap<>();
-        then.routes().forEach(route -> previousRoutes.put(route.route(), route));
+        if (sharedSources.contains(JournalSource.HTTP)) {
+            then.routes().forEach(route -> previousRoutes.put(route.route(), route));
+        }
         Map<String, Map<String, String>> previousSignatures = signatures(then);
         Map<String, Map<String, String>> currentSignatures = signatures(now);
         List<RuntimeRunChangeDto> behavior = new ArrayList<>();
@@ -144,12 +203,35 @@ public final class RunComparison {
         int tooFew = 0;
         // Hibernate's work is compared only when both runs recorded it, so a run without the orm source never reads as
         // a route that stopped flushing (M4-9).
-        boolean ormInBoth = then.run().events().getOrDefault(JournalSource.ORM, 0L) > 0
+        boolean ormInBoth = sharedSources.contains(JournalSource.ORM)
+                && then.run().events().getOrDefault(JournalSource.ORM, 0L) > 0
                 && now.run().events().getOrDefault(JournalSource.ORM, 0L) > 0;
-        List<RouteStats> routes = new ArrayList<>(now.routes());
+        List<RouteStats> routes = new ArrayList<>();
+        if (sharedSources.contains(JournalSource.HTTP)) {
+            routes.addAll(now.routes());
+        }
+        Set<String> executionNames = new LinkedHashSet<>();
+        if (then.executionsRecorded() && now.executionsRecorded()) {
+            for (ExecutionStats execution : then.executions()) {
+                if (executionVisible(execution, sharedSources, hiddenPanels)) {
+                    previousRoutes.put(execution.stats().route(), execution.stats());
+                }
+            }
+            for (ExecutionStats execution : now.executions()) {
+                if (executionVisible(execution, sharedSources, hiddenPanels)) {
+                    routes.add(execution.stats());
+                    executionNames.add(execution.stats().route());
+                }
+            }
+        }
         routes.sort(Comparator.comparingLong(RouteStats::requests).reversed().thenComparing(RouteStats::route));
         for (RouteStats route : routes) {
             String name = route.route();
+            boolean execution = executionNames.contains(name);
+            String unit = execution ? "execution" : "request";
+            if ("Other".equals(name)) {
+                continue;
+            }
             RouteStats old = previousRoutes.get(name);
             if (old == null) {
                 behavior.add(change(
@@ -161,31 +243,56 @@ public final class RunComparison {
                         (double) route.requests(),
                         0,
                         route.requests(),
-                        "`" + name + "` served " + route.requests() + plural(" request", route.requests())
-                                + ", and none in " + run + "."));
+                        "`" + name + (execution ? "` completed " : "` served ") + route.requests()
+                                + plural(" " + unit, route.requests()) + ", and none in " + run + "."));
                 continue;
             }
-            for (Map.Entry<String, Long> statement : route.statements().entrySet()) {
-                String fingerprint = statement.getKey();
-                if (!"Other".equals(fingerprint) && !old.statements().containsKey(fingerprint)) {
-                    behavior.add(change(
-                            "new-statement",
-                            name,
-                            fingerprint,
-                            "ADDED",
-                            null,
-                            (double) statement.getValue(),
-                            old.requests(),
-                            route.requests(),
-                            "`" + name + "` ran `" + fingerprint + "` " + times(statement.getValue())
-                                    + ", which its " + old.requests() + plural(" request", old.requests()) + " in "
-                                    + run + " never ran."));
+            if (sharedSources.contains(JournalSource.SQL)) {
+                Map<String, Long> statements = JournalTextExposure.statementCounts(route.statements());
+                Map<String, Long> oldStatements = JournalTextExposure.statementCounts(old.statements());
+                for (Map.Entry<String, Long> statement : statements.entrySet()) {
+                    String fingerprint = statement.getKey();
+                    if (!"Other".equals(fingerprint)
+                            && !oldStatements.containsKey("Other")
+                            && !oldStatements.containsKey(fingerprint)) {
+                        behavior.add(change(
+                                "new-statement",
+                                name,
+                                fingerprint,
+                                "ADDED",
+                                null,
+                                (double) statement.getValue(),
+                                old.requests(),
+                                route.requests(),
+                                "`" + name + "` ran `" + fingerprint + "` " + times(statement.getValue())
+                                        + ", which its " + old.requests() + plural(" " + unit, old.requests()) + " in "
+                                        + run + " never ran."));
+                    }
+                }
+                if (route.requests() >= MIN_REQUESTS
+                        && !statements.containsKey("Other")
+                        && !oldStatements.containsKey("Other")) {
+                    oldStatements.forEach((fingerprint, count) -> {
+                        if (!statements.containsKey(fingerprint)) {
+                            behavior.add(change(
+                                    "gone-statement",
+                                    name,
+                                    fingerprint,
+                                    "REMOVED",
+                                    (double) count,
+                                    null,
+                                    old.requests(),
+                                    route.requests(),
+                                    "`" + name + "` did not run `" + fingerprint + "`, which ran " + times(count)
+                                            + " in " + run + "."));
+                        }
+                    });
                 }
             }
             Map<String, String> raised = currentSignatures.getOrDefault(name, Map.of());
             Map<String, String> raisedBefore = previousSignatures.getOrDefault(name, Map.of());
             raised.forEach((signature, exceptionClass) -> {
-                if (!raisedBefore.containsKey(signature)) {
+                if (sharedSources.contains(JournalSource.EXCEPTION) && !raisedBefore.containsKey(signature)) {
                     behavior.add(change(
                             "new-exception",
                             name,
@@ -196,7 +303,7 @@ public final class RunComparison {
                             old.requests(),
                             route.requests(),
                             "`" + name + "` raised `" + exceptionClass + "`, which its " + old.requests()
-                                    + plural(" request", old.requests()) + " in " + run + " never raised."));
+                                    + plural(" " + unit, old.requests()) + " in " + run + " never raised."));
                 }
             });
             if (route.requests() < MIN_REQUESTS || old.requests() < MIN_REQUESTS) {
@@ -204,46 +311,61 @@ public final class RunComparison {
                 continue;
             }
             compared++;
-            perRequest(
-                    behavior,
-                    "statements-per-request",
-                    "statements",
-                    name,
-                    run,
-                    old,
-                    route,
-                    child(old, JournalSource.SQL),
-                    child(route, JournalSource.SQL));
-            perRequest(
-                    behavior,
-                    "rest-calls-per-request",
-                    "REST calls",
-                    name,
-                    run,
-                    old,
-                    route,
-                    child(old, JournalSource.REST_CLIENT),
-                    child(route, JournalSource.REST_CLIENT));
-            perRequest(
-                    behavior,
-                    "ai-calls-per-request",
-                    "AI calls",
-                    name,
-                    run,
-                    old,
-                    route,
-                    child(old, JournalSource.AI),
-                    child(route, JournalSource.AI));
-            perRequest(
-                    behavior,
-                    "cache-misses-per-request",
-                    "cache misses",
-                    name,
-                    run,
-                    old,
-                    route,
-                    old.cacheMisses(),
-                    route.cacheMisses());
+            if (sharedSources.contains(JournalSource.SQL)) {
+                perRequest(
+                        behavior,
+                        "statements-per-request",
+                        "statements",
+                        name,
+                        run,
+                        old,
+                        route,
+                        child(old, JournalSource.SQL),
+                        child(route, JournalSource.SQL),
+                        unit);
+            }
+            if (sharedSources.contains(JournalSource.REST_CLIENT)) {
+                perRequest(
+                        behavior,
+                        "rest-calls-per-request",
+                        "REST calls",
+                        name,
+                        run,
+                        old,
+                        route,
+                        child(old, JournalSource.REST_CLIENT),
+                        child(route, JournalSource.REST_CLIENT),
+                        unit);
+            }
+            if (sharedSources.contains(JournalSource.AI)) {
+                perRequest(
+                        behavior,
+                        "ai-calls-per-request",
+                        "AI calls",
+                        name,
+                        run,
+                        old,
+                        route,
+                        child(old, JournalSource.AI),
+                        child(route, JournalSource.AI),
+                        unit);
+            }
+            if (sharedSources.contains(JournalSource.CACHE)) {
+                perRequest(
+                        behavior,
+                        "cache-misses-per-request",
+                        "cache misses",
+                        name,
+                        run,
+                        old,
+                        route,
+                        old.cacheMisses(),
+                        route.cacheMisses(),
+                        unit);
+            }
+            if (sharedSources.contains(JournalSource.AI)) {
+                tokens(behavior, name, run, old, route, unit);
+            }
             if (ormInBoth) {
                 perRequest(
                         behavior,
@@ -254,34 +376,53 @@ public final class RunComparison {
                         old,
                         route,
                         old.orm().flushes() + old.orm().autoFlushes(),
-                        route.orm().flushes() + route.orm().autoFlushes());
-                entities(behavior, name, run, old, route);
+                        route.orm().flushes() + route.orm().autoFlushes(),
+                        unit);
+                entities(behavior, name, run, old, route, unit);
             }
-            tokens(behavior, name, run, old, route);
-            statusShare(behavior, name, run, old, route, 3, "4xx");
-            statusShare(behavior, name, run, old, route, 4, "5xx");
-            allocation(behavior, name, run, old, route);
-            latency(latency, "warm-p50", 50, MIN_WARM_SAMPLES, name, run, old.warmLatency(), route.warmLatency());
-            latency(latency, "warm-p95", 95, MIN_TAIL_SAMPLES, name, run, old.warmLatency(), route.warmLatency());
+            if (execution) {
+                statusShare(behavior, name, run, old, route, 4, "failures", unit);
+            } else {
+                statusShare(behavior, name, run, old, route, 3, "4xx", unit);
+                statusShare(behavior, name, run, old, route, 4, "5xx", unit);
+                if (sharedSources.contains(JournalSource.RESOURCES)) {
+                    allocation(behavior, name, run, old, route);
+                }
+            }
+            latency(latency, "warm-p50", 50, MIN_WARM_SAMPLES, name, run, old.warmLatency(), route.warmLatency(), unit);
+            latency(latency, "warm-p95", 95, MIN_TAIL_SAMPLES, name, run, old.warmLatency(), route.warmLatency(), unit);
         }
 
         RunEdgeDiff diff = RunEdgeDiff.compare(previous, now, null);
         List<RuntimeRunChangeDto> edges = new ArrayList<>();
-        diff.added().forEach(edge -> edges.add(edge(edge, true, run)));
-        diff.removed().forEach(edge -> edges.add(edge(edge, false, run)));
+        diff.added().stream()
+                .filter(edge -> comparableEdge(edge, sharedSources, hiddenPanels))
+                .forEach(edge -> edges.add(edge(edge, true, run)));
+        diff.removed().stream()
+                .filter(edge -> comparableEdge(edge, sharedSources, hiddenPanels))
+                .forEach(edge -> edges.add(edge(edge, false, run)));
         limitations.addAll(diff.limitations());
 
         if (tooFew > 0) {
-            limitations.add(tooFew + plural(" route", tooFew) + " served fewer than " + MIN_REQUESTS
-                    + " requests in one of the runs, so only what is new on " + (tooFew == 1 ? "it" : "them")
-                    + " is compared.");
+            limitations.add(tooFew + plural(" route or execution", tooFew) + " recorded fewer than " + MIN_REQUESTS
+                    + " samples in one of the runs, so per-sample changes on " + (tooFew == 1 ? "it" : "them")
+                    + " are not compared; statement removal needs at least " + MIN_REQUESTS + " current samples.");
         }
         latency.sort(Comparator.comparing(RuntimeRunChangeDto::kind));
-        String status = compared > 0 ? COMPARED : INSUFFICIENT;
+        boolean policyUnavailable = routes.isEmpty()
+                && ((!httpVisible && (!now.routes().isEmpty() || !then.routes().isEmpty()))
+                        || hasHiddenExecution(now, hiddenPanels)
+                        || hasHiddenExecution(then, hiddenPanels));
+        String status = compared > 0 ? COMPARED : policyUnavailable ? UNAVAILABLE : INSUFFICIENT;
         String reason = compared > 0
                 ? null
-                : "No route served at least " + MIN_REQUESTS + " requests in both runs, so a route that did not"
-                        + " change cannot be told from one that was not exercised enough.";
+                : policyUnavailable
+                        ? "No routes or executions can be compared because their owning panels are disabled or unavailable."
+                        : "No comparable route or execution recorded at least " + MIN_REQUESTS
+                                + " samples in both runs, so"
+                                + " unchanged behavior cannot be told from work that was not exercised enough.";
+        behavior.replaceAll(row -> executionNames.contains(row.subject()) ? executionRow(row) : row);
+        latency.replaceAll(row -> executionNames.contains(row.subject()) ? executionRow(row) : row);
         return new RuntimeRunComparisonDto(
                 status,
                 reason,
@@ -291,18 +432,200 @@ public final class RunComparison {
                 List.of(),
                 capped(behavior, "behavior rows", limitations),
                 capped(edges, "edges", limitations),
-                restartCost(current, start, before),
+                restartCost(current, start, before, kept, baselineRunId),
                 capped(latency, "latency rows", limitations),
                 limitations);
     }
 
-    private static RuntimeRunRefDto ref(RunSummary.Header header, String baselineRunId) {
+    private static RuntimeRunChangeDto executionRow(RuntimeRunChangeDto row) {
+        String kind = row.kind()
+                .replace("per-request", "per-execution")
+                .replace("route-new", "execution-new")
+                .replace("status-failures", "execution-failures");
+        return change(
+                kind,
+                row.subject(),
+                row.detail(),
+                row.change(),
+                row.before(),
+                row.after(),
+                row.beforeSamples(),
+                row.afterSamples(),
+                row.sentence());
+    }
+
+    private static Set<JournalSource> sharedSources(
+            RunStart now, RunStart then, AggregatesSnapshot current, AggregatesSnapshot previous) {
+        Set<JournalSource> sources = EnumSet.noneOf(JournalSource.class);
+        for (JournalSource source : JournalSource.values()) {
+            if (now != null && then != null
+                    ? now.facts().journalSources().contains(source.propertyName())
+                            && then.facts().journalSources().contains(source.propertyName())
+                    : current.run().events().getOrDefault(source, 0L) > 0
+                            && previous.run().events().getOrDefault(source, 0L) > 0) {
+                sources.add(source);
+            }
+        }
+        return sources;
+    }
+
+    private static boolean comparableEdge(
+            ObservedEdge observed, Set<JournalSource> sources, Map<String, String> hiddenPanels) {
+        EdgeRef edge = observed.edge();
+        JournalSource origin =
+                switch (edge.fromType()) {
+                    case ROUTE, GRAPHQL_OPERATION -> JournalSource.HTTP;
+                    case SCHEDULED_JOB -> JournalSource.SCHEDULED;
+                    case LISTENER ->
+                        edge.fromKey().startsWith("websocket:") ? JournalSource.WEBSOCKET : JournalSource.MESSAGING;
+                    default -> null;
+                };
+        JournalSource target =
+                switch (edge.toType()) {
+                    case TABLE -> JournalSource.SQL;
+                    case CACHE -> JournalSource.CACHE;
+                    case HOST -> JournalSource.REST_CLIENT;
+                    case AI_MODEL -> JournalSource.AI;
+                    case EXCEPTION_GROUP -> JournalSource.EXCEPTION;
+                    case DESTINATION ->
+                        edge.toKey().startsWith("websocket:") ? JournalSource.WEBSOCKET : JournalSource.MESSAGING;
+                    case EVENT -> JournalSource.APP_EVENT;
+                    default -> null;
+                };
+        return (origin == null || sources.contains(origin))
+                && (target == null || sources.contains(target))
+                && (origin != JournalSource.MESSAGING || messagingVisible(edge.fromKey(), hiddenPanels))
+                && (target != JournalSource.MESSAGING || messagingVisible(edge.toKey(), hiddenPanels));
+    }
+
+    private static boolean sourceVisible(JournalSource source, Map<String, String> hiddenPanels) {
+        List<String> panels = JournalSourcePanels.panelsOf(source);
+        return panels.isEmpty() || panels.stream().anyMatch(panel -> !hiddenPanels.containsKey(panel));
+    }
+
+    private static boolean executionVisible(
+            ExecutionStats execution, Set<JournalSource> sources, Map<String, String> hiddenPanels) {
+        JournalSource source = execution.source();
+        if (source == null || !sources.contains(source) || !sourceVisible(source, hiddenPanels)) {
+            return false;
+        }
+        if (source != JournalSource.MESSAGING) {
+            return true;
+        }
+        String key = messagingKey(execution);
+        return key != null && messagingVisible(key, hiddenPanels);
+    }
+
+    private static String messagingKey(ExecutionStats execution) {
+        String name = execution.stats().route();
+        String prefix = JournalSource.MESSAGING.propertyName() + " ";
+        return name != null && name.startsWith(prefix) && name.length() > prefix.length()
+                ? name.substring(prefix.length())
+                : null;
+    }
+
+    private static boolean messagingVisible(String key, Map<String, String> hiddenPanels) {
+        return !hiddenPanels.containsKey(messagingPanel(key));
+    }
+
+    private static boolean hasHiddenExecution(AggregatesSnapshot snapshot, Map<String, String> hiddenPanels) {
+        return snapshot.executions().stream()
+                .anyMatch(execution -> execution.source() != null
+                        && (!sourceVisible(execution.source(), hiddenPanels)
+                                || (execution.source() == JournalSource.MESSAGING
+                                        && messagingKey(execution) != null
+                                        && !messagingVisible(messagingKey(execution), hiddenPanels))));
+    }
+
+    private static String messagingPanel(String key) {
+        int separator = key.indexOf(':');
+        return JournalSourcePanels.messagingPanel(separator < 0 ? null : key.substring(0, separator));
+    }
+
+    private static List<String> panelLimitations(
+            AggregatesSnapshot now,
+            RunStart start,
+            RunSummary previous,
+            List<RunSummary.Header> kept,
+            Map<String, String> hiddenPanels) {
+        Set<String> suppressed = new LinkedHashSet<>();
+        boolean invalidMessagingIdentity = false;
+        if (hiddenPanels.containsKey(BootUiPanels.HTTP_EXCHANGES)) {
+            suppressed.add(BootUiPanels.HTTP_EXCHANGES);
+        }
+        Set<JournalSource> shared = previous == null
+                ? EnumSet.noneOf(JournalSource.class)
+                : sharedSources(start, previous.header().runStart(), now, previous.aggregates());
+        List<AggregatesSnapshot> snapshots = previous == null ? List.of(now) : List.of(now, previous.aggregates());
+        for (AggregatesSnapshot snapshot : snapshots) {
+            for (JournalSource source : List.of(
+                    JournalSource.HTTP,
+                    JournalSource.SQL,
+                    JournalSource.EXCEPTION,
+                    JournalSource.REST_CLIENT,
+                    JournalSource.AI,
+                    JournalSource.CACHE,
+                    JournalSource.ORM,
+                    JournalSource.SCHEDULED,
+                    JournalSource.WEBSOCKET)) {
+                if (snapshot.run().events().getOrDefault(source, 0L) > 0 || shared.contains(source)) {
+                    JournalSourcePanels.panelsOf(source).stream()
+                            .filter(hiddenPanels::containsKey)
+                            .filter(panel -> "disabled".equals(hiddenPanels.get(panel))
+                                    || snapshot.run().events().getOrDefault(source, 0L) > 0)
+                            .forEach(suppressed::add);
+                }
+            }
+            for (ExecutionStats execution : snapshot.executions()) {
+                if (execution.source() == JournalSource.MESSAGING) {
+                    String key = messagingKey(execution);
+                    if (key == null) {
+                        invalidMessagingIdentity = true;
+                        continue;
+                    }
+                    String panel = messagingPanel(key);
+                    if (hiddenPanels.containsKey(panel)) {
+                        suppressed.add(panel);
+                    }
+                }
+            }
+            for (ObservedEdge observed : snapshot.edges()) {
+                EdgeRef edge = observed.edge();
+                if (edge.fromType() == NodeType.LISTENER && !edge.fromKey().startsWith("websocket:")) {
+                    String panel = messagingPanel(edge.fromKey());
+                    if (hiddenPanels.containsKey(panel)) {
+                        suppressed.add(panel);
+                    }
+                }
+                if (edge.toType() == NodeType.DESTINATION && !edge.toKey().startsWith("websocket:")) {
+                    String panel = messagingPanel(edge.toKey());
+                    if (hiddenPanels.containsKey(panel)) {
+                        suppressed.add(panel);
+                    }
+                }
+            }
+        }
+        if (hiddenPanels.containsKey(BootUiPanels.HTTP_EXCHANGES)
+                && kept.stream().anyMatch(header -> header.requests() > 0)) {
+            suppressed.add(BootUiPanels.HTTP_EXCHANGES);
+        }
+        List<String> limitations = new ArrayList<>(suppressed.stream()
+                .map(panel -> "Facts are not compared because " + panel + " is " + hiddenPanels.get(panel) + ".")
+                .toList());
+        if (invalidMessagingIdentity) {
+            LOG.warning("BootUI ignored a malformed messaging execution identity in a run comparison.");
+            limitations.add("A messaging execution has an invalid identity and is not compared.");
+        }
+        return limitations;
+    }
+
+    private static RuntimeRunRefDto ref(RunSummary.Header header, String baselineRunId, boolean httpVisible) {
         return new RuntimeRunRefDto(
                 header.runId(),
                 header.ordinal(),
                 header.startedAtEpochMillis(),
                 header.endedAtEpochMillis(),
-                header.requests(),
+                httpVisible ? header.requests() : 0,
                 header.runId().equals(baselineRunId) ? "BASELINE_FILE" : "MEMORY");
     }
 
@@ -333,7 +656,8 @@ public final class RunComparison {
             RouteStats old,
             RouteStats current,
             long before,
-            long after) {
+            long after,
+            String unit) {
         double then = (double) before / old.requests();
         double now = (double) after / current.requests();
         double shift = Math.abs(now - then);
@@ -349,14 +673,15 @@ public final class RunComparison {
                 now,
                 old.requests(),
                 current.requests(),
-                "`" + route + "` ran " + decimal(now) + " " + noun + " per request, " + (now > then ? "up" : "down")
+                "`" + route + "` ran " + decimal(now) + " " + noun + " per " + unit + ", "
+                        + (now > then ? "up" : "down")
                         + " from " + decimal(then) + " in " + run + " (" + current.requests() + " and "
-                        + old.requests() + " requests)."));
+                        + old.requests() + " " + unit + "s)."));
     }
 
     /** Entities in the persistence context per request that flushed, a shift of at least 20 and a fifth (M4-9). */
     private static void entities(
-            List<RuntimeRunChangeDto> rows, String route, String run, RouteStats old, RouteStats current) {
+            List<RuntimeRunChangeDto> rows, String route, String run, RouteStats old, RouteStats current, String unit) {
         if (old.orm().entityRequests() == 0 || current.orm().entityRequests() == 0) {
             return;
         }
@@ -375,12 +700,12 @@ public final class RunComparison {
                 now,
                 old.orm().entityRequests(),
                 current.orm().entityRequests(),
-                "`" + route + "` held " + Math.round(now) + " entities in its persistence context per request, "
+                "`" + route + "` held " + Math.round(now) + " entities in its persistence context per " + unit + ", "
                         + (now > then ? "up" : "down") + " from " + Math.round(then) + " in " + run + "."));
     }
 
     private static void tokens(
-            List<RuntimeRunChangeDto> rows, String route, String run, RouteStats old, RouteStats current) {
+            List<RuntimeRunChangeDto> rows, String route, String run, RouteStats old, RouteStats current, String unit) {
         double then = (double) old.aiTokens() / old.requests();
         double now = (double) current.aiTokens() / current.requests();
         double shift = Math.abs(now - then);
@@ -396,8 +721,8 @@ public final class RunComparison {
                 now,
                 old.requests(),
                 current.requests(),
-                "`" + route + "` used " + Math.round(now) + " model tokens per request, " + (now > then ? "up" : "down")
-                        + " from " + Math.round(then) + " in " + run + "."));
+                "`" + route + "` used " + Math.round(now) + " model tokens per " + unit + ", "
+                        + (now > then ? "up" : "down") + " from " + Math.round(then) + " in " + run + "."));
     }
 
     /** A status class's share of a route's responses that moved by at least ten points. */
@@ -408,7 +733,8 @@ public final class RunComparison {
             RouteStats old,
             RouteStats current,
             int statusClass,
-            String label) {
+            String label,
+            String unit) {
         double then = 100.0 * old.statusClasses().get(statusClass) / old.requests();
         double now = 100.0 * current.statusClasses().get(statusClass) / current.requests();
         if (Math.abs(now - then) < 10) {
@@ -423,7 +749,8 @@ public final class RunComparison {
                 now,
                 old.requests(),
                 current.requests(),
-                "`" + route + "` answered " + Math.round(now) + " % of its requests with " + label + ", "
+                "`" + route + ("execution".equals(unit) ? "` completed " : "` answered ") + Math.round(now)
+                        + " % of its " + unit + "s with " + ("execution".equals(unit) ? "a failure" : label) + ", "
                         + (now > then ? "up" : "down") + " from " + Math.round(then) + " % in " + run + "."));
     }
 
@@ -434,8 +761,13 @@ public final class RunComparison {
         if (thenMeasured < MIN_REQUESTS || nowMeasured < MIN_REQUESTS) {
             return;
         }
-        double then = (double) old.resources().allocatedBytes() / thenMeasured;
-        double now = (double) current.resources().allocatedBytes() / nowMeasured;
+        LatencyHistogram previous = old.resources().allocation();
+        LatencyHistogram present = current.resources().allocation();
+        if (previous == null || present == null || previous.count() < MIN_REQUESTS || present.count() < MIN_REQUESTS) {
+            return;
+        }
+        double then = previous.percentileValue(50);
+        double now = present.percentileValue(50);
         double shift = Math.abs(now - then);
         if (shift < MIN_ALLOCATION_SHIFT_BYTES || shift < 0.5 * Math.max(then, now)) {
             return;
@@ -449,8 +781,8 @@ public final class RunComparison {
                 now,
                 thenMeasured,
                 nowMeasured,
-                "`" + route + "` allocated " + megabytes(now) + " per measured request, " + (now > then ? "up" : "down")
-                        + " from " + megabytes(then) + " in " + run + "."));
+                "`" + route + "`'s median allocation was " + megabytes(now) + " per measured request, "
+                        + (now > then ? "up" : "down") + " from " + megabytes(then) + " in " + run + "."));
     }
 
     private static void latency(
@@ -461,7 +793,8 @@ public final class RunComparison {
             String route,
             String run,
             LatencyHistogram old,
-            LatencyHistogram current) {
+            LatencyHistogram current,
+            String unit) {
         if (old.count() < minSamples || current.count() < minSamples) {
             return;
         }
@@ -488,7 +821,7 @@ public final class RunComparison {
                 "`" + route + "`'s warm p" + percentile + " was " + decimal(now) + " ms, "
                         + (now > then ? "up" : "down")
                         + " from " + decimal(then) + " ms in " + run + " (" + current.count() + " and " + old.count()
-                        + " warm requests). Latency on a laptop is noisy: confirm before acting on it."));
+                        + " warm " + unit + "s). Latency on a laptop is noisy: confirm before acting on it."));
     }
 
     private static RuntimeRunChangeDto edge(ObservedEdge observed, boolean added, String run) {
@@ -526,14 +859,29 @@ public final class RunComparison {
     }
 
     /** Restart cost: compared only between two restarts, never with a cold start. */
-    private static RuntimeRestartCostDto restartCost(RunIdentity current, RunStart start, RunSummary.Header before) {
+    private static RuntimeRestartCostDto restartCost(
+            RunIdentity current,
+            RunStart start,
+            RunSummary.Header before,
+            List<RunSummary.Header> kept,
+            String baselineRunId) {
+        if (before.runId().equals(baselineRunId)) {
+            return unavailable(
+                    "A baseline file may come from another JVM; restart cost needs adjacent restarts in the same JVM.");
+        }
+        if (current.ordinal() != before.ordinal() + 1
+                || !kept.isEmpty() && !kept.get(0).runId().equals(before.runId())) {
+            return unavailable(
+                    "The selected run is not the immediately preceding restart; restart cost compares adjacent restarts only.");
+        }
         RunStart previous = before.runStart();
         if (start == null || previous == null) {
             return unavailable("A run recorded no start facts.");
         }
         if (start.readyNanos() == null || previous.readyNanos() == null) {
-            return unavailable("The framework reports no time to ready, as on Quarkus, where only the live-reload"
-                    + " total is logged.");
+            return unavailable("A run recorded no time to ready. A lifecycle-ready event alone, such as Quarkus's"
+                    + " StartupEvent, supplies neither a complete reload duration nor its start timestamp; BootUI"
+                    + " cannot measure the reload total from it.");
         }
         if (current.ordinal() <= 1 || before.ordinal() <= 1) {
             return unavailable("A restart is compared only with the previous restart, never with a cold start, which"
