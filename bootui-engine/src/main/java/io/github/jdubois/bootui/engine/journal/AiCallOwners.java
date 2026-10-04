@@ -102,6 +102,11 @@ public final class AiCallOwners {
         return owner;
     }
 
+    /** Whether the time span of the request {@code http} records contains a call that started at {@code epochMillis}. */
+    static boolean windowContains(RuntimeEvent http, long epochMillis) {
+        return Window.of(http).contains(epochMillis);
+    }
+
     /** Forgets a completed request whose bounded aggregate-attribution record expired. */
     void forget(String requestId, String traceId) {
         if (requestId == null || traceId == null) {

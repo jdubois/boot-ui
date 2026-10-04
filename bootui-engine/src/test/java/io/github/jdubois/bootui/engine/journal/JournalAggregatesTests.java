@@ -442,6 +442,116 @@ class JournalAggregatesTests {
     }
 
     @Test
+    void aSettledTraceOnlyAiEdgeIsRetractedWhenALaterRequestOfItsTraceAlsoSpansIt() {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        publish(traceOnlyAi("trace-1", 1_050));
+        for (int i = 0; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+        assertThat(aggregates.snapshot().edges()).hasSize(1);
+
+        publish(tracedHttp("r2", "trace-1", 1_020));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+        assertThat(snapshot.edges()).isEmpty();
+        assertThat(snapshot.overflowed()).containsEntry(JournalAggregates.EDGES, 0L);
+    }
+
+    @Test
+    void retractingTheEarliestSettledObservationMovesTheEdgesFirstSeenToTheSurvivor() {
+        assertSurvivorAfterRetraction(950, 1_010, 1_090);
+    }
+
+    @Test
+    void retractingTheLatestSettledObservationMovesTheEdgesLastSeenToTheSurvivor() {
+        assertSurvivorAfterRetraction(1_060, 1_090, 1_010);
+    }
+
+    /** Settles two AI calls under r1 (1000-1100 ms), then lets r2 starting at {@code laterStart} span one of them. */
+    private void assertSurvivorAfterRetraction(long laterStart, long retracted, long survivor) {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        publish(traceOnlyAi("trace-1", retracted));
+        publish(traceOnlyAi("trace-1", survivor));
+        for (int i = 0; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+        assertThat(aggregates.snapshot().edges())
+                .singleElement()
+                .satisfies(edge -> assertThat(edge.count()).isEqualTo(2));
+
+        publish(tracedHttp("r2", "trace-1", laterStart));
+
+        assertThat(aggregates.snapshot().edges()).singleElement().satisfies(edge -> {
+            assertThat(edge.count()).isEqualTo(1);
+            assertThat(edge.firstSeenEpochMillis()).isEqualTo(survivor);
+            assertThat(edge.lastSeenEpochMillis()).isEqualTo(survivor);
+        });
+    }
+
+    @Test
+    void aRequestThatMakesSettledClaimsAmbiguousRetractsThemBeforeAnEvictionCanFinalizeThem() {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        for (int i = 0; i < 2 * JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("trace-1", 1_050));
+        }
+        for (int i = 1; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(http("other-" + i, "/api/items", 200, 1_000));
+        }
+
+        publish(tracedHttp("r2", "trace-1", 1_020));
+
+        assertThat(aggregates.snapshot().edges()).isEmpty();
+    }
+
+    @Test
+    void finalizingSettledClaimsAtTheEdgeCapLeavesTheReportedEdgesUnchanged() {
+        int models = 11;
+        int route = 0;
+        for (int kept = 0; kept < JournalAggregates.MAX_EDGES - 1; route++) {
+            for (int model = 0; model < models && kept < JournalAggregates.MAX_EDGES - 1; model++, kept++) {
+                publish(event("filler-" + route, JournalSource.AI, 1_000, aiPayload("model-" + model)));
+            }
+            publish(http("filler-" + route, "/filler/" + route, 200, 1_000));
+        }
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        for (int i = 0; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("trace-1", 1_050));
+        }
+        publish(traceOnlyAi("trace-1", 1_060, "other-model"));
+        for (int i = 1; i < JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+        AggregatesSnapshot beforeFinalizing = aggregates.snapshot();
+
+        publish(traceOnlyAi("unanchored-last", 2_000));
+
+        AggregatesSnapshot afterFinalizing = aggregates.snapshot();
+        assertThat(afterFinalizing.edges()).isEqualTo(beforeFinalizing.edges());
+        assertThat(afterFinalizing.overflowed().get(JournalAggregates.EDGES))
+                .isEqualTo(beforeFinalizing.overflowed().get(JournalAggregates.EDGES))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    void anAttributedTraceOnlyAiEdgeOutlivesItsOwnersBoundedRecord() {
+        publish(tracedHttp("r0", "trace-1", 1_000));
+        publish(traceOnlyAi("trace-1", 1_050));
+        assertThat(aggregates.snapshot().edges()).hasSize(1);
+
+        for (int i = 1; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(http("r" + i, "/api/items", 200, 1_000));
+        }
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+        assertThat(snapshot.edges())
+                .singleElement()
+                .satisfies(edge -> assertThat(edge.count()).isEqualTo(1));
+        assertThat(snapshot.overflowed())
+                .containsEntry(JournalAggregates.COMPLETED_REQUEST_ATTRIBUTIONS, 1L)
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L);
+    }
+
+    @Test
     void aTraceOnlyAiEdgeWhoseRequestAttributionExpiredIsReportedRatherThanReassigned() {
         publish(tracedHttp("r0", "trace-1", 1_000));
         for (int i = 1; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
@@ -473,17 +583,16 @@ class JournalAggregatesTests {
     }
 
     private static RuntimeEvent traceOnlyAi(String traceId, long epochMillis) {
+        return traceOnlyAi(traceId, epochMillis, "gpt-4o");
+    }
+
+    private static AiPayload aiPayload(String model) {
+        return new AiPayload(AiPayload.CHAT, "openai", model, 1L, 1L, "stop", false);
+    }
+
+    private static RuntimeEvent traceOnlyAi(String traceId, long epochMillis, String model) {
         return new RuntimeEvent(
-                JournalSource.AI,
-                epochMillis,
-                1_000_000,
-                null,
-                null,
-                traceId,
-                null,
-                null,
-                false,
-                new AiPayload(AiPayload.CHAT, "openai", "gpt-4o", 1L, 1L, "stop", false));
+                JournalSource.AI, epochMillis, 1_000_000, null, null, traceId, null, null, false, aiPayload(model));
     }
 
     private static HttpPayload resourced(ResourceUsage usage) {

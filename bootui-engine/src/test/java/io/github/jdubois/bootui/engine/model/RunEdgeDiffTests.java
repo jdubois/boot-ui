@@ -291,6 +291,35 @@ class RunEdgeDiffTests {
                 .contains("may have been among them");
     }
 
+    @Test
+    void theComparisonSaysWhenEitherRunCouldNotAttributeLateEvents() {
+        AggregatesSnapshot recorded = run(journal ->
+                journal.request("GET", "/api/orders", child(JournalSource.SQL, sql("select * from orders"))));
+        RunSummary previous = summary(4, 0, unattributed(recorded, JournalAggregates.TRACE_AI_ATTRIBUTIONS, 2));
+        AggregatesSnapshot current = unattributed(recorded, JournalAggregates.LATE_REQUEST_ATTRIBUTIONS, 3);
+
+        assertThat(RunEdgeDiff.compare(previous, current, null).limitations())
+                .containsExactly(
+                        "Run 4 could not attribute 2 late events to their request once its bounded record expired, so"
+                                + " an edge reported as added may have occurred in it.",
+                        "This run could not attribute 3 late events to their request once its bounded record expired,"
+                                + " so an edge reported as removed may still occur.");
+    }
+
+    private static AggregatesSnapshot unattributed(AggregatesSnapshot aggregates, String key, long count) {
+        Map<String, Long> overflowed = new java.util.LinkedHashMap<>(aggregates.overflowed());
+        overflowed.put(key, count);
+        return new AggregatesSnapshot(
+                aggregates.routes(),
+                aggregates.statements(),
+                aggregates.exceptionGroups(),
+                aggregates.transactionalMethods(),
+                aggregates.threadFamilies(),
+                aggregates.edges(),
+                aggregates.run(),
+                overflowed);
+    }
+
     private static AggregatesSnapshot run(java.util.function.Consumer<JournalFixture> recorder) {
         JournalFixture journal = new JournalFixture();
         recorder.accept(journal);

@@ -215,16 +215,50 @@ class OtlpReceiverControllerTests {
                             .content(request("other-service", aiSpan(TRACE_ID_2, SPAN_ID_2))
                                     .toByteArray()))
                     .andExpect(status().isOk());
-            // BootUI's own request, then an AI call in its trace: the whole trace is BootUI's own.
+            // An AI call ending, so exported, ahead of BootUI's own request span: the whole trace is BootUI's own.
             mvc.perform(post("/bootui/api/otlp/v1/traces")
                             .contentType("application/x-protobuf")
-                            .content(request(selfSpan(), aiSpan(TRACE_ID, SPAN_ID_3))
+                            .content(request(aiSpan(TRACE_ID, SPAN_ID_3), selfSpan())
                                     .toByteArray()))
                     .andExpect(status().isOk());
         }
 
         assertThat(offered).isEmpty();
         assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly(HOST_TRACE_ID, TRACE_ID_2);
+    }
+
+    @Test
+    void anAiSpanOfABootUiTraceInTheBatchStaysOutOfTheJournalEvenBeyondTheStoresSelfTraceMemory() throws Exception {
+        List<RuntimeEvent> imported = new ArrayList<>();
+        store.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+
+            @Override
+            public boolean offerImported(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+        });
+        String firstSelfTrace = String.format("%032x", 1);
+        List<Span> spans = new ArrayList<>();
+        spans.add(aiSpan(firstSelfTrace, SPAN_ID_3));
+        for (int i = 1; i <= 4_097; i++) {
+            spans.add(selfSpan().toBuilder()
+                    .setTraceId(bytes(String.format("%032x", i)))
+                    .build());
+        }
+
+        mvc.perform(post("/bootui/api/otlp/v1/traces")
+                        .contentType("application/x-protobuf")
+                        .content(request(spans.toArray(Span[]::new)).toByteArray()))
+                .andExpect(status().isOk());
+
+        assertThat(imported).isEmpty();
+        assertThat(store.retainedTraceCount()).isZero();
     }
 
     @Test
