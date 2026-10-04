@@ -20,13 +20,12 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.concurrent.locks.StampedLock;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.IntConsumer;
 
 /**
@@ -34,9 +33,9 @@ import java.util.function.IntConsumer;
  * push-based, bounded, in-memory structure.
  *
  * <p>Recorders {@link #offer} events on the application thread. Offering only checks the source, then puts the event
- * in a bounded queue without blocking. The last {@link RuntimeJournalSettings#reservedQueueSharePercent()} of the queue
- * admits only failed or slow events, so a burst drops routine events first, and every dropped event is counted per
- * source. One daemon thread, {@value #DISPATCHER_THREAD}, drains the queue in batches of up to {@value #BATCH_SIZE}: it
+ * in a bounded queue without blocking, with one lock acquisition ({@link JournalQueue}). The last
+ * {@link RuntimeJournalSettings#reservedQueueSharePercent()} of the queue admits only failed or slow events, so a burst
+ * drops routine events first, and every dropped event is counted per source. One daemon thread, {@value #DISPATCHER_THREAD}, drains the queue in batches of up to {@value #BATCH_SIZE}: it
  * gives each event its sequence number, retains it in the {@link EvidenceRing}, and hands the batch to the listeners,
  * such as the incremental aggregates, which therefore see every accepted event, including those later evicted.</p>
  *
@@ -56,6 +55,14 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** The most events the dispatcher processes at once. */
     public static final int BATCH_SIZE = 512;
+
+    /**
+     * How long the dispatcher pauses after a batch smaller than {@link #BATCH_SIZE} before it takes the next, so under
+     * load it drains events in batches rather than being woken, by the offering thread, for each one. An event is
+     * recorded about this much later at most, as the operating system's timer allows; an offer that brings the queue to
+     * half its routine share ends the pause early, so a burst never waits for it.
+     */
+    static final long DISPATCH_LINGER_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
 
     /** The dictionary's share of the byte bound, beyond which it interns nothing more. */
     static final int DICTIONARY_BYTES_PERCENT = 25;
@@ -87,19 +94,16 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /**
      * Serializes processing a batch with clearing the recording, so a batch is either processed before the clear, and
-     * cleared with everything else, or not at all.
+     * cleared with everything else, or not at all. The queue is replaced only while it is held.
      */
     private final Object processing = new Object();
 
     /**
-     * Makes stamping and offering atomic with the clear's constant-time generation and queue swap. The detached queue
-     * must be drained outside this lock: {@link ArrayBlockingQueue#drainTo(java.util.Collection)} holds its own lock,
-     * which would otherwise park application offers for work proportional to the old queue's depth.
+     * The queue of the current recording generation, the one application threads offer to now. A clear replaces it
+     * and detaches the old one in constant time ({@link JournalQueue#detach()}), so an offer never waits for work
+     * proportional to the old queue's depth.
      */
-    private final StampedLock admissionLock = new StampedLock();
-
-    /** The recording generation and the one queue application threads may offer to now. */
-    private volatile Admission admission;
+    private volatile JournalQueue admission;
 
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
@@ -143,8 +147,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         this.beforeQueueOffer = beforeQueueOffer;
         this.beforeQueueDrain = beforeQueueDrain;
         this.dispatcherPollMillis = dispatcherPollMillis;
-        this.admission = new Admission(0, newQueue());
         this.routineQueueLimit = settings.routineQueueLimit();
+        this.admission = newQueue();
         this.dictionary =
                 new JournalDictionary(DICTIONARY_MAX_ENTRIES, settings.maxBytes() * DICTIONARY_BYTES_PERCENT / 100);
         this.ring = new EvidenceRing(
@@ -196,24 +200,28 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return enqueue(event);
     }
 
+    /**
+     * Puts {@code event} in the current queue with one lock acquisition. An offer racing a clear may find the queue it
+     * read already detached; it is then retried once more on the replacement, as an offer made after the clear.
+     */
     private boolean enqueue(RuntimeEvent event) {
         int source = event.source().ordinal();
         try {
             event = withThreadKind(event);
-            long stamp = admissionLock.readLock();
-            try {
-                Admission current = admission;
-                if (beforeQueueOffer != null) {
-                    beforeQueueOffer.run();
+            boolean failedOrSlow = event.failedOrSlow();
+            int outcome;
+            do {
+                outcome = admission.offer(event, failedOrSlow);
+            } while (outcome == JournalQueue.DETACHED);
+            if (outcome == JournalQueue.ACCEPTED || outcome == JournalQueue.ACCEPTED_FILLING) {
+                accepted[source].increment();
+                acceptedTotal.increment();
+                if (outcome == JournalQueue.ACCEPTED_FILLING && dispatcher != null) {
+                    // A burst filling the queue ends the dispatcher's pause between batches, so a small queue
+                    // configured with queue-capacity does not drop routine events while it waits.
+                    LockSupport.unpark(dispatcher);
                 }
-                if ((event.failedOrSlow() || current.queue.size() < routineQueueLimit)
-                        && current.queue.offer(new Queued(event, current.generation))) {
-                    accepted[source].increment();
-                    acceptedTotal.increment();
-                    return true;
-                }
-            } finally {
-                admissionLock.unlockRead(stamp);
+                return true;
             }
         } catch (RuntimeException ex) {
             // Fall through: the event is dropped and counted, never propagated to the application.
@@ -303,20 +311,28 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     }
 
     private void dispatchLoop() {
-        List<Queued> batch = new ArrayList<>(BATCH_SIZE);
+        List<RuntimeEvent> batch = new ArrayList<>(BATCH_SIZE);
         while (running) {
             try {
-                Queued first = admission.queue.poll(dispatcherPollMillis, TimeUnit.MILLISECONDS);
+                JournalQueue queue = admission;
+                RuntimeEvent first = queue.poll(dispatcherPollMillis, TimeUnit.MILLISECONDS);
                 if (first == null) {
                     continue;
                 }
-                if (first == Queued.WAKE_UP) {
-                    continue;
-                }
                 synchronized (processing) {
+                    if (queue != admission) {
+                        // Offered before a clear that ran while the dispatcher held it: cleared with the recording.
+                        processed.incrementAndGet();
+                        continue;
+                    }
                     batch.add(first);
-                    admission.queue.drainTo(batch, BATCH_SIZE - 1);
-                    processCurrent(batch);
+                    queue.drainTo(batch, BATCH_SIZE - 1);
+                    process(batch);
+                }
+                if (batch.size() < BATCH_SIZE) {
+                    // Lets the next events gather instead of waking the dispatcher for each one: an offer that wakes
+                    // it pays for the unpark on the application thread (M4-18d).
+                    LockSupport.parkNanos(DISPATCH_LINGER_NANOS);
                 }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
@@ -332,41 +348,18 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** Drains and processes every queued event on the calling thread; for tests without a dispatcher. */
     void dispatchPending() {
-        List<Queued> batch = new ArrayList<>(BATCH_SIZE);
         synchronized (processing) {
-            while (admission.queue.drainTo(batch, BATCH_SIZE) > 0) {
-                processCurrent(batch);
-                batch.clear();
-            }
+            drain(admission);
         }
     }
 
-    /**
-     * Processes the events of {@code batch} offered since the last clear, with {@link #processing} held. One offered
-     * before it, which the dispatcher took from the queue just as the clear ran, is dropped and counted as processed:
-     * it was cleared with the recording.
-     */
-    private void processCurrent(List<Queued> batch) {
-        long generation = admission.generation;
-        List<RuntimeEvent> events = new ArrayList<>(batch.size());
-        for (Queued queued : batch) {
-            if (queued.clears() == generation) {
-                events.add(queued.event());
-            }
+    /** Processes every event of {@code queue}, with {@link #processing} held. */
+    private void drain(JournalQueue queue) {
+        List<RuntimeEvent> batch = new ArrayList<>(BATCH_SIZE);
+        while (queue.drainTo(batch, BATCH_SIZE) > 0) {
+            process(batch);
+            batch.clear();
         }
-        processed.addAndGet(batch.size() - events.size());
-        if (!events.isEmpty()) {
-            process(events);
-        }
-    }
-
-    /** One recording generation and its queue. */
-    private record Admission(long generation, ArrayBlockingQueue<Queued> queue) {}
-
-    /** An accepted event and how many times the recording had been cleared when it was offered. */
-    private record Queued(RuntimeEvent event, long clears) {
-
-        private static final Queued WAKE_UP = new Queued(null, -1);
     }
 
     private void process(List<RuntimeEvent> batch) {
@@ -532,24 +525,19 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
     private long clearAndCount() {
         synchronized (processing) {
-            ArrayBlockingQueue<Queued> replacement = newQueue();
-            Admission detached;
-            long stamp = admissionLock.writeLock();
-            try {
-                detached = admission;
-                admission = new Admission(detached.generation + 1, replacement);
-            } finally {
-                admissionLock.unlockWrite(stamp);
+            JournalQueue detached = admission;
+            int queued = 0;
+            if (!detached.refusing()) {
+                admission = newQueue();
+                // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
+                // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
+                queued = detached.detach();
             }
-            int queuedBeforeDrain = detached.queue.size();
             if (beforeQueueDrain != null) {
-                beforeQueueDrain.accept(queuedBeforeDrain);
+                beforeQueueDrain.accept(queued);
             }
-            List<Queued> queued = new ArrayList<>(queuedBeforeDrain);
-            detached.queue.drainTo(queued);
-            detached.queue.offer(Queued.WAKE_UP);
-            processed.addAndGet(queued.size());
-            long dropped = ring.counts().retained() + queued.size();
+            processed.addAndGet(queued);
+            long dropped = ring.counts().retained() + queued;
             ring.clear();
             dictionary.clear();
             SqlShapes.clear();
@@ -568,7 +556,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     public JournalStatus status() {
         long clearsDone = clearsCompleted;
-        Admission current = admission;
+        JournalQueue current = admission;
         EvidenceRing.Counts counts = ring.counts();
         return new JournalStatus(
                 settings.enabled(),
@@ -587,7 +575,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 counts.evictedByBytes(),
                 counts.lastBound() == null ? null : counts.lastBound().name(),
                 counts.oldestRetainedEpochMillis(),
-                current.queue.size(),
+                current.size(),
                 settings.enabled() ? settings.queueCapacity() : 0,
                 perSource(accepted),
                 perSource(dropped),
@@ -595,8 +583,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 clearsDone);
     }
 
-    private ArrayBlockingQueue<Queued> newQueue() {
-        return new ArrayBlockingQueue<>(settings.enabled() ? settings.queueCapacity() : 1);
+    private JournalQueue newQueue() {
+        return new JournalQueue(settings.enabled() ? settings.queueCapacity() : 1, routineQueueLimit, beforeQueueOffer);
     }
 
     /**
@@ -630,7 +618,13 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             return;
         }
         if (settings.enabled()) {
-            dispatchPending();
+            synchronized (processing) {
+                // Later offers are refused and counted as dropped; those already admitted are processed now.
+                JournalQueue last = admission;
+                admission = JournalQueue.closed();
+                last.seal();
+                drain(last);
+            }
             for (JournalListener listener : listeners) {
                 try {
                     listener.onClose();

@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.engine.graalvm;
 
 import io.github.jdubois.bootui.core.dto.GraalVmDependencyDto;
+import io.github.jdubois.bootui.engine.javaagent.AgentJars;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,6 +27,7 @@ import java.util.function.Supplier;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
+import java.util.jar.Manifest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -378,6 +381,10 @@ final class GraalVmDependencyScanner {
 
     /** Package-private so tests can observe which nested streams are actually opened. */
     Inspection inspect(JarFile jarFile, int remaining) {
+        if (bootUiAgent(jarFile)) {
+            // The BootUI agent, which -javaagent appends to the class path: never an application dependency.
+            return new Inspection(List.of(), false);
+        }
         boolean hasMetadataJson = false;
         boolean hasBuildArgs = false;
         boolean truncated = false;
@@ -430,6 +437,16 @@ final class GraalVmDependencyScanner {
         }
         return new Inspection(
                 List.of(toInspectedDependency(jar.getName(), hasMetadataJson, hasBuildArgs, coordinates)), false);
+    }
+
+    /** Whether the jar's manifest names it the BootUI agent ({@value AgentJars#PROTOCOL_ATTRIBUTE}). */
+    private static boolean bootUiAgent(JarFile jarFile) {
+        try {
+            Manifest manifest = jarFile.getManifest();
+            return manifest != null && manifest.getMainAttributes().getValue(AgentJars.PROTOCOL_ATTRIBUTE) != null;
+        } catch (IOException | RuntimeException ex) {
+            return false;
+        }
     }
 
     /**

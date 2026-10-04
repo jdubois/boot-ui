@@ -9,7 +9,12 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.env.MockEnvironment;
 
 class BootUiAgentClaimEnvironmentPostProcessorTests {
@@ -192,6 +197,88 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
     void runsLastAmongEnvironmentPostProcessors() {
         assertThat(withBridge.getOrder()).isEqualTo(org.springframework.core.Ordered.LOWEST_PRECEDENCE);
     }
+
+    /**
+     * Spring Cloud's bootstrap context runs a {@code SpringApplication} inside the application's while its environment
+     * is prepared, without the application's configuration, so BootUI can resolve to disabled there: that nested run
+     * must not release the claim the application then makes, or keeps armed across DevTools restarts, nor claim with its
+     * own sources' packages when it resolves to enabled.
+     */
+    @Test
+    void aSpringApplicationRunInsideAnotherNeitherReleasesNorClaims() {
+        for (String nestedActivation : List.of("OFF", "ON")) {
+            FakeBridge.reset();
+            SpringApplication application = plainApplication(SampleApplication.class, "ON");
+            application.addListeners((ApplicationListener<ApplicationEnvironmentPreparedEvent>) event -> {
+                SpringApplication bootstrap = plainApplication(NestedConfiguration.class, nestedActivation);
+                bootstrap.addListeners(postProcessOn());
+                bootstrap.run().close();
+            });
+            application.addListeners(postProcessOn());
+
+            application.run().close();
+
+            assertThat(FakeBridge.CALLS)
+                    .as("with the nested run resolving BootUI %s", nestedActivation)
+                    .containsExactly("claim", "refine", "disarm");
+            assertThat(FakeBridge.REQUESTS.get(0)).containsEntry("application", "petclinic");
+        }
+    }
+
+    @Test
+    void aSingleRunIsNotNested() {
+        SpringApplication application = plainApplication(SampleApplication.class, "ON");
+        application.addListeners(postProcessOn());
+
+        application.run().close();
+
+        assertThat(FakeBridge.CALLS).containsExactly("claim", "refine", "disarm");
+        assertThat(BootUiAgentClaimEnvironmentPostProcessor.nestedRun()).isFalse();
+    }
+
+    @Test
+    void springCloudsBootstrapEnvironmentNeitherReleasesNorClaims() {
+        for (String activation : List.of("OFF", "ON")) {
+            FakeBridge.reset();
+            MockEnvironment environment = new MockEnvironment()
+                    .withProperty("bootui.enabled", activation)
+                    .withProperty("spring.application.name", "petclinic");
+            environment
+                    .getPropertySources()
+                    .addLast(new org.springframework.core.env.MapPropertySource("bootstrap", Map.of()));
+
+            withBridge.postProcessEnvironment(environment, new SpringApplication(SampleApplication.class));
+
+            assertThat(FakeBridge.CALLS).as("BootUI %s", activation).isEmpty();
+        }
+    }
+
+    /** A run without web server, banner, or auto-configuration, named petclinic as Spring Cloud applications are. */
+    private static SpringApplication plainApplication(Class<?> source, String bootUi) {
+        SpringApplication application = new SpringApplication(source);
+        application.setWebApplicationType(WebApplicationType.NONE);
+        application.setBannerMode(Banner.Mode.OFF);
+        application.setLogStartupInfo(false);
+        application.setRegisterShutdownHook(false);
+        application.setDefaultProperties(Map.of(
+                "bootui.enabled",
+                bootUi,
+                "bootui.agent.mode",
+                "dev",
+                "spring.application.name",
+                "petclinic",
+                "bootui.force-web",
+                "false"));
+        return application;
+    }
+
+    /** Calls the post-processor bound to the fake bridge as the run's environment is prepared. */
+    private ApplicationListener<ApplicationEnvironmentPreparedEvent> postProcessOn() {
+        return event -> withBridge.postProcessEnvironment(event.getEnvironment(), event.getSpringApplication());
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class NestedConfiguration {}
 
     static class SampleApplication {}
 }

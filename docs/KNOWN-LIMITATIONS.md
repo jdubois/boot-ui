@@ -89,7 +89,6 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - JVM mode only, attached with `-javaagent` or an opt-in self-attach; it is unavailable in a GraalVM native image.
 - It appends itself to the bootstrap class path, so class data sharing, AppCDS, and AOT caches stop applying outside
   the boot loader and HotSpot prints a warning. A development tool: never attach it to a production or AOT-cached JVM.
-- Still open: the timing of the early claim, IntelliJ HotSwap, and a leak test through a real DevTools restart.
 
 ## Overhead budget
 
