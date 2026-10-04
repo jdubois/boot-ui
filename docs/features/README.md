@@ -12,7 +12,7 @@ straight to a panel by name.
 | [Database](./database.md) | Connection Pools · PostgreSQL · MySQL · SQL Trace · Hibernate Statistics · Transactions · Spring Data · Flyway · Liquibase | What is my app doing to the database? |
 | [Security](./security.md) | Spring Security · Security Logs | How is access actually enforced? |
 | [Services](./services.md) | Scheduled Tasks · REST Client · Fault Tolerance · WebSockets · AI Framework · Cache · Email · Kafka · RabbitMQ · JMS | What is my app talking to? |
-| [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe | Why did that request fail? |
+| [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe · Code Inventory | Why did that request fail? Did my change run? |
 | [Developer tools](./developer-tools.md) | MCP Server · Command Line · Java Agent · Spring DevTools · Dev Services · Copilot · Claude Code | What is my toolchain doing locally? |
 
 ## Rules that apply to every panel

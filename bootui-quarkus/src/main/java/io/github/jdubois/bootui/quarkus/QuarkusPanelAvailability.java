@@ -5,6 +5,8 @@ import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
@@ -13,6 +15,7 @@ import io.github.jdubois.bootui.quarkus.agent.QuarkusCopilotProperties;
 import io.github.jdubois.bootui.quarkus.devservices.CapturedDevServices;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -530,6 +533,13 @@ public class QuarkusPanelAvailability {
      */
     private final Map<String, Boolean> dynamicAvailability;
 
+    /**
+     * Code Inventory, whose availability is the BootUI agent's: computed fresh per call, like GitHub's. Absent when this
+     * class is built outside the container, as in tests, where the panel is then unavailable with the agent's reason.
+     */
+    @Inject
+    Instance<CodeInventoryService> codeInventory;
+
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this(config, mySqlJdbcDriverPresent());
@@ -747,7 +757,21 @@ public class QuarkusPanelAvailability {
     public boolean isPanelAvailable(String panelId) {
         return AVAILABLE_PANELS.contains(panelId)
                 || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
-                || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable());
+                || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable())
+                || (BootUiPanels.CODE_INVENTORY.equals(panelId) && codeInventoryUnavailableReason() == null);
+    }
+
+    /** Why Code Inventory is unavailable: the BootUI agent's inventory sensor does not record this run. */
+    private String codeInventoryUnavailableReason() {
+        try {
+            Instance<CodeInventoryService> services = codeInventory;
+            if (services == null || !services.isResolvable()) {
+                return JavaAgentService.INVENTORY_REQUIREMENT + ".";
+            }
+            return services.get().unavailableReason();
+        } catch (RuntimeException ex) {
+            return JavaAgentService.INVENTORY_REQUIREMENT + ".";
+        }
     }
 
     /** Whether the panel is enabled by the live per-panel access policy. */
@@ -770,6 +794,10 @@ public class QuarkusPanelAvailability {
     private String unavailableReason(String panelId) {
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();
+        }
+        if (BootUiPanels.CODE_INVENTORY.equals(panelId)) {
+            String reason = codeInventoryUnavailableReason();
+            return reason == null ? JavaAgentService.INVENTORY_REQUIREMENT + "." : reason;
         }
         return CAPABILITY_ABSENT.getOrDefault(
                 panelId,

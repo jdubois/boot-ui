@@ -214,6 +214,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
+| Diagnostics     | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | Command Line              | `cli`                       | `bootui.panels.cli.enabled`                       | Not applicable; view-only.                |
 | Developer tools | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | Not applicable; view-only.                |
@@ -888,6 +889,17 @@ The main application package on Spring and the application archive packages on Q
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes the executors sensor never propagates to. On Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on (`spring.reactor.context-propagation=auto`), since it carries BootUI's context itself. Setting it replaces the defaults. |
 | `bootui.agent.ring-capacity` | `65536` | The records the agent's transport ring holds before it drops new ones (64 bytes each), clamped to 1,024–4,194,304 and rounded up to a power of two. The first claim in a JVM sizes the ring, which then lasts for the JVM's life. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window of a propagated task, counted from its start: a task belongs to the request that handed it over when it starts no later than this after the request ended (a later one is only counted in the request profile), its work recorded more than this after it started is not attributed, and a task running longer is published `capped`. |
+
+### Code Inventory
+
+The Code Inventory panel is view-only and needs the BootUI agent's `inventory` sensor. Once per run, off the request
+path, BootUI scans the application's own class files in the claimed packages and hashes their methods; these keys bound
+that scan. On Spring they are read when the context starts, on Quarkus at runtime.
+
+| Property                              | Default  | Description |
+| ------------------------------------- | -------- | ----------- |
+| `bootui.code-inventory.max-classes`   | `20000`  | The most application classes the scan hashes. Past it the scan is partial and says so, and classes it did not reach are neither counted nor compared with the previous run. Must be positive. |
+| `bootui.code-inventory.scan-timeout`  | `30s`    | The scan's deadline. Past it the scan is partial and says so. Must be positive. |
 
 ### Spring DevTools
 

@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -210,6 +211,19 @@ public final class AgentClaim {
         return answer;
     }
 
+    /**
+     * Drains the agent's transport ring into {@code sink} with this claim's token, while it is armed
+     * ({@code docs/PLAN-v2.md} M5-3): the sink receives one reused {@code long[]} per record and copies what it keeps.
+     * A stale or ended claim, or a second concurrent drainer, drains nothing. Returns how many records were drained.
+     */
+    public int drain(Consumer<long[]> sink) {
+        Long granted = token;
+        if (granted == null || ended.get() || sink == null) {
+            return 0;
+        }
+        return access.drain(granted, sink);
+    }
+
     /** The status of the claim's first answer: {@value #ARMED}, {@value #HELD}, {@value #FAILED}, or {@value #UNAVAILABLE}. */
     public String claimStatus() {
         Map<String, Object> answer = result;
@@ -239,6 +253,31 @@ public final class AgentClaim {
 
     public String application() {
         return application;
+    }
+
+    /**
+     * The packages the agent instruments for this claim, as the bridge last answered its claim or refine: the claimed
+     * packages and those refined since. Falls back to {@link #packages()}.
+     */
+    public List<String> claimedPackages() {
+        Map<String, Object> bridgeClaim = AgentBridgeAccess.map(result(), "claim");
+        List<String> names = new ArrayList<>();
+        for (Object item : AgentBridgeAccess.items(bridgeClaim, "packages")) {
+            if (item != null) {
+                names.add(String.valueOf(item));
+            }
+        }
+        return names.isEmpty() ? packages : List.copyOf(names);
+    }
+
+    /** When the bridge armed this claim, in epoch milliseconds, or {@code null}. */
+    public Long armedAt() {
+        return AgentBridgeAccess.number(AgentBridgeAccess.map(result(), "claim"), "armedAt");
+    }
+
+    /** The claim's slot, {@code mode:application}, which the agent keeps across a run's restarts. */
+    public String slot() {
+        return mode + ":" + application;
     }
 
     public String owner() {

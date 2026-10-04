@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.Exclusions;
 import java.lang.instrument.Instrumentation;
 import java.security.PrivilegedAction;
 import java.security.ProtectionDomain;
@@ -123,31 +124,22 @@ final class AgentInstaller {
                 .transform(new ProbeTransformer(advice));
     }
 
-    /** §5.13: BootUI itself, the agent, Byte Buddy, generated proxies, and the JDK are never instrumented by a probe. */
+    /**
+     * §5.13: BootUI itself, the agent, Byte Buddy, generated proxies, and the JDK are never instrumented, by name, as the
+     * bridge's {@link Exclusions} lists them: one list the engine's Code Inventory reads too.
+     */
     static ElementMatcher.Junction<TypeDescription> ignored() {
-        return ElementMatchers.<TypeDescription>nameStartsWith("io.github.jdubois.bootui.agent.")
-                .or(ElementMatchers.nameStartsWith("io.github.jdubois.bootui.engine."))
-                .or(ElementMatchers.nameStartsWith("io.github.jdubois.bootui.core."))
-                .or(ElementMatchers.nameStartsWith("io.github.jdubois.bootui.spi."))
-                .or(ElementMatchers.nameStartsWith("io.github.jdubois.bootui.autoconfigure."))
-                .or(ElementMatchers.nameStartsWith("io.github.jdubois.bootui.quarkus."))
-                .or(ElementMatchers.nameStartsWith("net.bytebuddy."))
-                .or(ElementMatchers.nameStartsWith("java."))
-                .or(ElementMatchers.nameStartsWith("javax."))
-                .or(ElementMatchers.nameStartsWith("jdk."))
-                .or(ElementMatchers.nameStartsWith("sun."))
-                .or(ElementMatchers.nameStartsWith("com.sun."))
-                .or(ElementMatchers.nameContains("$$"))
-                .or(ElementMatchers.nameContains("$HibernateProxy$"))
-                .or(ElementMatchers.nameEndsWith("_Subclass"))
-                .or(ElementMatchers.nameEndsWith("_ClientProxy"))
-                .or(ElementMatchers.nameEndsWith("_Bean"))
-                .or(ElementMatchers.nameContains("$MockitoMock$"))
-                .or(ElementMatchers.nameContains("$ByteBuddy$"))
-                .or(ElementMatchers.nameContains("$Proxy"))
-                .or(ElementMatchers.nameStartsWith("io.opentelemetry.javaagent."))
-                .or(ElementMatchers.nameStartsWith("com.intellij.rt."))
-                .or(ElementMatchers.nameStartsWith("org.jacoco.agent.rt."));
+        ElementMatcher.Junction<TypeDescription> matcher = ElementMatchers.none();
+        for (String prefix : Exclusions.prefixes()) {
+            matcher = matcher.or(ElementMatchers.<TypeDescription>nameStartsWith(prefix));
+        }
+        for (String part : Exclusions.contains()) {
+            matcher = matcher.or(ElementMatchers.<TypeDescription>nameContains(part));
+        }
+        for (String suffix : Exclusions.suffixes()) {
+            matcher = matcher.or(ElementMatchers.<TypeDescription>nameEndsWith(suffix));
+        }
+        return matcher;
     }
 
     private void failure(String text) {

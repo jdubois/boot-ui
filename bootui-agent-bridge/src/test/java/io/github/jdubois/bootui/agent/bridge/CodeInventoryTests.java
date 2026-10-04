@@ -339,6 +339,109 @@ class CodeInventoryTests {
     }
 
     @Test
+    void aMethodIsTrackedInTheRunItsClassWasInstrumentedInOnly() {
+        int early = CodeInventory.methodId("com.example.Shop#greet()V");
+        claim();
+        CodeInventory.tracked("com.example.Shop", new int[] {early}, false);
+        Map<String, Object> first = CodeInventory.snapshot(CodeInventory.currentGeneration());
+        assertThat(bit((long[]) first.get("trackedThisRun"), early)).isTrue();
+
+        // A restart: the new class loader has not loaded the class yet, though its advice is kept elsewhere.
+        claim();
+        Map<String, Object> second = CodeInventory.snapshot(CodeInventory.currentGeneration());
+        assertThat(bit((long[]) second.get("trackedThisRun"), early))
+                .as("not instrumented in this run yet")
+                .isFalse();
+        assertThat((byte[]) second.get("tracking"))
+                .as("the agent-lifetime state stays")
+                .containsExactly(CodeInventory.TRACKED);
+
+        CodeInventory.tracked("com.example.Shop", new int[] {early}, false);
+        assertThat(bit(
+                        (long[]) CodeInventory.snapshot(CodeInventory.currentGeneration())
+                                .get("trackedThisRun"),
+                        early))
+                .as("instrumented again as the new class loader loads it")
+                .isTrue();
+        CodeInventory.untrackAll();
+        assertThat(bit(
+                        (long[]) CodeInventory.snapshot(CodeInventory.currentGeneration())
+                                .get("trackedThisRun"),
+                        early))
+                .as("a release forgets it")
+                .isFalse();
+    }
+
+    @Test
+    void aClassThatFailsBeforeAnyMethodGotAnIdOrRunsPastTheLimitIsNamed() {
+        int greet = CodeInventory.methodId("com.example.Shop#greet()V");
+        claim();
+        CodeInventory.tracked("com.example.Shop", new int[] {greet}, false);
+        long before = CodeInventory.version();
+
+        // Retransformed in a later run, the class fails before any method matched: its earlier ids fail with it.
+        claim();
+        CodeInventory.transformFailed("com.example.Shop", new int[] {greet});
+        CodeInventory.transformFailed("com.example.Broken", new int[0]);
+        CodeInventory.overLimit("com.example.Huge");
+
+        Map<String, Object> snapshot = CodeInventory.snapshot(CodeInventory.currentGeneration());
+        assertThat((byte[]) snapshot.get("tracking")).containsExactly(CodeInventory.TRANSFORM_FAILED);
+        assertThat((String[]) snapshot.get("failedClasses")).containsExactly("com.example.Broken", "com.example.Shop");
+        assertThat((String[]) snapshot.get("overLimitClasses")).containsExactly("com.example.Huge");
+        assertThat(snapshot).containsEntry("transformFailures", 2L).containsEntry("namedClassOverflow", 0L);
+        assertThat(CodeInventory.version()).isGreaterThan(before);
+
+        CodeInventory.tracked("com.example.Shop", new int[] {greet}, false);
+        assertThat((String[]) CodeInventory.snapshot(CodeInventory.currentGeneration())
+                        .get("failedClasses"))
+                .as("instrumented since: no longer failed")
+                .containsExactly("com.example.Broken");
+        CodeInventory.untrackAll();
+        Map<String, Object> released = CodeInventory.snapshot(CodeInventory.currentGeneration());
+        assertThat((String[]) released.get("failedClasses")).isEmpty();
+        assertThat((String[]) released.get("overLimitClasses")).isEmpty();
+    }
+
+    @Test
+    void theVersionChangesWithEveryFirstCallAndNewRunButNotWithFastPathCalls() {
+        int id = CodeInventory.methodId("com.example.Shop#greet()V");
+        long beforeClaim = CodeInventory.version();
+        claim();
+        long claimed = CodeInventory.version();
+        assertThat(claimed).isGreaterThan(beforeClaim);
+
+        advice(id);
+        long called = CodeInventory.version();
+        assertThat(called).isGreaterThan(claimed);
+        advice(id);
+        assertThat(CodeInventory.version())
+                .as("a later call takes the fast path")
+                .isEqualTo(called);
+        assertThat(CodeInventory.snapshot(CodeInventory.currentGeneration())).containsEntry("version", called);
+    }
+
+    @Test
+    void exclusionsNameTheClassesTheAgentNeverInstruments() {
+        assertThat(Exclusions.excluded("com.example.Shop")).isFalse();
+        assertThat(Exclusions.excluded("com.example.Shop$Inner")).isFalse();
+        assertThat(Exclusions.excluded("com.example.Shop$$SpringCGLIB$$0")).isTrue();
+        assertThat(Exclusions.excluded("com.example.Shop$HibernateProxy$abc")).isTrue();
+        assertThat(Exclusions.excluded("com.example.Shop$MockitoMock$123")).isTrue();
+        assertThat(Exclusions.excluded("com.example.Shop$ByteBuddy$x")).isTrue();
+        assertThat(Exclusions.excluded("jdk.proxy2.$Proxy42")).isTrue();
+        assertThat(Exclusions.excluded("com.example.$Proxy7")).isTrue();
+        assertThat(Exclusions.excluded("com.example.Shop_Bean")).isTrue();
+        assertThat(Exclusions.excluded("com.example.Shop_Subclass")).isTrue();
+        assertThat(Exclusions.excluded("com.example.Shop_ClientProxy")).isTrue();
+        assertThat(Exclusions.excluded("io.github.jdubois.bootui.engine.X")).isTrue();
+        assertThat(Exclusions.excluded(null)).isTrue();
+        String[] prefixes = Exclusions.prefixes();
+        prefixes[0] = "changed.";
+        assertThat(Exclusions.prefixes()[0]).as("a copy").isNotEqualTo("changed.");
+    }
+
+    @Test
     void aDisabledSensorRecordsNothingForItsGenerationAndSaysSo() {
         int id = CodeInventory.methodId("com.example.Shop#greet()V");
         long token = claim();

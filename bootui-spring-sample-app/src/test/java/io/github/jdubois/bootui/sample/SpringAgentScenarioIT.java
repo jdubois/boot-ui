@@ -223,6 +223,87 @@ class SpringAgentScenarioIT {
         assertThat(handoff.path("executionId").asText()).startsWith("async-");
     }
 
+    /**
+     * Code Inventory with the agent ({@code docs/PLAN-v2.md} §5.15): the seeded never-called method is never executed, the
+     * one {@code GET /api/hello} calls is executed with its first request, and the declared jar nothing loads is not
+     * loaded in this run. Every read answers the available shape.
+     */
+    @Test
+    void codeInventoryListsTheSeedsAndTheDeclaredJarNothingLoads() throws Exception {
+        assertThat(probe.get("/api/hello").status()).isEqualTo(200);
+        String greet =
+                "io.github.jdubois.bootui.sample.inventory.GreetingService#greet(Ljava/lang/String;)Ljava/lang/String;";
+        String farewell =
+                "io.github.jdubois.bootui.sample.inventory.GreetingService#farewell(Ljava/lang/String;)Ljava/lang/String;";
+
+        // The scan of the sample's class files runs off the request path once the run started: wait for it, bounded.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        JsonNode summary;
+        do {
+            summary = probe.get("/bootui/api/code-inventory").json();
+            if ("COMPLETE".equals(summary.path("scan").path("status").asText())) {
+                break;
+            }
+            Thread.sleep(250);
+        } while (System.nanoTime() < deadline);
+        assertThat(summary.path("available").asBoolean()).as(summary.toString()).isTrue();
+        assertThat(summary.path("unavailableReason").isNull()).isTrue();
+        assertThat(summary.path("scan").path("status").asText())
+                .as(summary.toString())
+                .isEqualTo("COMPLETE");
+        assertThat(summary.path("run").path("generation").asLong()).isPositive();
+        assertThat(summary.path("methods").path("tracked").asInt()).isPositive();
+        assertThat(summary.path("methods").path("executed").asInt()).isPositive();
+        assertThat(summary.path("changes").path("previousRun").asBoolean()).isFalse();
+        assertThat(summary.path("dependencies").path("declared").asInt()).isPositive();
+        assertThat(summary.path("limitations").isArray()).isTrue();
+
+        JsonNode methods = probe.get("/bootui/api/code-inventory/methods?class=GreetingService")
+                .json();
+        JsonNode greetRow = null;
+        JsonNode farewellRow = null;
+        for (JsonNode method : methods.path("methods")) {
+            if (greet.equals(method.path("key").asText())) {
+                greetRow = method;
+            } else if (farewell.equals(method.path("key").asText())) {
+                farewellRow = method;
+            }
+        }
+        assertThat(farewellRow).as(methods.toString()).isNotNull();
+        assertThat(farewellRow.path("status").asText()).isEqualTo("NEVER_EXECUTED");
+        assertThat(greetRow).as(methods.toString()).isNotNull();
+        assertThat(greetRow.path("status").asText()).isEqualTo("EXECUTED");
+        assertThat(greetRow.path("firstRequestId").asText())
+                .as("its first call belongs to the request that made it: %s", greetRow)
+                .matches("[0-9a-f]{16}");
+        assertThat(methods.path("page").path("matched").asInt()).isGreaterThanOrEqualTo(3);
+
+        JsonNode notLoaded = probe.get("/bootui/api/code-inventory/dependencies?status=not-loaded&limit=1000")
+                .json();
+        List<String> artifacts = new ArrayList<>();
+        for (JsonNode dependency : notLoaded.path("dependencies")) {
+            artifacts.add(dependency.path("groupId").asText() + ":"
+                    + dependency.path("artifactId").asText());
+        }
+        assertThat(artifacts).as(notLoaded.toString()).contains("org.apache.commons:commons-exec");
+        JsonNode loaded = probe.get("/bootui/api/code-inventory/dependencies?status=loaded&limit=1000")
+                .json();
+        List<String> loadedArtifacts = new ArrayList<>();
+        for (JsonNode dependency : loaded.path("dependencies")) {
+            loadedArtifacts.add(dependency.path("artifactId").asText());
+        }
+        assertThat(loadedArtifacts)
+                .as(loaded.toString())
+                .contains("spring-core")
+                .doesNotContain("commons-exec");
+
+        JsonNode changes = probe.get("/bootui/api/code-inventory/changes").json();
+        assertThat(changes.path("available").asBoolean()).isTrue();
+        assertThat(changes.path("counts").path("previousRun").asBoolean()).isFalse();
+        assertThat(changes.path("changes").isArray()).isTrue();
+        assertThat(changes.path("page").isObject()).isTrue();
+    }
+
     /** The ids of the requests to {@code path} in the journal. */
     private static Set<String> requests(String path) {
         Set<String> ids = new HashSet<>();

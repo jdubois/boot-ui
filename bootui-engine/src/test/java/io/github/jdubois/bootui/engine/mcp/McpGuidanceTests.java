@@ -24,6 +24,24 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void verificationStartsFromTheChangedMethodsOfCodeInventory(String framework) {
+        assertThat(McpGuidance.instructions(framework)).contains("get_code_inventory", "get_agent_status");
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("verify_after_change"))
+                .singleElement()
+                .satisfies(prompt -> {
+                    assertThat(prompt.text())
+                            .startsWith("Verify the change just made to this " + framework
+                                    + " application. Start with get_code_inventory with the query changed");
+                    assertThat(prompt.text())
+                            .contains("NEVER_EXECUTED", "before reading any latency", "NOT_TRACKED is not evidence");
+                    assertThat(prompt.text().indexOf("get_code_inventory"))
+                            .isLessThan(prompt.text().indexOf("get_runtime_run_comparison"));
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void diagnosisFollowsAProfileableRequestToItsProfile(String framework) {
         assertThat(McpGuidance.instructions(framework)).contains("get_live_activity", "get_request_profile");
         assertThat(McpGuidance.prompts(framework))

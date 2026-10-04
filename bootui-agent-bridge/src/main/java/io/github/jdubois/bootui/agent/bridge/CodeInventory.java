@@ -38,10 +38,16 @@ import java.util.function.Supplier;
  *
  * <p><b>Tracking.</b> The agent reports per method whether its class was instrumented ({@link #TRACKED}) or failed to
  * transform ({@link #TRANSFORM_FAILED}), so the engine counts executed and never-executed methods only among those it
- * could see. Advice is kept across claims (D34), so tracking is too, until a release restores the classes. A class the
- * agent instrumented only after it was loaded (retransformed at the install or a refine) may have run before, unseen:
- * its methods are marked late for the run in which that happened, so the engine can say they were not tracked from the
- * run's start. {@link #snapshot} reads all of it at once for one claim generation.
+ * could see. Advice is kept across claims (D34), so that state is too, until a release restores the classes. Each
+ * instrumentation also marks its methods tracked in the current run ({@link #snapshot}'s {@code trackedThisRun}), so the
+ * engine can tell a class instrumented in this run from one whose class loader only loaded it in an earlier run: a
+ * DevTools restart's new class loader has not loaded a class until its methods are marked again. A class whose
+ * transformation failed before any of its methods got an id, and a class some of whose methods got none past
+ * {@link #MAX_METHODS}, are named ({@link #transformFailed(String, int[])}, {@link #overLimit}), so the engine can give
+ * its methods the reason. A class the agent instrumented only after it was loaded (retransformed at the install or a
+ * refine) may have run before, unseen: its methods are marked late for the run in which that happened, so the engine can
+ * say they were not tracked from the run's start. {@link #snapshot} reads all of it at once for one claim generation,
+ * and {@link #version()} changes whenever any of it does.
  *
  * <p><b>Class loads.</b> {@link #classLoaded} counts the classes each code source defines, per claim generation and in
  * total, with the first load's time; the first class of a code source in a generation publishes a {@link #CLASS_LOAD}
@@ -80,6 +86,22 @@ public final class CodeInventory {
 
     private static final byte[] TRACKING = new byte[MAX_METHODS];
 
+    /** Per method id: the epoch of the run in which its class was last instrumented, else 0. */
+    private static final byte[] TRACKED_EPOCH = new byte[MAX_METHODS];
+
+    /** The most class names kept as failed or over the limit; past it, the overflow is counted. */
+    static final int MAX_NAMED_CLASSES = 4096;
+
+    /** Classes whose transformation failed and that no later transformation instrumented, by binary name. */
+    private static final ConcurrentHashMap<String, Boolean> FAILED_CLASSES = new ConcurrentHashMap<String, Boolean>();
+
+    /** Classes some of whose methods got no id past {@link #MAX_METHODS}, by binary name. */
+    private static final ConcurrentHashMap<String, Boolean> OVER_LIMIT_CLASSES =
+            new ConcurrentHashMap<String, Boolean>();
+
+    /** Changes whenever a flag, a tracking state, or the run does: a cheap fingerprint for readers. */
+    private static final AtomicLong VERSION = new AtomicLong();
+
     /** Per method id: the epoch of the run in which its class was instrumented after it had loaded, else 0. */
     private static final byte[] LATE = new byte[MAX_METHODS];
 
@@ -116,6 +138,7 @@ public final class CodeInventory {
     private static final LongAdder CLASS_LOAD_RECORDS = new LongAdder();
     private static final LongAdder SKIPPED_BOOTUI_LOADS = new LongAdder();
     private static final LongAdder TRANSFORM_FAILURES = new LongAdder();
+    private static final LongAdder NAMED_CLASS_OVERFLOW = new LongAdder();
     private static final LongAdder SELF_TEST_HITS = new LongAdder();
 
     private CodeInventory() {}
@@ -181,39 +204,102 @@ public final class CodeInventory {
 
     /** The agent instrumented the methods {@code ids} of a class as it loaded. */
     public static void tracked(int[] ids) {
-        tracked(ids, false);
+        tracked(null, ids, false);
+    }
+
+    /** {@link #tracked(String, int[], boolean)} without the class name. */
+    public static void tracked(int[] ids, boolean late) {
+        tracked(null, ids, late);
     }
 
     /**
-     * The agent instrumented the methods {@code ids} of a class; {@code late} when the class had loaded, uninstrumented,
-     * before (a retransformation at the install or a refine), so the current run may have missed its earlier calls.
+     * The agent instrumented the methods {@code ids} of the class {@code className}: tracked, and tracked in the current
+     * run; {@code late} when the class had loaded, uninstrumented, before (a retransformation at the install or a
+     * refine), so the current run may have missed its earlier calls. A failure named for the class before is forgotten.
      */
-    public static void tracked(int[] ids, boolean late) {
-        mark(ids, TRACKED);
-        if (late && ids != null) {
-            byte current = RUN.get().epoch;
-            if (current == 0) {
-                return;
+    public static void tracked(String className, int[] ids, boolean late) {
+        try {
+            if (className != null) {
+                FAILED_CLASSES.remove(className);
             }
-            for (int i = 0; i < ids.length; i++) {
-                int id = ids[i];
-                if (id >= 0 && id < MAX_METHODS) {
-                    LATE[id] = current;
+            mark(ids, TRACKED);
+            byte current = RUN.get().epoch;
+            if (ids != null && current != 0) {
+                for (int i = 0; i < ids.length; i++) {
+                    int id = ids[i];
+                    if (id >= 0 && id < MAX_METHODS) {
+                        TRACKED_EPOCH[id] = current;
+                        if (late) {
+                            LATE[id] = current;
+                        }
+                    }
                 }
             }
+            VERSION.incrementAndGet();
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
         }
     }
 
-    /** The agent failed to transform a class whose methods are {@code ids} (those it assigned before failing). */
+    /** {@link #transformFailed(String, int[])} without the class name. */
     public static void transformFailed(int[] ids) {
-        TRANSFORM_FAILURES.increment();
-        mark(ids, TRANSFORM_FAILED);
+        transformFailed(null, ids);
+    }
+
+    /**
+     * The agent failed to transform the class {@code className}, whose methods are {@code ids}: those it assigned before
+     * failing, or those of the class's last instrumentation, possibly none. The class is named, so the engine gives its
+     * methods the reason even when none has an id.
+     */
+    public static void transformFailed(String className, int[] ids) {
+        try {
+            TRANSFORM_FAILURES.increment();
+            mark(ids, TRANSFORM_FAILED);
+            name(FAILED_CLASSES, className);
+            VERSION.incrementAndGet();
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /** Some methods of the class {@code className} got no id past {@link #MAX_METHODS}, so no advice. */
+    public static void overLimit(String className) {
+        try {
+            if (className != null && !OVER_LIMIT_CLASSES.containsKey(className)) {
+                name(OVER_LIMIT_CLASSES, className);
+                VERSION.incrementAndGet();
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    private static void name(ConcurrentHashMap<String, Boolean> names, String className) {
+        if (className == null) {
+            NAMED_CLASS_OVERFLOW.increment();
+        } else if (names.size() < MAX_NAMED_CLASSES || names.containsKey(className)) {
+            names.put(className, Boolean.TRUE);
+        } else {
+            NAMED_CLASS_OVERFLOW.increment();
+        }
     }
 
     /** The agent restored every class it instrumented: no method is tracked any more. */
     public static void untrackAll() {
         Arrays.fill(TRACKING, UNKNOWN);
         Arrays.fill(LATE, (byte) 0);
+        Arrays.fill(TRACKED_EPOCH, (byte) 0);
+        FAILED_CLASSES.clear();
+        OVER_LIMIT_CLASSES.clear();
+        VERSION.incrementAndGet();
+    }
+
+    /**
+     * A number that changes whenever what {@link #snapshot} reports may have: a method's first call in a run, a tracking
+     * change, a new run, or recording stopped or resumed. Never throws.
+     */
+    public static long version() {
+        return VERSION.get();
     }
 
     private static void mark(int[] ids, byte state) {
@@ -249,6 +335,7 @@ public final class CodeInventory {
             }
             // Whatever the claim's state, so the method takes the fast path from now on: only recording is gated.
             HITS[id] = current;
+            VERSION.incrementAndGet();
             Claim claim = AgentBridge.current();
             if (claim == null || !claim.armed || claim.generation != run.generation || disabled(run.generation)) {
                 return;
@@ -288,10 +375,14 @@ public final class CodeInventory {
      * Everything the engine reads about the run of claim {@code generation}, read against that one run: {@code
      * generation} and {@code epoch}; {@code methods}, how many ids exist; {@code executed}, the ids that ran in the run,
      * and {@code late}, the ids whose class was instrumented only after it loaded during the run, as bitsets (bit
-     * {@code id % 64} of word {@code id / 64}); {@code tracking}, per id {@link #UNKNOWN}, {@link #TRACKED}, or
-     * {@link #TRANSFORM_FAILED}; and {@code disabled}, whether recording is stopped for the run (its flags may still
-     * be set). {@code null} when the current run belongs to another generation, before any claim asked for the sensor,
-     * or when a new run started while it was read. A copy of JDK types.
+     * {@code id % 64} of word {@code id / 64}); {@code trackedThisRun}, the ids whose class was instrumented in the
+     * run, as a bitset; {@code tracking}, per id {@link #UNKNOWN}, {@link #TRACKED}, or {@link #TRANSFORM_FAILED};
+     * {@code failedClasses} and {@code overLimitClasses}, the classes named as failed or over the limit, sorted;
+     * {@code methodOverflow}, {@code transformFailures}, and {@code namedClassOverflow}, the counters that say whether
+     * those names are complete; {@code version}, as {@link #version()}; and {@code disabled}, whether recording is
+     * stopped for the run (its flags may still be set). {@code null} when the current run belongs to another
+     * generation, before any claim asked for the sensor, or when a new run started while it was read. A copy of JDK
+     * types.
      */
     public static Map<String, Object> snapshot(long generation) {
         try {
@@ -300,9 +391,11 @@ public final class CodeInventory {
             if (current == 0 || run.generation != generation) {
                 return null;
             }
+            long version = VERSION.get();
             int count = methodCount();
             long[] executed = new long[(count + 63) >>> 6];
             long[] late = new long[executed.length];
+            long[] trackedThisRun = new long[executed.length];
             for (int id = 0; id < count; id++) {
                 if (HITS[id] == current) {
                     executed[id >>> 6] |= 1L << (id & 63);
@@ -310,8 +403,13 @@ public final class CodeInventory {
                 if (LATE[id] == current) {
                     late[id >>> 6] |= 1L << (id & 63);
                 }
+                if (TRACKED_EPOCH[id] == current) {
+                    trackedThisRun[id >>> 6] |= 1L << (id & 63);
+                }
             }
             byte[] tracking = Arrays.copyOf(TRACKING, count);
+            String[] failedClasses = names(FAILED_CLASSES);
+            String[] overLimitClasses = names(OVER_LIMIT_CLASSES);
             if (RUN.get() != run) {
                 // A new run started while this one was read: its flags may already be cleared or reused.
                 return null;
@@ -322,13 +420,26 @@ public final class CodeInventory {
             map.put("methods", Integer.valueOf(count));
             map.put("executed", executed);
             map.put("late", late);
+            map.put("trackedThisRun", trackedThisRun);
             map.put("tracking", tracking);
+            map.put("failedClasses", failedClasses);
+            map.put("overLimitClasses", overLimitClasses);
+            map.put("methodOverflow", Long.valueOf(METHOD_OVERFLOW.sum()));
+            map.put("transformFailures", Long.valueOf(TRANSFORM_FAILURES.sum()));
+            map.put("namedClassOverflow", Long.valueOf(NAMED_CLASS_OVERFLOW.sum()));
+            map.put("version", Long.valueOf(version));
             map.put("disabled", Boolean.valueOf(disabled(run.generation)));
             return map;
         } catch (Throwable ex) {
             AgentBridge.error(ex);
             return null;
         }
+    }
+
+    private static String[] names(ConcurrentHashMap<String, Boolean> names) {
+        String[] array = names.keySet().toArray(new String[0]);
+        Arrays.sort(array);
+        return array;
     }
 
     /** The current run's epoch, 0 before any claim asked for the sensor. */
@@ -531,9 +642,11 @@ public final class CodeInventory {
                 if (next > 255) {
                     Arrays.fill(HITS, (byte) 0);
                     Arrays.fill(LATE, (byte) 0);
+                    Arrays.fill(TRACKED_EPOCH, (byte) 0);
                     next = 1;
                 }
                 if (RUN.compareAndSet(current, new Run((byte) next, claim.generation))) {
+                    VERSION.incrementAndGet();
                     break;
                 }
             }
@@ -577,6 +690,7 @@ public final class CodeInventory {
     public static void disable(long generation, boolean everyGeneration, String reason) {
         disabledGeneration = everyGeneration ? ALL : generation;
         disabledReason = reason;
+        VERSION.incrementAndGet();
         AgentBridge.message("inventory sensor disabled: " + reason);
     }
 
@@ -585,6 +699,7 @@ public final class CodeInventory {
         if (disabledGeneration != ALL) {
             disabledGeneration = NONE;
             disabledReason = null;
+            VERSION.incrementAndGet();
         }
     }
 
@@ -638,6 +753,9 @@ public final class CodeInventory {
             map.put("methodsFailed", Long.valueOf(failed));
             map.put("executedThisRun", Long.valueOf(executed));
             map.put("methodsLate", Long.valueOf(late));
+            map.put("classesFailed", Integer.valueOf(FAILED_CLASSES.size()));
+            map.put("classesOverLimit", Integer.valueOf(OVER_LIMIT_CLASSES.size()));
+            map.put("namedClassOverflow", Long.valueOf(NAMED_CLASS_OVERFLOW.sum()));
             map.put("methodOverflow", Long.valueOf(METHOD_OVERFLOW.sum()));
             map.put("transformFailures", Long.valueOf(TRANSFORM_FAILURES.sum()));
             map.put("firstHits", Long.valueOf(FIRST_HITS.sum()));
@@ -672,6 +790,11 @@ public final class CodeInventory {
         Arrays.fill(HITS, (byte) 0);
         Arrays.fill(TRACKING, UNKNOWN);
         Arrays.fill(LATE, (byte) 0);
+        Arrays.fill(TRACKED_EPOCH, (byte) 0);
+        FAILED_CLASSES.clear();
+        OVER_LIMIT_CLASSES.clear();
+        NAMED_CLASS_OVERFLOW.reset();
+        VERSION.incrementAndGet();
         epoch = 0;
         RUN.set(new Run((byte) 0, -1L));
         SOURCES.clear();

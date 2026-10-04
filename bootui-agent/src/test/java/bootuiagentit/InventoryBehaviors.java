@@ -120,6 +120,7 @@ public final class InventoryBehaviors {
         check(
                 "a never-called method is tracked and stays unset",
                 never >= 0 && tracking(never) == 1 && !executed(never));
+        check("a class is tracked in the run it was instrumented in", trackedThisRun(never));
         check("static initializers are not instrumented", id(key("<clinit>()V")) < 0);
         check(
                 "methods whose names start with $ are not instrumented",
@@ -207,6 +208,11 @@ public final class InventoryBehaviors {
         check(
                 "a class instrumented before its run started is not late in it",
                 !late(id(key("beforeClaim()Ljava/lang/String;"))));
+        // Its advice is live, so a call is still seen; but no class loader loaded it in this run, which is how the
+        // engine tells a DevTools restart's class not loaded yet from one instrumented in this run.
+        check(
+                "a class instrumented in an earlier run is not tracked in a new run until it is instrumented again",
+                !trackedThisRun(never) && tracking(never) == 1 && !trackedThisRun(greet) && executed(greet));
 
         Class<?>[] extras = refinedPackagesSurviveNarrowerClaims(next);
 
@@ -293,6 +299,9 @@ public final class InventoryBehaviors {
                         && !executed(smallId)
                         && (Long) inventoryNow.get("transformFailures") == failuresBefore + 1
                         && (Long) inventoryNow.get("methodsFailed") >= 2L);
+        check(
+                "a class that fails to transform is named as failed, and not tracked in its run",
+                failedClasses().contains("bootuiinventoryapp.Huge") && !trackedThisRun(smallId));
     }
 
     /**
@@ -332,6 +341,7 @@ public final class InventoryBehaviors {
                 .loadClass(Extra.class.getName());
         boolean resetRun = !executed(extraRun);
         Object answer = third0.getMethod("run").invoke(null);
+        check("a class a fresh class loader loads in a new run is tracked in it", trackedThisRun(runId));
         check(
                 "the same class in a class loader created after a narrower claim keeps its method ids and flips them",
                 second != Extra.class
@@ -530,6 +540,15 @@ public final class InventoryBehaviors {
 
     static boolean late(int id) throws Exception {
         return bit("late", id);
+    }
+
+    static boolean trackedThisRun(int id) throws Exception {
+        return bit("trackedThisRun", id);
+    }
+
+    static List<String> failedClasses() throws Exception {
+        Map<String, Object> snapshot = snapshot();
+        return snapshot == null ? List.of() : List.of((String[]) snapshot.get("failedClasses"));
     }
 
     static boolean bit(String bitset, int id) throws Exception {

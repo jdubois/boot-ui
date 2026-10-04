@@ -105,6 +105,19 @@
       "summary": "Return current cache manager and cache statistics (hits, misses, size) for each configured cache."
     },
     {
+      "name": "get_code_inventory",
+      "command": "code inventory",
+      "schema": "QUERY_LIMIT",
+      "panel": "code-inventory",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return Code Inventory: did the code changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status)."
+    },
+    {
       "name": "get_conditions",
       "command": "conditions",
       "schema": "QUERY_LIMIT",

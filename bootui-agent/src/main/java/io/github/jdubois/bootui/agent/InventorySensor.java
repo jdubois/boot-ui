@@ -512,6 +512,8 @@ final class InventorySensor {
             TypeDescription type = method.getDeclaringType().asErasure();
             int id = CodeInventory.methodId(key(type, method));
             if (id < 0) {
+                // Past the bridge's limit: named, so the engine says why this class's method is not tracked.
+                CodeInventory.overLimit(type.getName());
                 return false;
             }
             IdList ids = pending.get(type.getName());
@@ -586,7 +588,7 @@ final class InventorySensor {
             // Loaded and never instrumented in its class loader: it ran uninstrumented until now. A loaded class seen
             // before is one another agent retransformed, which only re-applies the advice.
             boolean first = markSeen(classLoader, type.getName());
-            CodeInventory.tracked(array, loaded && first && !PROBE.equals(type.getName()));
+            CodeInventory.tracked(type.getName(), array, loaded && first && !PROBE.equals(type.getName()));
         }
 
         @Override
@@ -595,7 +597,10 @@ final class InventorySensor {
             IdList ids = pending.remove(typeName);
             if (ids != null || AgentInstaller.inPackages(typeName, matching)) {
                 markSeen(classLoader, typeName);
-                CodeInventory.transformFailed(ids == null ? new int[0] : ids.toArray());
+                // Failed before any method matched: the ids of its last instrumentation, in any run, fail with it, so
+                // an earlier run's tracking never outlives this failure. The class is named either way.
+                int[] failed = ids != null ? ids.toArray() : idsByType.get(typeName);
+                CodeInventory.transformFailed(typeName, failed == null ? new int[0] : failed);
             }
         }
 
@@ -629,7 +634,7 @@ final class InventorySensor {
 
     private void rejected(String typeName) {
         int[] ids = idsByType.remove(typeName);
-        CodeInventory.transformFailed(ids == null ? new int[0] : ids);
+        CodeInventory.transformFailed(typeName, ids == null ? new int[0] : ids);
     }
 
     /** A small growable list of ids, written by the transforming thread and read once its outcome is known. */

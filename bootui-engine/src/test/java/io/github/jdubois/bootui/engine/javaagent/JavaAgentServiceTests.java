@@ -419,6 +419,46 @@ class JavaAgentServiceTests {
     }
 
     @Test
+    void codeInventoryNeedsAnArmedClaimAndTheInstalledInventorySensorNotDisabled() {
+        JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
+        assertThat(absent.inventoryUnavailableReason())
+                .startsWith(JavaAgentService.INVENTORY_REQUIREMENT + ": ")
+                .contains("-javaagent");
+
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        assertThat(service.inventoryUnavailableReason())
+                .as("attached, but not claimed")
+                .startsWith(JavaAgentService.INVENTORY_REQUIREMENT + ": ")
+                .contains("not claimed");
+
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        assertThat(service.inventoryUnavailableReason())
+                .as("armed, but the agent did not start the sensor")
+                .contains("bootui.agent.sensors must include inventory");
+
+        Map<String, Object> sensor = new LinkedHashMap<>();
+        sensor.put("id", AgentSensorSettings.INVENTORY);
+        sensor.put("state", "installing");
+        stub.sensors = List.of(sensor);
+        assertThat(service.inventoryUnavailableReason()).endsWith("the sensor is installing.");
+
+        sensor.put("state", "installed");
+        assertThat(service.inventoryUnavailableReason()).isNull();
+
+        long generation = claim.get().generation();
+        io.github.jdubois.bootui.agent.bridge.CodeInventory.disable(generation, false, "the self-test failed");
+        try {
+            assertThat(service.inventoryUnavailableReason()).endsWith("the self-test failed");
+        } finally {
+            io.github.jdubois.bootui.agent.bridge.CodeInventory.enable();
+        }
+
+        claim.get().disarm();
+        assertThat(service.inventoryUnavailableReason()).as("a disarmed claim").isNotNull();
+    }
+
+    @Test
     void propagationNeedsAnArmedClaimTheInstalledExecutorsSensorNoDisabledReasonAndAttachedHandoffs() {
         JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
         assertThat(absent.propagating()).isFalse();

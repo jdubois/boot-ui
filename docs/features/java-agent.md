@@ -248,9 +248,9 @@ Its counters are those of the executors sensor, over threads instead of tasks, p
 ## The inventory sensor
 
 The `inventory` sensor, on by default, records which application methods ran in this run and which jars and class
-directories loaded classes. The Code Inventory panel that reads it (changed methods since the previous run, executed
-and never-executed code, dependency use) comes in a later release; for now the Java Agent panel shows the sensor's
-row, its hooks, and its counters.
+directories loaded classes. The [Code Inventory](diagnostics.md#code-inventory) panel reads it (changed methods since the
+previous run, executed and never-executed code, dependency use); the Java Agent panel shows the sensor's row, its hooks,
+and its counters.
 
 | Hook | Role | What it covers |
 | --- | --- | --- |
