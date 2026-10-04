@@ -288,8 +288,8 @@ against.
 | M4-9 | §5.18's `orm` source, after a two-day spike on Hibernate 7's `SessionEventListener` on Spring and Quarkus: per session, statements, connection acquisitions, flushes, auto-flushes, dirty checks, entities in context, and second-level cache use. On Quarkus, ORM statements gain their execution time and connection. Adds `orm-auto-flush`, `large-persistence-context`, and a Hibernate sub-phase of `route-time-breakdown` | M3-8 | ✅ Delivered: the spike found Hibernate 7.2 (Quarkus) and 7.4 (Spring Boot 4.1) share `SessionEventListener`, created per session from `hibernate.session.events.auto`, which Spring sets through a `spring.jpa.properties` default and Quarkus through a runtime `unsupported-properties` default (Quarkus warns about it at startup; documented). `OrmPayload` and the `orm` source; the engine's `OrmSessionEvents` meters one session and publishes it when it ends, owned by the request or execution that opened it; an auto-flush counts only when it executed a statement, since Hibernate fires the partial-flush callbacks for every check, and flush times leave out their statements. `ORM` feed rows, `orm-auto-flush` and `large-persistence-context` (21 checks), and a **Hibernate flushes** phase in `route-time-breakdown`, which on Quarkus also takes its SQL time from the measured ORM statements. Seeds: Spring's `InsightTagService` (saving before each count, against counting first) and Quarkus's `/demo/tags/auto-flush` integration test. Completed in a second slice: the request profile's **Hibernate** block (`RequestOrmDto`, nullable and additive) and its flushes on the timeline (`OrmPayload.flushTimeline`, the first 16); per-route aggregates (`RouteOrm`: requests with a session, flushes, auto-flushes, entities, and an ORM-time histogram for the median; run summary format 8, so baseline files of format 7 are ignored once); `flushes-per-request` and `entities-per-request` behavior rows, only when both runs recorded sessions; `safe-method-dml` on Quarkus leaving out a Hibernate write prepared in a request whose metered sessions executed no statement (fewer executions than preparations prove nothing, since a JDBC batch over several tables counts once, and a request with no metered session is counted as before); named Quarkus persistence units, read from their `datasource` or `packages` build property; and `APP_EVENT`, `WEBSOCKET`, and `ORM` in Live Activity's type filter. The listener cannot know its persistence unit, so `persistenceUnit` stays `null` |
 | M4-10 | §5.18's `websocket` source: each inbound application message opens an execution, so its SQL and exceptions nest under it and request-level observations cover message handlers. Spring MVC first, from its existing STOMP and handler capture; then WebFlux and Quarkus WebSockets Next, which need new hooks | M3-8 | ✅ Delivered on all three stacks: `WebSocketPayload` and the `websocket` source; an inbound message opens an execution named `consume websocket:<destination>`, a `WEBSOCKET` feed row with its work nested, a `LISTENER` node consuming a `DESTINATION` of broker `websocket`. Spring MVC: `BootUiStompChannelInterceptor` is an `ExecutorChannelInterceptor` that opens it around the `@MessageMapping` or `@SubscribeMapping` method only, with the destination as the mapping's template (`StompDestinationTemplates`); the broker's relay and unmapped destinations open nothing. WebFlux: `BootUiWebSocketHandlerAdapter` replaces the framework's exact adapter and opens it around each received data message's synchronous delivery, named by the handler mapping's pattern. Quarkus: `QuarkusWebSocketMessageInterceptor`, bound at build time to `@OnTextMessage` and `@OnBinaryMessage` methods, named by the endpoint's path. The sample's STOMP seed (`InsightStompController`) is reported by `repeated-selects`, its joined counterexample is not. Recorded: inbound application messages only; session open and close, outbound sends, and their per-execution pre-aggregation stay in the WebSockets panel, since no observation reads them yet |
 | M4-11 | §5.8's run comparison: an engine `RunComparison` of the current run against the previous kept summary or a chosen one, behavior rows first per route (statements per request, new fingerprints, REST and AI calls, new hosts, new exception groups, status-class mix, routes newly hit, tokens, cache misses, median allocation, and new or gone edges from M4-1), restart cost from M4-5's startup steps, latency last and labelled noisy, `INSUFFICIENT` below its minimums and `NOT_COMPARABLE` with the configuration difference first. `GET /runtime-insights/comparison` on every stack, with its contract and conformance, and a **Compared with the previous run** section in Runtime Insights | M4-1, M4-2, M4-5 | ✅ Delivered: `RunComparison` and `RunComparisonService` with five explicit statuses; route and execution work from 3 samples per side, new and gone fingerprints, source-gated counters and edges, bounded median allocation (codec v10, reading v8/v9 with missing facts unavailable and SQL shapes sanitized), adjacent in-memory restart cost only (Quarkus timing unavailable with the reason), and warm p50/p95 minimums unchanged. The default is the newest kept run, including idle runs; reloadable history is `UNAVAILABLE`. DTO fields stay unchanged, with the shared endpoint, run picker, and three-stack conformance/e2e |
-| M4-12 | §5.9's `anonymous-data-reach` and `anonymous-success-on-restricted-route`, reading M4-6's authorization decisions and the tables each statement writes (the existing lexical extraction until v1 §3.18 lands, labelled as such), with the sample apps' two seeded cases and their counterexamples on every stack with security | M4-6 | ✅ Delivered, with its seeds in M3-6: `AnonymousDataReach` and `AnonymousSuccessOnRestrictedRoute` read each request's decisions (its own first; a request no rule checked is never anonymous), the writes' tables from the lexical extraction, labelled as such, and the restriction from this run's decisions on the route (an anonymous caller denied or an authority required), each with the "do not add authorization from this row alone" check, engine tests with counterexamples, and an **Access** theme in the panel. The two seeded cases moved to M3-6, which seeds every observation at once, because new sample endpoints shift the advisors' pinned counts on every stack |
-| M4-13 | §5.12's `proxy-bypass`: a Spring SPI resolving a frame's `@Transactional`, `@Cacheable`, and `@Async` boundary once per frame on the dispatcher with merged-annotation lookup, the observation in Runtime Insights, a link to the Architecture advisor's static self-invocation finding, the sample app's seeded self-invocation with a through-the-bean counterexample, AspectJ mode and Quarkus reported not applicable | M3-1 | ✅ Delivered, with its seed in M3-6: `ProxyBypass` reads each statement's application frames and its request's transaction windows, cache accesses, and thread; `ProxyBoundaries` is the engine SPI, and Spring's `SpringProxyBoundaries` resolves a frame once with merged-annotation lookup over the type hierarchy, by annotation name so `spring-tx` stays optional, by method name since frames carry no parameter types (overloads that disagree are not judged), and reports AspectJ transaction weaving not applicable; Quarkus is not applicable; findings name ARCH-SPRING-004. `ProjectedRequest` gained its thread. The seeded self-invocation moved to M3-6 with the other seeds, as a seeded case also changes the Architecture advisor's pinned findings |
+| M4-12 | §5.9's `anonymous-data-reach` and `anonymous-success-on-restricted-route`, reading M4-6's authorization decisions and the tables each statement writes (the existing lexical extraction until v1 §3.18 lands, labelled as such), with the sample apps' two seeded cases and their counterexamples on every stack with security | M4-6 | ✅ Delivered, with its seeds in M3-6: `AnonymousDataReach` and `AnonymousSuccessOnRestrictedRoute` read each request's decisions (its own first; a request no rule checked is never anonymous), the DML target of each statement including JDBC batch previews (ambiguous dialect forms retain explicitly labelled lexical candidates, not proven writes), and the restriction from this run's decisions on the route (an anonymous caller denied or an authority required), each with the "do not add authorization from this row alone" check, engine tests with counterexamples, and an **Access** theme in the panel. Intended public writes such as sign-up are facts to verify, not excluded routes; unproven anonymity stays outside the eligible count, yielding an `INSUFFICIENT` check at zero without inventing per-route findings. The two seeded cases moved to M3-6, which seeds every observation at once, because new sample endpoints shift the advisors' pinned counts on every stack |
+| M4-13 | §5.12's `proxy-bypass`: a Spring SPI resolving a frame's `@Transactional`, `@Cacheable`, and `@Async` boundary once per frame on the dispatcher with merged-annotation lookup, the observation in Runtime Insights, a link to the Architecture advisor's static self-invocation finding, the sample app's seeded self-invocation with a through-the-bean counterexample, AspectJ mode and Quarkus reported not applicable | M3-1 | ✅ Delivered, with its seed in M3-6: `ProxyBypass` reads each statement's application frames and its request's transaction windows, cache accesses, and thread; `ProxyBoundaries` is the engine SPI, and Spring's `SpringProxyBoundaries` resolves a frame once with merged-annotation lookup over the type hierarchy, by annotation name so `spring-tx` stays optional, by method name since frames carry no parameter types (overloads that disagree are not judged), skips cache judgments for `sync = true` or a nonblank `condition` without suppressing other boundaries, and reports AspectJ transaction weaving not applicable; Quarkus is not applicable; findings name ARCH-SPRING-004. `ProjectedRequest` gained its thread. The seeded self-invocation moved to M3-6 with the other seeds, as a seeded case also changes the Architecture advisor's pinned findings |
 | M4-14 | §5.7's change impact: the adapters' `StructureSnapshot` suppliers (Spring's bean graph and mappings, Quarkus's ArC injection edges, reported unavailable rather than empty when unreadable), symbol resolution to exactly one model node or `AMBIGUOUS` with candidates, and the three capped lists (observed routes, not exercised, through shared resources) worded as what was and was not exercised. `GET /runtime-insights/impact?symbol=` on every stack and an impact view in Runtime Insights. Tables come from the existing lexical extraction until v1 §3.18 lands; the swap then is internal | M3-5, M4-1 | ✅ Delivered: `StructureSnapshots` reads the structure from the framework-neutral `BeanProvider` and `MappingProvider` both stacks already have (Spring's bean graph and handler mappings, Quarkus's ArC injection edges and JAX-RS resources), leaving framework, platform, and BootUI beans out and saying why when the beans cannot be read; `ChangeImpactService` resolves a symbol by node key or bean type, walks `ReverseClosure` over `DEPENDS_ON` and `HANDLED_BY` from code or over access edges from a table, cache, or host, and lists observed, not exercised, and shared-resource routes with traffic from the aggregates and exemplars from the journal; shared resources are those the observed routes touched, as the limitations say; `GET /runtime-insights/impact?symbol=` on Spring MVC, WebFlux, and Quarkus with its contract and conformance; `ChangeImpact.vue` with `?impact=` deep links, candidates for an ambiguous symbol, and nothing read until asked; the sample app's `ProductRepository` is checked in its journal test and browser suite |
 | M4-15 | D30's managed-executor propagation: a `TaskDecorator` on Spring's auto-configured executor and scheduler, and a SmallRye Context Propagation `ThreadContextProvider` on Quarkus, each task an execution linked to its parent request, so `@Async` work is owned; raw executors and `CompletableFuture` stay with M5-2 | M2-8e4 | ✅ Delivered: the engine's `ManagedTasks` gives a submitted task its request's correlation with a fresh `task-` execution id (BootUI's own work stays marked, and work outside a request is unchanged); Spring's `BootUiTaskDecorator`, which Spring Boot 4 applies to both its auto-configured executor and scheduler, is contributed only when the application defines no `TaskDecorator`, since Boot applies one only when it is unique, and propagates BootUI's correlation alone rather than every Micrometer context; Quarkus's `BootUiThreadContextProvider` is a SmallRye Context Propagation service. Tested through Boot's real `applicationTaskExecutor` and the provider's snapshot lifecycle |
 | M4-16 | §4.3's release path, through the release agent's process and never a release: `release.yml` computes the next version within the source branch's major and redeploys documentation only for the newest major, in lockstep with `check-release-integrity.sh`; and 2.0.0's removals (`TraceIdProvider`, the Live Activity poller) with migration notes in `CHANGELOG.md` | M4-11 | ✅ Delivered. Release machinery: `release-version-policy.sh` (next version per major, release major must match the branch, documentation redeploy for the newest major only), guarded by `check-release-integrity.sh` and unit-tested in `build.yml`; and the 2.0.0 removals (D31): `spi.TraceIdProvider` is gone, every recorder and capture point reads its trace id from the adapter's `CorrelationContextProvider` (`CorrelationSource.traceId()`, falling back to the SLF4J MDC only while no adapter installed a provider), and the OpenTelemetry bridges on WebFlux and Quarkus became the internal `TraceIdSource` behind `ScopedCorrelationContextProvider`; the Live Activity persistence poller (`ActivityCapturePoller`, `ActivityCaptureFactory`) and `bootui.activity.persistence.capture-interval` are gone, durable history is written only by the journal subscriber, whatever the feed source, and a disabled journal logs a warning instead of falling back. Both migration notes are in `CHANGELOG.md` |
@@ -639,7 +639,7 @@ graph LR
 
 ### 5.1 Exact correlation — Cross-cutting ✅ Delivered
 
-Every runtime event should know, when it happens, which request, trace, span, transaction, and run it belongs to, with
+Every runtime event should know, when it happens, which request, trace, span, and run it belongs to, with
 or without tracing. Before M1, the Spring MVC exchange's trace id was re-derived by `HttpExchangeTraceRegistry.match`
 (method and path, ±50 ms, unique candidate only), exceptions and security events on Spring MVC carried no trace id,
 and no stack had a request identity that worked without tracing. M1 delivered it (§1.1 has the measurements). Adding
@@ -649,7 +649,8 @@ engineering problem**.
 Scope:
 
 - Add `CorrelationContext` to the engine: a BootUI-generated `requestId`, `traceId`, `spanId`, `routeTemplate`,
-  `handler`, the innermost BootUI `transactionId`, the current statement's `dataSource`, an `executionId` for scheduled
+  `handler`, an optional `transactionId` context slot (not populated by the current transaction listener), an optional
+  `dataSource` context slot (the JDBC proxy instead stamps its named pool directly on SQL), an `executionId` for scheduled
   and consumed-message anchors.
 - Add a `CorrelationContextProvider` SPI that replaces `TraceIdProvider`, and a scope-based holder that always restores
   the previous context. 1.x adapters keep `TraceIdProvider` as a fallback until 2.0.0 removes it.
@@ -695,9 +696,11 @@ Architecture:
   Spring-managed execution stays unowned, never guessed.
 - **Quarkus.** `QuarkusHttpExchangeCaptureFilter` owns exchange capture, so it stamps the exchange directly, stores the
   context on the Vert.x `RoutingContext`, and restores it around worker dispatch and Mutiny hops it controls.
-- **Transactions.** `BootUiTransactionExecutionListener` pushes and pops the transaction id for blocking
-  `PlatformTransactionManager` transactions, including those run by WebFlux applications. R2DBC and Quarkus
-  transactions stay unavailable.
+- **Transactions.** `BootUiTransactionExecutionListener` tracks nested blocking `PlatformTransactionManager`
+  transactions on the invoking thread, including those run by WebFlux applications. It records each completed
+  transaction with its request or execution id; SQL events do not carry a transaction id, so statement membership
+  is inferred from recorded transaction intervals on that thread, not captured as an exact identity. R2DBC and
+  Quarkus transactions stay unavailable.
 - Every adapter keeps optional types (OpenTelemetry, messaging, security) in gated classes.
 
 Out of scope:
@@ -1195,9 +1198,19 @@ Scope:
   authorization failures, so a granted anonymous request leaves no trace there; the `authorization` source of §5.18
   (M4-6) records each decision with its authentication class and rule, and is what both observations read. Without it,
   every request is unknown.
-- `anonymous-data-reach` reports anonymous successful requests that executed INSERT, UPDATE, or DELETE on a table,
-  joining §3.18's table access with the authentication observed on each request. Anonymous and protected reads of the
-  same table stay in §3.18's data access map as exploration, not as an observation.
+- `anonymous-data-reach` reports anonymous successful requests that executed INSERT, UPDATE, DELETE, or MERGE,
+  reading every statement in a JDBC batch preview. When a single target can be confidently read at a statement head,
+  it never promotes INSERT … SELECT sources, subquery tables, or UPDATE … FROM sources to writes. Ambiguous dialect
+  forms, including multi-table DELETE/UPDATE and FROM/USING aliases, retain all lexically identified names as explicitly
+  labelled candidates, not proven writes; these can include read-side tables or aliases. CTE-headed statements are
+  not parsed. Anonymous and protected reads of the same table stay in §3.18's data access map as exploration, not as
+  an observation.
+  The evidence counts captured DML texts, not affected rows or prepared-batch executions. Statement batches retain
+  only five previews, each truncated at 256 characters; prepared batches retain one SQL text. Truncation can hide
+  targets, so findings state these bounds and checks explicitly flag requests with possibly truncated SQL.
+  Truncation-marked captures, unparsed hash syntax, and nested or executable block comments yield candidates only; a truncated
+  literal cannot hide later previews separated by the capture's truncation marker and batch boundary.
+  Proven targets and ambiguous candidates are reported separately rather than downgrading a known write.
 - `anonymous-success-on-restricted-route` reports a 2xx answered to a proven-anonymous request on a route whose first
   matching declared security rule requires authentication or a role. If a preceding filter chain cannot be read, it
   reports nothing. Worded: "a successful anonymous response, not proof that the rule is wrong". As delivered (M4-12),
@@ -1211,8 +1224,14 @@ Scope:
 
 Acceptance criteria:
 
-- Both seeded cases are found on every stack with security, while registration, login, and the public catalog are not.
-- Quarkus reports anonymity only where its security capture proves it, and is otherwise `INSUFFICIENT`.
+- Both seeded cases are found on every stack with security. Anonymous reads and authenticated writes produce no
+  anonymous-write finding; intended anonymous writes such as registration or contact forms are reported as facts,
+  with the explicit check that public writes are often intended, not treated as vulnerabilities.
+- Every stack, including Quarkus, counts anonymity only where its authorization capture proves it. Requests with
+  no decision or an unknown authentication class are outside the eligible count. With the required sources recorded
+  and visible, checks report `INSUFFICIENT` with zero eligible requests when none proves anonymity, following the
+  shared eligible-work policy; they do not fabricate anonymous requests or per-route findings. A missing required
+  source makes the check `NOT_APPLICABLE`.
 
 ### 5.10 After 2.0 💤 Deferred and ❌ Cut
 
@@ -1355,7 +1374,9 @@ Scope:
 
 - `proxy-bypass` reports an annotated method that ran without its effect, in the same request:
   - `@Transactional`, with a propagation that requires a transaction, while no open transaction had that boundary;
-  - `@Cacheable` for cache X, with no access to cache X before the method ran;
+  - `@Cacheable` for cache X, with no access to cache X before the method ran; `sync = true` and a nonblank
+    `condition` are not judged, because a synchronous miss is recorded after its loader and a condition can skip
+    cache access entirely. `unless` remains judgeable because it only vetoes the later put;
   - `@Async`, running on the calling request's own thread.
 - Each finding names the method, the route, the affected and eligible request counts, and the calling frame, and links
   the static self-invocation finding when there is one. Minimum: 1 request, `REQUEST_ID` tier only.
@@ -1372,6 +1393,8 @@ Architecture:
 Acceptance criteria:
 
 - The sample app's seeded self-invocation of a `@Transactional` method is found, while calls through the bean are not.
+- A synchronous cache miss whose SQL precedes its MISS event and a condition-skipped cache call produce no cache
+  bypass finding; other judgeable annotations on the same method still count.
 - Quarkus reports not applicable, because ArC intercepts self-invocation by design.
 
 ### 5.13 BootUI Java agent — Developer tools 🚧 In progress
@@ -1910,9 +1933,9 @@ How each source joins the rest of v2:
 | --- | --- | --- | --- | --- |
 | `lifecycle` | Header facts and startup steps, codec version bump | Top-level markers on the time axis and resource lane | — | §5.8's `NOT_COMPARABLE` and restart cost; a marker that touched an observation's subject becomes one of its limitations |
 | `authorization` | Per route, requests by authentication class and outcome; anonymous-success counts kept in the summary | A row only when denied; each decision on the profile's timeline | `SECURITY_RULE` node, `GUARDED_BY` edge, beside §3.18's declared rules | §5.9's two observations; `authorization-cost` (≥ 20 % of warm time or ≥ 50 decisions a request); an authorization phase in `route-time-breakdown`; "route newly reachable anonymously" as a behavior row |
-| `app-event` | Per event type, publishes, listeners run, skipped, and failed; per listener, count and time | `APP_EVENT` rows under their request; listener intervals | `EVENT` node, `PUBLISHES` (Spring only) and `CONSUMES` edges, in `ReverseClosure`'s allowlist | `transactional-listener-skipped` (≥ 1 event); `after-commit-writes`: DML inside an `AFTER_COMMIT` or `AFTER_COMPLETION` listener outside every recorded transaction (≥ 1 request, Spring only); a failed listener as evidence of `errors-behind-2xx`; a listeners sub-phase; new event types and edges between runs |
+| `app-event` | No per-event-type or per-listener counters; event types and edges are kept in the run's observed edge set | `APP_EVENT` rows under their request; listener intervals | `EVENT` node, `PUBLISHES` (Spring only) and `CONSUMES` edges, in `ReverseClosure`'s allowlist | `transactional-listener-skipped` (≥ 1 event); `after-commit-writes`: DML inside an `AFTER_COMMIT` or `AFTER_COMPLETION` listener outside every inferred transaction interval (≥ 1 request, Spring only); a failed listener as evidence of `errors-behind-2xx`; a listeners sub-phase; new event types and edges between runs |
 | `orm` | Per route, median flushes, auto-flushes, entities in context, and ORM time | An **ORM** block in the profile; flush intervals on the timeline | — | Measured Quarkus SQL time in `route-time-breakdown`, plus a Hibernate sub-phase; `orm-auto-flush` (≥ 3 partial flushes a request, or ≥ 20 % of ORM time flushing); `large-persistence-context` (≥ 500 entities in ≥ 3 requests of a route); executions instead of preparations in `safe-method-dml` on Quarkus; entities and flushes per request as behavior rows |
-| `websocket` | Messages per destination; sends pre-aggregated per execution | `WEBSOCKET` rows with their SQL nested | `DESTINATION` nodes of broker `websocket` | Every request-level observation, through executions projected as routes (M3-8) |
+| `websocket` | No per-destination message counts; sends pre-aggregated per execution; destination edges kept in the run's observed edge set | `WEBSOCKET` rows with their SQL nested | `DESTINATION` nodes of broker `websocket` | Every request-level observation, through executions projected as routes (M3-8) |
 
 Payload enrichments that need no new source, each additive:
 
@@ -1934,7 +1957,9 @@ Architecture, the same steps for every new source:
 2. The recorder is a `RuntimeEventPublisher`, installed by `RuntimeEventPublisherInstaller` on Spring and by the
    startup observer on Quarkus; optional types stay in gated classes, as messaging's do.
 3. Correlation from `CorrelationSource`; anchors (messages, listeners) open `CorrelationContext.forExecution`.
-4. A capped aggregate dimension with an **Other** bucket, and a run-summary entry only if §5.8 compares it.
+4. Add a capped aggregate dimension with an **Other** bucket when the source needs a dedicated roll-up.
+   `app-event` and `websocket` currently contribute observed edges to run summaries but no dedicated
+   per-type or per-destination count dimension.
 5. A feed row type, its masked detail in `JournalRowDetails`, its persisted form in `JournalActivityCapture`, and its
    filter and icon in the UI, leaving the 1.x buffers' feed untouched.
 6. Timeline and touched resources in `RequestJournalProfiles`, with additive DTO fields and contract-catalog entries.
@@ -2017,7 +2042,7 @@ a Spring, Quarkus, or JSON dependency.
 | --- | --- | --- | --- |
 | Request id without tracing | Filter and scoped holder | Reactor context and a `ThreadLocalAccessor`, with automatic context propagation | Vert.x context |
 | Exact exchange → request | BootUI-owned repository; registry match for application repositories | Same, stamped at `beforeCommit` | Direct |
-| SQL transaction id | ✓ | Blocking transactions only; no R2DBC | Unavailable: no transaction capture |
+| SQL transaction id | Not captured; blocking transactions inferred by thread and interval | Same; no R2DBC | Unavailable: no transaction capture |
 | SQL durations | ✓ | ✓ | ORM statements unknown; JDBC ✓ |
 | Cache events | ✓ | ✓ | Unavailable: no cache capture |
 | WebSocket frames | ✓ | Unavailable | Unavailable |
@@ -2080,6 +2105,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Application thread: snapshot, envelope, and `offer` | < 2 µs p99 on a reference machine; never blocks |
 | Sample-app throughput, journal on versus off | Within 5 % |
 | Retained rows | ≤ the smaller of 32 MB and 5 % of the maximum heap, evictions counted |
+| Live and persisted Live Activity SELECT bookkeeping | The same literal-free fingerprints determine N+1 badges in both views. Persisted capture keeps at most 1,024 open requests with 16 distinct fingerprints each; overlong fingerprints use SHA-256. At capacity, the least frequent fingerprint is replaced and counted as overflow, so a later repeated shape can enter; repeated shapes already kept continue counting |
 | Scope readings (§5.11) | About 0.85 µs per scope segment, included in the overhead scenario; removing `resources` from `sources` turns them off |
 | Resource sampler (§5.11) | About 0.4 ms per second at 300 threads, on a BootUI daemon thread, with a thread cap |
 | JFR attribution (§5.11) | About 330 ms and 42 MB to start; opt-in, user-triggered, and bounded by `jfr.max-duration` |

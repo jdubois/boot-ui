@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.engine.support.Percentiles;
 import io.github.jdubois.bootui.engine.web.RequestLatencyKpis;
@@ -12,11 +13,15 @@ import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -24,6 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -72,6 +78,9 @@ public final class JournalActivityFeed {
 
     /** Maximum characters of a statement or log template shown in a summary. */
     static final int MAX_SUMMARY = 160;
+
+    static final int MAX_SELECTS_PER_REQUEST = 16;
+    static final int MAX_SELECT_FINGERPRINT_LENGTH = 512;
 
     private final long requestSlowThresholdMs;
     private final int nPlusOneThreshold;
@@ -204,9 +213,7 @@ public final class JournalActivityFeed {
                 executions.putIfAbsent(event.executionId(), event.executionId());
             }
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
-                selectsByRequest
-                        .computeIfAbsent(event.requestId(), id -> new HashMap<>())
-                        .merge(whitespaceNormalized(sql.sql()), 1, Integer::sum);
+                countSelect(selectsByRequest.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql());
             }
         }
 
@@ -993,15 +1000,23 @@ public final class JournalActivityFeed {
             List<JournalEntry> batch,
             Function<JournalEntry, String> eventId,
             Map<String, Map<String, Integer>> pendingSelects) {
+        return renderForCapture(batch, eventId, pendingSelects, count -> {});
+    }
+
+    public List<ActivityEntryDto> renderForCapture(
+            List<JournalEntry> batch,
+            Function<JournalEntry, String> eventId,
+            Map<String, Map<String, Integer>> pendingSelects,
+            LongConsumer overflow) {
         // Learns no request, so it infers no parent from a trace.
         AiCallOwners aiCallOwners = new AiCallOwners();
         RouteTemplateResolver routes = resolver();
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
-                pendingSelects
-                        .computeIfAbsent(event.requestId(), id -> new HashMap<>())
-                        .merge(whitespaceNormalized(sql.sql()), 1, Integer::sum);
+                if (!countSelect(pendingSelects.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql())) {
+                    overflow.accept(1);
+                }
             }
         }
         List<Row> rows = new ArrayList<>(batch.size());
@@ -1088,8 +1103,29 @@ public final class JournalActivityFeed {
         return sql != null && sql.stripLeading().regionMatches(true, 0, "select", 0, 6);
     }
 
-    private static String whitespaceNormalized(String sql) {
-        return sql == null ? "" : sql.replaceAll("\\s+", " ").trim();
+    /** Returns false when a fingerprint replaces another at the per-request cap. */
+    static boolean countSelect(Map<String, Integer> selects, String sql) {
+        String fingerprint = SqlShapes.fingerprint(sql);
+        if (fingerprint.length() > MAX_SELECT_FINGERPRINT_LENGTH) {
+            try {
+                fingerprint = HexFormat.of()
+                        .formatHex(MessageDigest.getInstance("SHA-256")
+                                .digest(fingerprint.getBytes(StandardCharsets.UTF_8)));
+            } catch (NoSuchAlgorithmException ex) {
+                throw new IllegalStateException("SHA-256 is required for bounded SELECT tracking", ex);
+            }
+        }
+        boolean overflow = false;
+        if (!selects.containsKey(fingerprint) && selects.size() >= MAX_SELECTS_PER_REQUEST) {
+            String leastFrequent = selects.entrySet().stream()
+                    .min(Map.Entry.comparingByValue())
+                    .orElseThrow()
+                    .getKey();
+            selects.remove(leastFrequent);
+            overflow = true;
+        }
+        selects.merge(fingerprint, 1, Integer::sum);
+        return !overflow;
     }
 
     private static Long millis(RuntimeEvent event) {
