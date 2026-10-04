@@ -166,7 +166,7 @@ function activityUrl(extra = {}) {
     })
     for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
   }
-  if (feedSource.value) params.set('source', feedSource.value)
+  if (feedSource.value && !persistent.value) params.set('source', feedSource.value)
   if (fromJournal.value && !persistent.value) {
     if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
     if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
@@ -1095,7 +1095,7 @@ function toggleFlow() {
             <input id="activity-errors-only" v-model="errorsOnly" class="form-check-input" type="checkbox" />
             <label class="form-check-label small" for="activity-errors-only">Errors only</label>
           </div>
-          <div>
+          <div v-if="!persistent">
             <label class="form-label small mb-1" for="activity-feed-source">Recorded by</label>
             <select id="activity-feed-source" v-model="feedSource" class="form-select form-select-sm">
               <option value="">Default</option>
@@ -1103,9 +1103,9 @@ function toggleFlow() {
               <option value="buffers">Panel buffers</option>
             </select>
           </div>
-          <p v-if="fromJournal && persistent" class="small text-muted mb-0" role="note">
-            Route, request, run, and no-request filters apply to the in-memory runtime journal; persisted history keeps
-            no run or request grouping.
+          <p v-if="persistent" class="small text-muted mb-0" role="note">
+            The source, route, request, run, and no-request filters apply to the in-memory feed; persisted history is
+            recorded by the runtime journal and keeps no run or request grouping.
           </p>
           <template v-if="fromJournal && !persistent">
             <div>
@@ -1348,6 +1348,9 @@ function toggleFlow() {
               <tr v-if="!visibleEntries.length">
                 <td v-if="hasActiveFilters || hasJournalFilters" colspan="6" class="text-center text-muted py-4">
                   No activity matches the current filters.
+                </td>
+                <td v-else-if="canLoadOlder" colspan="6" class="text-center text-muted py-4">
+                  No visible rows on this page. Older history is available below; rows from a disabled panel are hidden.
                 </td>
                 <td v-else colspan="6" class="text-center text-muted py-4">
                   No activity recorded yet. Send a request to the application, and its requests, SQL, exceptions, and

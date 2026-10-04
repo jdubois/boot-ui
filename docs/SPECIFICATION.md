@@ -3199,8 +3199,8 @@ Design rules:
   envelope whose `total` counts every item before the query and filters are applied and whose `matched` counts what they
   kept, so a non-zero `total` beside `matched: 0` is an empty query result rather than absent data; tool guidance states
   that distinction where a narrow query would otherwise be read as a missing value.
-- **Prompt surface.** `prompts/list` advertises three argument-free workflows: `diagnose_runtime_issue` for evidence-led
-  runtime diagnosis, `review_application` for a focused advisor review, and `assess_application` for a capability-aware
+- **Prompt surface.** `prompts/list` advertises four argument-free workflows: `diagnose_runtime_issue` for evidence-led
+  runtime diagnosis, `verify_after_change` to run the tests, compare with the previous run, and stop, `review_application` for a focused advisor review, and `assess_application` for a capability-aware
   application assessment and prioritized action plan. `prompts/get` returns the selected workflow as a user message,
   without executing scans or changes. All prompts distinguish evidence from hypotheses and avoid blind fixes.
   The assessment starts with existing evidence, declares collection budgets, asks for an explicit fresh-scan scope

@@ -371,7 +371,41 @@ describe('LiveActivity', () => {
 
     expect(wrapper.find('#activity-run-filter').exists()).toBe(false)
     expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
-    expect(wrapper.text()).toContain('persisted history keeps no run or request grouping')
+    expect(wrapper.find('#activity-feed-source').exists()).toBe(false)
+    expect(wrapper.text()).toContain('keeps no run or request grouping')
+  })
+
+  it('does not send a feed source while persisted history serves the feed', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    const persisted = activityReport({
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+    })
+    const fetchMock = stubFetch(persisted, requestProfile())
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith('api/activity'))
+    expect(urls.length).toBeGreaterThan(0)
+    expect(urls.every((url) => !url.includes('source='))).toBe(true)
+  })
+
+  it('explains an empty persisted page that still has older history', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    const persisted = activityReport({
+      entries: [],
+      typeCounts: {},
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: true, nextCursor: 'abc'}
+    })
+    vi.stubGlobal('fetch', stubFetch(persisted, requestProfile()))
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No visible rows on this page')
+    expect(wrapper.text()).not.toContain('No activity recorded yet')
+    expect(wrapper.text()).toContain('Load older activity')
   })
 
   it('asks for one run only when a run id is entered', async () => {
