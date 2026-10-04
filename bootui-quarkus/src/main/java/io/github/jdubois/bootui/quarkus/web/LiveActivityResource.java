@@ -369,19 +369,19 @@ public class LiveActivityResource {
                 until,
                 cursor,
                 pageSize == null ? 0 : pageSize);
+        JournalTextExposure storedRule = JournalTextExposure.of(exposure);
         ActivityPage page = io.github.jdubois.bootui.engine.activity.ReadableActivityPages.query(
                 activityStore,
                 query,
                 row -> JournalSourcePanels.isReadable(
                         row,
-                        panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel)));
+                        panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel)),
+                storedRule::reapply);
         return new LiveActivityReport(
                 live.available(),
                 // Stored rows were written under MASKED (or raw, by an older build) while their panel was enabled;
-                // the live panel gate and exposure policy apply on read.
-                page.entryDtos().stream()
-                        .map(JournalTextExposure.of(exposure)::reapply)
-                        .toList(),
+                // the live panel gate and exposure policy apply on read, and a search matches only what they show.
+                page.entryDtos(),
                 live.typeCounts(),
                 live.kpis(),
                 live.sources(),
@@ -442,9 +442,11 @@ public class LiveActivityResource {
                     null,
                     JournalRowDetails.of(
                             requestsReport().exchanges(),
-                            exceptionsService.report(exceptionStore).groups(),
+                            panelVisible(BootUiPanels.EXCEPTIONS)
+                                    ? exceptionsService.report(exceptionStore).groups()
+                                    : null,
                             emailReport() == null ? null : emailReport().messages(),
-                            securityEvents(panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS))));
+                            securityEvents(panelVisible(BootUiPanels.SECURITY_LOGS))));
         }
         LiveActivityReport live = mergedReport(limit);
         boolean journalAsked = resolved == ActivityFeedSource.JOURNAL && source != null && !source.isBlank();
@@ -525,7 +527,7 @@ public class LiveActivityResource {
     public LiveActivityReport mergedReport(int limit) {
         HttpExchangesReport requests = requestsReport();
         SqlSnapshot sql = sqlSnapshot();
-        boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        boolean securityAvailable = panelVisible(BootUiPanels.SECURITY_LOGS);
         boolean kafkaAvailable = panelAvailability.isPanelAvailable(BootUiPanels.KAFKA)
                 && panelAvailability.isPanelEnabled(BootUiPanels.KAFKA)
                 && kafkaRecorder.isEnabled();
@@ -545,7 +547,9 @@ public class LiveActivityResource {
                 sql.entries(),
                 sql.available(),
                 sql.unavailableWarning(),
-                exceptionsService.report(exceptionStore).groups(),
+                panelVisible(BootUiPanels.EXCEPTIONS)
+                        ? exceptionsService.report(exceptionStore).groups()
+                        : List.<ExceptionGroupDto>of(),
                 securityEvents(securityAvailable),
                 securityAvailable,
                 // No Quarkus cache-access capture seam exists yet (see LiveActivityAssembler's class
@@ -738,7 +742,18 @@ public class LiveActivityResource {
         };
     }
 
+    /**
+     * Whether a panel's evidence may be shown: the application can serve it and the user enabled it, the same rule as
+     * the journal's source-panel predicate ({@code docs/PLAN-v2.md} §8).
+     */
+    private boolean panelVisible(String panel) {
+        return panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel);
+    }
+
     private HttpExchangesReport requestsReport() {
+        if (!panelVisible(BootUiPanels.HTTP_EXCHANGES)) {
+            return HttpExchangesReport.unavailable("HTTP Exchanges panel is disabled");
+        }
         return exchanges.report(
                 buffer.snapshot(),
                 // The capture filter never records BootUI's own requests, judged below the root path.
@@ -755,7 +770,7 @@ public class LiveActivityResource {
     }
 
     private EmailsReport emailReport() {
-        if (!panelAvailability.isPanelAvailable(BootUiPanels.EMAIL) || !emailCaptureService.isResolvable()) {
+        if (!panelVisible(BootUiPanels.EMAIL) || !emailCaptureService.isResolvable()) {
             return null;
         }
         return emailCaptureService.get().list();
@@ -800,6 +815,9 @@ public class LiveActivityResource {
     }
 
     private SqlSnapshot sqlSnapshot() {
+        if (!panelAvailability.isPanelEnabled(BootUiPanels.SQL_TRACE)) {
+            return new SqlSnapshot(List.of(), false, "SQL Trace panel is disabled");
+        }
         SqlTraceRecorder rec = sqlRecorder.isResolvable() ? sqlRecorder.get() : null;
         boolean available = rec != null && rec.isEnabled() && rec.hasWrappedDataSource();
         if (!available) {

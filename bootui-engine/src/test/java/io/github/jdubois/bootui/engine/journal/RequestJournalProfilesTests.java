@@ -423,10 +423,14 @@ class RequestJournalProfilesTests {
                 .isFalse();
         offer(http("r-without-exchanges-panel", 3_000, 1_000_000, null));
         journal.dispatchPending();
-        assertThat(profiles(panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES))
-                        .profile("r-without-exchanges-panel")
-                        .available())
-                .as("Live Activity may open its retained request even after the HTTP Exchanges panel is disabled")
+        RequestJournalProfileDto hidden =
+                profiles(panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES)).profile("r-without-exchanges-panel");
+        assertThat(hidden.available())
+                .as("a request's profile is its HTTP exchange, so it follows the HTTP Exchanges panel")
+                .isFalse();
+        assertThat(hidden.unavailableReason()).contains("http-exchanges").contains("r-without-exchanges-panel");
+        assertThat(hidden.timeline()).isEmpty();
+        assertThat(profiles(null).profile("r-without-exchanges-panel").available())
                 .isTrue();
 
         RequestJournalProfileDto message = profiles(null).profile("message-1");
