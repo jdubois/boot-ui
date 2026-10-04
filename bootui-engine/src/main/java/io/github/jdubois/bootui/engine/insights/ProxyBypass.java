@@ -214,6 +214,8 @@ public final class ProxyBypass implements Observation {
                     List.of(
                             "Methods are matched by name from their frames: overloads that declare different"
                                     + " boundaries are not judged.",
+                            "Cacheable methods with sync = true or a condition are not judged: a synchronous miss"
+                                    + " is recorded after its loader runs, and a condition can skip the cache.",
                             "Only the four innermost application frames of each statement are read, and a transaction"
                                     + " counts only when the transaction source records its boundary."));
         }

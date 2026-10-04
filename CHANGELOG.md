@@ -80,6 +80,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
   HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
 
+- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
+  or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
+  Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
+  subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
+  writes. Truncated batch literals no longer hide later previews; truncation, uncertain comments, and DELETE … USING
+  never produce exact write claims. Possible batch truncation is explicit. The anonymous-access documentation now describes intended public
+  writes and unproven anonymity honestly
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
+
 ### Added
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
