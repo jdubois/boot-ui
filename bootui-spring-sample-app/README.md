@@ -46,15 +46,26 @@ runs this same Docker-free `dev` profile.
 
 ## Run it with Docker
 
-For the full experience — Postgres, Redis, Kafka, Ollama, and every panel populated — activate the `docker` profile
-from the repository root:
+For the full experience — Postgres, Redis, Kafka, Ollama, and every panel populated — use the dedicated launcher,
+which builds the sample and runs the `docker` profile:
+
+```bash
+./bootui-spring-sample-app/run-local-ai.sh
+```
+
+or activate the profile directly from the repository root:
 
 ```bash
 ./mvnw -pl bootui-spring-sample-app spring-boot:run -Dspring-boot.run.profiles=docker
 ```
 
 Spring Boot will start Docker Compose, wait for Postgres, Redis, Kafka, and Ollama, pull the small `qwen2.5:0.5b` chat
-model when missing, and then bind the sample app to `http://localhost:8080`.
+model when missing, and then bind the sample app to `http://localhost:8080`. This is the complete AI demo: the sample's
+AI framework is Spring AI with its Ollama starter, and PostgreSQL is the primary database. Send a prompt from the chat
+form on <http://localhost:8080/> (backed by `POST /api/chat`), then open <http://localhost:8080/bootui/#/ai> to inspect
+the AI Framework panel. The first startup can take a few minutes while the model downloads.
+
+Kafka and Ollama bind the fixed host ports 9092 and 11434, so only one instance of this variant can run at a time.
 
 ### PostgreSQL statement statistics
 
@@ -117,7 +128,8 @@ The dedicated launcher builds the sample and runs the lightweight stack:
 ./bootui-spring-sample-app/run-local-mysql.sh
 ```
 
-The original `run-local.sh` continues to run the Docker-free `dev` profile. All three scripts use the isolated `.m2`
+The original `run-local.sh` continues to run the Docker-free `dev` profile, and `run-local-ai.sh` runs the full
+`docker` profile. All four scripts use the isolated `.m2`
 repository and forward additional Maven arguments to the application launch.
 
 No Maven profile or externally configured database is needed. Spring Boot starts
