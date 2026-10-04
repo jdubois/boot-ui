@@ -422,14 +422,7 @@ public final class CodePathsBehaviors {
     }
 
     static void awaitSelfTest(String id) throws Exception {
-        Map<String, Object> sensor = Map.of();
-        for (int i = 0; i < 400; i++) {
-            sensor = sensor(id);
-            if (Boolean.TRUE.equals(sensor.get("selfTestPassed")) || sensor.get("selfTestError") != null) {
-                break;
-            }
-            Thread.sleep(25);
-        }
+        Map<String, Object> sensor = SensorWait.awaitSettled(id);
         System.out.println("SELF_TEST_" + id + "=" + sensor.get("selfTestPassed") + " " + sensor.get("selfTestError")
                 + " " + sensor.get("hooks"));
     }
