@@ -627,7 +627,7 @@ public final class RuntimeInsightsService {
             List<String> unseen = unseenSources(observation, snapshot, visibility, hiddenPanels);
             if (capture.reason() != null
                     && (snapshot.records(JournalSource.SQL) || snapshot.records(JournalSource.CONNECTION))
-                    && (readsSql(observation.reads()) || readsSql(observation.optionalReads()))) {
+                    && (readsSql(observation.reads()) || readsSql(observation.optionalReads(snapshot)))) {
                 unseen.add(
                         capture.recorded()
                                 ? capture.reason()
@@ -894,7 +894,7 @@ public final class RuntimeInsightsService {
             unseen.add(panelsLabel(hiddenPanels) + (hiddenPanels.size() == 1 ? " is" : " are")
                     + " disabled, so its request or execution units are not counted.");
         }
-        for (JournalSource source : observation.optionalReads()) {
+        for (JournalSource source : observation.optionalReads(snapshot)) {
             if (!snapshot.records(source)) {
                 unseen.add("Without the " + source.propertyName() + " source, which the runtime journal does not"
                         + " record, its evidence is not counted.");
@@ -948,7 +948,7 @@ public final class RuntimeInsightsService {
     private static String partialReason(Observation observation, InsightsSnapshot snapshot) {
         Set<JournalSource> sources = EnumSet.noneOf(JournalSource.class);
         sources.addAll(observation.reads());
-        for (JournalSource source : observation.optionalReads()) {
+        for (JournalSource source : observation.optionalReads(snapshot)) {
             if (snapshot.available(source)) {
                 sources.add(source);
             }

@@ -39,14 +39,15 @@ import java.util.function.ToLongFunction;
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
  *
- * <p>Version 10 keeps only literal-free SQL display shapes, merging indistinguishable groups with their counts and
- * histograms. Version 8 and 9 fingerprints are sanitized on read too, before any summary reaches a consumer.</p>
+ * <p>Version 11 distinguishes DML targets from read-side tables in observed edges. Earlier summaries keep their
+ * original edges, but table edges from them cannot be compared with version 11's meaning. Version 10 keeps only
+ * literal-free SQL display shapes; version 8 and 9 fingerprints are sanitized on read too.</p>
  */
 final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 10;
+    private static final int VERSION = 11;
 
     private RunSummaryCodec() {}
 
@@ -100,6 +101,10 @@ final class RunSummaryCodec {
                 in.list(() -> new ThreadFamilyStats(in.string(), in.sourceMap(), in.sourceMap()));
         List<ObservedEdge> edges = in.edges();
         Map<String, Long> overflowed = in.stringMap();
+        if (in.version < VERSION) {
+            overflowed = new LinkedHashMap<>(overflowed);
+            overflowed.put(JournalAggregates.LEGACY_TABLE_EDGES, 1L);
+        }
         boolean executionsRecorded = in.version >= 9 && in.number() != 0;
         List<ExecutionStats> executions = in.version >= 9
                 ? in.list(() -> new ExecutionStats(In.SOURCES.get(in.string()), in.route()))
@@ -613,8 +618,8 @@ final class RunSummaryCodec {
                 magic = (magic << 8) | (next() & 0xFF);
             }
             version = next();
-            if (magic != MAGIC || (version != VERSION && version != 9 && version != 8)) {
-                throw new IllegalArgumentException("Not a supported run summary (versions 8, 9 and " + VERSION + ")");
+            if (magic != MAGIC || (version != VERSION && version != 10 && version != 9 && version != 8)) {
+                throw new IllegalArgumentException("Not a supported run summary (versions 8 to " + VERSION + ")");
             }
             return new RunSummary.Header(
                     text(),

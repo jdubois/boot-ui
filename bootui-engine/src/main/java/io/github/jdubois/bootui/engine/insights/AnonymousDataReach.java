@@ -43,6 +43,11 @@ public final class AnonymousDataReach implements Observation {
     }
 
     @Override
+    public Set<JournalSource> optionalReads(InsightsSnapshot snapshot) {
+        return snapshot.stack() == InsightsStack.QUARKUS ? Set.of(JournalSource.ORM) : Set.of();
+    }
+
+    @Override
     public Set<ProjectedRequest.Kind> unitKinds() {
         return Set.of(ProjectedRequest.Kind.HTTP);
     }
@@ -52,6 +57,9 @@ public final class AnonymousDataReach implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         long truncated = 0;
+        boolean hiddenOrm = snapshot.stack() == InsightsStack.QUARKUS
+                && snapshot.records(JournalSource.ORM)
+                && !snapshot.visible(JournalSource.ORM);
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.httpByRoute().entrySet()) {
             long anonymous = 0;
@@ -65,12 +73,17 @@ public final class AnonymousDataReach implements Observation {
                 Map<Target, int[]> writes = new LinkedHashMap<>();
                 Map<Target, String> statements = new LinkedHashMap<>();
                 boolean incomplete = false;
+                boolean preparationsExecuted = SafeMethodDml.preparationsExecuted(snapshot, request);
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
                     if (event.payload() instanceof SqlPayload sql && !sql.failed()) {
+                        boolean preparation = SafeMethodDml.preparation(snapshot, event);
+                        if (preparation && (hiddenOrm || !preparationsExecuted)) {
+                            continue;
+                        }
                         incomplete |= sql.sql() != null && sql.sql().contains("…");
                         for (SqlTables.WriteTargets targets : SqlTables.writes(sql.sql())) {
                             for (String table : targets.tables()) {
-                                Target target = new Target(table, targets.exact());
+                                Target target = new Target(table, targets.exact(), preparation);
                                 writes.computeIfAbsent(target, ignored -> new int[1])[0]++;
                                 statements.putIfAbsent(target, JournalTextExposure.displayShape(sql.sql()));
                             }
@@ -89,35 +102,55 @@ public final class AnonymousDataReach implements Observation {
             }
             eligible += anonymous;
             long anonymousRequests = anonymous;
-            byTable.forEach((target, rows) ->
-                    findings.add(finding(route.getKey(), target.table(), rows, anonymousRequests, target.exact())));
+            byTable.forEach((target, rows) -> findings.add(finding(route.getKey(), target, rows, anonymousRequests)));
         }
         return new Evaluation(
                 eligible,
                 findings,
-                truncated == 0
+                truncated == 0 && !hiddenOrm
                         ? null
-                        : InsightText.counted(truncated, "successful anonymous request")
-                                + " included possibly truncated SQL previews; not every write target can be identified.");
+                        : (truncated == 0
+                                        ? ""
+                                        : InsightText.counted(truncated, "successful anonymous request")
+                                                + " included possibly truncated SQL previews; not every write target"
+                                                + " can be identified.")
+                                + (hiddenOrm
+                                        ? " The hibernate panel is disabled, so unverified Quarkus preparations are"
+                                                + " not counted; timed JDBC executions still are."
+                                        : ""));
     }
 
-    private static Finding finding(String route, String table, List<List<String>> rows, long anonymous, boolean exact) {
+    private static Finding finding(String route, Target target, List<List<String>> rows, long anonymous) {
+        String table = target.table();
+        boolean exact = target.exact();
+        boolean preparation = target.preparation();
         return new Finding(
-                route + ":" + InsightText.stableHash(exact ? table : table + " candidate"),
+                route + ":"
+                        + InsightText.stableHash(
+                                table + (preparation ? " preparation" : "") + (exact ? "" : " candidate")),
                 route,
                 true,
-                "`" + route + (exact ? "` wrote table `" : "` executed write statements naming lexical candidate `")
+                "`" + route
+                        + (preparation
+                                ? exact
+                                        ? "` prepared a write statement targeting table `"
+                                        : "` prepared a write statement naming lexical candidate `"
+                                : exact ? "` wrote table `" : "` executed write statements naming lexical candidate `")
                         + table + "` in " + rows.size() + " of "
                         + InsightText.counted(anonymous, "successful anonymous request") + ".",
                 anonymous,
                 rows.size(),
                 List.of(
-                        exact
-                                ? "If `" + table
-                                        + "` should only change for signed-in callers, check the rule that let these"
-                                        + " requests through."
-                                : "Resolve the statement's write targets before changing authorization: `" + table
-                                        + "` is a lexical candidate and may only be read or be an alias.",
+                        preparation
+                                ? "Verify whether this prepared statement actually executed before changing"
+                                        + " authorization; preparing SQL alone does not change the table."
+                                : exact
+                                        ? "If `" + table
+                                                + "` should only change for signed-in callers, check the rule that let these"
+                                                + " requests through."
+                                        : "Resolve the statement's write targets before changing authorization: `"
+                                                + table
+                                                + "` is a lexical candidate and may only be read or be an alias.",
                         AnonymousAccess.VERIFY),
                 rows.stream().limit(3).map(row -> row.get(0)).toList(),
                 List.of("Request", "Status", "Captured DML texts", "Statement"),
@@ -125,12 +158,16 @@ public final class AnonymousDataReach implements Observation {
                 List.of(
                         "Tables are read from the statement text, so a write through a view, a procedure, or a trigger"
                                 + " names what it called, not what it changed.",
-                        exact
-                                ? "Only the target of each captured INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO"
-                                        + " statement text is counted, not affected rows or prepared-batch executions."
-                                : "At least one statement has an ambiguous DML target: lexical candidates include"
-                                        + " every table name found, which may be read-side tables or aliases, not"
-                                        + " proven writes. CTE-headed statements are not parsed.",
+                        preparation
+                                ? "Quarkus Hibernate records SQL when it is prepared, not when it executes. Even a"
+                                        + " session with executed statements cannot prove this particular statement"
+                                        + " ran or changed rows."
+                                : exact
+                                        ? "Only the target of each captured INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO"
+                                                + " statement text is counted, not affected rows or prepared-batch executions."
+                                        : "At least one statement has an ambiguous DML target: lexical candidates include"
+                                                + " every table name found, which may be read-side tables or aliases, not"
+                                                + " proven writes. CTE-headed statements are not parsed.",
                         "Statement batch previews retain at most five statements, each at most 256 characters before"
                                 + " a truncation marker; omitted or truncated text can hide other write targets."
                                 + " Prepared batches retain one SQL text, not one per parameter set.",
@@ -138,5 +175,5 @@ public final class AnonymousDataReach implements Observation {
                                 + " checked is not."));
     }
 
-    private record Target(String table, boolean exact) {}
+    private record Target(String table, boolean exact, boolean preparation) {}
 }

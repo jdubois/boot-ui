@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTables;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -73,14 +74,32 @@ public final class ObservedEdges {
     public static List<Target> targets(RuntimeEvent event) {
         Object payload = event.payload();
         if (payload instanceof SqlPayload sql) {
-            Set<String> tables = SqlShapes.tables(sql.sql());
-            if (tables.isEmpty()) {
+            if (event.durationNanos() <= 0 && !SqlShapes.writes(sql.sql()).isEmpty()) {
                 return List.of();
             }
-            EdgeType access = isWrite(sql.sql()) ? EdgeType.WRITES : EdgeType.READS;
-            List<Target> targets = new ArrayList<>(tables.size());
+            Set<String> tables = SqlShapes.tables(sql.sql());
+            List<SqlTables.WriteTargets> writes = SqlShapes.writes(sql.sql());
+            Set<String> exactTargets = new java.util.LinkedHashSet<>();
+            for (SqlTables.WriteTargets write : writes) {
+                if (write.exact()) {
+                    exactTargets.addAll(write.tables());
+                }
+            }
+            List<Target> targets = new ArrayList<>(tables.size() + exactTargets.size());
+            if (!sql.failed()) {
+                for (String table : exactTargets) {
+                    targets.add(new Target(EdgeType.WRITES, NodeType.TABLE, table));
+                }
+            }
             for (String table : tables) {
-                targets.add(new Target(access, NodeType.TABLE, table));
+                if (!exactTargets.contains(table)
+                        && (writes.isEmpty()
+                                || writes.stream()
+                                        .noneMatch(write ->
+                                                !write.exact() && write.tables().contains(table)))
+                        && (writes.isEmpty() || !table.equals("set"))) {
+                    targets.add(new Target(EdgeType.READS, NodeType.TABLE, table));
+                }
             }
             return targets;
         }
@@ -153,17 +172,6 @@ public final class ObservedEdges {
 
     private static String destination(MessagingPayload message) {
         return (message.broker() == null ? "?" : message.broker()) + ":" + message.destination();
-    }
-
-    private static boolean isWrite(String sql) {
-        if (sql == null) {
-            return false;
-        }
-        String head = sql.stripLeading().toLowerCase(Locale.ROOT);
-        return head.startsWith("insert")
-                || head.startsWith("update")
-                || head.startsWith("delete")
-                || head.startsWith("merge");
     }
 
     /** An execution node, by its type and key. */
