@@ -343,10 +343,10 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
             Long responseAt = markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
             long endMicros = startMicros() + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L;
             // No marker yet is an ordering fact, not a comparison between clocks on different threads.
+            boolean needsClockSlack = !Boolean.TRUE.equals(responseBeforeNestedPublication)
+                    && (nestedPublication || Boolean.FALSE.equals(earlyOutcomeAfterResponse));
             bodyAfterResponse = responseAt != null
-                    && (!nestedPublication
-                            || Boolean.TRUE.equals(responseBeforeNestedPublication)
-                            || endMicros - responseAt >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS);
+                    && (!needsClockSlack || endMicros - responseAt >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS);
             bodyAfterResponseMicros =
                     !bodyAfterResponse ? 0L : Math.max(0, endMicros - Math.max(startMicros(), responseAt));
         }

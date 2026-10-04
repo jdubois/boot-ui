@@ -26,6 +26,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
   [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
   [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
+- **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
+  pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
+  `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own
+  result just before its body returns now uses the same 2 ms response-clock slack as a nested promise, avoiding
+  false `work-after-response` evidence ([#1233](https://github.com/jdubois/boot-ui/pull/1233),
+  [#1223](https://github.com/jdubois/boot-ui/pull/1223); PLAN-v2 M5-2, D32).
 
 - **Source-panel policy gaps.** While HTTP Exchanges is disabled, a request's journal profile (panel and
   `get_request_profile`) is unavailable, Runtime Insights lists no route as **Not exercised in this run**, and
@@ -33,6 +39,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   principals, exception messages, email details, or buffered requests and SQL while their panel is disabled. Durable
   history no longer shows a stored principal under `METADATA_ONLY`, and its search no longer matches text masked or
   withheld on read, on Spring MVC, Spring WebFlux, and Quarkus ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
+
 - **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
   task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
