@@ -841,3 +841,4 @@ a request's drawer, **Why this route is slow** loads that route's breakdown on d
 The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
 WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,
 Quarkus records no transactions and intercepts self-invocation, and Spring MVC has no event loop.
+
