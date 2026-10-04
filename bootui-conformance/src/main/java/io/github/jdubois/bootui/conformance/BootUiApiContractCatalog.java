@@ -504,8 +504,8 @@ public final class BootUiApiContractCatalog {
                             "page", JsonType.OBJECT)));
 
     /**
-     * Code Paths' tree reads and Beans at runtime ({@code docs/PLAN-v2.md} §5.14), reads of the {@code code-paths} panel
-     * kept out of {@link #reads()}: each answers the same shape with or without the BootUI agent, {@code available:
+     * Code Paths' tree reads, Beans at runtime, and method probes ({@code docs/PLAN-v2.md} §5.14), reads of the
+     * {@code code-paths} panel kept out of {@link #reads()}: each answers the same shape with or without the BootUI agent, {@code available:
      * false} and empty without it, and {@code found: false} for a route or request this run has no tree for.
      */
     private static final List<ReadContract> CODE_PATHS_TREES = List.of(
@@ -559,6 +559,17 @@ public final class BootUiApiContractCatalog {
                             "declaredEdges", JsonType.NUMBER,
                             "notCalled", JsonType.NUMBER,
                             "omitted", JsonType.NUMBER,
+                            "limitations", JsonType.ARRAY)),
+            read(
+                    "code-paths",
+                    "/code-paths/probes",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "maxActive", JsonType.NUMBER,
+                            "maxInvocations", JsonType.NUMBER,
+                            "windowSeconds", JsonType.NUMBER,
+                            "probes", JsonType.ARRAY,
                             "limitations", JsonType.ARRAY)));
 
     /**
@@ -800,6 +811,9 @@ public final class BootUiApiContractCatalog {
         all(actions, "traces.clear", "traces", "DELETE", "/traces");
         all(actions, "exceptions.clear", "exceptions", "DELETE", "/exceptions");
         all(actions, "exceptions.status", "exceptions", "POST", "/exceptions/conformance-unknown-fingerprint/status");
+        all(actions, "code-paths.probe.start", "code-paths", "POST", "/code-paths/probes");
+        all(actions, "code-paths.probe.stop", "code-paths", "POST", "/code-paths/probes/0/stop");
+        all(actions, "code-paths.probe.delete", "code-paths", "DELETE", "/code-paths/probes/0");
         all(actions, "http-probe.execute", "http-probe", "POST", "/http-probe");
         all(actions, "architecture.scan", "architecture", "POST", "/architecture/scan");
         all(actions, "vulnerabilities.scan", "vulnerabilities", "POST", "/vulnerabilities/scan");

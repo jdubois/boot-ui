@@ -45,6 +45,7 @@ public final class ChildMain {
             case "inventory-mockito" -> InventoryMockito.main(new String[] {args[1]});
             case "code-paths-behaviors" -> CodePathsBehaviors.main(new String[] {args[1]});
             case "code-paths-mockito" -> CodePathsMockito.main(new String[] {args[1]});
+            case "probe-behaviors" -> ProbeBehaviors.main(new String[0]);
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }

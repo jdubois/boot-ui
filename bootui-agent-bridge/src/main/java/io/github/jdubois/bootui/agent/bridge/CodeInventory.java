@@ -240,6 +240,27 @@ public final class CodeInventory {
         return Math.min(NEXT_ID.get(), MAX_METHODS);
     }
 
+    /**
+     * Whether the agent ever assigned an id to a method {@code className#methodName}, of {@code descriptor} when it is
+     * not {@code null}: a method the inventory or code-paths transformer saw, in any run. Never throws.
+     */
+    static boolean knows(String className, String methodName, String descriptor) {
+        try {
+            String prefix = className + "#" + methodName + "(";
+            if (descriptor != null) {
+                return IDS.containsKey(className + "#" + methodName + descriptor);
+            }
+            for (String key : IDS.keySet()) {
+                if (key.startsWith(prefix)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
     /** Assigns a defining-loader token without retaining the loader; -1 at the bound, counted. */
     public static int definitionToken() {
         Integer recycled = FREE_DEFINITIONS.poll();

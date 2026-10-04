@@ -153,7 +153,7 @@ public final class BootUiPanels {
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
             new Panel(RUNTIME_INSIGHTS, "Runtime Insights", true, "/runtime-insights"),
             new Panel(CODE_INVENTORY, "Code Inventory", false, "/code-inventory"),
-            new Panel(CODE_PATHS, "Code Paths", false, "/code-paths"),
+            new Panel(CODE_PATHS, "Code Paths", true, "/code-paths"),
             new Panel(EMAIL, "Email", true, "/email"),
             new Panel(KAFKA, "Kafka", true, "/kafka"),
             new Panel(RABBITMQ, "RabbitMQ", true, "/rabbitmq"),

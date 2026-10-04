@@ -489,7 +489,8 @@ The Code Paths panel names the application methods a route spends its time in: i
 "`SlowPricingService.quote` 55 ms", across the route's warm requests, without tracing, spans, or a profiler session. It
 needs the [BootUI agent](java-agent.md)'s `code-paths` sensor, on by default once the agent is attached; without it the
 panel is unavailable with the Java Agent panel's reason and a link to it, and every read and `get_code_paths` answer
-`available: false` with that reason. It is view-only on Spring MVC, Spring WebFlux, and Quarkus.
+`available: false` with that reason. Its reads change nothing on Spring MVC, Spring WebFlux, and Quarkus; its one action
+is a [method probe](#method-probes), which the panel's read-only policy refuses.
 
 - **Routes**, ranked by their warm median: each route's warm requests, first recorded request, median and 95th
   percentile, and its top methods by self time. A route marked **assembly only** has a handler that ran on an event
@@ -506,7 +507,8 @@ panel is unavailable with the Java Agent panel's reason and a link to it, and ev
   around it, so it shows under the method that called the `@Transactional` one. Calls issued while no instrumented
   method was open, as in a filter or while the response is written, and calls recorded on another thread, as a
   streaming AI call's, show under no method; the limitations count each apart and say why.
-- **Selecting a method** shows its callers within the tree and every route whose tree reaches it.
+- **Selecting a method** shows its callers within the tree, every route whose tree reaches it, and **Probe this
+  method** ([method probes](#method-probes)).
 - **Beans at runtime**, a tab beside the routes: the calls between beans observed in this run's route trees, with their
   counts, beside the dependencies the beans declare, as the Beans panel lists them. A filter keeps only the declared
   dependencies **not called in this run**, which is all a run can say: never "unused", since a path no request took or
@@ -598,3 +600,53 @@ trees may miss methods says so ([Change impact](overview.md#runtime-insights)).
 `get_code_paths` and `bootui code paths` return at most `limit` (10) routes matching `query` (a route, or part of a
 route or of a method), slowest warm median first, each with its top methods; for a single route, its method nodes with
 the most self time, each with its calls. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.
+
+### Method probes
+
+A method probe answers "did this method run, how long did it take, and for which request?" for one application method,
+without a debugger, a breakpoint, or a log line. **Probe this method**, on a method selected in a route's tree, or
+**Probe in Code Paths**, on a method Code Inventory lists as changed, asks for a confirmation, then the agent
+retransforms that one method and records its next **20 invocations**, for at most **60 seconds**, **five probes at
+once**:
+
+- each invocation's duration, thread kind (platform or virtual), request id (a link to Live Activity), outcome
+  (returned, or the type of the exception it threw), and calling frame: the first frame of the application's packages
+  above the method, past proxies and interceptors, else the frame right above it;
+- **metadata only**: never an argument, a return value, or a field, in any exposure mode.
+
+The **Method probes** card lists the run's probes, newest first, with their state (**starting**, **active**,
+**waiting for its class** when this run has not loaded the class yet, **ending** while the agent removes its
+instrumentation, **ended**, or **failed** with why), how many invocations each recorded, and why it ended: its
+invocations, its window, a **Stop**, or the end of the run. The card refreshes every second only while a probe is live.
+
+- **Bounds hold where the method runs.** The agent counts invocations and checks the window in the probe's own advice,
+  so a probe never records past its bound even if removing its instrumentation is slow or fails; such a removal is
+  reported on the probe. A probe ends with its run: a DevTools restart, a Quarkus live reload, or BootUI disabled. When
+  the run ended with a restart or a reload, the previous run's copy of the class is not retransformed again: the probe's
+  transformer is only removed, and the advice left in that copy records nothing until it is unloaded. While the panel
+  is read-only, a running probe still ends by itself within its window.
+- **The current run's code only.** A probe takes a method the agent's inventory or code-paths sensor instrumented, in the
+  application's packages, by `binary.Class#name` with its descriptor when the method is overloaded. Only the copy of the
+  class the current run's class loader defined is probed, never a previous run's still loaded; the inventory and
+  code-paths instrumentation of the method stays as it was once the probe ends.
+- **Reactive and asynchronous methods.** For a method returning `Mono`, `Flux`, `CompletionStage`, `Uni`, or another
+  reactive or asynchronous type, the probe is marked **assembly only**: it times the result's assembly and sees only
+  what the method throws itself; its request id is known only on the thread that captured it.
+- **Evidence.** Probes and their invocations are kept under the
+  [agent evidence contract](java-agent.md#agent-evidence-outside-the-journal), the run's last 25 probes with at most 20
+  invocations each: hidden with the Code Paths panel, without request ids while HTTP Exchanges is disabled, counted in
+  the journal status as **Agent evidence**, and **Clear recording** drops the probes that ended and every invocation
+  recorded before it, keeping a live probe for what it records next.
+- **Actions.** Starting and stopping probes are refused while BootUI or the panel is read-only
+  (`bootui.read-only=true`, `bootui.panels.code-paths.read-only=true`), in the browser, the API, MCP, and the CLI.
+
+| Method and path | Does |
+| --- | --- |
+| `GET /bootui/api/code-paths/probes` | The run's probes with their recorded invocations, the bounds, and the limitations |
+| `POST /bootui/api/code-paths/probes` | Starts a probe on `{"method": "com.example.PriceService#quote(I)J"}`: 400 for a method that cannot be probed, 409 when refused (unavailable, five running, or already probed) |
+| `GET /bootui/api/code-paths/probes/{id}` | One probe; 404 when this run has none |
+| `POST /bootui/api/code-paths/probes/{id}/stop`, `DELETE /bootui/api/code-paths/probes/{id}` | Stops a probe |
+
+AI agents start one with `start_method_probe` (`bootui probe start <method>`) and read it with `get_method_probe`
+(`bootui probe show <id>`), only after the user's separate approval; see
+[Did this method run, and how?](../AI-AGENTS.md#did-this-method-run-and-how).

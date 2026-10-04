@@ -323,6 +323,27 @@ public final class AgentClaim {
         return access.excludeCodePathsMethod(granted, id);
     }
 
+    /**
+     * Starts a method probe ({@code docs/PLAN-v2.md} M5-8) with this claim's token, while it is armed: the bridge's
+     * answer, whose {@code status} is {@code started} with the {@code probe}, or why not.
+     */
+    public Map<String, Object> startMethodProbe(Map<String, ?> request) {
+        Long granted = token;
+        if (granted == null || ended.get()) {
+            return answer(STALE, "this run's claim on the BootUI agent ended");
+        }
+        return access.startMethodProbe(granted, request);
+    }
+
+    /** Stops the method probe {@code id} with this claim's token. */
+    public Map<String, Object> stopMethodProbe(long id) {
+        Long granted = token;
+        if (granted == null) {
+            return answer(STALE, "this run never claimed the BootUI agent");
+        }
+        return access.stopMethodProbe(granted, id);
+    }
+
     /** The bridge this claim was made through. */
     public AgentBridgeAccess access() {
         return access;

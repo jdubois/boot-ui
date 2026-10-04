@@ -43,7 +43,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
   through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
   in primitive slots per method id, bounded by the agent's method limit.
-
+- **Method probes.** With the BootUI agent attached, **Probe this method** on a method selected in a Code Paths tree,
+  or **Probe in Code Paths** on a changed method in Code Inventory, records that one method's next 20 invocations, for
+  at most 60 seconds, five probes at once: each invocation's duration, thread kind, request id, outcome or exception
+  type, and calling frame, never an argument or a return value. The agent retransforms only the current run's copy of
+  the class, enforces the bounds in the probe's own advice, ends a probe with its run, and removes it by retransformation
+  while the inventory and code-paths advice stay. Probes are Code Paths' only actions, so the panel is now action-capable
+  and `bootui.panels.code-paths.read-only` (or `bootui.read-only`) refuses them; `GET`/`POST
+  /bootui/api/code-paths/probes`, `GET`/`DELETE /code-paths/probes/{id}`, and `POST /code-paths/probes/{id}/stop` on
+  Spring MVC, WebFlux, and Quarkus, and the `start_method_probe` (`bootui probe start`, an action needing the user's
+  separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
+  Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
+  ([Method probes](docs/features/diagnostics.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it

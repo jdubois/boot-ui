@@ -126,6 +126,29 @@ class QuarkusPanelAccessFilterTest {
     }
 
     @Test
+    void perPanelReadOnlyBlocksStartingAMethodProbe() {
+        RoutingContext rc = mockRequest("POST", "/bootui/api/code-paths/probes");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.code-paths.read-only", "true"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "code-paths", "Panel is read-only via bootui.panels.code-paths.read-only=true");
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void perPanelReadOnlyAllowsReadingMethodProbes() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/code-paths/probes");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.code-paths.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
     void perPanelReadOnlyAllowsPentestingReportRead() {
         RoutingContext rc = mockRequest("GET", "/bootui/api/pentesting");
         QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.pentesting.read-only", "true"));

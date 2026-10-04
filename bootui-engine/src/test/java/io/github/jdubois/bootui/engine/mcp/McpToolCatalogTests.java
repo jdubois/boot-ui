@@ -13,10 +13,10 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(98);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(98);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(97);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(82);
+        assertThat(McpToolCatalog.entries()).hasSize(100);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(100);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(99);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(84);
     }
 
     @Test
@@ -42,6 +42,22 @@ class McpToolCatalogTests {
         assertThat(codePaths.panelId()).isEqualTo(BootUiPanels.CODE_PATHS);
         assertThat(codePaths.stacks()).containsExactlyInAnyOrder(Stack.values());
         assertThat(McpToolCatalog.defaultLimit("get_code_paths")).isEqualTo(10);
+    }
+
+    @Test
+    void methodProbesAreACodePathsActionAndReadOnTheExistingIdSchemaOnEveryStack() {
+        McpToolCatalog.Entry start = McpToolCatalog.byName("start_method_probe").orElseThrow();
+        McpToolCatalog.Entry read = McpToolCatalog.byName("get_method_probe").orElseThrow();
+
+        // D24: an action, so read-only policy refuses it; the CLI binds options by schema name.
+        assertThat(start.schema()).isEqualTo(McpToolSchema.ID);
+        assertThat(start.action()).isTrue();
+        assertThat(start.panelId()).isEqualTo(BootUiPanels.CODE_PATHS);
+        assertThat(start.stacks()).containsExactlyInAnyOrder(Stack.values());
+        assertThat(read.schema()).isEqualTo(McpToolSchema.ID);
+        assertThat(read.action()).isFalse();
+        assertThat(read.panelId()).isEqualTo(BootUiPanels.CODE_PATHS);
+        assertThat(read.stacks()).containsExactlyInAnyOrder(Stack.values());
     }
 
     @Test

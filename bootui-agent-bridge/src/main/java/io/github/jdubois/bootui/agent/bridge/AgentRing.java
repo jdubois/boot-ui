@@ -30,8 +30,9 @@ import java.util.function.Consumer;
  * stamp is not its position when the consumer has copied it (one left half-written) is dropped and counted lost too.
  * A drainer stops at the first record of a newer claim generation than its own, which belongs to the next drainer.
  *
- * <p>The ring is allocated at the first claim asking for a sensor that uses it, with that claim's capacity, and kept for
- * the JVM's life; the intern table is replaced at each such claim, so its ids are scoped to one claim generation. Every
+ * <p>The ring is allocated at the first claim asking for a sensor that uses it, or the first method probe, with that
+ * claim's capacity, and kept for the JVM's life; the intern table is replaced at each such claim or a probe's first in a
+ * newer claim generation, so its ids are scoped to one claim generation. Every
  * entry point catches everything: none throws to its caller.
  */
 public final class AgentRing {
@@ -62,7 +63,10 @@ public final class AgentRing {
 
     public static final int SENSOR_INVENTORY = 1;
 
-    static final String[] SENSOR_NAMES = {"other", CodeInventory.SENSOR};
+    /** Method probes' hits (PLAN-v2 M5-8). */
+    public static final int SENSOR_METHOD_PROBES = 2;
+
+    static final String[] SENSOR_NAMES = {"other", CodeInventory.SENSOR, MethodProbes.SENSOR};
 
     public static final int DEFAULT_CAPACITY = 1 << 16;
     public static final int MIN_CAPACITY = 1 << 10;

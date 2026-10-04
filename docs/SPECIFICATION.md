@@ -749,12 +749,30 @@ Features:
 - `GET /bootui/api/code-paths`, `/code-paths/route?route=` (paged by `depth`, `offset`, and `limit`),
   `/code-paths/requests/{requestId}`, and `/code-paths/beans`; `get_code_paths` and `bootui code paths` take `query` (a
   route, or part of a route or method) and `limit`.
+- **Method probes** (`docs/PLAN-v2.md` M5-8), the panel's only actions: **Probe this method** on a selected tree method,
+  or **Probe in Code Paths** from Code Inventory's changed methods, after a confirmation, retransforms that one method
+  (`binary.Class#name`, with its descriptor for an overloaded one) and records its next 20 invocations, for at most 60
+  seconds, five probes at once: each invocation's duration, thread kind, request id, outcome (returned, or the thrown
+  exception's type), and calling frame (the first frame of the application's packages above the method, past proxies
+  and interceptors). Metadata only: never an argument or a return value. The method must be one the agent's inventory
+  or code-paths transformer saw, in the claimed packages; only the current run's copy of its class is advised (a probe
+  on a class this run has not loaded yet waits for it, within its window). The agent enforces the bounds where the
+  method runs, ends a probe with its run (a restart, a live reload, a disarm, or a release), and removes its advice by
+  retransformation, keeping the inventory and code-paths advice; a removal it cannot confirm is reported. A method
+  returning a reactive or asynchronous result is flagged: its durations time the assembly only. `GET
+  /bootui/api/code-paths/probes` lists the run's probes with their invocations, `POST /code-paths/probes` with
+  `{"method": ...}` starts one (400 for a method that cannot be probed, 409 when refused: unavailable, five running, or
+  already probed), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
+  or `DELETE /code-paths/probes/{id}` stops one. `start_method_probe` (`bootui probe start <method>`) and
+  `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode (D24).
 
 Acceptance criteria:
 
-- The panel is view-only on Spring MVC, Spring WebFlux, and Quarkus; it is available while the agent's code-paths sensor
-  records this run and otherwise unavailable with the Java Agent panel's reason, and every read answers the same
-  `available: false` shape.
+- The panel is available on Spring MVC, Spring WebFlux, and Quarkus while the agent's code-paths sensor records this run
+  and otherwise unavailable with the Java Agent panel's reason, and every read answers the same `available: false`
+  shape. Its reads start no scan, network call, or mutation; its method probes are actions that the global or per-panel
+  read-only policy (`bootui.panels.code-paths.read-only`) refuses, in the API, MCP, and the CLI.
+- A probe never outlives its bound, and never records an argument or a return value.
 - On the Spring sample with the agent, the seeded slow route's breakdown names `SlowPricingService.quote`, and the route
   tree's handler-phase time reconciles with the handler phase within 5 %; the seeded N+1 route's `repeated-selects`
   names `InsightOrderService.ordersLineByLine`, its statements show under that method, and Beans at runtime lists the
@@ -3231,12 +3249,14 @@ Design rules:
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
-    `get_code_paths`, `get_devtools_status`,
+    `get_code_paths`, `get_method_probe`, `get_devtools_status`,
     `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
-    `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
+    `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`,
+    and `start_method_probe`, which retransforms one application method for at most 20 invocations or 60 seconds and
+    needs the user's separate approval (D24: refused by read-only policy, metadata only in every exposure mode).
 
   MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
   argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are

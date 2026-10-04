@@ -16,7 +16,7 @@ test.describe('Code Paths view (Quarkus)', () => {
       expect(panel.available).toBe(false)
       expect(panel.unavailableReason).toMatch(/^Requires the BootUI agent's code-paths sensor/)
 
-      for (const path of ['', '/route?route=GET%20%2Fapi%2Fhello', '/requests/0000000000000000', '/beans']) {
+      for (const path of ['', '/route?route=GET%20%2Fapi%2Fhello', '/requests/0000000000000000', '/beans', '/probes']) {
         const response = await page.request.get(`/bootui/api/code-paths${path}`)
         expect(response.ok()).toBeTruthy()
         const body = await response.json()
@@ -68,5 +68,19 @@ test.describe('Code Paths view (Quarkus)', () => {
     const detail = page.locator('.code-paths-method-detail')
     await expect(detail.locator('.code-paths-callers')).toContainText('QuoteService.quote')
     await expect(detail.locator('.code-paths-reach')).toContainText('GET /api/quotes/{sku}')
+
+    // M5-8: Probe this method advises the current dev-mode run's copy and records the next calls, metadata only.
+    await page.getByRole('button', {name: 'Probe this method'}).click()
+    const dialog = page.getByRole('dialog', {name: 'Probe this method?'})
+    await dialog.getByRole('button', {name: 'Start probe'}).click()
+    const probe = page.locator('.code-paths-probe').first()
+    await expect(probe.locator('.code-paths-probe-state')).toHaveText('active', {timeout: 15_000})
+    for (let i = 0; i < 3; i++) {
+      expect((await page.request.get(`/api/quotes/probed-${i}`)).ok()).toBeTruthy()
+    }
+    await expect(probe).toContainText(/[3-9] of 20 invocations/, {timeout: 15_000})
+    await expect(page.locator('.code-paths-probe-hits tbody tr').first()).toContainText('QuoteService#quote')
+    await probe.getByRole('button', {name: 'Stop'}).click()
+    await expect(probe.locator('.code-paths-probe-state')).toHaveText('ended', {timeout: 15_000})
   })
 })
