@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.engine.journal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
@@ -133,6 +136,69 @@ class JournalBuildingBlocksTests {
         assertThat(frames.callSite()).isEqualTo("com.example.orders.OrderRepository.find(OrderRepository.java:12)");
         assertThat(ApplicationFrames.select(Stream.of(frame("java.lang.Thread", "run", "Thread.java", 1))))
                 .isNull();
+    }
+
+    @Test
+    void selectedFramesAreFormattedOnlyWhenReadAndTheCallSiteAlone() {
+        StackWalker.StackFrame repository =
+                frame("com.example.orders.OrderRepository", "find", "OrderRepository.java", 12);
+        StackWalker.StackFrame service = frame("com.example.orders.OrderService", "place", "OrderService.java", 34);
+        ApplicationFrames frames = ApplicationFrames.select(Stream.of(
+                frame("org.hibernate.internal.SessionImpl", "find", "SessionImpl.java", 10), repository, service));
+
+        assertThat(frames.isFormatted()).isFalse();
+        verify(repository, never()).getFileName();
+        verify(service, never()).getFileName();
+
+        assertThat(frames.callSite()).isEqualTo("com.example.orders.OrderRepository.find(OrderRepository.java:12)");
+        assertThat(frames.isFormatted())
+                .as("a panel's call site formats only the innermost frame")
+                .isFalse();
+        verify(service, never()).getFileName();
+
+        ApplicationFrames shared = frames.interned(new JournalDictionary(100, 100_000));
+        assertThat(frames.isFormatted()).isTrue();
+        assertThat(shared.isFormatted()).isTrue();
+        verify(repository, times(1)).getFileName();
+        assertThat(frames)
+                .isEqualTo(ApplicationFrames.of(List.of(
+                        "com.example.orders.OrderRepository.find(OrderRepository.java:12)",
+                        "com.example.orders.OrderService.place(OrderService.java:34)")));
+        assertThat(shared.frames()).isEqualTo(frames.frames());
+        assertThat(frames.estimatedBytes())
+                .isEqualTo(ApplicationFrames.of(frames.frames()).estimatedBytes());
+    }
+
+    @Test
+    void aFrameThatCannotBeFormattedLeavesNoFramesRatherThanFailingTheDispatcher() {
+        StackWalker.StackFrame broken = frame("com.example.orders.OrderRepository", "find", "OrderRepository.java", 12);
+        when(broken.getFileName()).thenThrow(new IllegalStateException("redefined"));
+        ApplicationFrames frames = ApplicationFrames.select(Stream.of(broken));
+
+        assertThat(frames.callSite()).isNull();
+        assertThat(frames.frames()).isEmpty();
+        assertThat(frames.interned(new JournalDictionary(100, 100_000)).frames())
+                .isEmpty();
+        SqlPayload retained = (SqlPayload)
+                new SqlPayload("select 1", null, null, false, frames).interned(new JournalDictionary(100, 100_000));
+        assertThat(retained.frames())
+                .as("retained as no frames, as a capture that failed was")
+                .isNull();
+        assertThat(retained.callSite()).isNull();
+    }
+
+    @Test
+    void aLaterFrameThatCannotBeFormattedKeepsTheInnermostFramesAndTheCallSite() {
+        StackWalker.StackFrame broken = frame("com.example.orders.OrderService", "place", "OrderService.java", 34);
+        when(broken.getFileName()).thenThrow(new IllegalStateException("redefined"));
+        ApplicationFrames frames = ApplicationFrames.select(
+                Stream.of(frame("com.example.orders.OrderRepository", "find", "OrderRepository.java", 12), broken));
+
+        SqlPayload retained = (SqlPayload)
+                new SqlPayload("select 1", null, null, false, frames).interned(new JournalDictionary(100, 100_000));
+
+        assertThat(retained.callSite()).isEqualTo("com.example.orders.OrderRepository.find(OrderRepository.java:12)");
+        assertThat(retained.frames().frames()).containsExactly(retained.callSite());
     }
 
     @Test

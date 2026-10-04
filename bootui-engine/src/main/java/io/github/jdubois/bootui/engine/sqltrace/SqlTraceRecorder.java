@@ -581,9 +581,11 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         long nanos = Math.max(0, durationNanos);
         long micros = nanos / 1_000;
         String traceId = resolveTraceId();
-        String callSite = captureCallSite && frames != null ? frames.callSite() : null;
         boolean failedOrSlow = isFailedOrSlow(success, isSlow(micros));
         if (panel) {
+            // The panel's call site is the one frame formatted on this thread; the journal formats its frames on its
+            // dispatcher (M4-18d).
+            String callSite = captureCallSite && frames != null ? frames.callSite() : null;
             CapturedStatement entry = new CapturedStatement(
                     sequence.incrementAndGet(),
                     timestamp,
@@ -658,7 +660,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     failedOrSlow,
                     new SqlPayload(
                             sql,
-                            frames == null ? null : frames.callSite(),
+                            null,
                             dataSource == null ? context.dataSource() : dataSource,
                             !success,
                             frames,
