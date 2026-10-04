@@ -6,7 +6,7 @@ import java.util.Map;
 
 /**
  * One route's call tree in this run ({@code docs/PLAN-v2.md} §5.14, M5-4b): its warm requests' {@link RequestTree}s
- * merged by {@code (parent, method)}, with per node the requests that reached it, its calls, total and self time, and a
+ * merged by {@code (parent, method, phase)}, with per node the requests that reached it, its calls, total and self time, and a
  * compact histogram of the time each request spent in it ({@value #BUCKETS} log2 buckets of microseconds, with the
  * node's minimum and maximum, so its percentiles are approximate). The route's first recorded request, the first whose
  * tree settled, is kept apart, of which only its start, length, and request id are kept, much as
@@ -17,7 +17,10 @@ import java.util.Map;
  * also when the {@linkplain RouteTrees global budget} is spent, after which a parent's further methods go to its one
  * Other node, created while the reserve lasts; a request node that fits nowhere leaves its time in its parent's self
  * time, so the self times of a request's own nodes always add up to its own time. Asynchronous children stay under one
- * {@link RequestTree#ASYNC} node per parent, never subtracted from it. Not thread-safe: owned by {@link RouteTrees}.</p>
+ * {@link RequestTree#ASYNC} node per parent, never subtracted from it, under the method that submitted the work when
+ * its requests' trees say so. Each node also sums the SQL, REST client, cache, and AI calls stamped to it (M5-4c), and
+ * its {@linkplain #ownNanos own time} is its self time minus theirs; a request node whose time stays in its parent leaves
+ * its calls there too. Not thread-safe: owned by {@link RouteTrees}.</p>
  */
 public final class RouteTree {
 
@@ -51,7 +54,19 @@ public final class RouteTree {
     private int[] histogram = new int[16 * BUCKETS];
     private long[] min = new long[16];
     private long[] max = new long[16];
+    /** Per node with stamped calls: their calls, then their time, per kind; only such nodes, so most cost nothing. */
+    private final Map<Integer, long[]> io = new HashMap<>();
+
     private final Map<Long, Integer> index = new HashMap<>();
+    private long stampedCalls;
+    private UnplacedCalls unplaced = UnplacedCalls.NONE;
+    /** Stamped calls of a request node whose own node found no room here, as an executor's work folded away. */
+    private long homelessCalls;
+    /**
+     * The first recorded request's method-to-method calls, by {@code (caller, callee)} method ids, which the warm tree
+     * leaves out: Beans at runtime still counts them (M5-4c). At most one per request-tree node.
+     */
+    private final Map<Long, long[]> firstPairs = new HashMap<>();
 
     private long warm;
     private long assemblyRequests;
@@ -86,6 +101,7 @@ public final class RouteTree {
             firstDurationNanos = tree.durationNanos();
             firstRequestId = tree.requestId();
             firstAssembly = assemblyOnly;
+            rememberPairs(tree);
             return;
         }
         merge(tree, assemblyOnly);
@@ -101,6 +117,7 @@ public final class RouteTree {
         durations[(int) (durationCount++ % DURATIONS)] = tree.durationNanos();
         int nodes = tree.nodeCount();
         int[] mapped = new int[nodes];
+        int[] holder = new int[nodes];
         int[] touched = new int[nodes];
         int touchedCount = 0;
         stamp++;
@@ -115,6 +132,7 @@ public final class RouteTree {
             int target = requestParent < 0 ? 0 : mapped[requestParent];
             if (target < 0 || method[target] == RequestTree.OTHER) {
                 mapped[node] = INSIDE;
+                holder[node] = target < 0 ? holder[requestParent] : target;
                 continue;
             }
             int id = tree.method()[node];
@@ -126,9 +144,12 @@ public final class RouteTree {
                 }
                 folded += tree.calls()[node];
                 mapped[node] = FOLDED;
+                // An asynchronous child's calls are not its parent's either.
+                holder[node] = id == RequestTree.ASYNC ? -1 : target;
                 continue;
             }
             mapped[node] = merged;
+            holder[node] = merged;
             boolean whole = method[merged] == RequestTree.OTHER;
             requestsAndTime(
                     merged, tree.calls()[node], tree.total()[node], whole ? tree.total()[node] : tree.selfNanos(node));
@@ -140,6 +161,26 @@ public final class RouteTree {
             }
             scratch[merged] += tree.total()[node];
         }
+        for (int i = 0; i < tree.ioNodes().length; i++) {
+            int node = tree.ioNodes()[i];
+            int at = holder[node];
+            for (int kind = 0; kind < CodePathStamps.KINDS; kind++) {
+                long nodeCalls = tree.ioCalls()[i * CodePathStamps.KINDS + kind];
+                if (nodeCalls == 0) {
+                    continue;
+                }
+                stampedCalls += nodeCalls;
+                if (at < 0) {
+                    homelessCalls += nodeCalls;
+                    continue;
+                }
+                long[] counts = io.computeIfAbsent(at, ignored -> new long[2 * CodePathStamps.KINDS]);
+                counts[kind] += nodeCalls;
+                counts[CodePathStamps.KINDS + kind] += tree.ioNanos()[i * CodePathStamps.KINDS + kind];
+            }
+        }
+        unplaced = unplaced.plus(tree.unplaced());
+        stampedCalls += tree.unplacedCalls();
         for (int i = 0; i < touchedCount; i++) {
             int node = touched[i];
             long time = scratch[node];
@@ -148,6 +189,29 @@ public final class RouteTree {
             min[node] = Math.min(min[node], time);
             max[node] = Math.max(max[node], time);
         }
+    }
+
+    /** The first request's calls from one method to another, outside work an executor ran. */
+    private void rememberPairs(RequestTree tree) {
+        for (int node = 1; node < tree.nodeCount(); node++) {
+            int callee = tree.method()[node];
+            int caller = tree.method()[tree.parent()[node]];
+            if (callee < 0 || caller < 0 || tree.calls()[node] == 0) {
+                continue;
+            }
+            firstPairs.computeIfAbsent(((long) caller << 32) | (callee & 0xFFFFFFFFL), ignored -> new long[1])[0] +=
+                    tree.calls()[node];
+        }
+    }
+
+    /**
+     * The first recorded request's calls from one method to another, outside work an executor ran: per {@code (caller,
+     * callee)} method ids, packed as {@code caller << 32 | callee}, its calls.
+     */
+    public Map<Long, Long> firstRequestPairs() {
+        Map<Long, Long> pairs = new HashMap<>();
+        firstPairs.forEach((pair, calls) -> pairs.put(pair, calls[0]));
+        return pairs;
     }
 
     private void requestsAndTime(int node, long nodeCalls, long nodeTotal, long nodeSelf) {
@@ -164,38 +228,42 @@ public final class RouteTree {
     }
 
     /**
-     * The node of {@code (target, id)}: an existing one, a new one while regular nodes remain, else {@code target}'s
-     * Other node, created while the reserve lasts; -1 when none can be had.
+     * The node of {@code (target, id, phase)}: an existing one, a new one while regular nodes remain, else
+     * {@code target}'s Other node of that phase, created while the reserve lasts; -1 when none can be had. The phase is
+     * part of a node's identity, so the time a method spends in the handler never lands on its response-write node,
+     * whichever request arrived first; asynchronous work has no phase.
      */
     private int node(int target, int id, byte nodePhase) {
-        Integer known = index.get(key(target, id));
+        boolean nodeAsync = async[target] || id == RequestTree.ASYNC;
+        byte effective = nodeAsync ? 0 : nodePhase;
+        Integer known = index.get(key(target, id, effective));
         if (known != null) {
             return known;
         }
-        boolean nodeAsync = async[target] || id == RequestTree.ASYNC;
         if (id != RequestTree.OTHER && count < owner.maxNodesPerRoute() - OTHER_RESERVE && owner.reserveRegular()) {
-            int node = add(target, id, depth[target] + 1, nodeAsync, nodeAsync ? 0 : nodePhase);
-            index.put(key(target, id), node);
+            int node = add(target, id, depth[target] + 1, nodeAsync, effective);
+            index.put(key(target, id, effective), node);
             return node;
         }
-        Integer other = index.get(key(target, RequestTree.OTHER));
         if (id == RequestTree.ASYNC) {
             // An asynchronous child never merges into an Other node of its parent's own time.
             return -1;
         }
+        byte otherPhase = async[target] ? 0 : nodePhase;
+        Integer other = index.get(key(target, RequestTree.OTHER, otherPhase));
         if (other != null) {
             return other;
         }
         if (count < owner.maxNodesPerRoute() && owner.reserveOther()) {
-            int node = add(target, RequestTree.OTHER, depth[target] + 1, async[target], async[target] ? 0 : nodePhase);
-            index.put(key(target, RequestTree.OTHER), node);
+            int node = add(target, RequestTree.OTHER, depth[target] + 1, async[target], otherPhase);
+            index.put(key(target, RequestTree.OTHER, otherPhase), node);
             return node;
         }
         return -1;
     }
 
-    private static long key(int target, int id) {
-        return ((long) target << 32) | (id & 0xFFFFFFFFL);
+    private static long key(int target, int id, int nodePhase) {
+        return ((long) target << 34) | ((id & 0xFFFFFFFFL) << 2) | (nodePhase & 3);
     }
 
     private int add(int nodeParent, int id, int nodeDepth, boolean nodeAsync, byte nodePhase) {
@@ -413,5 +481,85 @@ public final class RouteTree {
             }
         }
         return sum;
+    }
+
+    /**
+     * The handler's own work in application methods, summed over warm requests: the {@linkplain #ownNanos own time} of
+     * its handler nodes.
+     */
+    public long handlerOwnNanos() {
+        long sum = 0;
+        for (int node = 1; node < count; node++) {
+            if (handlerNode(node)) {
+                sum += ownNanos(node);
+            }
+        }
+        return sum;
+    }
+
+    /** The calls of {@code kind} stamped to the node, summed over warm requests. */
+    public long ioCalls(int node, int kind) {
+        long[] counts = io.get(node);
+        return counts == null ? 0L : counts[kind];
+    }
+
+    /** The time of the calls of {@code kind} stamped to the node, summed over warm requests. */
+    public long ioNanos(int node, int kind) {
+        long[] counts = io.get(node);
+        return counts == null ? 0L : counts[CodePathStamps.KINDS + kind];
+    }
+
+    /** The time of every call stamped to the node, summed over warm requests. */
+    public long ioNanos(int node) {
+        long[] counts = io.get(node);
+        if (counts == null) {
+            return 0L;
+        }
+        long sum = 0;
+        for (int kind = 0; kind < CodePathStamps.KINDS; kind++) {
+            sum += counts[CodePathStamps.KINDS + kind];
+        }
+        return sum;
+    }
+
+    /**
+     * The node's own work, summed over warm requests: its self time minus the recorded calls stamped to it, never
+     * negative. Recorded calls without a stamp stay in it.
+     */
+    public long ownNanos(int node) {
+        return Math.max(0L, self[node] - ioNanos(node));
+    }
+
+    /** The warm requests' recorded calls with a stamp. */
+    public long stampedCalls() {
+        return stampedCalls;
+    }
+
+    /**
+     * The warm requests' recorded calls without a stamp, as recorded on another thread than the one that issued them:
+     * a method that waited for them keeps their time in its own time.
+     */
+    public long unstampedCalls() {
+        return unplaced.otherThread();
+    }
+
+    /** The time of {@link #unstampedCalls()}, unknown durations counted as 0. */
+    public long unstampedNanos() {
+        return unplaced.otherThreadNanos();
+    }
+
+    /** The warm requests' recorded calls no method node holds, by why. */
+    public UnplacedCalls unplaced() {
+        return unplaced;
+    }
+
+    /** Stamped calls whose request node found no room in the route's tree, as an executor's work folded away. */
+    public long homelessCalls() {
+        return homelessCalls;
+    }
+
+    /** Stamped calls no route-tree node holds: their fragment was missing, arrived late, or past the bound, or homeless. */
+    public long unplacedCalls() {
+        return unplaced.stampedUnplaced() + homelessCalls;
     }
 }

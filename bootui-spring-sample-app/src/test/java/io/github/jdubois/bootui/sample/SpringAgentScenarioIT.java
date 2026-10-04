@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -481,6 +482,140 @@ class SpringAgentScenarioIT {
                         "the tree's handler time %s ms against the handler phase %s ms: %s",
                         handlerMillis, perRequest, detail)
                 .isCloseTo(perRequest, org.assertj.core.data.Percentage.withPercentage(5));
+    }
+
+    /**
+     * M5-4c with the agent: the seeded N+1 route's statements carry the stamp of the service method that issued them,
+     * so {@code repeated-selects} names {@code InsightOrderService.ordersLineByLine}, the route tree shows its SQL under
+     * that method, and Beans at runtime lists the controller's observed calls into the service beside its declared
+     * dependency, in the available shape.
+     */
+    @Test
+    void theSeededNPlusOneNamesItsIssuingMethodAndBeansAtRuntimeShowTheCalls() throws Exception {
+        String route = "GET /api/insights/orders";
+        String issuer =
+                "io.github.jdubois.bootui.sample.insights.InsightOrderService#ordersLineByLine()Ljava/util/List;";
+        for (int i = 0; i < 5; i++) {
+            assertThat(probe.get("/api/insights/orders").status()).isEqualTo(200);
+        }
+
+        JsonNode finding = null;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        do {
+            for (JsonNode candidate :
+                    probe.get("/bootui/api/runtime-insights").json().path("observations")) {
+                if ("repeated-selects".equals(candidate.path("kind").asText())
+                        && route.equals(candidate.path("subject").asText())) {
+                    finding = candidate;
+                }
+            }
+            if (finding != null && finding.path("sentence").asText().contains("Issued by")) {
+                break;
+            }
+            Thread.sleep(250);
+        } while (System.nanoTime() < deadline);
+        assertThat(finding).as("the seeded N+1 is found").isNotNull();
+        assertThat(finding.path("sentence").asText())
+                .as(finding.toString())
+                .endsWith("Issued by `InsightOrderService.ordersLineByLine`.");
+
+        JsonNode tree;
+        JsonNode node = null;
+        deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        do {
+            Thread.sleep(250);
+            tree = probe.get("/bootui/api/code-paths/route?route="
+                            + java.net.URLEncoder.encode(route, java.nio.charset.StandardCharsets.UTF_8))
+                    .json();
+            for (JsonNode candidate : tree.path("nodes")) {
+                if (issuer.equals(candidate.path("method").asText())
+                        && candidate.path("calls").size() > 0) {
+                    node = candidate;
+                }
+            }
+        } while (node == null && System.nanoTime() < deadline);
+        assertThat(node)
+                .as("the issuing method's node with its calls: %s", tree)
+                .isNotNull();
+        JsonNode sql = node.path("calls").path(0);
+        assertThat(sql.path("kind").asText()).as(node.toString()).isEqualTo("SQL");
+        assertThat(sql.path("callsPerRequest").asDouble()).as(node.toString()).isGreaterThanOrEqualTo(2.0);
+        assertThat(sql.path("totalMillis").isNumber()).isTrue();
+
+        JsonNode beans = probe.get("/bootui/api/code-paths/beans").json();
+        List<String> failures = new ArrayList<>();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/code-paths/beans", contract("/code-paths/beans"), beans, failures);
+        assertThat(failures).as("Beans at runtime contract, available").isEmpty();
+        assertThat(beans.path("available").asBoolean()).as(beans.toString()).isTrue();
+        assertThat(beans.path("beansAvailable").asBoolean())
+                .as(beans.toString())
+                .isTrue();
+        JsonNode edge = null;
+        for (JsonNode candidate : beans.path("edges")) {
+            if ("insightSeedController".equals(candidate.path("from").asText())
+                    && "insightOrderService".equals(candidate.path("to").asText())) {
+                edge = candidate;
+            }
+        }
+        assertThat(edge)
+                .as("the controller's calls into the service: %s", beans)
+                .isNotNull();
+        assertThat(edge.path("declared").asBoolean()).isTrue();
+        assertThat(edge.path("observed").asBoolean()).isTrue();
+        assertThat(edge.path("calls").asLong()).isGreaterThanOrEqualTo(4);
+        assertThat(edge.path("observable").asBoolean()).isTrue();
+        assertThat(edge.path("unobservableReason").isNull()).isTrue();
+    }
+
+    /**
+     * I5: Hibernate flushes the seeded writes when the transaction commits, which Spring's transaction interceptor does
+     * after the {@code @Transactional} service method returned: the inserts show under the controller method that called
+     * it, while the service's own reads stay under the service.
+     */
+    @Test
+    void statementsFlushedAtCommitShowUnderTheMethodThatCalledTheTransactionalOne() throws Exception {
+        String route = "POST /api/insights/tags/read-then-write";
+        String controller = "io.github.jdubois.bootui.sample.insights.InsightSeedController#tagsReadThenWrite()"
+                + "Ljava/util/Map;";
+        String transactional = "io.github.jdubois.bootui.sample.insights.InsightTagService#countThenSave()J";
+        for (int i = 0; i < 4; i++) {
+            assertThat(probe.post("/api/insights/tags/read-then-write", Map.of("Content-Type", "application/json"))
+                            .status())
+                    .isEqualTo(200);
+        }
+
+        JsonNode tree;
+        JsonNode caller = null;
+        JsonNode service = null;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        do {
+            Thread.sleep(250);
+            tree = probe.get("/bootui/api/code-paths/route?route="
+                            + java.net.URLEncoder.encode(route, java.nio.charset.StandardCharsets.UTF_8))
+                    .json();
+            caller = null;
+            service = null;
+            for (JsonNode candidate : tree.path("nodes")) {
+                if (controller.equals(candidate.path("method").asText())) {
+                    caller = candidate;
+                } else if (transactional.equals(candidate.path("method").asText())) {
+                    service = candidate;
+                }
+            }
+        } while ((caller == null || caller.path("calls").isEmpty() || service == null) && System.nanoTime() < deadline);
+        assertThat(caller).as("the controller's node: %s", tree).isNotNull();
+        assertThat(service).as("the transactional service's node: %s", tree).isNotNull();
+        JsonNode flushed = caller.path("calls").path(0);
+        assertThat(flushed.path("kind").asText())
+                .as("the inserts flushed at commit, under the caller: %s", caller)
+                .isEqualTo("SQL");
+        assertThat(flushed.path("callsPerRequest").asDouble())
+                .as(caller.toString())
+                .isGreaterThanOrEqualTo(1.0);
+        assertThat(service.path("calls").path(0).path("kind").asText())
+                .as("the service's own reads stay under it: %s", service)
+                .isEqualTo("SQL");
     }
 
     /** The conformance catalog's contract of the Code Paths read whose path starts with {@code path}. */

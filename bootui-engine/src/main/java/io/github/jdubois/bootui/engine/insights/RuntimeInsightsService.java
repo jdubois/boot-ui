@@ -229,6 +229,33 @@ public final class RuntimeInsightsService {
     public synchronized void setCodePaths(
             java.util.function.Function<String, io.github.jdubois.bootui.engine.codepaths.HandlerMethods> handlers,
             LongSupplier fingerprint) {
+        setCodePaths(handlers, fingerprint, null);
+    }
+
+    /**
+     * Installs Code Paths as {@link #setCodePaths(java.util.function.Function, LongSupplier)} does, with how a
+     * code-paths stamp's method id is named, such as {@code CodePathsService::methodKey}, which {@code repeated-selects}
+     * names the method that issued a statement with (M5-4c). While the Code Paths panel is disabled, nothing is named.
+     */
+    public synchronized void setCodePaths(
+            java.util.function.Function<String, io.github.jdubois.bootui.engine.codepaths.HandlerMethods> handlers,
+            LongSupplier fingerprint,
+            java.util.function.IntFunction<String> methodKeys) {
+        setCodePaths(handlers, fingerprint, methodKeys, null);
+    }
+
+    /**
+     * Installs Code Paths as {@link #setCodePaths(java.util.function.Function, LongSupplier,
+     * java.util.function.IntFunction)} does, with how the method that issued a route's statements is found from a
+     * stamp's method id, such as {@code CodePathsService::issuingMethod}, which looks past an application repository
+     * method to the method that called it (M5-4c). While the Code Paths panel is disabled, nothing is named.
+     */
+    public synchronized void setCodePaths(
+            java.util.function.Function<String, io.github.jdubois.bootui.engine.codepaths.HandlerMethods> handlers,
+            LongSupplier fingerprint,
+            java.util.function.IntFunction<String> methodKeys,
+            java.util.function.BiFunction<String, Integer, io.github.jdubois.bootui.engine.codepaths.IssuingMethod>
+                    issuingMethods) {
         this.codePathsFingerprint = handlers == null || fingerprint == null
                 ? null
                 : () -> codePathsVisible() ? fingerprint.getAsLong() * 31 + 1 : 0L;
@@ -236,6 +263,14 @@ public final class RuntimeInsightsService {
             if (observation instanceof RouteTimeBreakdown breakdown) {
                 breakdown.setCodePaths(
                         handlers == null ? null : route -> codePathsVisible() ? handlers.apply(route) : null);
+            }
+            if (observation instanceof RepeatedSelects repeated) {
+                repeated.setMethodKeys(
+                        methodKeys == null ? null : id -> codePathsVisible() ? methodKeys.apply(id) : null);
+                repeated.setIssuingMethods(
+                        issuingMethods == null
+                                ? null
+                                : (route, id) -> codePathsVisible() ? issuingMethods.apply(route, id) : null);
             }
         }
         this.cached = null;

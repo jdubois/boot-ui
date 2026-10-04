@@ -17,5 +17,11 @@ public enum EdgeType {
     /** A listener consumed from a topic or queue. */
     CONSUMES,
     /** An execution raised an exception group. */
-    RAISES
+    RAISES,
+    /**
+     * A bean's method called another bean's, as the BootUI agent's code paths observed it in this run's route trees
+     * ({@code docs/PLAN-v2.md} §5.14, M5-4c). Not part of change impact's code closure: a call observed in one run is
+     * evidence of that run's paths, not of what a change can reach.
+     */
+    INVOKES
 }

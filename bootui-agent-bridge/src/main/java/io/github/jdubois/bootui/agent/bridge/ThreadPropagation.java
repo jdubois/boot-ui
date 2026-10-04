@@ -152,7 +152,7 @@ public final class ThreadPropagation {
                 return false;
             }
             KEYED[hook].increment();
-            if (!TaskSnapshots.THREADS.put(thread, generation, (Object[]) payload)) {
+            if (!TaskSnapshots.THREADS.put(thread, generation, (Object[]) payload, Math.max(0L, CodePaths.stamp()))) {
                 AMBIGUOUS.increment();
             }
             return true;
@@ -245,6 +245,8 @@ public final class ThreadPropagation {
             Object handle = reopen.apply(new Object[] {snapshot.payload, taskClass, APPLY_HOOKS[hook]});
             if (handle != null) {
                 APPLIED[hook].increment();
+                // The thread's code-paths fragment records the node that started it (PLAN-v2 §5.14, design I7).
+                CodePaths.handoff(snapshot.stamp);
             }
             return handle;
         } catch (Throwable ex) {

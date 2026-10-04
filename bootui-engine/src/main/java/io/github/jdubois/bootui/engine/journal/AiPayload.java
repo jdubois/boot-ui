@@ -15,6 +15,10 @@ package io.github.jdubois.bootui.engine.journal;
  *     {@code null} when unknown
  * @param completedNanos the {@link System#nanoTime()} when it completed, or {@code -1} when unknown, as for a GenAI span
  *     received over OTLP; it places the call on its request's clock ({@code docs/PLAN-v2.md} §5.5)
+ * @param codePathStamp the BootUI agent's code-paths stamp of the instrumented method open on the issuing thread when the
+ *     call started ({@code docs/PLAN-v2.md} §5.14, M5-4c), which names the request-tree node that issued it, or {@code 0}
+ *     when unknown: without the agent, for a span received over OTLP, or when the call
+ *     ended on another thread than the one that started it, as a streaming call
  */
 public record AiPayload(
         String operation,
@@ -25,8 +29,23 @@ public record AiPayload(
         String finishReason,
         boolean failed,
         String spanId,
-        long completedNanos)
+        long completedNanos,
+        long codePathStamp)
         implements RuntimeEventPayload {
+
+    /** A call without a code-paths stamp. */
+    public AiPayload(
+            String operation,
+            String provider,
+            String model,
+            Long inputTokens,
+            Long outputTokens,
+            String finishReason,
+            boolean failed,
+            String spanId,
+            long completedNanos) {
+        this(operation, provider, model, inputTokens, outputTokens, finishReason, failed, spanId, completedNanos, 0L);
+    }
 
     /** A call without its monotonic completion. */
     public AiPayload(
@@ -75,7 +94,25 @@ public record AiPayload(
                 dictionary.shared(finishReason),
                 failed,
                 spanId,
-                completedNanos);
+                completedNanos,
+                codePathStamp);
+    }
+
+    /** This call with the code-paths stamp {@code stamp}. */
+    public AiPayload withCodePathStamp(long stamp) {
+        return stamp == codePathStamp
+                ? this
+                : new AiPayload(
+                        operation,
+                        provider,
+                        model,
+                        inputTokens,
+                        outputTokens,
+                        finishReason,
+                        failed,
+                        spanId,
+                        completedNanos,
+                        stamp);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -87,7 +124,7 @@ public record AiPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 56
+        return 64
                 + JournalDictionary.retained(dictionary, operation)
                 + JournalDictionary.retained(dictionary, provider)
                 + JournalDictionary.retained(dictionary, model)

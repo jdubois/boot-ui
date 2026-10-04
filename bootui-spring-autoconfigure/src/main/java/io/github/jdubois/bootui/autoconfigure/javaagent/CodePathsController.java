@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
 import io.github.jdubois.bootui.core.dto.CodePathsAgentReport;
+import io.github.jdubois.bootui.core.dto.CodePathsBeansReport;
 import io.github.jdubois.bootui.core.dto.CodePathsReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
@@ -39,6 +40,11 @@ public class CodePathsController {
             @RequestParam(name = "offset", required = false) Integer offset,
             @RequestParam(name = "limit", required = false) Integer limit) {
         return service.routeTree(route, depth, offset, limit);
+    }
+
+    @GetMapping("/beans")
+    public CodePathsBeansReport beans() {
+        return service.beans();
     }
 
     @GetMapping("/requests/{requestId}")

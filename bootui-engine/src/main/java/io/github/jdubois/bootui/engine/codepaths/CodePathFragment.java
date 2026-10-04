@@ -23,6 +23,9 @@ package io.github.jdubois.bootui.engine.codepaths;
  * @param calls each node's calls
  * @param total each node's total time in nanoseconds, its children's included
  * @param child each node's children's total time in nanoseconds
+ * @param sequence the fragment's sequence, which the stamps of the calls recorded inside it carry (M5-4c), 0 for a
+ *     blob of version 1
+ * @param submitter for a handoff's fragment, the stamp of the node that submitted the work, 0 when unknown
  */
 public record CodePathFragment(
         long generation,
@@ -39,7 +42,9 @@ public record CodePathFragment(
         byte[] phase,
         long[] calls,
         long[] total,
-        long[] child) {
+        long[] child,
+        long sequence,
+        long submitter) {
 
     /** The method id of an Other node ({@code CodePaths.OTHER}). */
     public static final int OTHER = -1;
@@ -54,8 +59,16 @@ public record CodePathFragment(
     /** Calls were still open when it was flushed. */
     public static final int FLAG_CUT = 32;
 
-    /** The blob format version this engine reads. */
-    static final int VERSION = 1;
+    /**
+     * The blob format version the bridge writes since M5-4c, with a sequence and a submitter. Code Paths is unreleased, so
+     * the agent's protocol was not bumped for it: the version is checked on every blob instead, and one this engine does
+     * not know, as from a newer agent, is not decoded ({@link #decode}) and counts as a malformed fragment in the
+     * panel's status.
+     */
+    static final int VERSION = 2;
+
+    /** The blob format version of an agent predating stamps, still read. */
+    static final int VERSION_1 = 1;
 
     static final int H_VERSION = 0;
     static final int H_GENERATION = 1;
@@ -67,7 +80,10 @@ public record CodePathFragment(
     static final int H_NODES = 7;
     static final int H_DROPPED = 8;
     static final int H_START_MILLIS = 9;
-    static final int HEADER = 10;
+    static final int H_SEQUENCE = 10;
+    static final int H_SUBMITTER = 11;
+    static final int HEADER = 12;
+    static final int HEADER_1 = 10;
     static final int NODE = 6;
 
     /** The most nodes a fragment may carry ({@code CodePaths.MAX_NODES}). */
@@ -89,18 +105,30 @@ public record CodePathFragment(
     }
 
     /**
-     * Decodes a blob, or returns {@code null} for one of another version or malformed: a wrong length, a node whose
-     * parent does not precede it, or negative counts. Never throws.
+     * Decodes a blob of version 2, or of version 1 without a sequence or submitter, or returns {@code null} for one of
+     * another version or malformed: a wrong length, a node whose parent does not precede it, or negative counts. The
+     * version is checked first, so a blob of an unknown version, as a newer agent's, is never misread: its caller counts
+     * it as malformed. Never throws.
      */
     public static CodePathFragment decode(long[] blob) {
         try {
-            if (blob == null || blob.length < HEADER || blob[H_VERSION] != VERSION) {
+            if (blob == null || blob.length < HEADER_1) {
+                return null;
+            }
+            int header;
+            if (blob[H_VERSION] == VERSION && blob.length >= HEADER) {
+                header = HEADER;
+            } else if (blob[H_VERSION] == VERSION_1) {
+                header = HEADER_1;
+            } else {
                 return null;
             }
             long count = blob[H_NODES];
-            if (count < 0 || count > MAX_NODES || blob.length != HEADER + count * NODE) {
+            if (count < 0 || count > MAX_NODES || blob.length != header + count * NODE) {
                 return null;
             }
+            long sequence = header == HEADER ? Math.max(0L, blob[H_SEQUENCE]) : 0L;
+            long submitter = header == HEADER ? blob[H_SUBMITTER] : 0L;
             int nodes = (int) count;
             int[] parent = new int[nodes];
             int[] method = new int[nodes];
@@ -109,7 +137,7 @@ public record CodePathFragment(
             long[] total = new long[nodes];
             long[] child = new long[nodes];
             for (int node = 0; node < nodes; node++) {
-                int base = HEADER + node * NODE;
+                int base = header + node * NODE;
                 long parentIndex = blob[base];
                 long methodId = blob[base + 1];
                 long nodePhase = blob[base + 2];
@@ -147,7 +175,9 @@ public record CodePathFragment(
                     phase,
                     calls,
                     total,
-                    child);
+                    child,
+                    sequence,
+                    submitter);
         } catch (RuntimeException ex) {
             return null;
         }

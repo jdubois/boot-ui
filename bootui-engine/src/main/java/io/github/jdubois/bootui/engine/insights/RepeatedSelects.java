@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.codepaths.CodePathStamps;
+import io.github.jdubois.bootui.engine.codepaths.IssuingMethod;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -8,10 +10,13 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.IntFunction;
 
 /**
  * {@code repeated-selects} ({@code docs/PLAN-v2.md} §5.5): one literal-free SELECT fingerprint executed at least
@@ -23,6 +28,14 @@ import java.util.Set;
  * request repeated the statement {@value #HIGH_REPEAT_KEEP} or more times. A sufficient finding stays however cheap, so
  * a local-database N+1 is not hidden. Unmeasured time, including Quarkus ORM preparations recorded as {@code 0}, is not
  * treated as cheap.
+ *
+ * <p>With the BootUI agent's {@code code-paths} sensor ({@code docs/PLAN-v2.md} §5.14, M5-4c), statements carry the stamp
+ * of the instrumented method that was innermost on their thread when they ran: the finding names that method, the one
+ * that issued the repeats, such as a service method looping over a repository, beside the stack walk's call site. When
+ * that method is a repository or DAO method of the application's own, which the sensor instruments as a bean, as a
+ * Panache repository, a {@code @Repository} class, or a Spring Data custom implementation, the finding names the first
+ * method above it in the route's tree that is not one, and the repository method it went through. Without stamps, its
+ * text is unchanged.</p>
  */
 public final class RepeatedSelects implements Observation {
 
@@ -54,6 +67,26 @@ public final class RepeatedSelects implements Observation {
 
     static final String RESULT_SIZE_UNRECORDED =
             "Whether the repeat count tracks a parent result size is not" + " recorded: statements carry no row count.";
+
+    private volatile IntFunction<String> methodKeys;
+    private volatile BiFunction<String, Integer, IssuingMethod> issuingMethods;
+
+    /**
+     * Installs how a code-paths stamp's method id is named, {@code class#name+descriptor}, such as
+     * {@code CodePathsService::methodKey}; without it, the finding names no issuing method.
+     */
+    public void setMethodKeys(IntFunction<String> methodKeys) {
+        this.methodKeys = methodKeys;
+    }
+
+    /**
+     * Installs how the method that issued a route's statements is found from a code-paths stamp's method id, such as
+     * {@code CodePathsService::issuingMethod}, which looks past a repository method to the method that called it; it
+     * takes precedence over {@link #setMethodKeys}.
+     */
+    public void setIssuingMethods(BiFunction<String, Integer, IssuingMethod> issuingMethods) {
+        this.issuingMethods = issuingMethods;
+    }
 
     @Override
     public String kind() {
@@ -136,6 +169,26 @@ public final class RepeatedSelects implements Observation {
         int most = repeats.get(0).executions();
         String statement = repeats.get(0).statement();
         boolean sufficient = repeats.size() >= MIN_REQUESTS;
+        IntFunction<String> keys = methodKeys;
+        BiFunction<String, Integer, IssuingMethod> found = issuingMethods;
+        Map<Integer, IssuingMethod> methods = new HashMap<>();
+        java.util.function.Function<Integer, IssuingMethod> names = found == null && keys == null
+                ? null
+                : id -> methods.computeIfAbsent(id, ignored -> {
+                    try {
+                        return found != null ? found.apply(route, id) : IssuingMethod.of(keys.apply(id));
+                    } catch (RuntimeException ex) {
+                        return null;
+                    }
+                });
+        Map<Integer, Integer> issuers = new LinkedHashMap<>();
+        if (names != null) {
+            for (Repeat repeat : repeats) {
+                repeat.issuers().forEach((id, count) -> issuers.merge(id, count, Integer::sum));
+            }
+        }
+        Issuer issuer = issuers.isEmpty() ? null : issuer(issuers, names);
+        boolean named = issuer != null;
         String sentence = sufficient
                 ? "`" + route + "` ran `" + statement + "` " + MIN_REPEATS
                         + " or more times after"
@@ -144,18 +197,26 @@ public final class RepeatedSelects implements Observation {
                 : "`" + route + "`: " + repeats.size() + " of " + MIN_REQUESTS + " " + InsightText.unit(route)
                         + "s needed to report `" + statement + "` repeated " + MIN_REPEATS
                         + " or more times.";
+        if (named) {
+            sentence += " Issued by " + issuer.markdown() + ".";
+        }
         List<List<String>> rows = new ArrayList<>();
         long totalNanos = 0;
         boolean unknownTime = false;
         boolean measured = false;
         for (Repeat repeat : repeats) {
-            rows.add(List.of(
+            List<String> row = new ArrayList<>(List.of(
                     repeat.request().requestId(),
                     String.valueOf(repeat.executions()),
                     repeat.unknownTime() ? "unknown" : InsightText.millis(repeat.nanos()),
                     repeat.callSite() == null ? "" : repeat.callSite(),
                     repeat.phase(),
                     repeat.inTransaction()));
+            if (named) {
+                Issuer own = repeat.issuers().isEmpty() ? null : issuer(repeat.issuers(), names);
+                row.add(own == null ? "unknown" : own.plain());
+            }
+            rows.add(List.copyOf(row));
             unknownTime |= repeat.unknownTime();
             measured |= repeat.measured();
             totalNanos += repeat.nanos();
@@ -179,6 +240,43 @@ public final class RepeatedSelects implements Observation {
         if (snapshot.available(JournalSource.TRANSACTION) && snapshot.dropped(JournalSource.TRANSACTION) > 0) {
             limitations.add("Transaction events were dropped, so whether repeats ran inside one is unknown.");
         }
+        if (named) {
+            boolean through = false;
+            boolean repositoryOnly = false;
+            for (int id : issuers.keySet()) {
+                IssuingMethod method = names.apply(id);
+                if (method != null) {
+                    through |= method.repositoryKey() != null;
+                    repositoryOnly |= method.repository();
+                }
+            }
+            limitations.add("The issuing method is the instrumented application method that was innermost on the"
+                    + " statement's thread when it ran, from the BootUI agent's code paths. A repository Spring Data"
+                    + " generates is not instrumented, so for one it is the method that called the repository"
+                    + (through
+                            ? "; a repository or DAO class of the application's own is, so the finding names the first"
+                                    + " method above it that is not one, and the repository method it went through."
+                            : "."));
+            if (repositoryOnly) {
+                limitations.add("A repository or DAO method of the application's own issued statements, and no method"
+                        + " above it is known from the route's warm requests: look at what calls it.");
+            }
+        }
+        List<String> checks = new ArrayList<>();
+        if (named) {
+            checks.add("Look at `" + issuer.label()
+                    + "`, which issued the repeats: check whether it loops over the rows the"
+                    + " first statement returned and loads each one's children.");
+        }
+        checks.add("Open an exemplar request in Live Activity and check whether each repeat loads the children"
+                + " of one row the first statement returned.");
+        checks.add("If it does, load them with one statement, such as a join or an IN list, in SQL Trace's"
+                + " call site.");
+        List<String> columns =
+                new ArrayList<>(List.of("Request", "Executions", "Time (ms)", "Call site", "Phase", "In transaction"));
+        if (named) {
+            columns.add("Issuing method");
+        }
         return new Finding(
                 route + ":" + InsightText.stableHash(fingerprint),
                 route,
@@ -186,18 +284,64 @@ public final class RepeatedSelects implements Observation {
                 sentence,
                 eligible,
                 repeats.size(),
-                List.of(
-                        "Open an exemplar request in Live Activity and check whether each repeat loads the children"
-                                + " of one row the first statement returned.",
-                        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's"
-                                + " call site."),
+                List.copyOf(checks),
                 repeats.stream()
                         .limit(3)
                         .map(repeat -> repeat.request().requestId())
                         .toList(),
-                List.of("Request", "Executions", "Time (ms)", "Call site", "Phase", "In transaction"),
+                List.copyOf(columns),
                 rows,
                 limitations);
+    }
+
+    /**
+     * The issuing method of {@code issuers}' executions, {@code SimpleClass.method}: the one that issued them all, else
+     * the one that issued most with how many others; {@code null} when no stamp names a known method.
+     */
+    private static Issuer issuer(
+            Map<Integer, Integer> issuers, java.util.function.Function<Integer, IssuingMethod> names) {
+        Map<String, Integer> labels = new LinkedHashMap<>();
+        Map<String, String> through = new HashMap<>();
+        for (Map.Entry<Integer, Integer> entry : issuers.entrySet()) {
+            IssuingMethod method = names.apply(entry.getKey());
+            if (method == null || method.key() == null) {
+                // An unknown method names nothing.
+                continue;
+            }
+            String label = CodePathStamps.label(method.key());
+            labels.merge(label, entry.getValue(), Integer::sum);
+            if (method.repositoryKey() != null) {
+                through.putIfAbsent(label, CodePathStamps.label(method.repositoryKey()));
+            }
+        }
+        if (labels.isEmpty()) {
+            return null;
+        }
+        Map.Entry<String, Integer> most = labels.entrySet().stream()
+                .min(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+                .orElseThrow();
+        return new Issuer(most.getKey(), through.get(most.getKey()), labels.size() - 1);
+    }
+
+    /**
+     * The method that issued the most of a statement's repeats, the repository method it went through, if any, and how
+     * many other methods issued the rest.
+     */
+    private record Issuer(String label, String through, int others) {
+
+        /** As the sentence names it, in code spans. */
+        String markdown() {
+            return "`" + label + "`" + (through == null ? "" : ", through `" + through + "`") + more();
+        }
+
+        /** As a table cell names it. */
+        String plain() {
+            return label + (through == null ? "" : " (through " + through + ")") + more();
+        }
+
+        private String more() {
+            return others == 0 ? "" : " and " + others + (others == 1 ? " other method" : " other methods");
+        }
     }
 
     private static boolean isSelect(String fingerprint) {
@@ -244,7 +388,8 @@ public final class RepeatedSelects implements Observation {
             boolean measured,
             String callSite,
             String phase,
-            String inTransaction) {
+            String inTransaction,
+            Map<Integer, Integer> issuers) {
 
         static Repeat first(
                 ProjectedRequest request,
@@ -264,7 +409,19 @@ public final class RepeatedSelects implements Observation {
                     duration > 0,
                     sql.callSite(),
                     phaseLabel(sql.phase()),
-                    transactionLabel(event, windows));
+                    transactionLabel(event, windows),
+                    issuer(Map.of(), sql));
+        }
+
+        /** {@code issuers} with the method that issued {@code sql}, when its stamp names one. */
+        private static Map<Integer, Integer> issuer(Map<Integer, Integer> issuers, SqlPayload sql) {
+            int method = sql.codePathStamp() == 0L ? -1 : CodePathStamps.method(sql.codePathStamp());
+            if (method < 0) {
+                return issuers;
+            }
+            Map<Integer, Integer> merged = new LinkedHashMap<>(issuers);
+            merged.merge(method, 1, Integer::sum);
+            return java.util.Collections.unmodifiableMap(merged);
         }
 
         Repeat plus(RuntimeEvent event, SqlPayload sql, TransactionWindows windows) {
@@ -280,7 +437,8 @@ public final class RepeatedSelects implements Observation {
                     measured || duration > 0,
                     callSite,
                     merge(phase, phaseLabel(sql.phase())),
-                    merge(inTransaction, transactionLabel(event, windows)));
+                    merge(inTransaction, transactionLabel(event, windows)),
+                    issuer(issuers, sql));
         }
     }
 }

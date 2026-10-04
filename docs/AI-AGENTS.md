@@ -376,12 +376,18 @@ application methods a route spends its time in, from the agent's `code-paths` se
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or method), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time; then the excluded methods and limitations |
+| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or method), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time, each with `calls`: the SQL, REST client, cache, and AI calls it issued per request, by kind; then the excluded methods and limitations |
 
 Like `get_code_inventory`, it is advertised only while the sensor records this run. Times are per warm request, each
-route's first recorded request kept apart. A method's self time still includes the SQL, REST client, and other recorded
-calls it waited on, so read it beside `get_runtime_insights`: `route-time-breakdown` splits only the handler's other
-work by these methods. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or asynchronous
+route's first recorded request kept apart. A node's `calls` are the recorded calls stamped with it: it was the innermost
+instrumented method open on their thread when they ran. Their time is part of the node's self time. A statement
+Hibernate flushes at commit runs after the `@Transactional` method returned, in the transaction interceptor around it,
+so it shows under the method that called the `@Transactional` one. A call issued while no instrumented method was open,
+as in a filter or while the response is written, and a call recorded on another thread than the one that issued it,
+such as a streaming AI call, show under no node, and the limitations count each apart. `route-time-breakdown` splits
+only the handler's other work by each method's own time, its self time minus its stamped calls, and not at all when
+calls without a stamp take a tenth of the handler or none is stamped; `repeated-selects` names the method that issued
+a repeated statement, past an application repository or DAO method to the method that called it. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or asynchronous
 result, or BootUI could not tell where its work ran, so its tree times assembly, not the work. Node percentiles are
 approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue` prompt calls it for a slow route whose time is in its handler.
 
@@ -565,7 +571,8 @@ When you do not know which panel to investigate first, ask your coding agent for
 The BootUI skill — installed [on its own](#install-the-bootui-agent-skill) or through the
 [Claude Code plugin](#install-the-bootui-claude-code-plugin) — teaches this workflow through MCP, the CLI, or the plain
 HTTP command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
-three argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `review_application` for a focused
+four argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `verify_after_change` to run the tests,
+compare with the previous run, and stop, `review_application` for a focused
 advisor review, and `assess_application` for a broader assessment and approval-gated plan. Clients without prompt support
 can use the skill and the request above; there is no `bootui assess` command or new assessment tool.
 

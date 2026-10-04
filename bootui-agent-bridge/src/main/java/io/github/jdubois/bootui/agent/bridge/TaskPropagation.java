@@ -181,7 +181,7 @@ public final class TaskPropagation {
             if (count) {
                 KEYED[hook].increment();
             }
-            if (!TaskSnapshots.TASKS.put(task, generation, (Object[]) payload)) {
+            if (!TaskSnapshots.TASKS.put(task, generation, (Object[]) payload, Math.max(0L, CodePaths.stamp()))) {
                 AMBIGUOUS.increment();
             }
             return KEYED_OWNED;
@@ -387,6 +387,8 @@ public final class TaskPropagation {
                     reopen.apply(new Object[] {snapshot.payload, task.getClass().getName(), APPLY_HOOKS[hook]});
             if (handle != null) {
                 APPLIED[hook].increment();
+                // The work's code-paths fragment records the node that submitted it (PLAN-v2 §5.14, design I7).
+                CodePaths.handoff(snapshot.stamp);
                 if (handle instanceof Runnable) {
                     Active active = new Active(completionTarget, handle, ACTIVE.get());
                     ACTIVE.set(active);
@@ -516,6 +518,11 @@ public final class TaskPropagation {
     private static void exitHandle(Object handle, Throwable failure, boolean bodyFailure) {
         if (handle == null) {
             return;
+        }
+        if (!(handle instanceof Deferred)) {
+            // Matches the handoff where the handle was opened: the thread's previous submitter is back, as when an
+            // executor ran the work on the submitting thread inside work it ran itself.
+            CodePaths.handoffDone();
         }
         try {
             if (failure != null && handle instanceof BiConsumer) {

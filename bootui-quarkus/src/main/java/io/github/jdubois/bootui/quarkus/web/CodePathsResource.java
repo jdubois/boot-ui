@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.CodePathsAgentReport;
+import io.github.jdubois.bootui.core.dto.CodePathsBeansReport;
 import io.github.jdubois.bootui.core.dto.CodePathsReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
@@ -43,6 +44,13 @@ public class CodePathsResource {
             @QueryParam("offset") Integer offset,
             @QueryParam("limit") Integer limit) {
         return service.routeTree(route, depth, offset, limit);
+    }
+
+    @GET
+    @Path("/beans")
+    @Produces(MediaType.APPLICATION_JSON)
+    public CodePathsBeansReport beans() {
+        return service.beans();
     }
 
     @GET

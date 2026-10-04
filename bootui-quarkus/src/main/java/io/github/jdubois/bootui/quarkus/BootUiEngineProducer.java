@@ -65,6 +65,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -315,7 +316,8 @@ public class BootUiEngineProducer {
             JavaAgentService javaAgent,
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
-            Instance<QuarkusPanelAvailability> panels) {
+            Instance<QuarkusPanelAvailability> panels,
+            Instance<QuarkusBeanProvider> beans) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         CodePathsService service =
                 new CodePathsService(AgentBridgeAccess.locate(), current::claim, javaAgent::codePathsUnavailableReason);
@@ -324,6 +326,8 @@ public class BootUiEngineProducer {
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         service.setRoutesVisible(() -> httpExchangesVisible(panels));
+        // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
+        service.setStructure(() -> StructureSnapshots.read(null, beans.isResolvable() ? beans.get() : null, null));
         return service;
     }
 

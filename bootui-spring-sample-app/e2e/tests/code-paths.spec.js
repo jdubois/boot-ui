@@ -15,7 +15,7 @@ test.describe('Code Paths view', () => {
     if (!agentAttached) {
       expect(panel.available).toBe(false)
       expect(panel.unavailableReason).toMatch(/^Requires the BootUI agent's code-paths sensor/)
-      for (const path of ['', '/route?route=GET%20%2Fapi%2Fhello', '/requests/0000000000000000']) {
+      for (const path of ['', '/route?route=GET%20%2Fapi%2Fhello', '/requests/0000000000000000', '/beans']) {
         const response = await page.request.get(`/bootui/api/code-paths${path}`)
         expect(response.ok()).toBeTruthy()
         const body = await response.json()
@@ -62,5 +62,49 @@ test.describe('Code Paths view', () => {
     const detail = page.locator('.code-paths-method-detail')
     await expect(detail.locator('.code-paths-callers')).toContainText('QuoteService.quote')
     await expect(detail.locator('.code-paths-reach')).toContainText('GET /api/quotes/{sku}')
+
+    // M5-4c: the seeded N+1 route's statements show under the service method that issued them.
+    for (let i = 0; i < 4; i++) {
+      expect((await page.request.get('/api/insights/orders')).ok()).toBeTruthy()
+    }
+    const ordersRoute = 'GET /api/insights/orders'
+    await expect
+      .poll(
+        async () => {
+          const report = await (
+            await page.request.get(`/bootui/api/code-paths/route?route=${encodeURIComponent(ordersRoute)}`)
+          ).json()
+          return (report.nodes ?? []).some(
+            (node) =>
+              node.method?.includes('InsightOrderService#ordersLineByLine') &&
+              node.calls?.some((call) => call.kind === 'SQL')
+          )
+        },
+        {timeout: 30_000}
+      )
+      .toBe(true)
+    await page.goto(`/bootui/#/code-paths?route=${encodeURIComponent(ordersRoute)}`)
+    await expect(page.locator('#code-paths-tree-heading')).toHaveText(ordersRoute)
+    await expect(page.locator('.code-paths-call').first()).toContainText(
+      'SQL statements, issued while InsightOrderService.ordersLineByLine was open'
+    )
+
+    // Beans at runtime: the controller's observed calls into the service beside its declared dependency.
+    await page.getByRole('tab', {name: 'Beans at runtime'}).click()
+    await expect(page.getByRole('tab', {name: 'Beans at runtime'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tabpanel')).toHaveCount(1)
+    const beans = page.locator('.code-paths-beans-table')
+    await expect(beans).toBeVisible()
+    const edge = beans
+      .locator('tbody tr')
+      .filter({hasText: 'insightSeedController'})
+      .filter({hasText: 'insightOrderService'})
+    await expect(edge).toHaveCount(1)
+    await expect(edge.locator('td').nth(2)).toHaveText('Yes')
+    await expect(page.locator('.code-paths-beans')).not.toContainText(/unused/i)
+    await page.getByLabel('Only declared dependencies not called in this run').check()
+    await expect(
+      beans.locator('tbody tr').filter({hasText: 'insightSeedController'}).filter({hasText: 'insightOrderService'})
+    ).toHaveCount(0)
   })
 })

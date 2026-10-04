@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.codepaths;
 
+import io.github.jdubois.bootui.core.dto.CodePathsCallsDto;
 import io.github.jdubois.bootui.core.dto.CodePathsMethodDto;
 import io.github.jdubois.bootui.core.dto.CodePathsMethodTimeDto;
 import io.github.jdubois.bootui.core.dto.CodePathsNodeDto;
@@ -98,7 +99,7 @@ final class CodePathsViews {
         long[] durations = tree.recentDurations();
         List<CodePathsMethodTimeDto> top = new ArrayList<>();
         if (warm > 0) {
-            for (Map.Entry<Integer, Long> method : selfByMethod(tree, false, TOP_METHODS)) {
+            for (Map.Entry<Integer, Long> method : selfByMethod(tree, false, false, TOP_METHODS)) {
                 String key = keys.apply(method.getKey());
                 top.add(new CodePathsMethodTimeDto(
                         key,
@@ -157,16 +158,17 @@ final class CodePathsViews {
 
     /**
      * The route's methods by self time, slowest first, at most {@code max}: every node of a method summed, its own
-     * request's work only. With {@code handlerOnly}, only the nodes entered in the handler phase.
+     * request's work only. With {@code handlerOnly}, only the nodes entered in the handler phase; with {@code own}, by
+     * own time, without the recorded calls stamped to them.
      */
-    static List<Map.Entry<Integer, Long>> selfByMethod(RouteTree tree, boolean handlerOnly, int max) {
+    static List<Map.Entry<Integer, Long>> selfByMethod(RouteTree tree, boolean handlerOnly, boolean own, int max) {
         Map<Integer, Long> self = new HashMap<>();
         for (int node = 1; node < tree.nodeCount(); node++) {
             int method = tree.method(node);
             if (method < 0 || tree.async(node) || (handlerOnly && !tree.handlerNode(node))) {
                 continue;
             }
-            self.merge(method, tree.selfNanos(node), Long::sum);
+            self.merge(method, own ? tree.ownNanos(node) : tree.selfNanos(node), Long::sum);
         }
         List<Map.Entry<Integer, Long>> ranked = new ArrayList<>(self.entrySet());
         ranked.sort(Map.Entry.<Integer, Long>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()));
@@ -180,11 +182,26 @@ final class CodePathsViews {
             return null;
         }
         List<HandlerMethods.Method> methods = new ArrayList<>();
-        for (Map.Entry<Integer, Long> method : selfByMethod(tree, true, HandlerMethods.TOP)) {
-            String key = keys.apply(method.getKey());
-            methods.add(new HandlerMethods.Method(key, label(key), method.getValue()));
+        List<Map.Entry<Integer, Long>> top = selfByMethod(tree, true, true, HandlerMethods.TOP);
+        List<String> methodKeys = new ArrayList<>();
+        for (Map.Entry<Integer, Long> method : top) {
+            methodKeys.add(keys.apply(method.getKey()));
         }
-        return new HandlerMethods(tree.route(), tree.warmRequests(), tree.handlerNanos(), methods, tree.assemblyOnly());
+        // Overloads and same-named classes keep distinct labels, so no row of the split replaces another.
+        List<String> labels = CodePathStamps.labels(methodKeys);
+        for (int i = 0; i < top.size(); i++) {
+            methods.add(new HandlerMethods.Method(
+                    methodKeys.get(i), labels.get(i), top.get(i).getValue()));
+        }
+        return new HandlerMethods(
+                tree.route(),
+                tree.warmRequests(),
+                tree.handlerOwnNanos(),
+                methods,
+                tree.assemblyOnly(),
+                tree.stampedCalls(),
+                tree.unstampedCalls(),
+                tree.unstampedNanos());
     }
 
     // --- route tree nodes --------------------------------------------------------------------------------------------
@@ -263,7 +280,25 @@ final class CodePathsViews {
                 share,
                 p50 < 0 ? null : millis(p50),
                 p95 < 0 ? null : millis(p95),
-                childCounts[node]);
+                childCounts[node],
+                calls(kind -> tree.ioCalls(node, kind), kind -> tree.ioNanos(node, kind), warm));
+    }
+
+    /** One entry per kind of recorded call a node issued, per {@code requests} requests. */
+    static List<CodePathsCallsDto> calls(
+            java.util.function.IntToLongFunction calls, java.util.function.IntToLongFunction nanos, long requests) {
+        List<CodePathsCallsDto> list = new ArrayList<>();
+        for (int kind = 0; kind < CodePathStamps.KINDS; kind++) {
+            long count = calls.applyAsLong(kind);
+            if (count == 0) {
+                continue;
+            }
+            list.add(new CodePathsCallsDto(
+                    CodePathStamps.NAMES[kind],
+                    Math.round(count * 100.0 / requests) / 100.0,
+                    kind == CodePathStamps.CACHE ? null : millis((double) nanos.applyAsLong(kind) / requests)));
+        }
+        return list;
     }
 
     static int[] childCounts(RouteTree tree) {
@@ -367,7 +402,8 @@ final class CodePathsViews {
                     share,
                     null,
                     null,
-                    children.get(node).size()));
+                    children.get(node).size(),
+                    calls(kind -> tree.ioCalls(node, kind), kind -> tree.ioNanos(node, kind), 1L)));
         }
         return nodes;
     }

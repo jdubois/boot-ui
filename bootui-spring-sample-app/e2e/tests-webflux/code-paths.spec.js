@@ -17,7 +17,7 @@ test.describe('Code Paths view on Spring WebFlux', () => {
     if (!agentAttached) {
       expect(panel.available).toBe(false)
       expect(panel.unavailableReason).toMatch(/^Requires the BootUI agent's code-paths sensor/)
-      for (const path of ['', '/route?route=GET%20%2F', '/requests/0000000000000000']) {
+      for (const path of ['', '/route?route=GET%20%2F', '/requests/0000000000000000', '/beans']) {
         const body = await (await request.get(`${baseURL}/bootui/api/code-paths${path}`)).json()
         expect(body.available).toBe(false)
       }

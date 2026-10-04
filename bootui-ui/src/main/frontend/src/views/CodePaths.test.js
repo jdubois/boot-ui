@@ -227,6 +227,155 @@ describe('Code Paths panel', () => {
     expect(wrapper.find('.code-paths-method-detail').exists()).toBe(false)
   })
 
+  it('shows the SQL, REST, cache, and AI calls a method issued under it', async () => {
+    const withCalls = {
+      ...quoteTree,
+      nodes: quoteTree.nodes.map((entry) =>
+        entry.method === QUOTE
+          ? {
+              ...entry,
+              calls: [
+                {kind: 'SQL', callsPerRequest: 6, totalMillis: 12.5},
+                {kind: 'CACHE', callsPerRequest: 1, totalMillis: null}
+              ]
+            }
+          : {...entry, calls: []}
+      )
+    }
+    ;({wrapper} = mountPanel({
+      'api/code-paths/route?route=GET /api/quote': withCalls,
+      'api/code-paths/route?route=GET /api/stream': streamTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+
+    const rows = wrapper.findAll('.code-paths-tree tbody tr')
+    expect(rows).toHaveLength(6)
+    const calls = wrapper.findAll('.code-paths-call')
+    expect(calls).toHaveLength(2)
+    expect(rows[3].classes()).toContain('code-paths-call')
+    expect(calls[0].find('td').text()).toBe('SQL statements, issued while SlowPricingService.quote was open')
+    expect(calls[0].findAll('td')[1].text()).toBe('6')
+    expect(calls[0].findAll('td')[2].text()).toBe('12.5')
+    expect(calls[0].get('.code-paths-indent').attributes('style')).toContain('padding-inline-start: 3.3rem')
+    expect(calls[0].get('.code-paths-call-label').attributes('title')).toBe(
+      'Issued while SlowPricingService.quote was the innermost instrumented method open on their thread'
+    )
+    expect(calls[1].find('td').text()).toContain('Cache access')
+    expect(calls[1].findAll('td')[2].text()).toBe('—')
+    // A commit flush runs after the @Transactional method returned, under the method that called it.
+    expect(wrapper.get('.code-paths-tree-summary').text()).toContain(
+      'A statement Hibernate flushes at commit runs after the @Transactional method returned, so it shows under the method that called it.'
+    )
+  })
+
+  it('compares the calls observed between beans with their declared dependencies in Beans at runtime', async () => {
+    const beans = {
+      available: true,
+      unavailableReason: null,
+      beansAvailable: true,
+      edges: [
+        {
+          from: 'quoteController',
+          fromType: 'shop.QuoteController',
+          to: 'quoteService',
+          toType: 'shop.QuoteService',
+          declared: true,
+          observed: true,
+          calls: 12,
+          observable: true,
+          unobservableReason: null
+        },
+        {
+          from: 'quoteService',
+          fromType: 'shop.QuoteService',
+          to: 'auditService',
+          toType: 'shop.AuditService',
+          declared: true,
+          observed: false,
+          calls: 0,
+          observable: true,
+          unobservableReason: null
+        },
+        {
+          from: 'quoteService',
+          fromType: 'shop.QuoteService',
+          to: 'ownerRepository',
+          toType: 'jdk.proxy2.$Proxy91',
+          declared: true,
+          observed: false,
+          calls: 0,
+          observable: false,
+          unobservableReason: "The called bean's class is not one the code-paths sensor instruments."
+        }
+      ],
+      observedEdges: 1,
+      declaredEdges: 3,
+      notCalled: 1,
+      omitted: 0,
+      limitations: ['Calls come from this run’s route trees, first requests included.']
+    }
+    let fetch
+    ;({wrapper, fetch} = mountPanel({
+      'api/code-paths/beans': beans,
+      'api/code-paths/route': quoteTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+    expect(fetch.mock.calls.map(([url]) => String(url))).not.toContain('api/code-paths/beans')
+
+    const tabs = wrapper.findAll('[role="tab"]')
+    expect(tabs.map((tab) => tab.text())).toEqual(['Routes', 'Beans at runtime'])
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    expect(tabs[1].attributes('tabindex')).toBe('-1')
+    await tabs[0].trigger('keydown', {key: 'ArrowRight'})
+    await flushPromises()
+
+    expect(wrapper.findAll('[role="tab"]')[1].attributes('aria-selected')).toBe('true')
+    expect(wrapper.findAll('[role="tabpanel"]')).toHaveLength(1)
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe('code-paths-tab-beans')
+    expect(fetch.mock.calls.map(([url]) => String(url))).toContain('api/code-paths/beans')
+    expect(wrapper.get('.code-paths-beans-summary').text()).toContain('1 call pair between beans observed')
+    expect(wrapper.get('.code-paths-beans-summary').text()).toContain('of which 1 not called in this run')
+    const rows = wrapper.findAll('.code-paths-beans-table tbody tr')
+    expect(rows.map((row) => row.findAll('td')[3].text())).toEqual(['12', 'Not called in this run', 'Not observable'])
+    // A dependency a call into which would not be observed never reads as not called, and says why.
+    expect(rows[2].get('.code-paths-not-observable').attributes('title')).toBe(
+      "The called bean's class is not one the code-paths sensor instruments."
+    )
+    expect(wrapper.text()).not.toMatch(/unused/i)
+
+    await wrapper.get('#code-paths-not-called').setValue(true)
+    const filtered = wrapper.findAll('.code-paths-beans-table tbody tr')
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].text()).toContain('auditService')
+  })
+
+  it('says why Beans at runtime is unavailable', async () => {
+    ;({wrapper} = mountPanel({
+      'api/code-paths/beans': {
+        available: false,
+        unavailableReason: "Requires the BootUI agent's code-paths sensor.",
+        beansAvailable: false,
+        edges: [],
+        observedEdges: 0,
+        declaredEdges: 0,
+        notCalled: 0,
+        omitted: 0,
+        limitations: []
+      },
+      'api/code-paths/route': quoteTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+    await wrapper.findAll('[role="tab"]')[1].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.code-paths-beans-unavailable').text()).toContain(
+      "Requires the BootUI agent's code-paths sensor."
+    )
+  })
+
   it('lists the excluded methods with why', async () => {
     ;({wrapper} = mountPanel({
       'api/code-paths/route': quoteTree,
