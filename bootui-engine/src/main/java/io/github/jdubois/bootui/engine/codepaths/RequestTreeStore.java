@@ -15,9 +15,10 @@ import java.util.function.Function;
 /**
  * The request trees of one run ({@code docs/PLAN-v2.md} §5.14, M5-4a), never in the journal: fragments merge into an
  * open tree per request until it settles, when the calls its request recorded with a code-paths stamp are attached under
- * the nodes that issued them (M5-4c), {@value #SETTLE_NANOS} ns after its last fragment or, once {@value #MAX_OPEN}
- * younger trees are open, with the {@value #OVERFLOW_BATCH} eldest in one journal read (M5-13); a settled tree is
- * kept among the {@value #RECENT} most recent, and as an exemplar of its route when it is among the {@value #EXEMPLARS} slowest or the {@value #EXEMPLARS} latest failed, for at most
+ * the nodes that issued them (M5-4c), {@value #SETTLE_NANOS} ns after its last fragment or, when more than
+ * {@value #MAX_OPEN} are open, with the eldest quarter in one journal read (M5-13); a settled tree is kept among the
+ * {@value #RECENT} most recent, and as an exemplar of its route when it is among the {@value #EXEMPLARS} slowest or the
+ * {@value #EXEMPLARS} latest failed, for at most
  * {@value #MAX_ROUTES} routes. A fragment arriving after its request settled, as a late handoff's, merges into the kept
  * recent tree, and into its exemplar too, or into the tree still waiting for its request's exchange, even one no longer
  * among the recent ones; one arriving after its tree left the recent ones but is still an exemplar is dropped and
@@ -27,8 +28,12 @@ import java.util.function.Function;
  * its exchange also keeps, until its calls are attached, the nodes of every fragment its builder remembered, at most
  * {@value RequestTreeBuilder#MAX_HOLDERS} fragments as an open tree's, so its executors' calls and its own past the
  * {@value RequestTreeBuilder#MAX_KEPT_HOLDERS} fragments a settled tree keeps still find their node; waiting, it is
- * looked up only in the journal events recorded since the last look ({@link RequestOutcomeReader#exchangesAfter}). Not
- * thread-safe.
+ * looked up only in the journal events recorded since the last look ({@link RequestOutcomeReader#exchangesAfter}).
+ *
+ * <p>Both bounds shrink with a configured agent evidence bound (M5-11, {@code AgentEvidence#scale}). <b>Clear
+ * recording</b> ({@link #clear}) drops every tree, open, kept, waiting, or exemplar, and any fragment flushed before it,
+ * still queued or not; a request that lost a fragment to the clear is left out whole, by a tombstone of its key (at
+ * most {@value #MAX_TOMBSTONES}), never kept partial. Not thread-safe.
  */
 public final class RequestTreeStore {
 
@@ -36,8 +41,8 @@ public final class RequestTreeStore {
     public static final int MAX_OPEN = 512;
 
     /**
-     * The eldest open trees settled together, in one journal read, once {@link #MAX_OPEN} younger ones are open: at
-     * most {@code MAX_OPEN + OVERFLOW_BATCH - 1} trees are open.
+     * The eldest open trees settled together, in one journal read, when more than {@link #MAX_OPEN} are open: a
+     * quarter of the most open trees, so {@code MAX_OPEN - OVERFLOW_BATCH} younger ones stay open.
      */
     public static final int OVERFLOW_BATCH = MAX_OPEN / 4;
 
@@ -45,6 +50,18 @@ public final class RequestTreeStore {
     public static final int EXEMPLARS = 3;
     public static final int MAX_ROUTES = 100;
     public static final int MAX_KEPT_NODES = 131_072;
+
+    /** The most cleared request keys remembered, the oldest forgotten first. */
+    public static final int MAX_TOMBSTONES = 4_096;
+
+    /** The estimated bytes of one tree node, kept or open: its seven arrays' entries. */
+    public static final int NODE_BYTES = 48;
+
+    /** The estimated bytes of one tree beyond its nodes: the record, its arrays' headers, and its spans. */
+    public static final int TREE_BYTES = 512;
+
+    /** The estimated bytes of one tombstone. */
+    public static final int TOMBSTONE_BYTES = 96;
 
     /**
      * How long a settled tree waits for its request's exchange, as a slow reactive response's, before it is completed
@@ -62,6 +79,15 @@ public final class RequestTreeStore {
     public static final int MAX_UNRESOLVED = 256;
 
     private final RequestOutcomeReader outcomes;
+    private final int maxOpen;
+    private final int overflowBatch;
+    private final int maxKeptNodes;
+    private final LinkedHashMap<String, Boolean> tombstones = new LinkedHashMap<>();
+    private boolean cleared;
+    private long clearedBeforeNanos;
+    private long clearedTrees;
+    private long clearedFragments;
+    private long openNodes;
     private BiConsumer<RequestTree, RequestOutcome> settledListener = (tree, outcome) -> {};
     private final LinkedHashMap<String, Open> open = new LinkedHashMap<>();
     private final LinkedHashMap<String, Kept> recent = new LinkedHashMap<>();
@@ -81,7 +107,20 @@ public final class RequestTreeStore {
 
     /** @param outcomes names the route and outcome of settling requests by request id, such as {@link JournalRequestOutcomes#of} */
     public RequestTreeStore(Function<Set<String>, Map<String, RequestOutcome>> outcomes) {
+        this(outcomes, MAX_OPEN, MAX_KEPT_NODES);
+    }
+
+    /**
+     * @param outcomes as {@link #RequestTreeStore(Function)}
+     * @param maxOpen the most open trees, at most {@value #MAX_OPEN}
+     * @param maxKeptNodes the most nodes kept, at most {@value #MAX_KEPT_NODES}
+     */
+    public RequestTreeStore(
+            Function<Set<String>, Map<String, RequestOutcome>> outcomes, int maxOpen, int maxKeptNodes) {
         this.outcomes = RequestOutcomeReader.of(outcomes);
+        this.maxOpen = Math.max(1, Math.min(MAX_OPEN, maxOpen));
+        this.overflowBatch = Math.max(1, this.maxOpen / 4);
+        this.maxKeptNodes = Math.max(RequestTreeBuilder.MAX_NODES, Math.min(MAX_KEPT_NODES, maxKeptNodes));
     }
 
     /**
@@ -95,6 +134,15 @@ public final class RequestTreeStore {
     /** Merges {@code fragment} into its request's tree. */
     public void add(CodePathFragment fragment, long nowNanos) {
         String key = RequestTreeBuilder.keyOf(fragment);
+        if (cleared && (fragment.endNanos() - clearedBeforeNanos < 0 || tombstones.containsKey(key))) {
+            // Flushed before the clear, though drained after it, or of a request that lost such a fragment: the
+            // request is left out whole, never kept partial, though a fragment of it flushed after the clear was
+            // drained first. A tree already merged into its route tree stays there.
+            tombstone(key);
+            forget(key);
+            clearedFragments++;
+            return;
+        }
         Pending pending = unresolved.get(key);
         Kept kept = pending != null ? pending.kept : recent.get(key);
         if (kept != null && !open.containsKey(key)) {
@@ -133,13 +181,16 @@ public final class RequestTreeStore {
         }
         entry.builder.add(fragment);
         entry.lastNanos = nowNanos;
-        if (open.size() >= MAX_OPEN + OVERFLOW_BATCH) {
-            // One journal read for the eldest batch, not one per request (M5-13): above MAX_OPEN requests a settle
-            // period, settling one tree per fragment read the whole journal for every request. The MAX_OPEN youngest
-            // stay open, as before, for their late fragments.
-            List<String> eldest = new ArrayList<>(OVERFLOW_BATCH);
+        // An upper bound on the builder's nodes, which merges fragments by method.
+        int nodes = Math.min(RequestTreeBuilder.MAX_NODES, entry.nodes + fragment.parent().length);
+        openNodes += nodes - entry.nodes;
+        entry.nodes = nodes;
+        if (open.size() > maxOpen) {
+            // One journal read for the eldest batch, not one per request (M5-13): above maxOpen requests a settle
+            // period, settling one tree per fragment read the whole journal for every request.
+            List<String> eldest = new ArrayList<>(overflowBatch);
             Iterator<String> keys = open.keySet().iterator();
-            while (keys.hasNext() && eldest.size() < OVERFLOW_BATCH) {
+            while (keys.hasNext() && eldest.size() < overflowBatch) {
                 eldest.add(keys.next());
             }
             settle(eldest, nowNanos, false);
@@ -198,7 +249,7 @@ public final class RequestTreeStore {
             named = Map.of();
         }
         for (String key : keys) {
-            Open entry = open.remove(key);
+            Open entry = removeOpen(key);
             String requestId = entry.builder.requestId();
             RequestOutcome outcome = requestId == null ? null : named.get(requestId);
             RequestOutcome resolved = outcome == null ? RequestOutcome.UNKNOWN : outcome;
@@ -359,10 +410,10 @@ public final class RequestTreeStore {
     }
 
     private void trim() {
-        while (keptNodes > MAX_KEPT_NODES && !recent.isEmpty()) {
+        while (keptNodes > maxKeptNodes && !recent.isEmpty()) {
             forgetEldestRecent();
         }
-        while (keptNodes > MAX_KEPT_NODES && !routes.isEmpty()) {
+        while (keptNodes > maxKeptNodes && !routes.isEmpty()) {
             forgetEldestRoute();
         }
     }
@@ -495,10 +546,109 @@ public final class RequestTreeStore {
         return keptNodes;
     }
 
+    /** Removes the open tree of {@code key}, if any, and its nodes from the count; {@code ignored} is unused. */
+    private Open removeOpen(String key) {
+        Open entry = open.remove(key);
+        if (entry != null) {
+            openNodes -= entry.nodes;
+        }
+        return entry;
+    }
+
+    /** Remembers {@code key} as cleared, as the most recent, so a long request's tombstone is the last forgotten. */
+    private void tombstone(String key) {
+        tombstones.remove(key);
+        tombstones.put(key, Boolean.TRUE);
+        while (tombstones.size() > MAX_TOMBSTONES) {
+            tombstones.remove(tombstones.keySet().iterator().next());
+        }
+    }
+
+    /** Drops every tree of {@code key}: open, recent, waiting for its exchange, or exemplar. */
+    private void forget(String key) {
+        removeOpen(key);
+        Kept kept = recent.remove(key);
+        if (kept != null) {
+            keptNodes -= kept.tree.nodeCount();
+        }
+        unresolved.remove(key);
+        for (Exemplars exemplars : routes.values()) {
+            keptNodes += exemplars.remove(key);
+        }
+    }
+
+    /**
+     * <b>Clear recording</b> (M5-11): drops every tree, open, recent, waiting for its exchange, or exemplar, and
+     * remembers their keys, so a later fragment of one of them is dropped too; from now on, a fragment flushed before
+     * {@code nowNanos}, as one still queued in the agent's ring, is dropped with its request. Counts since the claim are
+     * kept.
+     *
+     * @return how many trees were dropped
+     */
+    public int clear(long nowNanos) {
+        Set<String> keys = new java.util.LinkedHashSet<>(open.keySet());
+        keys.addAll(recent.keySet());
+        keys.addAll(unresolved.keySet());
+        for (Exemplars exemplars : routes.values()) {
+            for (RequestTree tree : exemplars.trees()) {
+                keys.add(tree.key());
+            }
+        }
+        for (String key : keys) {
+            tombstone(key);
+        }
+        open.clear();
+        recent.clear();
+        routes.clear();
+        unresolved.clear();
+        openNodes = 0;
+        keptNodes = 0;
+        nextResolve = Long.MIN_VALUE;
+        cleared = true;
+        clearedBeforeNanos = nowNanos;
+        clearedTrees += keys.size();
+        return keys.size();
+    }
+
+    /** How many trees were dropped by clears. */
+    public long clearedTrees() {
+        return clearedTrees;
+    }
+
+    /** How many fragments were dropped because their request was cleared. */
+    public long clearedFragments() {
+        return clearedFragments;
+    }
+
+    /** How many trees are kept: recent, waiting for their exchange, or open. */
+    public int trees() {
+        return recent.size() + unresolved.size() + open.size();
+    }
+
+    /** The most nodes kept. */
+    public int maxKeptNodes() {
+        return maxKeptNodes;
+    }
+
+    /** The estimated bytes of every tree kept, open, and remembered as cleared. */
+    public long estimatedBytes() {
+        return (keptNodes + openNodes) * (long) NODE_BYTES
+                + (long) (recent.size() + unresolved.size() + open.size()) * TREE_BYTES
+                + (long) tombstones.size() * TOMBSTONE_BYTES;
+    }
+
+    /** The estimated bytes of the most this store keeps: its kept and open nodes, and its tombstones. */
+    public long maxEstimatedBytes() {
+        return ((long) maxKeptNodes + (long) maxOpen * RequestTreeBuilder.MAX_NODES) * NODE_BYTES
+                + (long) (RECENT + MAX_UNRESOLVED + maxOpen) * TREE_BYTES
+                + (long) MAX_TOMBSTONES * TOMBSTONE_BYTES;
+    }
+
     private static final class Open {
 
         final RequestTreeBuilder builder;
         long lastNanos;
+        int nodes;
 
         Open(RequestTreeBuilder builder) {
             this.builder = builder;
@@ -591,6 +741,14 @@ public final class RequestTreeStore {
                 slowest.sort(
                         Comparator.comparingLong(RequestTree::durationNanos).reversed());
             }
+            return nodes() - before;
+        }
+
+        /** Removes the exemplars with {@code key}; returns the change in nodes kept. */
+        int remove(String key) {
+            int before = nodes();
+            slowest.removeIf(tree -> tree.key().equals(key));
+            failed.removeIf(tree -> tree.key().equals(key));
             return nodes() - before;
         }
 

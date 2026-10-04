@@ -20,6 +20,12 @@ public final class RouteTrees {
     public static final int GLOBAL_OTHER_RESERVE = 2_000;
     public static final int MAX_ROUTES = 500;
 
+    /** The estimated bytes of one route-tree node: its arrays' entries, its histogram, and its index entry. */
+    public static final int NODE_BYTES = 264;
+
+    /** The estimated bytes of one route beyond its nodes: its durations and counters. */
+    public static final int ROUTE_BYTES = 2_560;
+
     private final int maxNodesPerRoute;
     private final int maxNodes;
     private final int maxRoutes;
@@ -32,6 +38,17 @@ public final class RouteTrees {
 
     public RouteTrees() {
         this(MAX_NODES_PER_ROUTE, MAX_NODES, MAX_ROUTES);
+    }
+
+    /**
+     * Route trees bounded by {@code maxNodes} nodes and {@code maxRoutes} routes, at most {@value #MAX_NODES} and
+     * {@value #MAX_ROUTES}, as a configured agent evidence bound scales them (M5-11).
+     */
+    public RouteTrees(int maxNodes, int maxRoutes) {
+        this(
+                MAX_NODES_PER_ROUTE,
+                Math.max(100, Math.min(MAX_NODES, maxNodes)),
+                Math.max(1, Math.min(MAX_ROUTES, maxRoutes)));
     }
 
     RouteTrees(int maxNodesPerRoute, int maxNodes, int maxRoutes) {
@@ -100,6 +117,44 @@ public final class RouteTrees {
     /** Changes each time a tree is merged. */
     public long version() {
         return version;
+    }
+
+    /**
+     * Empty route trees under the same bounds that keep {@code previous}'s counts since the claim, its version
+     * included, as <b>Clear recording</b> does (M5-11).
+     */
+    public RouteTrees cleared() {
+        RouteTrees next = new RouteTrees(maxNodesPerRoute, maxNodes, maxRoutes);
+        next.merged = merged;
+        next.unrouted = unrouted;
+        next.routesDropped = routesDropped;
+        next.version = version + 1;
+        return next;
+    }
+
+    /** How many routes have a tree. */
+    public int routeCount() {
+        return routes.size();
+    }
+
+    /** The most nodes across routes. */
+    public int maxNodes() {
+        return maxNodes;
+    }
+
+    /** The most routes. */
+    public int maxRoutes() {
+        return maxRoutes;
+    }
+
+    /** The estimated bytes of every route tree. */
+    public long estimatedBytes() {
+        return (long) nodes * NODE_BYTES + (long) routes.size() * ROUTE_BYTES;
+    }
+
+    /** The estimated bytes of the most these route trees hold. */
+    public long maxEstimatedBytes() {
+        return (long) maxNodes * NODE_BYTES + (long) maxRoutes * ROUTE_BYTES;
     }
 
     int maxNodesPerRoute() {

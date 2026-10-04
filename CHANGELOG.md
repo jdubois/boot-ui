@@ -9,6 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The agent evidence contract (M5-11).** Code Paths' request and route trees and Code Inventory's first calls, which
+  the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on Spring MVC, Spring
+  WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible, so a disabled
+  Code Paths or Code Inventory panel hides its evidence from its reads, MCP tool, CLI command, Beans at runtime, the
+  runtime model, and the Runtime Insights observations that read it, with the reason; **Clear recording** and **Free
+  BootUI memory** clear it with the journal, the records still queued in the agent's ring included, leaving a request
+  that lost a fragment out of Code Paths whole; and Live Activity's journal status reports its estimated bytes as
+  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 55 MB by default, which
+  changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
+  through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
+  in primitive slots per method id, bounded by the agent's method limit.
+
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
@@ -440,10 +452,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 - **Code Paths overhead under load.** With more than 512 request trees open, as under sustained load, the engine settled
   the eldest one tree at a time, reading the whole runtime journal once per request on BootUI's drain thread: 15 % of
-  the process's CPU in a profile of the sample under the agent overhead benchmark's load. The eldest 128 now settle
+  the process's CPU in a profile of the sample under the agent overhead benchmark's load. The eldest quarter now settle
   together, in one journal read: the agent overhead benchmark's median went from 16.0 % to 4.1 % with the default
-  sensors on a four-processor CI runner, and the `code-paths` sensor stays on by default ([Java agent](docs/features/java-agent.md#the-code-paths-sensor),
-  PLAN-v2 §5.13, M5-13).
+  sensors on a four-processor CI runner, and the `code-paths` sensor stays on by default
+  ([Java agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 §5.13, M5-13).
 - **Runtime Insights write evidence and plan accuracy.** On Quarkus, `safe-method-dml` labels Hibernate statements as
   preparations, separate from timed JDBC executions of the same SQL shape; the evidence and limitations no longer claim
   a prepared write ran. The v2 plan now describes persisted `METADATA_ONLY` reads and the in-progress Code Paths, Code

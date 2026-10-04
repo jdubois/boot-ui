@@ -17,9 +17,11 @@ import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.model.BeanInvocations;
 import io.github.jdubois.bootui.engine.model.ClassInvocation;
 import io.github.jdubois.bootui.engine.model.StructureSnapshot;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,7 +31,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -58,7 +59,15 @@ public final class CodePathsService implements AutoCloseable {
     private final LongSupplier nanoTime;
     private volatile RequestOutcomeReader outcomes = ids -> Map.of();
     private volatile Predicate<String> assemblyOnly = AgentCodePaths::isAssemblyOnly;
-    private volatile BooleanSupplier routesVisible = () -> true;
+    private final AgentEvidence evidence;
+    private final AgentEvidence.Store store = new Store();
+    // What the current run holds, published on every change for the evidence store, which never waits on the lock.
+    private volatile long usageBytes;
+    private volatile long usageMaxBytes;
+    private volatile long usageTrees;
+    private volatile long usageRoutes;
+    private volatile long usageRouteNodes;
+    private volatile long usageIndexBytes;
     private volatile Supplier<StructureSnapshot> structure = () -> null;
 
     /** Route-tree nodes returned when a read asks for none. */
@@ -119,19 +128,30 @@ public final class CodePathsService implements AutoCloseable {
      * @param unavailable why the code-paths sensor does not record for this application, {@code null} when it does, such
      *     as {@link JavaAgentService#codePathsUnavailableReason()}
      */
-    public CodePathsService(AgentBridgeAccess access, Supplier<AgentClaim> claims, Supplier<String> unavailable) {
-        this(access, claims, unavailable, System::nanoTime);
+    public CodePathsService(
+            AgentBridgeAccess access,
+            Supplier<AgentClaim> claims,
+            Supplier<String> unavailable,
+            AgentEvidence evidence) {
+        this(access, claims, unavailable, evidence, System::nanoTime);
     }
 
+    /**
+     * @param evidence the agent evidence contract this service's trees are read, cleared, bounded, and counted under
+     *     (M5-11)
+     */
     CodePathsService(
             AgentBridgeAccess access,
             Supplier<AgentClaim> claims,
             Supplier<String> unavailable,
+            AgentEvidence evidence,
             LongSupplier nanoTime) {
         this.access = access == null ? AgentBridgeAccess.absent() : access;
         this.claims = claims == null ? () -> null : claims;
         this.unavailable = unavailable == null ? () -> null : unavailable;
         this.nanoTime = nanoTime;
+        this.evidence = java.util.Objects.requireNonNull(evidence, "evidence");
+        evidence.register(store);
     }
 
     /**
@@ -143,24 +163,30 @@ public final class CodePathsService implements AutoCloseable {
     }
 
     /**
-     * Installs whether the panel that owns HTTP evidence, HTTP Exchanges, is visible ({@code docs/PLAN-v2.md} §8):
-     * while it is not, the reads answer {@link #ROUTES_HIDDEN} instead of a route, request tree, or handler split.
+     * The read of this service's panels now ({@code docs/PLAN-v2.md} §8, M5-11): the Code Paths panel, and HTTP
+     * Exchanges, which owns request routes and outcomes. A caller projecting several reads, as Runtime Insights, resolves
+     * it once and passes it to each.
      */
-    public void setRoutesVisible(BooleanSupplier routesVisible) {
-        this.routesVisible = routesVisible == null ? () -> true : routesVisible;
+    public AgentEvidence.Read read() {
+        return evidence.read(store);
     }
 
-    /** Why the reads answer nothing: the sensor does not record, or HTTP Exchanges is not visible; else {@code null}. */
-    private String readReason() {
-        String reason = unavailableReason();
+    /**
+     * Why the route and request reads answer nothing under {@code read}: the sensor does not record, the Code Paths panel
+     * is hidden, or HTTP Exchanges is ({@link #ROUTES_HIDDEN}); else {@code null}.
+     */
+    private String readReason(AgentEvidence.Read read) {
+        String reason = shownReason(read);
         if (reason != null) {
             return reason;
         }
-        try {
-            return routesVisible.getAsBoolean() ? null : ROUTES_HIDDEN;
-        } catch (RuntimeException ex) {
-            return ROUTES_HIDDEN;
-        }
+        return read.requests() ? null : ROUTES_HIDDEN;
+    }
+
+    /** Why nothing of Code Paths is shown under {@code read}: the sensor does not record, or the panel is hidden. */
+    private String shownReason(AgentEvidence.Read read) {
+        String reason = unavailableReason();
+        return reason != null ? reason : read.hiddenReason();
     }
 
     /**
@@ -220,6 +246,7 @@ public final class CodePathsService implements AutoCloseable {
                     run.close();
                 }
                 run = new Run(claim);
+                publish(run);
                 run.start();
             }
         } catch (RuntimeException ex) {
@@ -254,7 +281,7 @@ public final class CodePathsService implements AutoCloseable {
      */
     public RequestTree tree(String requestId) {
         Run current = current();
-        if (current == null || readReason() != null || requestId == null) {
+        if (current == null || readReason(read()) != null || requestId == null) {
             return null;
         }
         current.drainNow();
@@ -267,7 +294,7 @@ public final class CodePathsService implements AutoCloseable {
     /** This run's settled trees kept as recent, newest first, after draining what is waiting; none while hidden. */
     public List<RequestTree> recent() {
         Run current = current();
-        if (current == null || readReason() != null) {
+        if (current == null || readReason(read()) != null) {
             return List.of();
         }
         current.drainNow();
@@ -279,8 +306,12 @@ public final class CodePathsService implements AutoCloseable {
 
     /** A route's exemplar trees in this run: its slowest, then its latest failed; none while hidden. */
     public List<RequestTree> exemplars(String route) {
+        return exemplars(read(), route);
+    }
+
+    private List<RequestTree> exemplars(AgentEvidence.Read read, String route) {
         Run current = current();
-        if (current == null || readReason() != null) {
+        if (current == null || readReason(read) != null) {
             return List.of();
         }
         current.drainNow();
@@ -313,7 +344,11 @@ public final class CodePathsService implements AutoCloseable {
 
     /** The panel's summary: the routes with a tree, slowest warm median first, the sensor's status, and exclusions. */
     public CodePathsReport report() {
-        String reason = readReason();
+        return report(read());
+    }
+
+    private CodePathsReport report(AgentEvidence.Read read) {
+        String reason = readReason(read);
         if (reason != null) {
             return CodePathsReport.unavailable(reason);
         }
@@ -346,7 +381,8 @@ public final class CodePathsService implements AutoCloseable {
         int maxDepth = depth == null || depth < 0 ? DEFAULT_DEPTH : Math.min(depth, MAX_DEPTH);
         int first = offset == null || offset < 0 ? 0 : offset;
         int max = limit == null || limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
-        String reason = readReason();
+        AgentEvidence.Read read = read();
+        String reason = readReason(read);
         if (reason != null) {
             return CodePathsRouteTreeReport.empty(false, reason, route, maxDepth, max);
         }
@@ -354,7 +390,7 @@ public final class CodePathsService implements AutoCloseable {
         if (current == null) {
             return CodePathsRouteTreeReport.empty(true, null, route, maxDepth, max);
         }
-        List<RequestTree> exemplars = exemplars(route);
+        List<RequestTree> exemplars = exemplars(read, route);
         synchronized (lock) {
             RouteTree tree = current.routes.route(route);
             if (tree == null) {
@@ -426,7 +462,7 @@ public final class CodePathsService implements AutoCloseable {
 
     /** One request's tree while this run keeps it: a recent request, or a route's slowest or latest failed. */
     public CodePathsRequestTreeReport requestTree(String requestId) {
-        String reason = readReason();
+        String reason = readReason(read());
         if (reason != null) {
             return CodePathsRequestTreeReport.empty(false, reason, requestId);
         }
@@ -481,7 +517,7 @@ public final class CodePathsService implements AutoCloseable {
     public CodePathsAgentReport agentReport(String query, Integer limit) {
         String asked = query == null ? "" : query.trim();
         int max = limit == null || limit <= 0 ? CodePathsAgentReport.DEFAULT_LIMIT : Math.min(limit, MAX_AGENT_LIMIT);
-        CodePathsReport report = report();
+        CodePathsReport report = report(read());
         if (!report.available()) {
             return new CodePathsAgentReport(
                     false, report.unavailableReason(), asked, 0, List.of(), 0, List.of(), List.of(), List.of());
@@ -611,7 +647,12 @@ public final class CodePathsService implements AutoCloseable {
      * sensor does not record this run, HTTP Exchanges is not visible, or the route has no warm tree.
      */
     public HandlerMethods handlerMethods(String route) {
-        if (route == null || readReason() != null) {
+        return handlerMethods(read(), route);
+    }
+
+    /** {@link #handlerMethods(String)} under {@code read}, a read of the panels the caller resolved once. */
+    public HandlerMethods handlerMethods(AgentEvidence.Read read, String route) {
+        if (route == null || readReason(read) != null) {
             return null;
         }
         Run current = settledRun();
@@ -631,7 +672,15 @@ public final class CodePathsService implements AutoCloseable {
      * does not record this run.
      */
     public List<ClassInvocation> invocations() {
-        if (unavailableReason() != null) {
+        return invocations(read());
+    }
+
+    /**
+     * {@link #invocations()} under {@code read}: empty while the Code Paths panel is hidden too, as the calls are its
+     * evidence.
+     */
+    public List<ClassInvocation> invocations(AgentEvidence.Read read) {
+        if (shownReason(read) != null) {
             return List.of();
         }
         Run current = settledRun();
@@ -679,7 +728,8 @@ public final class CodePathsService implements AutoCloseable {
      * methods adaptively excluded.
      */
     public CodePathsBeansReport beans() {
-        String reason = unavailableReason();
+        AgentEvidence.Read read = read();
+        String reason = shownReason(read);
         if (reason != null) {
             return CodePathsBeansReport.unavailable(reason);
         }
@@ -708,7 +758,7 @@ public final class CodePathsService implements AutoCloseable {
                 excluded.add(type);
             }
         }
-        BeanInvocations.Resolved observed = BeanInvocations.resolve(snapshot.beans(), invocations());
+        BeanInvocations.Resolved observed = BeanInvocations.resolve(snapshot.beans(), invocations(read));
         Map<String, StructureSnapshot.Bean> byName = new LinkedHashMap<>();
         for (StructureSnapshot.Bean bean : snapshot.beans()) {
             byName.putIfAbsent(bean.name(), bean);
@@ -826,7 +876,12 @@ public final class CodePathsService implements AutoCloseable {
      * the method that issued a statement with it.
      */
     public String methodKey(int id) {
-        if (id < 0 || unavailableReason() != null) {
+        return methodKey(read(), id);
+    }
+
+    /** {@link #methodKey(int)} under {@code read}: {@code null} while the Code Paths panel is hidden too. */
+    public String methodKey(AgentEvidence.Read read, int id) {
+        if (id < 0 || shownReason(read) != null) {
             return null;
         }
         try {
@@ -845,11 +900,19 @@ public final class CodePathsService implements AutoCloseable {
      * does not record for this application or the bridge does not know the method.
      */
     public IssuingMethod issuingMethod(String route, int id) {
-        String key = methodKey(id);
+        return issuingMethod(read(), route, id);
+    }
+
+    /**
+     * {@link #issuingMethod(String, int)} under {@code read}: {@code null} while the Code Paths panel is hidden, and
+     * the method alone, unclimbed, while HTTP Exchanges is, as the route's tree is its evidence.
+     */
+    public IssuingMethod issuingMethod(AgentEvidence.Read read, String route, int id) {
+        String key = methodKey(read, id);
         if (key == null) {
             return null;
         }
-        Run current = settledRun();
+        Run current = readReason(read) == null ? settledRun() : null;
         if (current == null) {
             return IssuingMethod.of(key);
         }
@@ -898,15 +961,20 @@ public final class CodePathsService implements AutoCloseable {
      * Exchanges is not visible.
      */
     public long routeTreesFingerprint() {
-        if (readReason() != null) {
+        return routeTreesFingerprint(read());
+    }
+
+    /** {@link #routeTreesFingerprint()} under {@code read}, the read its caller's other reads are given. */
+    public long routeTreesFingerprint(AgentEvidence.Read read) {
+        if (shownReason(read) != null) {
             return 0L;
         }
         Run current = settledRun();
         if (current == null) {
-            return 0L;
+            return read.key();
         }
         synchronized (lock) {
-            return current.generation * 1_000_003L + current.routes.version();
+            return (current.generation * 1_000_003L + current.routes.version()) * 31 + current.clears * 7 + read.key();
         }
     }
 
@@ -919,6 +987,7 @@ public final class CodePathsService implements AutoCloseable {
         current.drainNow();
         synchronized (lock) {
             current.store.settle(nanoTime.getAsLong());
+            publish(current);
         }
         return current;
     }
@@ -934,7 +1003,7 @@ public final class CodePathsService implements AutoCloseable {
                 current.routes.unrouted(),
                 current.routes.routes().size(),
                 current.routes.nodes(),
-                RouteTrees.MAX_NODES,
+                current.routes.maxNodes(),
                 current.routes.routes().stream()
                         .mapToLong(RouteTree::foldedCalls)
                         .sum());
@@ -945,6 +1014,9 @@ public final class CodePathsService implements AutoCloseable {
         if (assembly) {
             limitations.add(LIMITATION_ASSEMBLY);
         }
+        if (current.clears > 0) {
+            limitations.add(RECORDING_CLEARED);
+        }
         long unrouted = current.routes.unrouted();
         if (unrouted > 0) {
             limitations.add(unrouted + (unrouted == 1 ? " request tree is" : " request trees are")
@@ -952,7 +1024,7 @@ public final class CodePathsService implements AutoCloseable {
         }
         if (current.routes.routesDropped() > 0) {
             limitations.add(current.routes.routesDropped() + " request trees of new routes were left out: the run"
-                    + " already holds " + RouteTrees.MAX_ROUTES + " routes or its node budget is spent.");
+                    + " already holds " + current.routes.maxRoutes() + " routes or its node budget is spent.");
         }
         return limitations;
     }
@@ -976,6 +1048,8 @@ public final class CodePathsService implements AutoCloseable {
                 map.put("treesNamedLate", current.store.lateNamed());
                 map.put("treesNeverNamed", current.store.neverNamed());
                 map.put("keptNodes", current.store.keptNodes());
+                map.put("clearedTrees", current.store.clearedTrees());
+                map.put("clearedFragments", current.store.clearedFragments());
                 map.put("excludedMethods", current.exclusion.excluded().size());
             }
         }
@@ -989,6 +1063,86 @@ public final class CodePathsService implements AutoCloseable {
         }
     }
 
+    /** Said once the recording was cleared (M5-11). */
+    static final String RECORDING_CLEARED = "The recording was cleared: request and route trees recorded before then"
+            + " were dropped, and so is a request that had a fragment flushed before the clear, never kept partial.";
+
+    /** Route trees bounded by the agent evidence bound (M5-11). */
+    private RouteTrees newRouteTrees() {
+        return new RouteTrees(evidence.scaled(RouteTrees.MAX_NODES, 1_000), evidence.scaled(RouteTrees.MAX_ROUTES, 10));
+    }
+
+    /** Publishes what {@code current} holds, for the evidence store's usage, which never waits on the lock. */
+    private void publish(Run current) {
+        usageBytes = current.store.estimatedBytes() + current.routes.estimatedBytes();
+        usageMaxBytes = current.store.maxEstimatedBytes() + current.routes.maxEstimatedBytes();
+        usageTrees = current.store.trees();
+        usageRoutes = current.routes.routeCount();
+        usageRouteNodes = current.routes.nodes();
+        // About 100 bytes a method key: they name code, not requests, so they are kept through a clear.
+        usageIndexBytes = (long) current.keys.size() * 100;
+    }
+
+    /** This service's trees as a store of the agent evidence contract: counted, and cleared with the journal. */
+    private final class Store implements AgentEvidence.Store {
+
+        @Override
+        public String id() {
+            return "code-paths";
+        }
+
+        @Override
+        public String panel() {
+            return BootUiPanels.CODE_PATHS;
+        }
+
+        @Override
+        public String title() {
+            return "Code Paths";
+        }
+
+        @Override
+        public String unavailableReason() {
+            return CodePathsService.this.unavailableReason();
+        }
+
+        @Override
+        public AgentEvidence.Usage usage() {
+            Map<String, Long> counts = new LinkedHashMap<>();
+            counts.put("requestTrees", usageTrees);
+            counts.put("routes", usageRoutes);
+            counts.put("routeNodes", usageRouteNodes);
+            counts.put("indexBytes", usageIndexBytes);
+            return new AgentEvidence.Usage(usageBytes, usageMaxBytes, counts);
+        }
+
+        /**
+         * Drops every request and route tree of the run, under the lock the drain thread takes for each fragment, so
+         * none is merged half before and half after; from now on, a fragment flushed before the clear is dropped with
+         * its request. The adaptive exclusions, the method keys, and the counts since the claim are kept.
+         */
+        @Override
+        public String clear(long epochMillis) {
+            Run current;
+            synchronized (lock) {
+                current = run;
+                if (current == null) {
+                    return null;
+                }
+                int trees = current.store.clear(nanoTime.getAsLong());
+                int routes = current.routes.routeCount();
+                current.routes = current.routes.cleared();
+                current.clears++;
+                publish(current);
+                if (trees == 0 && routes == 0) {
+                    return null;
+                }
+                return trees + (trees == 1 ? " request tree" : " request trees") + " and " + routes
+                        + (routes == 1 ? " route tree" : " route trees") + " of Code Paths";
+            }
+        }
+    }
+
     /** One run: its claim, drainer route, store, and exclusion. */
     private final class Run implements Consumer<long[]> {
 
@@ -997,8 +1151,9 @@ public final class CodePathsService implements AutoCloseable {
         final AgentRecordDrainer drainer;
         final RequestTreeStore store;
         final AdaptiveExclusion exclusion = new AdaptiveExclusion();
-        final RouteTrees routes = new RouteTrees();
+        RouteTrees routes = newRouteTrees();
         final Map<Integer, String> keys = new HashMap<>();
+        long clears;
         long fragments;
         long stale;
         long malformed;
@@ -1009,22 +1164,26 @@ public final class CodePathsService implements AutoCloseable {
             this.generation = claim.generation();
             this.drainer = claim.drainer();
             // Reads the outcomes installed now, incrementally where the reader can (M52-05).
-            this.store = new RequestTreeStore(new RequestOutcomeReader() {
-                @Override
-                public Map<String, RequestOutcome> apply(Set<String> ids) {
-                    return outcomes.apply(ids);
-                }
+            this.store = new RequestTreeStore(
+                    new RequestOutcomeReader() {
+                        @Override
+                        public Map<String, RequestOutcome> apply(Set<String> ids) {
+                            return outcomes.apply(ids);
+                        }
 
-                @Override
-                public long watermark() {
-                    return outcomes.watermark();
-                }
+                        @Override
+                        public long watermark() {
+                            return outcomes.watermark();
+                        }
 
-                @Override
-                public Exchanges exchangesAfter(Set<String> ids, long after) {
-                    return outcomes.exchangesAfter(ids, after);
-                }
-            });
+                        @Override
+                        public Exchanges exchangesAfter(Set<String> ids, long after) {
+                            return outcomes.exchangesAfter(ids, after);
+                        }
+                    },
+                    // Shrunk in proportion by a configured agent evidence bound (M5-11).
+                    evidence.scaled(RequestTreeStore.MAX_OPEN, 16),
+                    evidence.scaled(RequestTreeStore.MAX_KEPT_NODES, RequestTreeBuilder.MAX_NODES));
             this.store.onSettled((tree, outcome) ->
                     routes.add(tree, outcome.route(), tree.requestId() != null && isAssemblyOnly(tree.requestId())));
         }
@@ -1105,6 +1264,7 @@ public final class CodePathsService implements AutoCloseable {
                 store.add(fragment, now);
                 store.settle(now);
                 newly = exclusion.evaluate(now);
+                publish(this);
             }
             for (int id : newly) {
                 claim.excludeCodePathsMethod(id);

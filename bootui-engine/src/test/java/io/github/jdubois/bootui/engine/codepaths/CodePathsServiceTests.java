@@ -18,11 +18,15 @@ import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -39,6 +43,8 @@ class CodePathsServiceTests {
 
     private final AtomicReference<CorrelationContext> context = new AtomicReference<>(CorrelationContext.NONE);
     private final AtomicLong clock = new AtomicLong();
+    private final Set<String> hiddenPanels = ConcurrentHashMap.newKeySet();
+    private final AgentEvidence evidence = new AgentEvidence(panel -> !hiddenPanels.contains(panel), null);
     private CodePathsService service;
     private AgentClaim claim;
 
@@ -254,8 +260,6 @@ class CodePathsServiceTests {
             }
             return named;
         });
-        boolean[] httpExchanges = {true};
-        service.setRoutesVisible(() -> httpExchanges[0]);
         int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
         for (int i = 1; i <= 3; i++) {
             request(String.format("%016x", i), () -> call(controller, CodePathsServiceTests::spin));
@@ -265,8 +269,9 @@ class CodePathsServiceTests {
         clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
         assertThat(service.report().routes()).isNotEmpty();
         assertThat(service.handlerMethods("GET /api/quote")).isNotNull();
+        long fingerprint = service.routeTreesFingerprint();
 
-        httpExchanges[0] = false;
+        hiddenPanels.add(BootUiPanels.HTTP_EXCHANGES);
 
         assertThat(service.report().available()).isFalse();
         assertThat(service.report().unavailableReason()).isEqualTo(CodePathsService.ROUTES_HIDDEN);
@@ -278,16 +283,104 @@ class CodePathsServiceTests {
         assertThat(service.agentReport(null, null).routes()).isEmpty();
         assertThat(service.agentReport(null, null).unavailableReason()).isEqualTo(CodePathsService.ROUTES_HIDDEN);
         assertThat(service.handlerMethods("GET /api/quote")).isNull();
-        assertThat(service.routeTreesFingerprint()).isZero();
+        assertThat(service.routeTreesFingerprint()).isNotEqualTo(fingerprint);
         assertThat(service.tree("0000000000000002")).isNull();
         assertThat(service.recent()).isEmpty();
         assertThat(service.exemplars("GET /api/quote")).isEmpty();
 
-        httpExchanges[0] = true;
+        hiddenPanels.remove(BootUiPanels.HTTP_EXCHANGES);
 
         assertThat(service.report().routes()).isNotEmpty();
         assertThat(service.exemplars("GET /api/quote")).isNotEmpty();
         assertThat(service.routeTreesFingerprint()).isNotZero();
+    }
+
+    /** Code Paths owns its trees: disabled, every read, Beans at runtime, and the issuing method say so (M5-11). */
+    @Test
+    void disablingCodePathsHidesEveryReadWithItsReasonAfterTheAgentsOwn() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome("GET /api/quote", 200, false));
+            }
+            return named;
+        });
+        int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
+        for (int i = 1; i <= 2; i++) {
+            request(String.format("%016x", i), () -> call(controller, CodePathsServiceTests::spin));
+        }
+        awaitFragments(2);
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+        assertThat(service.report().routes()).isNotEmpty();
+        assertThat(service.methodKey(controller)).isNotNull();
+
+        hiddenPanels.add(BootUiPanels.CODE_PATHS);
+
+        String reason = "The Code Paths panel is disabled.";
+        assertThat(service.report().unavailableReason()).isEqualTo(reason);
+        assertThat(service.routeTree("GET /api/quote", null, null, null).unavailableReason())
+                .isEqualTo(reason);
+        assertThat(service.requestTree("0000000000000002").unavailableReason()).isEqualTo(reason);
+        assertThat(service.agentReport(null, null).unavailableReason()).isEqualTo(reason);
+        assertThat(service.beans().unavailableReason()).isEqualTo(reason);
+        assertThat(service.handlerMethods("GET /api/quote")).isNull();
+        assertThat(service.invocations()).isEmpty();
+        assertThat(service.methodKey(controller)).isNull();
+        assertThat(service.issuingMethod("GET /api/quote", controller)).isNull();
+        assertThat(service.routeTreesFingerprint()).isZero();
+        assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
+            assertThat(store.visible()).isFalse();
+            assertThat(store.counts()).isEmpty();
+        });
+
+        hiddenPanels.remove(BootUiPanels.CODE_PATHS);
+        assertThat(service.report().routes()).isNotEmpty();
+    }
+
+    /** Clear recording drops every request and route tree, keeps the counts, and says so (M5-11). */
+    @Test
+    void clearingTheRecordingDropsTheTreesAndKeepsTheCounts() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome("GET /api/quote", 200, false));
+            }
+            return named;
+        });
+        int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
+        for (int i = 1; i <= 2; i++) {
+            request(String.format("%016x", i), () -> call(controller, CodePathsServiceTests::spin));
+        }
+        awaitFragments(2);
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+        assertThat(service.report().routes()).isNotEmpty();
+        long fingerprint = service.routeTreesFingerprint();
+        assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
+            assertThat(store.retainedBytes()).isPositive();
+            assertThat(store.counts()).containsEntry("requestTrees", 2L).containsEntry("routes", 1L);
+        });
+
+        assertThat(evidence.clear()).isEqualTo("2 request trees and 1 route tree of Code Paths");
+
+        CodePathsReport report = service.report();
+        assertThat(report.routes()).isEmpty();
+        assertThat(report.limitations()).contains(CodePathsService.RECORDING_CLEARED);
+        assertThat(report.status().fragments())
+                .as("counts since the claim are kept")
+                .isEqualTo(2L);
+        assertThat(service.requestTree("0000000000000001").found()).isFalse();
+        assertThat(service.invocations()).isEmpty();
+        assertThat(service.routeTreesFingerprint()).isNotEqualTo(fingerprint);
+        assertThat(service.status()).containsEntry("clearedTrees", 2L);
+
+        request("0000000000000003", () -> call(controller, CodePathsServiceTests::spin));
+        awaitFragments(3);
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+        assertThat(service.report().routes())
+                .singleElement()
+                .satisfies(route -> assertThat(route.route()).isEqualTo("GET /api/quote"));
     }
 
     /**
@@ -307,7 +400,8 @@ class CodePathsServiceTests {
                 AgentSensorSettings.defaults(),
                 List.of("shop.QuoteController", "shop.QuoteService", "shop.SlowPricingService", "shop.AuditService"));
         claim.attach(new AgentHandoffs(context::get, null, null));
-        service = new CodePathsService(AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, clock::get);
+        service = new CodePathsService(
+                AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, evidence, clock::get);
         service.start();
         Map<String, List<RequestOutcome.StampedCall>> stamped = new LinkedHashMap<>();
         service.setRequestOutcomes(ids -> {
@@ -418,7 +512,8 @@ class CodePathsServiceTests {
                 AgentSensorSettings.defaults(),
                 List.of("shop.OwnerController", "shop.OwnerService", "shop.OwnerStore", "shop.PetDao"));
         claim.attach(new AgentHandoffs(context::get, null, null));
-        service = new CodePathsService(AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, clock::get);
+        service = new CodePathsService(
+                AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, evidence, clock::get);
         service.start();
         Map<String, List<RequestOutcome.StampedCall>> stamped = new LinkedHashMap<>();
         service.setRequestOutcomes(ids -> {
@@ -520,7 +615,10 @@ class CodePathsServiceTests {
     @Test
     void withoutTheSensorEveryReadAnswersItsUnavailableShape() {
         service = new CodePathsService(
-                AgentBridgeAccess.absent(), () -> null, () -> "Requires the BootUI agent's code-paths sensor.");
+                AgentBridgeAccess.absent(),
+                () -> null,
+                () -> "Requires the BootUI agent's code-paths sensor.",
+                AgentEvidence.open());
         assertThat(service.report().available()).isFalse();
         assertThat(service.report().unavailableReason()).startsWith("Requires the BootUI agent's code-paths sensor");
         assertThat(service.routeTree("GET /", null, null, null).available()).isFalse();
@@ -594,7 +692,8 @@ class CodePathsServiceTests {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class), "shop", "shop-owner", "dev", List.of("shop"), sensors);
         claim.attach(new AgentHandoffs(context::get, null, null));
-        service = new CodePathsService(AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, clock::get);
+        service = new CodePathsService(
+                AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, evidence, clock::get);
         service.start();
     }
 

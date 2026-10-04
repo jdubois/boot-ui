@@ -452,7 +452,14 @@ How it works:
   records, which a full ring may drop (counted, and said).
 - The first request and route belong to [HTTP Exchanges](#http-exchanges): while that panel is disabled, every read,
   `get_code_inventory`, and Runtime Insights' `changed-code-not-executed` leave them out, with the reason, and say only
-  which methods executed and when.
+  which methods executed and when. While the Code Inventory panel itself is disabled, every read, the MCP tool, and
+  `changed-code-not-executed` answer that it is disabled, and the journal status reports only its bytes.
+- First calls are kept per method id, bounded by the agent's method limit (about 9 MB with their loads and routes), and counted in the journal
+  status's **Agent evidence** with Code Paths' trees ([agent evidence](java-agent.md#agent-evidence-outside-the-journal)).
+  **Clear recording** in Live Activity drops every first request and route recorded before it, those still queued in
+  the agent's ring included; which methods executed, and when each first ran, still cover the whole run, since the
+  agent marks each method once a run, so a method whose first call is older than the clear may not have run since. The
+  summary's `recordingClearedAt` and a limitation say when.
 - A method counts as executed or never executed only when the agent instrumented its class in this run, or when its
   class has not loaded in this run at all (after a DevTools restart, a class the new class loader has not loaded yet
   has not run). Any other method on disk is **not tracked**, with its reason (static initializer, abstract method,
@@ -514,8 +521,8 @@ How it works:
 
 - The agent times the public and protected methods of the application's bean classes (Spring beans, ArC beans) and
   builds a per-thread fragment of each request's call tree; the engine merges a request's fragments into its request
-  tree, then, about two seconds after its last fragment, or sooner under sustained load, when 512 younger request
-  trees are open and the eldest 128 settle together, merges the settled tree into its **route tree**: per node, the
+  tree, then, about two seconds after its last fragment, or sooner under sustained load, when more than 512 request
+  trees are open and the eldest quarter settle together, merges the settled tree into its **route tree**: per node, the
   requests that reached it, its calls, total and self time, and a log2 histogram of the time each request spent in it
   with its least and most, from which an approximate (≈) median and 95th percentile are read: interpolated within a
   bucket and clamped to that least and most. Each route's first recorded request, the first whose tree settled, is kept
@@ -531,6 +538,14 @@ How it works:
 - Route trees are bounded: 2,000 nodes a route with one **Other** node per parent and phase past the budget, 100,000
   nodes and 500 routes across the run. A call that finds no node left keeps its time in its caller's self time. Route
   trees cover the current run only: a DevTools restart or Quarkus live reload starts new ones.
+- Request and route trees are kept outside the runtime journal, under the
+  [agent evidence contract](java-agent.md#agent-evidence-outside-the-journal). While the Code Paths panel is disabled,
+  every read, `get_code_paths`, Beans at runtime, the runtime model's observed calls, the handler split, and
+  `repeated-selects`' issuing method say so and show nothing of it. Their estimated bytes show in Live Activity's journal
+  status as **Agent evidence**; a smaller `bootui.runtime-journal.agent-evidence-max-bytes` shrinks the bounds above in
+  proportion. **Clear recording** drops every request and route tree, and any fragment flushed before the clear, still
+  queued or not: a request that lost a fragment to the clear is left out whole, never shown partial. The counts and the
+  adaptive exclusions are kept, and the summary says the recording was cleared.
 - A method's self time is its time outside its recorded child methods, so a JDK, framework, or library method shows
   only as its caller's self time, and so do the SQL, REST client, cache, and AI calls it waited on.
 - **Call-site stamps.** Where the SQL, REST client, cache, and AI recorders already capture their application call site,

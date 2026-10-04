@@ -335,7 +335,7 @@ slice depends on M5-1, and on the milestone named:
 | M5-8 | Method probes, in the UI and as agent tools (§5.14, §5.17): metadata first (invocations, durations, outcomes, and request ids), shipped with their approval guidance in `assess_application` and the tool descriptions; argument shapes later, from an allowlist of safe types, never through an arbitrary `toString()` (D37) | M5-4 | 8–10 | 📋 Planned |
 | M5-9 | M5-9a: vulnerable code reach (§5.15), once the inventory keeps bounded class-name evidence and advisories are normalized to class or method symbols, an unknown reach never reading as `NOT_LOADED`. M5-9b: a spike on dynamic access recording and its reachability-metadata export, estimated after it (D37) | M5-3 | 8–10 | 📋 Planned |
 | M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5, M5-6, M5-8, M5-9 | 5–7 | 📋 Planned |
-| M5-11 | The agent evidence contract (D37): one engine projection for evidence kept outside the journal (Code Paths trees and Code Inventory exemplars, then Side Effects rows and probe hits) applying the live exposure policy, source-panel visibility, **Clear recording**, export rules, and one memory accounting; §5.13, §5.14, and §5.17 aligned with the delivered stores, which carry no `CODE_PATH` journal event | M5-4b | 3–5 | 📋 Planned |
+| M5-11 | The agent evidence contract (D37): one engine projection for evidence kept outside the journal (Code Paths trees and Code Inventory exemplars, then Side Effects rows and probe hits) applying the live exposure policy, source-panel visibility, **Clear recording**, export rules, and one memory accounting; §5.13, §5.14, and §5.17 aligned with the delivered stores, which carry no `CODE_PATH` journal event | M5-4b | 3–5 | ✅ Delivered (#1254): `AgentEvidence` with one store per agent-backed panel (Code Paths, Code Inventory), a `Read` resolving each panel's and HTTP Exchanges' visibility once per public read; **Clear recording** and **Free BootUI memory** clear every store under the journal's processing lock, with watermarks for records still queued and tombstones for requests that lost a fragment; an export-rules test listing every field reachable from the stores' read DTOs; per-store memory in the journal status under `bootui.runtime-journal.agent-evidence-max-bytes`. Left: per-run hit flags survive a clear (a bridge protocol change), so after a clear "executed" covers the whole run, as the panel says |
 | M5-12 | The agent acceptance matrix in CI: Quarkus and WebFlux browser legs with the agent attached, the JDK 21 and 25 compatibility lanes on `v2`, a real Spring Boot fat jar, and cumulative overhead with every default sensor on, extended with each new sensor | M5-4b | 4–7 | ✅ Delivered (#1252): agent-attached browser legs for Spring MVC, Spring WebFlux, and Quarkus; the JDK 21, 25, and 27 lanes on `v2` with `SpringAgent*IT`; `SpringAgentExecutableJarIT` on the repackaged sample (`jar:nested:`), with Code Inventory mapping `BOOT-INF/lib` jars and Code Paths naming the seeded slow method; `AgentOverheadBenchmarkIT` in an `agent-overhead` job, warning above 10 % and failing above 30 %. Measured median overhead with the default sensors: 11 to 17.5 % on a 4-vCPU runner, of which `code-paths` alone is 15.5 %, executors and inventory within noise; M5-13 brings `code-paths` inside the budget. Not yet: the OpenTelemetry and JaCoCo legs of §5.13, browser legs on JDK 21 and 25, the whole MVC suite with the agent |
 | M5-13 | `code-paths` overhead inside §5.13's budget: the agent overhead job measures 15.5 % for `code-paths` alone (M5-12). Profile the enter and exit path and the fragment flush on the benchmark route, reduce clock reads (one `nanoTime` per enter and exit pair where nesting allows, or a coarser clock for calls under the exclusion threshold), make adaptive exclusion act within the first second of a hot route, and keep `code-paths` default-on only if the default sensors together stay within 10 %; otherwise make it opt-in (D21), stated in the docs and the Java Agent panel | M5-12 | 3–5 | 📋 Planned |
 
@@ -1513,7 +1513,9 @@ Scope:
   manifest entry). Another protocol leaves the agent unused, with both versions in the status; a different agent version
   on the same protocol is shown as a warning.
 - **Transport.** Advice writes fixed-size records of longs and interned string ids into per-thread buffers, published to
-  a bounded multi-producer ring in the bridge. The §5.2 dispatcher drains that ring as one more journal source. The ring
+  a bounded multi-producer ring in the bridge. The engine drains that ring on one thread per claim: executor handoffs
+  become one more journal source (`agent.executors`), and the `inventory` and `code-paths` records feed bounded stores
+  outside the journal, under the agent evidence contract (§5.17). The ring
   never blocks: on overflow a record is dropped and counted per sensor, exactly like the journal queue. Advice never
   calls engine code on the application thread, except the correlation reads below.
 - **Correlation.** The engine installs, in the bridge, a `Supplier` that returns the current `CorrelationContext`
@@ -1569,7 +1571,9 @@ Architecture:
   `AgentJournalSource`, `AgentStatus`, and one reader per sensor. Adapters only contribute their bean classes and
   application packages at claim. The engine always looks the bridge up in the bootstrap loader
   (`Class.forName(name, false, null)`), so a copy any other class loader defines, such as one of Quarkus's, is never used.
-- Journal payloads for agent records are additive `RuntimeEvent` types (§5.17). Nothing in §5.1–§5.12 depends on them.
+- Agent evidence is either journal-backed, as executor handoffs are (an additive `RuntimeEvent` payload), or kept in
+  bounded stores outside the journal, as Code Paths' trees and Code Inventory's first calls are, read, cleared, and
+  counted under the agent evidence contract (§5.17, M5-11). Nothing in §5.1–§5.12 depends on either.
 - An M5-0 spike proves, before any sensor is built: one bridge class across Spring DevTools restarts and Quarkus live
   reloads; retransformation cost on the sample apps and Spring PetClinic; coexistence with the OpenTelemetry Java agent,
   JaCoCo, IntelliJ's debugger agent, and Mockito's inline mock maker; and the overhead of executor propagation.
@@ -1670,14 +1674,23 @@ Scope:
   methods of application classes that SQL, REST client, and cache events already name as call sites (§5.2). It does not
   instrument every method: a JDK, framework, or library method appears only as the time of its caller.
 - A per-thread shadow stack of `System.nanoTime()` enter and exit marks builds a **per-request call tree** merged by
-  `(parent, method)`, capped at 512 nodes and depth 32, with an **Other** node. It is flushed once, when the request's
-  scope closes, and stamped with its correlation context. Children reached through an executor (§5.13) attach to the
+  `(parent, method)`, capped at 512 nodes and depth 32, with an **Other** node. Each thread flushes its fragment of the
+  tree when the request's scope or the executor's task closes on it, stamped with its correlation context, and the
+  engine merges a request's fragments into its tree. Children reached through an executor (§5.13) attach to the
   submitting node, and overlapping children are unioned (§5.4) so self time is never negative.
 - SQL, REST client, cache, and AI events attach to the **innermost instrumented method open on their thread** when they
   run, an exact join by stack, not by time.
-- The dispatcher merges request trees into a **route tree** per route and run (count, total, self time, and a latency
-  histogram per node), capped at 2,000 nodes per route with an **Other** bucket, and records an observed
-  `bean → bean` **invokes** edge per call pair in the runtime model.
+- The engine merges each settled request tree, once the journal named its request's route, into a **route tree** per
+  route and run (count, total, self time, and a latency histogram per node), capped at 2,000 nodes per route with an
+  **Other** bucket, and the runtime model reads an observed `bean → bean` **invokes** edge per call pair from the route
+  trees.
+- **Storage.** Request trees (the recent ones, each route's slowest and latest failed, and those waiting for their
+  exchange) and route trees are kept in bounded stores of the run, outside the journal: there is no `CODE_PATH` event.
+  They follow the agent evidence contract (§5.17): every read, `get_code_paths`, Beans at runtime, the handler split,
+  and `repeated-selects`' issuing method resolve once whether the Code Paths panel and HTTP Exchanges are visible;
+  **Clear recording** drops every tree and any fragment flushed before it, leaving a request that lost one out whole;
+  and their estimated bytes are reported beside the journal's, bounded by
+  `bootui.runtime-journal.agent-evidence-max-bytes`.
 - **Method probes** (user-triggered, bounded). From a Code Paths node, an exception frame, or a bean, the developer
   starts a probe on `class#method` (with its descriptor for overloads). The agent retransforms that one method and
   records the next 20 invocations, or 60 seconds, whichever comes first: duration, thread kind, request id, outcome
@@ -1827,16 +1840,49 @@ The agent is only worth its setup if its evidence joins everything else by reque
 the v2 core, so the same observations, comparisons, and agent tools become more exact when the agent is present, and
 stay exactly as specified when it is not.
 
-Since M5-4, Code Paths trees and Code Inventory records are kept in bounded stores outside the journal, not as
-`CODE_PATH` or `CODE_CHANGE` events. M5-11 rewrites this section and §5.14 around one projection for those stores,
-naming which evidence stays journal-backed; until then, the journal types below describe the original design.
+Agent evidence takes one of two paths. Evidence that is an event of a unit of work, with its own time and owner, is
+journal-backed: executor handoffs (`ASYNC_HANDOFF`, the `agent.executors` source), and later caught exceptions. Evidence
+that aggregates many requests, or that the agent marks once a run, is kept in bounded stores of the run outside the
+journal: Code Paths' request and route trees (§5.14) and Code Inventory's first calls and loads (§5.15) since M5-4 and
+M5-3, and Side Effects rows (§5.16) and method-probe hits (§5.14) when they ship. There is no `CODE_PATH` or
+`CODE_CHANGE` event: Code Inventory's changes come from its disk scan and the run history's method hashes.
+
+**The agent evidence contract** (M5-11). One engine projection, `AgentEvidence`, applies to every store outside the
+journal what the journal applies to its own events (§8), in one place:
+
+- **Source-panel visibility.** A read resolves once whether the store's own panel and HTTP Exchanges, which owns
+  requests and routes, are visible, and derives its answer, its cache key, and its reason from that one read; Runtime
+  Insights resolves it once per projection and passes it to every Code Paths and Code Inventory read it makes. While the
+  store's panel is disabled, its evidence is neither shown nor counted, in its panel, its MCP tool and CLI command, or
+  the observations that read it; while HTTP Exchanges is, no request or route of it is shown. A predicate that fails
+  reads as hidden, and the agent's own unavailable reason comes first.
+- **Live exposure.** The stores keep method keys, route templates or observed paths masked when written, request ids,
+  times, and counts, never a value. Exports cannot carry more than the reads return, and every field the Code Paths and
+  Code Inventory reads can return is listed and reviewed as metadata in a test, so a new field, such as a Side Effects
+  target, must be reviewed against the live policy before it ships; masking a target or an argument shape belongs to
+  the projection that reads it.
+- **Clear recording.** The projection is a journal listener: every clear of the journal, **Clear recording** after its
+  confirmation and under read-only policy, or **Free BootUI memory**, clears every store in the same step, under the
+  journal's lock. A store drops what it recorded before the clear, what is still queued in the agent's ring included;
+  Code Paths leaves a request that lost a fragment to the clear out whole. Counts since the claim, adaptive exclusions,
+  and what the agent marks once a run (which methods executed, which jars loaded) are kept, and the stores say when
+  they were cleared.
+- **Export rules.** The panels, Runtime Insights' **Export JSON** and **Copy for AI**, the MCP tools, and the CLI carry
+  only what the stores' reads return under one read; no surface serializes a store, nothing of them is written to disk,
+  and values that need `FULL` exposure, such as M5-8's argument shapes, never reach an export, MCP, or the CLI.
+- **Memory accounting.** The journal status reports the stores' estimated bytes, beside the journal's own, against
+  `bootui.runtime-journal.agent-evidence-max-bytes`: by default the sum of the stores' fixed caps, about 55 MB, so it
+  changes nothing; a smaller bound shrinks the scalable stores (Code Paths' trees) in proportion, and a store bounded
+  elsewhere, as Code Inventory's first calls by the agent's method limit, is only counted. A hidden store adds its bytes
+  to the total without its own figures.
 
 Journal (§5.2):
 
-- New `RuntimeEvent` types, each with the standard envelope and a small interned payload: `CODE_PATH` (one per request,
-  the compact call tree), `ASYNC_HANDOFF` (a child execution's start and end), `SIDE_EFFECT` (one aggregated row per
-  request and target), `THREAD_LOCAL_LEFTOVER`, `RESOURCE_LEAK`, `BLOCKING_CALL`, `SINK_MATCH`, `CAUGHT_EXCEPTION`,
-  `PROBE_HIT`, and a per-run `CODE_CHANGE` summary.
+- Journal-backed agent evidence is additive `RuntimeEvent` types, each with the standard envelope and a small interned
+  payload: `ASYNC_HANDOFF` (a child execution's start and end), and, when M5-6 ships, `CAUGHT_EXCEPTION`. Side Effects
+  rows (`SIDE_EFFECT`, `THREAD_LOCAL_LEFTOVER`, `RESOURCE_LEAK`, `BLOCKING_CALL`, `SINK_MATCH`) and probe hits
+  (`PROBE_HIT`) were first planned as journal types; each is decided journal-backed or a store under the contract
+  above when its slice ships.
 - `CAUGHT_EXCEPTION` comes from exception-handler entry in application classes, instrumented by the agent: the caught
   type, the catch site, and whether the handler rethrew, logged at `WARN` or above, or did neither. Only application
   code is instrumented, so the cost is paid on the exception path only.

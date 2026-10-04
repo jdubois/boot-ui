@@ -91,6 +91,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
@@ -143,6 +144,7 @@ import org.springframework.aop.scope.ScopedObject;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
@@ -166,6 +168,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.WebApplicationContext;
@@ -264,6 +267,34 @@ public class BootUiEngineConfiguration {
         journal.addListener(aggregates);
         journal.startResourceSampler(properties.getResources().toSettings(), aggregates.resourceTrack());
         return aggregates;
+    }
+
+    /**
+     * The agent evidence contract ({@code docs/PLAN-v2.md} §5.17, M5-11): Code Paths and Code Inventory read their
+     * evidence through it under the panels' live state, it bounds their memory by
+     * {@code bootui.runtime-journal.agent-evidence-max-bytes}, and, as a listener of the journal, every clear of the
+     * journal clears it too ({@link #bootUiAgentEvidenceJournalListener}).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    AgentEvidence bootUiAgentEvidence(BootUiProperties properties) {
+        DataSize max = properties.getRuntimeJournal().getAgentEvidenceMaxBytes();
+        return new AgentEvidence(properties::isPanelEnabled, max == null ? null : max.toBytes());
+    }
+
+    /**
+     * Adds the agent evidence, BootUI's or one the application supplies, to the journal's listeners once every singleton
+     * exists, so every clear of the journal clears it (M5-11).
+     */
+    @Bean
+    SmartInitializingSingleton bootUiAgentEvidenceJournalListener(
+            ObjectProvider<AgentEvidence> evidence, ObjectProvider<RuntimeJournal> journal) {
+        return () -> {
+            AgentEvidence current = evidence.getIfUnique();
+            if (current != null) {
+                current.listenTo(journal.getIfUnique());
+            }
+        };
     }
 
     /**
@@ -451,7 +482,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JavaAgentService> javaAgent,
             ObjectProvider<BasePackageProvider> basePackages,
             ObjectProvider<JournalAggregates> aggregates,
-            ObjectProvider<RuntimeJournal> journal) {
+            ObjectProvider<RuntimeJournal> journal,
+            AgentEvidence evidence) {
         DependencyProvider declared = DependencyCatalog.forApplication(() -> {
             BasePackageProvider provider = basePackages.getIfAvailable();
             return provider == null ? List.of() : provider.basePackages();
@@ -475,12 +507,12 @@ public class BootUiEngineConfiguration {
                     return current == null ? null : current.runReadyAtEpochMillis();
                 },
                 properties.getCodeInventory().toSettings(),
-                CodeInventoryHistory.shared());
+                CodeInventoryHistory.shared(),
+                // Its panel and HTTP Exchanges, which owns request routes, gate its reads (docs/PLAN-v2.md §8).
+                evidence);
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
-        // Request routes are HTTP Exchanges evidence (docs/PLAN-v2.md §8).
-        service.setRoutesVisible(() -> properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES));
         return service;
     }
 
@@ -498,7 +530,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JavaAgentService> javaAgent,
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
-            ObjectProvider<BeanProvider> beans) {
+            ObjectProvider<BeanProvider> beans,
+            AgentEvidence evidence) {
         CodePathsService service = new CodePathsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -510,12 +543,13 @@ public class BootUiEngineConfiguration {
                     return agent == null
                             ? JavaAgentService.CODE_PATHS_REQUIREMENT + "."
                             : agent.codePathsUnavailableReason();
-                });
+                },
+                // Its panel and HTTP Exchanges, which owns route trees and request outcomes, gate its reads
+                // (docs/PLAN-v2.md §8).
+                evidence);
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestOutcomes(JournalRequestOutcomes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
-        // Route trees and request outcomes are HTTP Exchanges evidence (docs/PLAN-v2.md §8).
-        service.setRoutesVisible(() -> properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.getIfUnique(), null));
         return service;

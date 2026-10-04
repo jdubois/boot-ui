@@ -352,7 +352,8 @@ public final class BootUiApiContractCatalog {
                             "methods", JsonType.NULLABLE_OBJECT,
                             "changes", JsonType.NULLABLE_OBJECT,
                             "dependencies", JsonType.NULLABLE_OBJECT,
-                            "limitations", JsonType.ARRAY)),
+                            "limitations", JsonType.ARRAY,
+                            "recordingClearedAt", JsonType.NULLABLE_INTEGER)),
             read(
                     "code-paths",
                     "/code-paths",
@@ -448,7 +449,8 @@ public final class BootUiApiContractCatalog {
                     "dropped", JsonType.OBJECT,
                     "droppedEvents", JsonType.INTEGER,
                     "previousRuns", JsonType.ARRAY,
-                    "previousRunsUnavailable", JsonType.NULLABLE_STRING));
+                    "previousRunsUnavailable", JsonType.NULLABLE_STRING,
+                    "agentEvidence", JsonType.NULLABLE_OBJECT));
 
     /**
      * The run's resource track and CPU ledger, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}

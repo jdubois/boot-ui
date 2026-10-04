@@ -44,6 +44,97 @@ class RequestTreeStoreTests {
     }
 
     @Test
+    void clearingDropsEveryTreeAndAnyFragmentFlushedBeforeItLeavingNoPartialTree() {
+        RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids));
+        store.add(fragment(1L, 1_000L), 0L);
+        store.settle(2 * SECOND);
+        store.add(fragment(2L, 1_000L), 2 * SECOND);
+        assertThat(store.trees()).isEqualTo(2);
+        assertThat(store.estimatedBytes()).isPositive();
+
+        assertThat(store.clear(3 * SECOND)).as("one settled, one open").isEqualTo(2);
+
+        assertThat(store.recent()).isEmpty();
+        assertThat(store.routes()).isEmpty();
+        assertThat(store.openCount()).isZero();
+        assertThat(store.keptNodes()).isZero();
+        assertThat(store.tree(CodePathFragment.hex(1L))).isNull();
+        // A late fragment of a cleared request, flushed after the clear: its request stays left out.
+        store.add(
+                Blobs.request(1L, 2L)
+                        .between(4 * SECOND, 4 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        // Flushed before the clear but drained after it, of a request never seen: dropped, and its later fragment too.
+        store.add(
+                Blobs.request(1L, 3L)
+                        .between(SECOND, 2 * SECOND)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        store.add(
+                Blobs.request(1L, 3L)
+                        .between(4 * SECOND, 4 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        // Recorded wholly after the clear: kept.
+        store.add(
+                Blobs.request(1L, 4L)
+                        .between(4 * SECOND, 4 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        store.settle(7 * SECOND);
+
+        assertThat(store.recent()).extracting(RequestTree::requestId).containsExactly(CodePathFragment.hex(4L));
+        assertThat(store.clearedTrees()).isEqualTo(2L);
+        assertThat(store.clearedFragments()).isEqualTo(3L);
+        assertThat(store.settled()).as("counts since the claim are kept").isEqualTo(2L);
+    }
+
+    @Test
+    void aFragmentFlushedBeforeTheClearButDrainedAfterItsRequestsLaterOneDropsTheRequestWhole() {
+        RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids));
+        store.clear(3 * SECOND);
+        store.add(
+                Blobs.request(1L, 5L)
+                        .between(4 * SECOND, 4 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                4 * SECOND);
+        store.settle(7 * SECOND);
+        assertThat(store.tree(CodePathFragment.hex(5L))).isNotNull();
+
+        // Another thread's fragment of the same request, flushed before the clear, drained only now.
+        store.add(
+                Blobs.request(1L, 5L)
+                        .between(2 * SECOND, 2 * SECOND + 10L)
+                        .node(-1, 1, 2, 1L, 10L, 0L)
+                        .fragment(),
+                7 * SECOND);
+
+        assertThat(store.tree(CodePathFragment.hex(5L))).isNull();
+        assertThat(store.recent()).isEmpty();
+        assertThat(store.exemplars("GET /a")).isEmpty();
+        assertThat(store.keptNodes()).isZero();
+    }
+
+    @Test
+    void configuredBoundsCapOpenTreesAndKeptNodesNeverAboveTheDefaults() {
+        RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids), 2, 1);
+        assertThat(store.maxKeptNodes()).as("at least one full tree").isEqualTo(RequestTreeBuilder.MAX_NODES);
+        store.add(fragment(1L, 10L), 0L);
+        store.add(fragment(2L, 10L), 0L);
+        store.add(fragment(3L, 10L), 0L);
+        assertThat(store.openCount()).as("the eldest settled past two open").isEqualTo(2);
+        assertThat(new RequestTreeStore(ids -> Map.of(), 10_000, Integer.MAX_VALUE).maxKeptNodes())
+                .isEqualTo(RequestTreeStore.MAX_KEPT_NODES);
+        assertThat(store.maxEstimatedBytes()).isLessThan(new RequestTreeStore(ids -> Map.of()).maxEstimatedBytes());
+    }
+
+    @Test
     void aLateHandoffMergesIntoItsSettledTree() {
         RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids));
         store.add(fragment(1L, 1_000L), 0L);
@@ -104,8 +195,8 @@ class RequestTreeStoreTests {
         }
 
         assertThat(store.openCount())
-                .isGreaterThanOrEqualTo(RequestTreeStore.MAX_OPEN)
-                .isLessThan(RequestTreeStore.MAX_OPEN + RequestTreeStore.OVERFLOW_BATCH);
+                .isLessThanOrEqualTo(RequestTreeStore.MAX_OPEN)
+                .isGreaterThan(RequestTreeStore.MAX_OPEN - RequestTreeStore.OVERFLOW_BATCH);
         store.settleAll();
         assertThat(store.openCount()).isZero();
         assertThat(store.recent()).hasSize(RequestTreeStore.RECENT);
@@ -114,9 +205,8 @@ class RequestTreeStoreTests {
     }
 
     /**
-     * M5-13: once {@link RequestTreeStore#MAX_OPEN} younger trees are open, the eldest settle in batches of
-     * {@link RequestTreeStore#OVERFLOW_BATCH}, each with one journal read, not one read per request, and the
-     * {@code MAX_OPEN} youngest stay open.
+     * M5-13: past {@link RequestTreeStore#MAX_OPEN} open trees, the eldest settle in batches of
+     * {@link RequestTreeStore#OVERFLOW_BATCH}, each with one journal read, not one read per request.
      */
     @Test
     void openTreesPastTheBoundSettleInBatchesWithOneJournalReadEach() {
@@ -138,7 +228,7 @@ class RequestTreeStoreTests {
         assertThat(reads.get(0)).as("the eldest first").contains(CodePathFragment.hex(1L));
         assertThat(store.openCount()).isEqualTo(RequestTreeStore.MAX_OPEN);
         assertThat(reads.get(3))
-                .as("the youngest MAX_OPEN still open")
+                .as("the youngest still open")
                 .contains(CodePathFragment.hex(requests - RequestTreeStore.MAX_OPEN))
                 .doesNotContain(CodePathFragment.hex(requests - RequestTreeStore.MAX_OPEN + 1L));
         assertThat(store.settled()).isEqualTo(4L * RequestTreeStore.OVERFLOW_BATCH);

@@ -457,14 +457,14 @@ its hook's `fired` count is fragments, not calls, since the advice keeps no glob
 is `null`. The shared transformer's counters are on the `inventory` row while its advice applies, and on the
 `code-paths` row otherwise.
 
-**On BootUI's side.** BootUI's drain thread reads the fragments every 100 ms and merges each request's into its
-request tree, which settles about two seconds after its last fragment, when the engine looks up its request's exchange
-and stamped calls in the runtime journal. Under sustained load, once 512 younger request trees are open, the eldest 128
-settle together, with one journal read for all of them. Settling them one at a time read the whole journal once per
-request: in a profile of the sample under the agent overhead benchmark's load, that was 15 % of the process's CPU,
-against about 0.25 % for the advice on the application threads. On a four-processor CI runner, the benchmark's median
-overhead went from 16.0 % to 4.1 % with the default sensors, and from 15.2 % to 5.5 % with `code-paths` alone, within
-the 10 % budget, so the sensor stays on by default.
+**On BootUI's side.** BootUI's drain thread reads the fragments every 100 ms and merges each request's into its request
+tree, which settles about two seconds after its last fragment, when the engine looks up its request's exchange and
+stamped calls in the runtime journal. Under sustained load, when more than 512 request trees are open (fewer under a
+configured agent evidence bound), the eldest quarter settle together, with one journal read for all of them. Settling
+them one at a time read the whole journal once per request: in a profile of the sample under the agent overhead
+benchmark's load, that was 15 % of the process's CPU, against about 0.25 % for the advice on the application threads. On
+a four-processor CI runner, the benchmark's median overhead went from 16.0 % to 4.1 % with the default sensors, and from
+15.2 % to 5.5 % with `code-paths` alone, within the 10 % budget, so the sensor stays on by default.
 
 **Debuggers.** The agent's bridge, which the advice calls, carries no line numbers or local variable tables, only its
 source file names, so stepping into an instrumented method in IntelliJ IDEA, Eclipse, or any JDI debugger steps over
@@ -492,6 +492,32 @@ Sharing is only supported for boot loader classes because bootstrap classpath ha
 
 That warning is expected. It means CDS, AppCDS, and AOT caches no longer apply outside boot-loader classes for that JVM.
 This is why the agent is a development-time tool and should not be placed on production or AOT-cached JVM launches.
+
+## Agent evidence outside the journal
+
+Code Paths' request and route trees and Code Inventory's first calls are kept in bounded stores of the run, not as
+runtime journal events. One engine contract, the agent evidence projection, applies to them what the journal applies
+to its own events:
+
+- **Panel visibility.** Each read resolves once whether the store's panel (Code Paths, Code Inventory) and
+  [HTTP Exchanges](diagnostics.md#http-exchanges), which owns requests and routes, are visible, and derives its answer,
+  its cache key, and its reason from that one read. While the store's panel is disabled, its panel, its MCP tool, its
+  CLI command, and the Runtime Insights observations that read it say so, and its evidence is neither shown nor counted.
+  Without the agent, the agent's own reason comes first.
+- **Clear recording.** The evidence is a listener of the runtime journal, so every clear of the journal, by **Clear
+  recording** after its confirmation or by **Free BootUI memory**, drops it in the same step, under the journal's lock:
+  every tree recorded before the clear, the fragments still queued in the agent's ring included, and Code Inventory's
+  first requests and routes. A request whose tree lost a fragment to the clear is left out whole, never shown partial.
+  Counts since the claim, the adaptive exclusions, and which methods executed are kept.
+- **Exports.** The panels, Runtime Insights' **Export JSON** and **Copy for AI**, the MCP tools, and the CLI carry only
+  what these reads return: method keys, route templates (or masked observed paths), request ids, times, and counts.
+  No surface serializes a store, and nothing of it is written to disk.
+- **Memory.** The journal status reports the stores' estimated bytes as **Agent evidence**, beside the journal's own,
+  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 55 MB by default, the sum of the stores' fixed caps.
+  A smaller bound shrinks Code Paths' trees in proportion; Code Inventory's first calls, bounded by the agent's method
+  limit, are only counted. A disabled panel's store adds its bytes to the total without its own row's figures, and a
+  store that records nothing for the application, as without the agent, is left out. The method names each store keeps
+  beside its evidence are reported apart, and kept through a clear.
 
 ## Privacy and dependency inventory
 

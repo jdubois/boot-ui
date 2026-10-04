@@ -106,15 +106,9 @@ public class RuntimeInsightsController {
                 () -> AgentPropagation.unavailableReason(javaAgent),
                 properties.getAgent().getExecutors().getMaxHandoff());
         ObjectProvider<CodeInventoryService> codeInventory = context.getBeanProvider(CodeInventoryService.class);
-        this.insights.setCodeInventory(
-                () -> {
-                    CodeInventoryService inventory = codeInventory.getIfUnique();
-                    return inventory == null ? null : inventory.changedCode();
-                },
-                () -> {
-                    CodeInventoryService inventory = codeInventory.getIfUnique();
-                    return inventory == null ? 0L : inventory.changesFingerprint();
-                });
+        // Read under one read of the Code Inventory and HTTP Exchanges panels per projection (docs/PLAN-v2.md §8,
+        // M5-11).
+        this.insights.setCodeInventoryService(codeInventory::getIfUnique);
         // route-time-breakdown's handler split by method and repeated-selects' issuing method, from the agent's code
         // paths (docs/PLAN-v2.md §5.14).
         ObjectProvider<CodePathsService> codePaths = context.getBeanProvider(CodePathsService.class);
@@ -127,23 +121,7 @@ public class RuntimeInsightsController {
                     CodePathsService paths = codePaths.getIfUnique();
                     return paths == null ? 0L : paths.routeTreesFingerprint();
                 });
-        this.insights.setCodePaths(
-                route -> {
-                    CodePathsService paths = codePaths.getIfUnique();
-                    return paths == null ? null : paths.handlerMethods(route);
-                },
-                () -> {
-                    CodePathsService paths = codePaths.getIfUnique();
-                    return paths == null ? 0L : paths.routeTreesFingerprint();
-                },
-                id -> {
-                    CodePathsService paths = codePaths.getIfUnique();
-                    return paths == null ? null : paths.methodKey(id);
-                },
-                (route, id) -> {
-                    CodePathsService paths = codePaths.getIfUnique();
-                    return paths == null ? null : paths.issuingMethod(route, id);
-                });
+        this.insights.setCodePathsService(codePaths::getIfUnique);
     }
 
     @GetMapping
