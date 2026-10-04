@@ -5,26 +5,43 @@ export function isImpact(value) {
   return Boolean(value && typeof value.status === 'string' && Array.isArray(value.observed))
 }
 
+/** Whether an impact's observed routes come from the route trees: a method's, read with the BootUI agent. */
+export function fromRouteTrees(impact) {
+  return impact?.observedFrom === 'ROUTE_TREES'
+}
+
 /**
- * The three lists of a resolved impact, in reading order, each with how many rows it lists and holds. Lists with no
- * route are kept, so "nothing here" is said rather than implied.
+ * The lists of a resolved impact, in reading order, each with how many rows it lists and holds. Lists with no route
+ * are kept, so "nothing here" is said rather than implied. A method's impact read from the route trees adds the routes
+ * that ran without their call trees showing it, which is never proof that they did not run it.
  */
 export function impactLists(impact) {
   if (!isImpact(impact) || impact.status !== 'RESOLVED') return []
-  return [
+  const trees = fromRouteTrees(impact)
+  const notObservedTotal = impact.notObservedTotal ?? 0
+  const lists = [
     {
       id: 'observed',
-      title: 'Ran through it in this run',
-      empty: 'No route that reaches it ran in this run.',
+      title: trees ? 'Ran it in this run' : 'Ran through it in this run',
+      empty: trees ? "No request's call tree ran it in this run." : 'No route that reaches it ran in this run.',
       rows: impact.observed,
       total: impact.observedTotal
-    },
+    }
+  ]
+  if (trees) {
+    lists.push({
+      id: 'not-observed',
+      title: 'Ran without showing it',
+      empty: 'Every route that reaches it and ran either ran it or is proven not to have.',
+      rows: impact.notObserved ?? [],
+      total: notObservedTotal
+    })
+  }
+  lists.push(
     {
       id: 'not-exercised',
       title: impact.notExercisedUndetermined ? 'Not exercised (incomplete)' : 'Not exercised',
-      empty: impact.notExercisedUndetermined
-        ? 'Cannot determine whether every mapped route ran: the route aggregate exceeded its limit.'
-        : 'Every mapped route that reaches it ran.',
+      empty: notExercisedEmpty(impact, trees, notObservedTotal),
       rows: impact.notExercised,
       total: impact.notExercisedTotal
     },
@@ -35,14 +52,47 @@ export function impactLists(impact) {
       rows: impact.sharedResources,
       total: impact.sharedResourcesTotal
     }
-  ]
+  )
+  return lists
 }
 
-/** A route's traffic in a few words, such as "12 requests · 2 anonymous · 1 error". */
+function notExercisedEmpty(impact, trees, notObservedTotal) {
+  if (trees && notObservedTotal > 0) {
+    return 'No route is proven not to have run it: the routes that ran without showing it are listed above.'
+  }
+  if (impact.notExercisedUndetermined) {
+    return 'Cannot determine whether every mapped route ran: the route aggregate exceeded its limit.'
+  }
+  return 'Every mapped route that reaches it ran.'
+}
+
+/** What Code Inventory says of a method in this run, as a short phrase, or null when it says nothing. */
+export function methodStatusText(status) {
+  switch (status) {
+    case 'EXECUTED':
+      return 'Code Inventory: ran in this run'
+    case 'NEVER_EXECUTED':
+      return 'Code Inventory: never ran in this run'
+    case 'NOT_TRACKED':
+      return 'Code Inventory: not tracked, so whether it ran is unknown'
+    default:
+      return null
+  }
+}
+
+/**
+ * A route's traffic in a few words, such as "12 requests · 2 anonymous · 1 error", led for a method's observed route by
+ * how many of them ran it, such as "3 ran it of 12 requests", and ending with "partial" when its call trees may miss or
+ * under-count what its requests ran.
+ */
 export function routeTraffic(route) {
-  const parts = [`${formatNumber(route.requests)} ${route.requests === 1 ? 'request' : 'requests'}`]
+  const requests = `${formatNumber(route.requests)} ${route.requests === 1 ? 'request' : 'requests'}`
+  const parts = [
+    route.executedRequests > 0 ? `${formatNumber(route.executedRequests)} ran it of ${requests}` : requests
+  ]
   if (route.anonymous > 0) parts.push(`${formatNumber(route.anonymous)} anonymous`)
   if (route.errors > 0) parts.push(`${formatNumber(route.errors)} ${route.errors === 1 ? 'error' : 'errors'}`)
+  if (route.partial) parts.push('partial')
   return parts.join(' · ')
 }
 

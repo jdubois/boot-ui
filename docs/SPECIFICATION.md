@@ -1728,7 +1728,15 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   run, the mapped routes that reach it and did not, and the routes outside its reach that use a table, cache, or host
   the routes through it touched, with the structural reach as a count. A route is its own impact: it is listed itself,
   with the routes sharing what it touched. A known handler method (`Class#method`, with `#` URL-encoded as `%23`)
-  narrows the answer to that method's mapped routes; the class alone still includes the whole bean. Whole-run route
+  narrows the answer to that method's mapped routes (`observedFrom=HANDLER_MAPPING`); the class alone still includes
+  the whole bean (`observedFrom=STRUCTURE`). With the BootUI agent's `code-paths` sensor, any application method is a
+  symbol: `Class#method`, `Class.method(...)`, or `METHOD fq.Class#method`, with Java parameter types or a JVM
+  descriptor naming one overload (M5-7a, [PLAN-v2.md](PLAN-v2.md) §5.17). Its observed routes
+  (`observedFrom=ROUTE_TREES`) are those whose requests' own call trees ran it, at any depth, from each route's tree
+  amended by late fragments, or Code Inventory's first-request route, never composed from `INVOKES` edges; each carries
+  `executedRequests` and `partial`. `methods` lists the method keys it names, `methodStatus` what Code Inventory says,
+  and `notObserved` the routes reaching its bean that ran without their trees showing it, with why that proves nothing;
+  such a route is in `notExercised` only when Code Inventory saw every overload never run in this run. Whole-run route
   counts survive event eviction; when aggregate route counts overflow, an unknown route is not called unexercised,
   and `notExercisedUndetermined=true` marks the list incomplete. Disabled source-panel facts are omitted and named
   as limitations only when relevant evidence was recorded; when HTTP Exchanges is disabled the answer is
@@ -1745,7 +1753,11 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
   removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
-  list holds at most 200 rows.
+  list holds at most 200 rows. `codeChanges`, shown first, lists with the BootUI agent the methods Code Inventory found
+  changed or added since the previous run, not run yet first, each with its status and the routes whose call trees ran
+  it, with the change counts, removed methods counted only (M5-7a). It is `null` without the agent, and
+  `available=false` with the reason while the inventory sensor or the Code Inventory panel cannot answer, or against a
+  run other than the previous one.
 - `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
   §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
@@ -3011,9 +3023,9 @@ Initial endpoints:
 | `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
 | `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, limitations, and the declared routes not exercised in this run |
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
-| `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, method (`Class#method`, read from the route trees with the BootUI agent), repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |

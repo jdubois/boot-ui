@@ -11,7 +11,9 @@ import java.util.Map;
  * new instance, and nothing is kept across runs. Bounded: at most {@value #MAX_ROUTES} routes, each with at most
  * {@value #MAX_NODES_PER_ROUTE} nodes, and {@value #MAX_NODES} nodes across routes; past the global budget, routes merge
  * further methods into their Other nodes while {@value #GLOBAL_OTHER_RESERVE} nodes remain for them. A tree of an
- * unknown route, or of a route past the cap, is counted and not merged. Not thread-safe.
+ * unknown route, or of a route past the cap, is counted and not merged, though the methods it executed are kept apart
+ * ({@link #unroutedExecutions}). Each route also counts the requests that executed each method (M5-7a), at most
+ * {@value #MAX_METHODS_PER_ROUTE} methods per route and {@value #MAX_METHODS} across the run. Not thread-safe.
  */
 public final class RouteTrees {
 
@@ -20,6 +22,14 @@ public final class RouteTrees {
     public static final int GLOBAL_OTHER_RESERVE = 2_000;
     public static final int MAX_ROUTES = 500;
 
+    /** The methods one route's executed-method table holds (M5-7a). */
+    public static final int MAX_METHODS_PER_ROUTE = 4_096;
+
+    /** The methods every route's executed-method table, and the table of trees without a route, hold together. */
+    public static final int MAX_METHODS = 200_000;
+
+    /** The estimated bytes of one executed-method entry: its id, count, and stamp, in a table at most half full. */
+    public static final int METHOD_BYTES = 32;
     /** The estimated bytes of one route-tree node: its arrays' entries, its histogram, and its index entry. */
     public static final int NODE_BYTES = 264;
 
@@ -35,6 +45,12 @@ public final class RouteTrees {
     private long unrouted;
     private long routesDropped;
     private long version;
+    private int methods;
+    /** Per method id, the trees without a route that executed it: no route can be said not to have (M5-7a). */
+    private final MethodCounts unroutedMethods = new MethodCounts();
+
+    private int unroutedStamp;
+    private boolean unroutedPartial;
 
     public RouteTrees() {
         this(MAX_NODES_PER_ROUTE, MAX_NODES, MAX_ROUTES);
@@ -67,12 +83,14 @@ public final class RouteTrees {
     public void add(RequestTree tree, String route, boolean assemblyOnly) {
         if (tree == null || tree.requestId() == null || route == null || RequestOutcome.UNKNOWN_ROUTE.equals(route)) {
             unrouted++;
+            countUnrouted(tree == null ? null : tree.method());
             return;
         }
         RouteTree routeTree = routes.get(route);
         if (routeTree == null) {
             if (routes.size() >= maxRoutes || nodes >= maxNodes) {
                 routesDropped++;
+                countUnrouted(tree.method());
                 return;
             }
             nodes++;
@@ -82,6 +100,56 @@ public final class RouteTrees {
         routeTree.offer(tree, assemblyOnly);
         merged++;
         version++;
+    }
+
+    /**
+     * Amends the executed methods of {@code route} with a fragment that arrived after its request's tree was merged
+     * ({@link RouteTree#amend}); a route without a tree, or none, amends the table of trees without a route.
+     *
+     * @param before the request's tree's method ids before the fragment, or {@code null} when it is no longer kept
+     * @param added the fragment's method ids
+     * @param becameIncomplete whether the request's tree now misses some methods it executed
+     */
+    public void amend(String route, int[] before, int[] added, boolean becameIncomplete) {
+        RouteTree routeTree = route == null ? null : routes.get(route);
+        if (routeTree == null) {
+            countUnrouted(added);
+        } else {
+            routeTree.amend(before, added, becameIncomplete);
+        }
+        version++;
+    }
+
+    private void countUnrouted(int[] ids) {
+        if (ids == null) {
+            return;
+        }
+        int stamp = ++unroutedStamp;
+        for (int id : ids) {
+            if (id < 0) {
+                continue;
+            }
+            if (!unroutedMethods.contains(id) && !reserveMethod()) {
+                unroutedPartial = true;
+                continue;
+            }
+            unroutedMethods.count(id, stamp, true);
+        }
+    }
+
+    /** The trees without a route, or of a route past the caps, that executed method {@code id}. */
+    public long unroutedExecutions(int id) {
+        return unroutedMethods.count(id);
+    }
+
+    /** Every method id a tree without a route executed: a copy. */
+    public int[] unroutedMethods() {
+        return unroutedMethods.ids();
+    }
+
+    /** Whether some methods trees without a route executed are missing from {@link #unroutedExecutions}. */
+    public boolean unroutedPartial() {
+        return unroutedPartial;
     }
 
     /** One route's tree, or {@code null}. */
@@ -149,16 +217,34 @@ public final class RouteTrees {
 
     /** The estimated bytes of every route tree. */
     public long estimatedBytes() {
-        return (long) nodes * NODE_BYTES + (long) routes.size() * ROUTE_BYTES;
+        return (long) nodes * NODE_BYTES + (long) routes.size() * ROUTE_BYTES + (long) methods * METHOD_BYTES;
     }
 
     /** The estimated bytes of the most these route trees hold. */
     public long maxEstimatedBytes() {
-        return (long) maxNodes * NODE_BYTES + (long) maxRoutes * ROUTE_BYTES;
+        return (long) maxNodes * NODE_BYTES + (long) maxRoutes * ROUTE_BYTES + (long) maxMethods() * METHOD_BYTES;
+    }
+
+    /** The executed-method entries across routes, shrunk in proportion with the node bound (M5-11). */
+    int maxMethods() {
+        return (int) Math.max(MAX_METHODS_PER_ROUTE, (long) MAX_METHODS * maxNodes / MAX_NODES);
     }
 
     int maxNodesPerRoute() {
         return maxNodesPerRoute;
+    }
+
+    int maxMethodsPerRoute() {
+        return MAX_METHODS_PER_ROUTE;
+    }
+
+    /** Takes one entry of the run's executed-method budget, if any remain. */
+    boolean reserveMethod() {
+        if (methods >= maxMethods()) {
+            return false;
+        }
+        methods++;
+        return true;
     }
 
     /** Takes one node of the global budget for a regular node, if regular nodes remain. */

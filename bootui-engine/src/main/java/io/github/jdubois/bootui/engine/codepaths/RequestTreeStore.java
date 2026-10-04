@@ -21,8 +21,9 @@ import java.util.function.Function;
  * {@value #EXEMPLARS} latest failed, for at most
  * {@value #MAX_ROUTES} routes. A fragment arriving after its request settled, as a late handoff's, merges into the kept
  * recent tree, and into its exemplar too, or into the tree still waiting for its request's exchange, even one no longer
- * among the recent ones; one arriving after its tree left the recent ones but is still an exemplar is dropped and
- * counted, never opening a partial duplicate. A settled tree keeps no builder, only its tree and the spans a late
+ * among the recent ones; one arriving after its tree left the recent ones, but is still an exemplar or among the
+ * {@value #MAX_ANNOUNCED} trees last handed over, is dropped and counted, never opening a partial duplicate. Whenever a
+ * fragment arrives after its tree was handed over, the {@link Amendment} listener is told what it executed (M5-7a). A settled tree keeps no builder, only its tree and the spans a late
  * fragment needs ({@link RequestTreeBuilder.Spans}), so every tree kept counts toward {@value #MAX_KEPT_NODES} nodes for
  * what it holds, past which the oldest recent trees, then the oldest routes' exemplars, are forgotten. A tree waiting for
  * its exchange also keeps, until its calls are attached, the nodes of every fragment its builder remembered, at most
@@ -78,6 +79,32 @@ public final class RequestTreeStore {
     /** The most settled trees waiting for their exchange; past it, the eldest is completed with an unknown route. */
     public static final int MAX_UNRESOLVED = 256;
 
+    /**
+     * The announced trees whose route is remembered for a late fragment once the tree itself is forgotten (M5-7a): a
+     * fragment for an older one opens a new tree, as before.
+     */
+    public static final int MAX_ANNOUNCED = 16_384;
+
+    /** The estimated bytes of one announced tree's key and route, the route string shared with its tree. */
+    public static final int ANNOUNCED_BYTES = 96;
+
+    /**
+     * Told when a fragment arrives after its request's tree was handed to {@link #onSettled}'s listener, so that
+     * listener's aggregates can be amended rather than miss what the fragment executed (M5-7a).
+     */
+    @FunctionalInterface
+    public interface Amendment {
+
+        /**
+         * @param route the route the tree was handed over with
+         * @param before the tree's method ids before the fragment, or {@code null} when the tree is no longer kept
+         * @param added the fragment's method ids
+         * @param becameIncomplete whether the tree now misses some methods it executed: the fragment dropped calls, or
+         *     merging it needed an Other node or dropped calls the tree did not need before
+         */
+        void amend(String route, int[] before, int[] added, boolean becameIncomplete);
+    }
+
     private final RequestOutcomeReader outcomes;
     private final int maxOpen;
     private final int overflowBatch;
@@ -89,6 +116,18 @@ public final class RequestTreeStore {
     private long clearedFragments;
     private long openNodes;
     private BiConsumer<RequestTree, RequestOutcome> settledListener = (tree, outcome) -> {};
+    private Amendment amendmentListener = (route, before, added, incomplete) -> {};
+    /** Per key of a tree handed over, its route, the most recent {@link #maxAnnounced}. */
+    private final LinkedHashMap<String, String> announced = new LinkedHashMap<>(256, 0.75f, false) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > maxAnnounced;
+        }
+    };
+    /** {@value #MAX_ANNOUNCED}, shrunk in proportion with the kept nodes by an agent evidence bound (M5-11). */
+    private final int maxAnnounced;
+
+    private long amended;
     private final LinkedHashMap<String, Open> open = new LinkedHashMap<>();
     private final LinkedHashMap<String, Kept> recent = new LinkedHashMap<>();
     private final LinkedHashMap<String, Exemplars> routes = new LinkedHashMap<>(16, 0.75f, true);
@@ -121,6 +160,7 @@ public final class RequestTreeStore {
         this.maxOpen = Math.max(1, Math.min(MAX_OPEN, maxOpen));
         this.overflowBatch = Math.max(1, this.maxOpen / 4);
         this.maxKeptNodes = Math.max(RequestTreeBuilder.MAX_NODES, Math.min(MAX_KEPT_NODES, maxKeptNodes));
+        this.maxAnnounced = (int) Math.max(256L, (long) MAX_ANNOUNCED * this.maxKeptNodes / MAX_KEPT_NODES);
     }
 
     /**
@@ -129,6 +169,14 @@ public final class RequestTreeStore {
      */
     public void onSettled(BiConsumer<RequestTree, RequestOutcome> listener) {
         this.settledListener = listener == null ? (tree, outcome) -> {} : listener;
+    }
+
+    /**
+     * Installs what is told when a fragment arrives after its tree was handed over, such as the run's route trees'
+     * {@link RouteTrees#amend} (M5-7a).
+     */
+    public void onAmended(Amendment listener) {
+        this.amendmentListener = listener == null ? (route, before, added, incomplete) -> {} : listener;
     }
 
     /** Merges {@code fragment} into its request's tree. */
@@ -153,6 +201,13 @@ public final class RequestTreeStore {
                     : RequestTreeBuilder.resume(kept.tree, kept.spans);
             builder.add(fragment);
             RequestTree merged = builder.finish();
+            if (pending == null) {
+                // Handed over already: its route's aggregates are amended with what the fragment executed. A tree that
+                // folded methods into an Other node no longer names everything it ran, so only methods its route never
+                // counted are added then.
+                boolean folded = incomplete(kept.tree);
+                amend(kept.outcome.route(), folded ? null : kept.tree, fragment, incomplete(merged) && !folded);
+            }
             if (recent.get(key) == kept) {
                 keptNodes += merged.nodeCount() - kept.tree.nodeCount();
             }
@@ -169,10 +224,24 @@ public final class RequestTreeStore {
             return;
         }
         Open entry = open.get(key);
-        if (entry == null && exemplar(key)) {
-            // Settled and no longer recent: merging only the late fragment would open a partial duplicate.
-            lateDropped++;
-            return;
+        if (entry == null) {
+            String exemplarRoute = exemplarRoute(key);
+            if (exemplarRoute != null) {
+                // Settled and no longer recent: merging only the late fragment would open a partial duplicate, but its
+                // route still learns what it executed.
+                // Its methods are not merged into the exemplar, so only those its route never counted are added.
+                lateDropped++;
+                amend(exemplarRoute, null, fragment, false);
+                return;
+            }
+            String route = announced.get(key);
+            if (route != null && !RequestOutcome.UNKNOWN_ROUTE.equals(route)) {
+                // Handed over and forgotten: a new tree would count the request twice in its route. A tree handed over
+                // without a route counted in none, so its later work still opens a tree that may yet be named.
+                lateDropped++;
+                amend(route, null, fragment, false);
+                return;
+            }
         }
         if (entry == null) {
             String requestId = fragment.request() == 0L ? null : CodePathFragment.hex(fragment.request());
@@ -376,6 +445,7 @@ public final class RequestTreeStore {
     }
 
     private void announce(Kept kept) {
+        announced.put(kept.tree.key(), kept.outcome.route());
         try {
             settledListener.accept(kept.tree, kept.outcome);
         } catch (RuntimeException ex) {
@@ -432,9 +502,46 @@ public final class RequestTreeStore {
         forgotten++;
     }
 
-    private boolean exemplar(String key) {
-        for (Exemplars exemplars : routes.values()) {
-            if (exemplars.find(key) != null) {
+    /** The route of the exemplar with key {@code key}, or {@code null} when no route keeps it. */
+    private String exemplarRoute(String key) {
+        for (Map.Entry<String, Exemplars> exemplars : routes.entrySet()) {
+            if (exemplars.getValue().find(key) != null) {
+                return exemplars.getKey();
+            }
+        }
+        return null;
+    }
+
+    private void amend(String route, RequestTree before, CodePathFragment fragment, boolean becameIncomplete) {
+        amended++;
+        try {
+            amendmentListener.amend(
+                    route, before == null ? null : before.method(), fragment.method(), becameIncomplete);
+        } catch (RuntimeException ex) {
+            // A listener never loses the fragment the store merged.
+        }
+    }
+
+    /** Whether a fragment may have executed methods it does not name: an Other node, or calls the agent dropped. */
+    static boolean incomplete(CodePathFragment fragment) {
+        if (fragment.dropped() > 0) {
+            return true;
+        }
+        for (int id : fragment.method()) {
+            if (id == CodePathFragment.OTHER) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a tree may have executed methods it does not name: an Other node, or calls in no node. */
+    static boolean incomplete(RequestTree tree) {
+        if (tree.droppedCalls() > 0) {
+            return true;
+        }
+        for (int id : tree.method()) {
+            if (id == RequestTree.OTHER) {
                 return true;
             }
         }
@@ -536,6 +643,11 @@ public final class RequestTreeStore {
         return lateDropped;
     }
 
+    /** How many late fragments amended a tree's route after it was handed over (M5-7a). */
+    public long amended() {
+        return amended;
+    }
+
     /** How many kept trees or routes were forgotten to stay within bounds. */
     public long forgotten() {
         return forgotten;
@@ -594,6 +706,13 @@ public final class RequestTreeStore {
                 keys.add(tree.key());
             }
         }
+        // The trees handed over and forgotten first, so the tombstones kept longest are those of the trees above: a
+        // pre-clear request's late fragment never amends a route tree of after the clear (M5-7a).
+        for (String key : announced.keySet()) {
+            if (!keys.contains(key)) {
+                tombstone(key);
+            }
+        }
         for (String key : keys) {
             tombstone(key);
         }
@@ -601,6 +720,7 @@ public final class RequestTreeStore {
         recent.clear();
         routes.clear();
         unresolved.clear();
+        announced.clear();
         openNodes = 0;
         keptNodes = 0;
         nextResolve = Long.MIN_VALUE;
@@ -634,14 +754,16 @@ public final class RequestTreeStore {
     public long estimatedBytes() {
         return (keptNodes + openNodes) * (long) NODE_BYTES
                 + (long) (recent.size() + unresolved.size() + open.size()) * TREE_BYTES
-                + (long) tombstones.size() * TOMBSTONE_BYTES;
+                + (long) tombstones.size() * TOMBSTONE_BYTES
+                + (long) announced.size() * ANNOUNCED_BYTES;
     }
 
     /** The estimated bytes of the most this store keeps: its kept and open nodes, and its tombstones. */
     public long maxEstimatedBytes() {
         return ((long) maxKeptNodes + (long) maxOpen * RequestTreeBuilder.MAX_NODES) * NODE_BYTES
                 + (long) (RECENT + MAX_UNRESOLVED + maxOpen) * TREE_BYTES
-                + (long) MAX_TOMBSTONES * TOMBSTONE_BYTES;
+                + (long) MAX_TOMBSTONES * TOMBSTONE_BYTES
+                + (long) maxAnnounced * ANNOUNCED_BYTES;
     }
 
     private static final class Open {

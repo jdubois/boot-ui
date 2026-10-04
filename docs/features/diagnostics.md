@@ -589,7 +589,11 @@ API, all `GET`:
 Each tree node carries `calls`: per kind (`SQL`, `REST`, `CACHE`, `AI`), the calls it issued per request and their
 time, `null` for cache accesses, which have none. The runtime model gains an observed `INVOKES` edge between two beans
 per call pair, with its count; change impact never walks it, since a call observed in one run is evidence of the paths
-its requests took, not of what a change can reach.
+its requests took, not of what a change can reach. Change impact by method reads each route's own tree instead: every
+route counts, per method, the requests whose tree ran it, at any depth and before its tree folds methods into Other
+nodes, the first request and executor work included, at most 4,096 methods per route and 200,000 per run; a fragment
+that arrives after its request's tree was merged amends its route rather than opening a second tree, and a route whose
+trees may miss methods says so ([Change impact](overview.md#runtime-insights)).
 
 `get_code_paths` and `bootui code paths` return at most `limit` (10) routes matching `query` (a route, or part of a
 route or of a method), slowest warm median first, each with its top methods; for a single route, its method nodes with

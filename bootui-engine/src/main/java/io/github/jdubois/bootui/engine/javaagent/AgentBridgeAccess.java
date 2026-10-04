@@ -569,7 +569,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Reads {@code key} of a bridge map as a map, or an empty map. */
-    static Map<String, Object> map(Map<String, ?> source, String key) {
+    public static Map<String, Object> map(Map<String, ?> source, String key) {
         Object value = source == null ? null : source.get(key);
         return value instanceof Map<?, ?> ? copy(value) : Map.of();
     }
@@ -581,7 +581,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Reads {@code key} of a bridge map as a number, or {@code null}. */
-    static Long number(Map<String, ?> source, String key) {
+    public static Long number(Map<String, ?> source, String key) {
         Object value = source == null ? null : source.get(key);
         return value instanceof Number number ? number.longValue() : null;
     }

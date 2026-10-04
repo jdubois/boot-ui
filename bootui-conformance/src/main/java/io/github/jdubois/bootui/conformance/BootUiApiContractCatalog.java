@@ -595,7 +595,8 @@ public final class BootUiApiContractCatalog {
                     "edges", JsonType.ARRAY,
                     "restartCost", JsonType.OBJECT,
                     "latency", JsonType.ARRAY,
-                    "limitations", JsonType.ARRAY));
+                    "limitations", JsonType.ARRAY,
+                    "codeChanges", JsonType.NULLABLE_OBJECT));
 
     /**
      * The <b>Profile resources</b> session's state, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md}
@@ -638,7 +639,12 @@ public final class BootUiApiContractCatalog {
                     "notExercisedUndetermined", JsonType.BOOLEAN,
                     "sharedResources", JsonType.ARRAY,
                     "sharedResourcesTotal", JsonType.INTEGER,
-                    "limitations", JsonType.ARRAY));
+                    "limitations", JsonType.ARRAY,
+                    "observedFrom", JsonType.NULLABLE_STRING,
+                    "methods", JsonType.ARRAY,
+                    "methodStatus", JsonType.NULLABLE_STRING,
+                    "notObserved", JsonType.ARRAY,
+                    "notObservedTotal", JsonType.INTEGER));
 
     /**
      * The symbols change impact can check that match what was typed, a read of the {@code runtime-insights} panel
