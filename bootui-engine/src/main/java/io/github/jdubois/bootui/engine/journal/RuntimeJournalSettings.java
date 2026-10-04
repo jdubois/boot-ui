@@ -88,15 +88,19 @@ public record RuntimeJournalSettings(
      * @throws IllegalArgumentException for anything else
      */
     public static Long parseBytes(String value) {
+        return parseBytes(value, "bootui.runtime-journal.max-bytes");
+    }
+
+    /** {@link #parseBytes(String)} for the key {@code property}, which an invalid value's message names. */
+    public static Long parseBytes(String value, String property) {
         if (value == null || value.isBlank()) {
             return null;
         }
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?i)\\s*(\\d+)\\s*(B|K|KB|M|MB|G|GB)?\\s*")
                 .matcher(value);
         if (!matcher.matches()) {
-            throw new IllegalArgumentException(
-                    "Invalid byte size '" + value
-                            + "' for bootui.runtime-journal.max-bytes: use a number of bytes, optionally followed by KB, MB, or GB.");
+            throw new IllegalArgumentException("Invalid byte size '" + value + "' for " + property
+                    + ": use a number of bytes, optionally followed by KB, MB, or GB.");
         }
         long amount = Long.parseLong(matcher.group(1));
         String unit = matcher.group(2) == null ? "B" : matcher.group(2).toUpperCase(java.util.Locale.ROOT);

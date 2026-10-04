@@ -2723,6 +2723,14 @@ public class BootUiProperties {
         private DataSize maxBytes;
 
         /**
+         * Maximum memory the BootUI agent's evidence kept outside the journal may use, estimated: Code Paths' request
+         * and route trees and Code Inventory's first calls. Unset means about 55 MB, the sum of their fixed caps; a
+         * smaller value shrinks Code Paths' trees in proportion, and Code Inventory's first calls, bounded by the
+         * agent's method limit, are only counted.
+         */
+        private DataSize agentEvidenceMaxBytes;
+
+        /**
          * Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events; beyond
          * it, events are dropped and counted, and the application thread never waits.
          */
@@ -2774,6 +2782,14 @@ public class BootUiProperties {
 
         public void setMaxBytes(DataSize maxBytes) {
             this.maxBytes = maxBytes;
+        }
+
+        public DataSize getAgentEvidenceMaxBytes() {
+            return agentEvidenceMaxBytes;
+        }
+
+        public void setAgentEvidenceMaxBytes(DataSize agentEvidenceMaxBytes) {
+            this.agentEvidenceMaxBytes = agentEvidenceMaxBytes;
         }
 
         public int getQueueCapacity() {

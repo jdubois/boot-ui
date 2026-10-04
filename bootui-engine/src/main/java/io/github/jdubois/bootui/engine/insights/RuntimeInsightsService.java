@@ -8,7 +8,9 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsWindowDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.ControlMarkers;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
@@ -101,6 +103,11 @@ public final class RuntimeInsightsService {
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
     private volatile LongSupplier codePathsFingerprint;
+    private volatile Supplier<AgentEvidence.Read> codePathsReads;
+    private volatile Supplier<AgentEvidence.Read> codeInventoryReads;
+    // The reads of the projection in progress, set and cleared by current() under this service's lock.
+    private AgentEvidence.Read codePathsRead;
+    private AgentEvidence.Read codeInventoryRead;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -277,6 +284,11 @@ public final class RuntimeInsightsService {
     }
 
     private boolean codePathsVisible() {
+        AgentEvidence.Read read = codePathsRead;
+        if (read != null) {
+            // The projection's one read (M5-11).
+            return read.shown();
+        }
         try {
             return panelEnabled.test(BootUiPanels.CODE_PATHS);
         } catch (RuntimeException ex) {
@@ -429,7 +441,104 @@ public final class RuntimeInsightsService {
                 Math.max(0, rows.size() - MAX_EVIDENCE_ROWS));
     }
 
+    /**
+     * {@link #currentUnderReads()} under one read of the panels owning the agent's evidence (M5-11), resolved here and
+     * passed to every Code Paths and Code Inventory read of the projection, its cache key included, so a panel toggled
+     * while it runs cannot hide one part and serve another.
+     */
     private Cached current() {
+        codePathsRead = resolve(codePathsReads);
+        codeInventoryRead = resolve(codeInventoryReads);
+        try {
+            return currentUnderReads();
+        } finally {
+            codePathsRead = null;
+            codeInventoryRead = null;
+        }
+    }
+
+    private static AgentEvidence.Read resolve(Supplier<AgentEvidence.Read> reads) {
+        if (reads == null) {
+            return null;
+        }
+        try {
+            return reads.get();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Installs Code Paths ({@code docs/PLAN-v2.md} §5.14) as {@link #setCodePaths(java.util.function.Function,
+     * LongSupplier, java.util.function.IntFunction, java.util.function.BiFunction)} does, from the service itself, so
+     * every read of one projection is given the same {@linkplain CodePathsService#read() read} of its panels (M5-11).
+     */
+    public synchronized void setCodePathsService(Supplier<CodePathsService> codePaths) {
+        if (codePaths == null) {
+            this.codePathsReads = null;
+            setCodePaths(null, null, null, null);
+            return;
+        }
+        this.codePathsReads = () -> {
+            CodePathsService service = codePaths.get();
+            return service == null ? null : service.read();
+        };
+        setCodePaths(
+                route -> {
+                    CodePathsService service = codePaths.get();
+                    return service == null ? null : service.handlerMethods(codePathsRead(service), route);
+                },
+                () -> {
+                    CodePathsService service = codePaths.get();
+                    return service == null ? 0L : service.routeTreesFingerprint(codePathsRead(service));
+                },
+                id -> {
+                    CodePathsService service = codePaths.get();
+                    return service == null ? null : service.methodKey(codePathsRead(service), id);
+                },
+                (route, id) -> {
+                    CodePathsService service = codePaths.get();
+                    return service == null ? null : service.issuingMethod(codePathsRead(service), route, id);
+                });
+    }
+
+    /**
+     * Installs Code Inventory ({@code docs/PLAN-v2.md} §5.15) as {@link #setCodeInventory(Supplier, LongSupplier)}
+     * does, from the service itself, so the changes and their fingerprint are read under the same
+     * {@linkplain CodeInventoryService#read() read} of its panels (M5-11).
+     */
+    public synchronized void setCodeInventoryService(Supplier<CodeInventoryService> codeInventory) {
+        if (codeInventory == null) {
+            this.codeInventoryReads = null;
+            setCodeInventory(null, null);
+            return;
+        }
+        this.codeInventoryReads = () -> {
+            CodeInventoryService service = codeInventory.get();
+            return service == null ? null : service.read();
+        };
+        setCodeInventory(
+                () -> {
+                    CodeInventoryService service = codeInventory.get();
+                    return service == null ? null : service.changedCode(codeInventoryRead(service));
+                },
+                () -> {
+                    CodeInventoryService service = codeInventory.get();
+                    return service == null ? 0L : service.changesFingerprint(codeInventoryRead(service));
+                });
+    }
+
+    private AgentEvidence.Read codePathsRead(CodePathsService service) {
+        AgentEvidence.Read read = codePathsRead;
+        return read != null ? read : service.read();
+    }
+
+    private AgentEvidence.Read codeInventoryRead(CodeInventoryService service) {
+        AgentEvidence.Read read = codeInventoryRead;
+        return read != null ? read : service.read();
+    }
+
+    private Cached currentUnderReads() {
         if (journal == null || !journal.settings().enabled()) {
             return new Cached(
                     -1,
@@ -472,6 +581,10 @@ public final class RuntimeInsightsService {
     }
 
     private boolean codeInventoryVisible() {
+        AgentEvidence.Read read = codeInventoryRead;
+        if (read != null) {
+            return read.shown();
+        }
         try {
             return panelEnabled.test(CODE_INVENTORY_PANEL);
         } catch (RuntimeException ex) {

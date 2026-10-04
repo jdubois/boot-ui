@@ -76,6 +76,36 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
  */
 class BootUiEngineConfigurationTests {
 
+    /** M5-11: any agent evidence bean, BootUI's or the application's, is cleared with the journal, once. */
+    @Test
+    void theAgentEvidenceListensToTheJournalOnceWhoeverSuppliedIt() {
+        io.github.jdubois.bootui.engine.journal.RuntimeJournal journal =
+                new io.github.jdubois.bootui.engine.journal.RuntimeJournal(
+                        io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings.defaults(),
+                        io.github.jdubois.bootui.engine.correlation.RunIdentity.start());
+        try {
+            io.github.jdubois.bootui.engine.journal.AgentEvidence supplied =
+                    io.github.jdubois.bootui.engine.journal.AgentEvidence.open();
+            DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+            beanFactory.registerSingleton("evidence", supplied);
+            beanFactory.registerSingleton("journal", journal);
+            org.springframework.beans.factory.SmartInitializingSingleton listener = new BootUiEngineConfiguration()
+                    .bootUiAgentEvidenceJournalListener(
+                            beanFactory.getBeanProvider(io.github.jdubois.bootui.engine.journal.AgentEvidence.class),
+                            beanFactory.getBeanProvider(io.github.jdubois.bootui.engine.journal.RuntimeJournal.class));
+
+            listener.afterSingletonsInstantiated();
+            listener.afterSingletonsInstantiated();
+            journal.clear();
+
+            assertThat(supplied.clears())
+                    .as("cleared once, by one registration")
+                    .isEqualTo(1);
+        } finally {
+            journal.close();
+        }
+    }
+
     @Test
     void memoryOffloadOnlyReachesSingletonsThatAlreadyExist() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();

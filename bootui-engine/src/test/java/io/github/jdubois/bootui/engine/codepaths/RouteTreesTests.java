@@ -22,6 +22,26 @@ class RouteTreesTests {
 
     private static final String ROUTE = "GET /api/orders";
 
+    /** M5-11: Clear recording empties the route trees and keeps their counts since the claim and their bounds. */
+    @Test
+    void clearedRouteTreesAreEmptyAndKeepTheirCountsAndBounds() {
+        RouteTrees trees = new RouteTrees(5_000, 20);
+        trees.add(new Tree(1_000L).method(0, 7, 2, 1, 1_000L).build("0000000000000001"), ROUTE, false);
+        trees.add(new Tree(2_000L).method(0, 7, 2, 1, 1_000L).build("0000000000000002"), null, false);
+        long version = trees.version();
+
+        RouteTrees cleared = trees.cleared();
+
+        assertThat(cleared.routes()).isEmpty();
+        assertThat(cleared.nodes()).isZero();
+        assertThat(cleared.merged()).isEqualTo(1);
+        assertThat(cleared.unrouted()).isEqualTo(1);
+        assertThat(cleared.version()).isGreaterThan(version);
+        assertThat(cleared.maxNodes()).isEqualTo(5_000);
+        assertThat(cleared.maxRoutes()).isEqualTo(20);
+        assertThat(cleared.estimatedBytes()).isLessThan(trees.estimatedBytes());
+    }
+
     /**
      * The route's first recorded request, the first whose tree settled, is kept apart as its start, length, and id
      * only; a later tree that started earlier is merged as warm, since trees settle in about the order requests ended.

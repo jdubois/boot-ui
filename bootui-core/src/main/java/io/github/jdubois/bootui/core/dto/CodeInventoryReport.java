@@ -15,6 +15,8 @@ import java.util.List;
  * @param changes what changed since the previous run, or {@code null} when unavailable
  * @param dependencies the dependency counts, or {@code null} when unavailable
  * @param limitations what the counts cannot see
+ * @param recordingClearedAt when <b>Clear recording</b> last dropped this run's first requests and routes, in epoch
+ *     milliseconds, or {@code null}: a method whose first call is older executed before it, and may not have run since
  */
 public record CodeInventoryReport(
         boolean available,
@@ -24,7 +26,8 @@ public record CodeInventoryReport(
         CodeInventoryMethodCountsDto methods,
         CodeInventoryChangeCountsDto changes,
         CodeInventoryDependencyCountsDto dependencies,
-        List<String> limitations) {
+        List<String> limitations,
+        Long recordingClearedAt) {
 
     public CodeInventoryReport {
         limitations = DtoCollections.immutableCopy(limitations);
@@ -32,6 +35,6 @@ public record CodeInventoryReport(
 
     /** The report without the sensor. */
     public static CodeInventoryReport unavailable(String reason) {
-        return new CodeInventoryReport(false, reason, null, null, null, null, null, List.of());
+        return new CodeInventoryReport(false, reason, null, null, null, null, null, List.of(), null);
     }
 }
