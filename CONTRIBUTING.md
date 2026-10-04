@@ -637,6 +637,17 @@ with only `v1.13.1` tagged, the workflow accepts `1.13.2`, `1.14.0`, or `2.0.0`.
 on 2.x accepts `2.0.1`, `2.1.0`, or `3.0.0`, and `1.19.5` or a second `2.0.0` is
 rejected. `.github/scripts/release-version-policy.sh` holds this rule.
 
+Every branch also declares its release line, the major its contents belong to, in
+`.github/release-line`, and the workflow releases only versions of that line. `v2`
+declares `2` while it still carries a 1.x project version, so once it is merged,
+`main` releases 2.0.0 and never another 1.x version, and a `1.x` maintenance branch
+releases 1.x patches and never 2.0.0. The documentation site and the Docker Hub
+sample images build from a branch rather than a tag, so they follow the same line:
+`.github/scripts/release-line-gate.sh` lets `pages.yml` and `docker-publish.yml`
+publish only when the branch's line has a release on Maven Central and no newer
+major does. [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the `v2` merge,
+its rehearsal, and the `1.x` maintenance branch.
+
 The workflow updates all Maven module versions and refreshes the documentation
 dependency examples in the working tree and optionally verifies with the `release`
 Maven profile. Before any
@@ -704,8 +715,10 @@ bash .github/scripts/check-release-integrity.sh
 python3 -B -m unittest discover -s .github/scripts -p 'test_release_*.py'
 ```
 
-The second command tests the per-major version and newest-major documentation rules,
-and the integrity guard itself.
+The second command tests the per-major version, release-line, and newest-major
+documentation rules, the release-line gate against a local stand-in for Maven
+Central, and the integrity guard itself, which also pins the gates in `pages.yml`
+and `docker-publish.yml`.
 
 ## Submitting a change
 

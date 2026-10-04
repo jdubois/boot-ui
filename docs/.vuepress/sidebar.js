@@ -25,7 +25,9 @@ const sidebarLabels = {
   'WORKS-WITH.md': 'BootUI family',
   'CLI.md': 'Command line',
   'V2-EARLY-ADOPTERS.md': 'Try 2.0 early',
-  'V2-VALIDATION-REPORT.md': 'v2 validation report'
+  'V2-VALIDATION-REPORT.md': 'v2 validation report',
+  'V2-RELEASE.md': 'Releasing 2.0',
+  'KNOWN-LIMITATIONS.md': 'Known limitations'
 }
 
 const featureDocs = [
@@ -61,7 +63,7 @@ const groups = [
   },
   {
     text: 'Reference',
-    docs: ['PROPERTIES.md', 'FRAMEWORK-SUPPORT.md', 'AI-AGENTS.md', 'CLI.md', 'WORKS-WITH.md']
+    docs: ['PROPERTIES.md', 'FRAMEWORK-SUPPORT.md', 'AI-AGENTS.md', 'CLI.md', 'WORKS-WITH.md', 'KNOWN-LIMITATIONS.md']
   },
   {
     text: 'Diagnostic checks',
@@ -93,6 +95,7 @@ const groups = [
       'PLAN-v2.md',
       'V2-EARLY-ADOPTERS.md',
       'V2-VALIDATION-REPORT.md',
+      'V2-RELEASE.md',
       'QUARKUS-SUPPORT.md',
       'WEBFLUX-SUPPORT.md'
     ]

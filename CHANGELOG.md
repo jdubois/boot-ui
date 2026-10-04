@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Known limitations of 2.0.** A [Known limitations](docs/KNOWN-LIMITATIONS.md) page lists what 2.0 does not do, per
+  stack (R2DBC statements not recorded on WebFlux, no transaction capture on Quarkus, and the panels each stack lacks),
+  the BootUI Java agent's shipped and still-planned scope, and the overhead budget. The validation report gains a
+  [release sign-off](docs/V2-VALIDATION-REPORT.md#release-sign-off) template recording each success measure against
+  its target, the per-kind gates, and every exception (PLAN-v2 M4-23).
+
 - **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
   any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
   and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth
@@ -253,6 +259,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The documentation site and the Docker Hub sample images follow the released major.** Every branch declares its
+  release line in `.github/release-line`, and `pages.yml` and `docker-publish.yml` publish a branch only when its line
+  has a release on Maven Central and no newer major does, so merging `v2` into `main` publishes no 2.0 site or image
+  before 2.0.0 is out. The Release workflow releases only versions of the branch's own line, so `main` after the merge
+  cannot release 1.x and a `1.x` maintenance branch cannot release 2.0.0. `rehearse_v2_merge.py` rehearses the merge
+  on a candidate that is never published, and [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the merge and the
+  `1.x` branch (PLAN-v2 M4-23, D40).
 - **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
   Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
   attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,
