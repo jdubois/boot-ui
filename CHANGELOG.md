@@ -508,6 +508,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **A method probe reported active catches a class loaded right after.** A probe was marked active just before its
+  transformer was registered, so a class its run loaded in that gap ran unprobed, and the probe waited for an
+  invocation that had already happened. The transformer is now registered first, and its advice records nothing until
+  the probe is active (PLAN-v2 §5.14, M5-8).
 - **The BootUI agent skips the application's own Byte Buddy.** Packaging the agent relocated the `net.bytebuddy.`
   prefix in its exclusion list to the agent's shaded package, so the published jar excluded only its own copy of Byte
   Buddy and could instrument the one an application ships with Mockito or Hibernate. The prefix is now built at run time,
