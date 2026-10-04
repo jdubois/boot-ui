@@ -211,7 +211,7 @@ const retransformationStats = computed(() => {
     {label: 'Retransformed', value: formatNumber(value.retransformed)},
     {label: 'Failed', value: formatNumber(value.failed)},
     {label: 'Skipped', value: formatNumber(value.skipped)},
-    {label: 'Retransformation time (summed)', value: `${formatMillis(value.durationMillis)} ms`},
+    {label: 'Install and release time (summed)', value: `${formatMillis(value.durationMillis)} ms`},
     {label: 'Running', value: value.running ? 'Yes' : 'No'}
   ]
 })

@@ -21,7 +21,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
   are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
   sensor is active for this application's claim, and the `PROPAGATED` tier is withheld when the claim does not use
-  `executors`. Sensors report their install, self-test, and retransformation times; the **Class transformation** card
+  `executors`. Sensors report their install, self-test, and cumulative install-and-release times; the **Class transformation** card
   sums them across every sensor. A request profile never attributes work at a tier it reports unavailable, and the
   `JAVA_TOOL_OPTIONS` snippet quotes a jar path that contains spaces
   ([Java Agent](docs/features/java-agent.md), PLAN-v2 §5.13).

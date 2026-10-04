@@ -414,6 +414,7 @@ public final class JavaAgentService {
         long millis = 0;
         boolean running = false;
         boolean failure = false;
+        boolean installed = false;
         boolean any = false;
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
@@ -426,13 +427,14 @@ public final class JavaAgentService {
                 millis += longValue(sensor, "retransformMillis");
                 String state = AgentBridgeAccess.text(sensor, "state");
                 running |= "installing".equals(state);
-                failure |= "failed".equals(state);
+                failure |= state != null && state.contains("failed");
+                installed |= INSTALLED.equals(state);
             }
         }
         if (!any) {
             return null;
         }
-        String state = running ? "installing" : failure ? "failed" : INSTALLED;
+        String state = running ? "installing" : failure ? "failed" : installed ? INSTALLED : "off";
         return new JavaAgentRetransformationDto(state, transformed, retransformed, failed, skipped, millis, running);
     }
 

@@ -17,8 +17,8 @@ import java.util.Map;
  * @param installMillis how long the last install took, including its retransformation of loaded classes, or
  *     {@code null}
  * @param selfTestMillis how long the last self-test took, or {@code null}
- * @param retransformMillis the cumulative time the sensor spent retransforming loaded classes (installs, refinements,
- *     and releases) since the JVM started
+ * @param retransformMillis the cumulative time the sensor spent installing and releasing its transformer since the JVM
+ *     started, each including its retransformation of loaded classes
  * @param selfTestPassed whether its self-test passed
  * @param selfTestError why its self-test failed, or {@code null}
  * @param selfTestSteps each self-test step's result, by step

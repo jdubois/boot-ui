@@ -96,10 +96,11 @@ A claim asks for the sensors in `bootui.agent.sensors`: `executors`, the default
 [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
 shows its state (`installing`, `installed`, `failed`, or `off`), how long the last install (including its
 retransformation of loaded classes) and its self-test each took, the self-test's result, how many JDK types it
-instrumented, how many loaded classes it retransformed and how long that took in total, and the types that failed to
-transform. The **Class transformation** card sums every sensor's transformed, retransformed, failed, and skipped classes
-and its retransformation time since the JVM started: the time is aggregate work, not a wall-clock interval, because
-the sensors install one after another and also retransform when a claim is released. Without a sensor, the
+instrumented, how many loaded classes it retransformed and how long all its installs and releases took, and the types
+that failed to transform. The **Class transformation** card sums every sensor's transformed, retransformed, failed, and
+skipped classes and its install and release time since the JVM started: the time is aggregate work, not a wall-clock
+interval, because the sensors install one after another and also retransform when a claim is released. Its state is
+`off` once every sensor is released. Without a sensor, the
 panel says:
 
 > No sensor installed: the agent installs the sensors this application asks for when it claims the agent
@@ -141,8 +142,9 @@ result (`passed`, `failed`, `not-exercised`, `unsupported`, or `not-run`), and h
 hook passes only on its own count: a thread pool's `addWorker` and `queue` keys and `CompletableFuture`'s supply and run
 stages are tested separately, so one working sibling cannot hide a missing hook. A self-test failure of a
 `ThreadPoolExecutor` or `ForkJoinTask.doExec` hook disables propagation for that claim, and the panel says why; the next
-claim tests again. A failed `CompletableFuture.AsyncSupply` or `AsyncRun` hook disables nothing: the pool's run hook
-then propagates that kind of stage itself, without reading its outcome. The hooks are verified on JDK 17, 21, 25, 26, and 27; on any other JDK the
+claim tests again. A failed `CompletableFuture.AsyncSupply` or `AsyncRun` hook disables nothing: a pool's run hook
+then propagates that kind of stage itself, without reading its outcome; a stage `CompletableFuture` runs on its own
+thread-per-task fallback has no other run hook, so it is counted as never applied. The hooks are verified on JDK 17, 21, 25, 26, and 27; on any other JDK the
 report warns that the self-test decides.
 
 ### Counters

@@ -131,7 +131,7 @@ describe('Java Agent panel', () => {
     expect(text).toContain('orders@abcd')
     expect(text).toContain('com.example.orders')
     expect(text).toContain('Class transformation')
-    expect(text).toContain('Retransformation time (summed)')
+    expect(text).toContain('Install and release time (summed)')
     expect(text).toContain('aggregate work rather than a wall-clock interval')
     expect(text).toContain('Counters')
   })

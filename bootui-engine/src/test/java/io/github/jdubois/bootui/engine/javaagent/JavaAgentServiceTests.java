@@ -201,6 +201,16 @@ class JavaAgentServiceTests {
         assertThat(disarmed.reason()).isEqualTo(JavaAgentService.DISARMED_REASON);
         assertThat(disarmed.claim().armed()).isFalse();
         assertThat(disarmed.sensors()).noneMatch(JavaAgentSensorDto::active);
+
+        threads.put("state", "released");
+        executors.put("state", "released");
+        assertThat(service.report().retransformation())
+                .as("once every sensor is released, the summed cost no longer reads installed")
+                .isEqualTo(new JavaAgentRetransformationDto("off", 3, 17, 1, 2, 55L, false));
+        executors.put("state", "installed");
+        assertThat(service.report().retransformation().state()).isEqualTo("installed");
+        threads.put("state", "self-test-failed (release-failed)");
+        assertThat(service.report().retransformation().state()).isEqualTo("failed");
     }
 
     @Test
