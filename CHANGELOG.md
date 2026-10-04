@@ -26,6 +26,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `JAVA_TOOL_OPTIONS` snippet quotes a jar path that contains spaces
   ([Java Agent](docs/features/java-agent.md), PLAN-v2 §5.13).
 
+- **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
+  header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
+  security-headers response wrapper is now synchronized and drops identical repeated baseline values.
+
 - **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
   messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
   after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
