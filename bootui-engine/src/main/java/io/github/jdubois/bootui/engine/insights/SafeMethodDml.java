@@ -14,8 +14,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code safe-method-dml} ({@code docs/PLAN-v2.md} §5.5): GET or HEAD requests that successfully executed an INSERT,
- * UPDATE, DELETE, or MERGE, per route and fingerprint. Worded as a question, since an audit write is often intended.
+ * {@code safe-method-dml} ({@code docs/PLAN-v2.md} §5.5): GET or HEAD requests that executed or, on Quarkus,
+ * prepared an INSERT, UPDATE, DELETE, or MERGE, per route and fingerprint. Worded as a question, since an audit write
+ * is often intended.
  */
 public final class SafeMethodDml implements Observation {
 
@@ -64,39 +65,40 @@ public final class SafeMethodDml implements Observation {
                     .filter(ProjectedRequest::safeMethod)
                     .toList();
             eligible += safe.size();
-            Map<String, List<String[]>> byFingerprint = new LinkedHashMap<>();
-            Map<String, String> statements = new LinkedHashMap<>();
+            Map<StatementKey, List<String[]>> byFingerprint = new LinkedHashMap<>();
+            Map<StatementKey, String> statements = new LinkedHashMap<>();
             for (ProjectedRequest request : safe) {
-                Map<String, int[]> perRequest = new LinkedHashMap<>();
-                Map<String, String> callSites = new LinkedHashMap<>();
+                Map<StatementKey, int[]> perRequest = new LinkedHashMap<>();
+                Map<StatementKey, String> callSites = new LinkedHashMap<>();
                 boolean preparationsExecuted = preparationsExecuted(snapshot, request);
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    if (preparation(snapshot, event) && (hiddenOrm || !preparationsExecuted)) {
+                    boolean prepared = preparation(snapshot, event);
+                    if (prepared && (hiddenOrm || !preparationsExecuted)) {
                         continue;
                     }
                     if (event.payload() instanceof SqlPayload sql && !sql.failed() && isDml(sql.sql())) {
-                        String fingerprint = SqlShapes.fingerprint(sql.sql());
-                        perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
-                        callSites.putIfAbsent(fingerprint, sql.callSite());
-                        statements.putIfAbsent(fingerprint, InsightText.statement(sql.sql()));
+                        StatementKey key = new StatementKey(SqlShapes.fingerprint(sql.sql()), prepared);
+                        perRequest.computeIfAbsent(key, f -> new int[1])[0]++;
+                        callSites.putIfAbsent(key, sql.callSite());
+                        statements.putIfAbsent(key, InsightText.statement(sql.sql()));
                     }
                 }
-                perRequest.forEach((fingerprint, count) -> byFingerprint
-                        .computeIfAbsent(fingerprint, f -> new ArrayList<>())
+                perRequest.forEach((key, count) -> byFingerprint
+                        .computeIfAbsent(key, f -> new ArrayList<>())
                         .add(new String[] {
                             request.requestId(),
                             String.valueOf(request.status()),
                             String.valueOf(count[0]),
-                            callSites.get(fingerprint) == null ? "" : callSites.get(fingerprint)
+                            callSites.get(key) == null ? "" : callSites.get(key)
                         }));
             }
-            byFingerprint.forEach((fingerprint, rows) -> findings.add(finding(
+            byFingerprint.forEach((key, rows) -> findings.add(finding(
                     route.getKey(),
-                    fingerprint,
-                    statements.get(fingerprint),
+                    key,
+                    statements.get(key),
                     rows,
                     safe.size(),
-                    limitation(snapshot))));
+                    limitation(snapshot, key.prepared()))));
         }
         return new Evaluation(
                 eligible,
@@ -107,28 +109,26 @@ public final class SafeMethodDml implements Observation {
                         : null);
     }
 
-    /** What a Quarkus finding counts: executions proven by Hibernate's sessions, or preparations without them. */
-    private static String limitation(InsightsSnapshot snapshot) {
-        if (snapshot.stack() != InsightsStack.QUARKUS) {
+    /** A metered session can exclude preparations, but cannot establish which prepared statement executed. */
+    private static String limitation(InsightsSnapshot snapshot, boolean prepared) {
+        if (!prepared) {
             return "Counts statements the database executed successfully; a write that failed is not listed.";
         }
-        return snapshot.available(JournalSource.ORM)
-                ? "Counts Hibernate statements when they are prepared, leaving out a request whose Hibernate sessions"
-                        + " executed no statement at all."
-                : snapshot.records(JournalSource.ORM)
-                        ? "Counts timed JDBC executions only: the hibernate panel is disabled, so unverified"
-                                + " preparations are left out."
-                        : "Counts Hibernate statements when they are prepared: record the orm source to leave out a"
-                                + " request whose sessions executed none.";
+        return "Quarkus Hibernate records SQL when it is prepared, not when it executes. Even a session with executed"
+                + " statements cannot prove this particular statement ran or changed rows."
+                + (snapshot.available(JournalSource.ORM)
+                        ? " Requests whose metered sessions executed nothing are left out."
+                        : " Record the orm source to leave out requests whose sessions executed nothing.");
     }
 
     private Finding finding(
-            String route, String fingerprint, String statement, List<String[]> rows, long eligible, String limitation) {
+            String route, StatementKey key, String statement, List<String[]> rows, long eligible, String limitation) {
         return new Finding(
-                route + ":" + InsightText.stableHash(fingerprint),
+                route + ":" + InsightText.stableHash(key.fingerprint() + (key.prepared() ? " preparation" : "")),
                 route,
                 true,
-                "`" + route + "` executed `" + statement + "` in " + rows.size() + " of "
+                "`" + route + (key.prepared() ? "` prepared `" : "` executed `") + statement + "` in " + rows.size()
+                        + " of "
                         + InsightText.counted(eligible, "request") + ": an incidental write, such as an audit or a"
                         + " counter, or a change the caller asked for?",
                 eligible,
@@ -136,12 +136,17 @@ public final class SafeMethodDml implements Observation {
                 List.of(
                         "If the caller asked for this change, expose it as POST, PUT, PATCH, or DELETE, since caches,"
                                 + " crawlers, prefetchers, and retries may repeat a GET.",
-                        "If it is an audit or counter write, check that repeating the request is harmless."),
+                        key.prepared()
+                                ? "Verify whether this prepared statement actually executed before changing the"
+                                        + " route; preparing SQL alone does not change rows."
+                                : "If it is an audit or counter write, check that repeating the request is harmless."),
                 rows.stream().limit(3).map(row -> row[0]).toList(),
-                List.of("Request", "Status", "Executions", "Call site"),
+                List.of("Request", "Status", key.prepared() ? "Prepared statements" : "Executions", "Call site"),
                 rows.stream().map(List::of).toList(),
                 List.of(limitation));
     }
+
+    private record StatementKey(String fingerprint, boolean prepared) {}
 
     /**
      * Whether {@code event} is a statement Quarkus's Hibernate statement inspector saw when it was prepared, with no

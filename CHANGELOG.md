@@ -438,6 +438,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Runtime Insights write evidence and plan accuracy.** On Quarkus, `safe-method-dml` labels Hibernate statements as
+  preparations, separate from timed JDBC executions of the same SQL shape; the evidence and limitations no longer claim
+  a prepared write ran. The v2 plan now describes persisted `METADATA_ONLY` reads and the in-progress Code Paths, Code
+  Inventory, and agent evidence work accurately ([#1240](https://github.com/jdubois/boot-ui/pull/1240);
+  PLAN-v2 §§5.5, 5.14, 5.15, 5.17, 8; FIN2-01–03).
 - **Code Inventory after reload.** Work retaining an old application object across a DevTools restart or Quarkus
   live reload no longer marks the changed method in the new run executed, or attributes its first hit to the new
   run. Defining-loader tokens stay stable across retransformation, and hit flags belong to one run, so old advice
