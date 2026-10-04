@@ -98,10 +98,17 @@ class QuarkusRequestPhaseFilterTest {
         assertThat(meteredAfterChain)
                 .as("the hand-off leaves the worker's segment open")
                 .isEqualTo(requestId);
-        completion.get().onComplete(null);
-        assertThat(meter.currentRequestId())
-                .as("completing on another thread must not close a segment it does not own")
-                .isNull();
+        String elsewhere = RequestIds.next();
+        meter.begin(elsewhere); // this thread is busy with another request when the hand-off completes
+        try {
+            completion.get().onComplete(null);
+            assertThat(meter.currentRequestId())
+                    .as("completing on another thread must not close the segment that thread is using")
+                    .isEqualTo(elsewhere);
+        } finally {
+            meter.switchTo(null);
+            meter.take(elsewhere);
+        }
         assertThat(meter.take(requestId))
                 .as("taking is the fallback that closes it")
                 .isNotNull();

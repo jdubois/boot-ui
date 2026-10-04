@@ -104,7 +104,8 @@ class JfrProfilerTests {
         assertThat(samples).isNotNull();
         assertThat(samples.frames().keySet())
                 .as("the request keeps the samples of the work the thread did for it")
-                .anyMatch(frame -> frame.contains("JfrProfilerTests.burn:"));
+                .anyMatch(frame -> frame.contains("JfrProfilerTests.burn")
+                        && !frame.contains("JfrProfilerTests.burnBackInThePool"));
         assertThat(samples.frames().keySet())
                 .as("what the thread does back in its pool, before the request is taken, is not the request's")
                 .noneMatch(frame -> frame.contains("JfrProfilerTests.burnBackInThePool"));

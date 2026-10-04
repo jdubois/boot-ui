@@ -24,8 +24,10 @@ import org.jboss.resteasy.reactive.server.spi.ResteasyReactiveContainerRequestCo
  * interceptor. Completion runs once the whole chain is done — after every response filter, after the entity has been
  * serialized, and after an exception mapper has written its own response — so nothing the request still owes is left
  * unmetered, and BootUI adds no provider that could change how Quarkus serializes an application's responses. A chain
- * that completes on a different thread, such as an asynchronous hand-off resumed elsewhere, is left alone here and is
- * still closed by {@code SegmentMeter.take}, which remains the fallback.</p>
+ * that completes on a different thread, such as an asynchronous hand-off resumed elsewhere, is left alone here, and so
+ * is one whose completion BootUI never hears, such as one an application's own callback aborted by throwing: both fall
+ * back to {@code SegmentMeter.take} when the event loop takes the request, which is as late as the close used to
+ * be.</p>
  */
 final class QuarkusRequestSegments {
 
