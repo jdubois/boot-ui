@@ -20,9 +20,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * request that hops threads sums its segments.</p>
  *
  * <p>Only requests an adapter {@linkplain #begin begins} are measured, until it {@linkplain #take takes} their usage
- * when it publishes the request. Taking closes every segment of the request still open, on whichever thread, so an
- * adapter that cannot see where its framework's worker finishes, such as Quarkus REST, may {@linkplain #switchTo enter}
- * a segment without closing it.</p>
+ * when it publishes the request. Taking closes every segment of the request still open, on whichever thread, which is
+ * the fallback for an adapter that cannot always see where its framework's worker finishes, such as Quarkus REST: it
+ * {@linkplain #switchTo enters} and leaves its worker's segment around the JAX-RS chain, and taking catches the chain
+ * that never came back to that thread.</p>
  *
  * <p>Thread-safe. A segment is closed exactly once, by its thread or by {@link #take}.</p>
  */

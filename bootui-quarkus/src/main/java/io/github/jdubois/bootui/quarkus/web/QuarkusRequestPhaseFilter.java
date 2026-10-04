@@ -1,11 +1,8 @@
 package io.github.jdubois.bootui.quarkus.web;
 
-import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
-import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
-import io.vertx.core.Context;
 import jakarta.annotation.Priority;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -21,9 +18,10 @@ import jakarta.ws.rs.ext.Provider;
  * response filter, so serialization, where lazy loading surfaces, runs in the {@code RESPONSE} phase. Observes only.
  *
  * <p>On a worker or virtual thread, where no correlation scope runs because Quarkus keeps the request's context on its
- * duplicated Vert.x context, the request filter also opens the request's segment ({@code docs/PLAN-v2.md} §5.11). It
- * stays open through serialization, until the thread switches to other correlated work or the HTTP capture filter
- * takes the request's usage when the response has been written.</p>
+ * duplicated Vert.x context, the request filter also opens the request's segment and registers its close on Quarkus'
+ * request-completion callback ({@code docs/PLAN-v2.md} §5.11). Closing it on its own thread, once the chain is done
+ * there, is what keeps the next thing that thread does, back in its pool, out of this request's CPU time, allocation
+ * and JFR samples. See {@link QuarkusRequestSegments}.</p>
  */
 @Provider
 @Priority(Integer.MAX_VALUE - 100)
@@ -39,23 +37,12 @@ public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, Contai
     @Override
     public void filter(ContainerRequestContext request) {
         mark(RequestPhase.HANDLER);
-        enterSegment();
+        QuarkusRequestSegments.enter(request);
     }
 
     @Override
     public void filter(ContainerRequestContext request, ContainerResponseContext response) {
         mark(RequestPhase.RESPONSE);
-    }
-
-    private static void enterSegment() {
-        try {
-            if (BootUiCorrelation.current().isEmpty() && !Context.isOnEventLoopThread()) {
-                SegmentMeter.shared()
-                        .switchTo(QuarkusRequestCorrelation.current().requestId());
-            }
-        } catch (RuntimeException | LinkageError ex) {
-            // Measuring never disturbs the request.
-        }
     }
 
     private void mark(RequestPhase phase) {

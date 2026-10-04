@@ -17,6 +17,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread now stops being metered for a
+  request as soon as Quarkus completes that request on it, instead of staying charged to it until the event loop
+  takes the request when the response body ends. Whatever the thread did back in its pool in between — unrelated
+  work, or a task an agent propagated for another request — is no longer added to the finished request's CPU time
+  and allocation, and its `bootui.ExecutionSegment` interval no longer covers that window, so **Profile resources**
+  stops joining those JFR samples and hot frames to the wrong route. Taking the request remains the fallback for a
+  chain that never comes back to its thread (PLAN-v2 §5.11, D17;
+  [Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
