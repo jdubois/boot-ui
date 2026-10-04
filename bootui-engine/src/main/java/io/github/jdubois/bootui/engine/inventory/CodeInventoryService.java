@@ -648,9 +648,10 @@ public final class CodeInventoryService implements AutoCloseable {
     }
 
     /**
-     * The current run's view: reused while fresh, else built, one build at a time. The build lock also guards the
-     * method-key index, which only a build reads and grows; a reader waiting on it reuses the view the build before it
-     * made, when still fresh.
+     * The current run's view: reused while fresh, else built, one build at a time. Fresh means younger than
+     * {@link #VIEW_TTL_NANOS} and built from the bridge's current inventory version, so a read after a method's first
+     * call never answers the view from before it. The build lock also guards the method-key index, which only a build
+     * reads and grows; a reader waiting on it reuses the view the build before it made, when still fresh.
      */
     private View view() {
         start();
@@ -662,13 +663,13 @@ public final class CodeInventoryService implements AutoCloseable {
             return null;
         }
         View cached = current.view;
-        if (fresh(cached, current, nanoTime.getAsLong())) {
+        if (fresh(cached, current, access.inventoryVersion(), nanoTime.getAsLong())) {
             return cached;
         }
         synchronized (buildLock) {
             long now = nanoTime.getAsLong();
             cached = current.view;
-            if (fresh(cached, current, now)) {
+            if (fresh(cached, current, access.inventoryVersion(), now)) {
                 return cached;
             }
             current.drainer.drainNow();
@@ -682,8 +683,11 @@ public final class CodeInventoryService implements AutoCloseable {
         }
     }
 
-    private static boolean fresh(View cached, Run current, long now) {
-        return cached != null && cached.scan == current.scan && now - cached.builtNanos < VIEW_TTL_NANOS;
+    private static boolean fresh(View cached, Run current, long version, long now) {
+        return cached != null
+                && cached.scan == current.scan
+                && cached.version == version
+                && now - cached.builtNanos < VIEW_TTL_NANOS;
     }
 
     /** What the bridge's snapshot says about the agent's tracking in this run, for {@link #status}. */
@@ -953,6 +957,9 @@ public final class CodeInventoryService implements AutoCloseable {
         }
         return new View(
                 now,
+                // Read by the bridge before it copied the flags: a hit during the copy changes it, so the next read
+                // rebuilds.
+                longValue(snapshot.get("version")),
                 scan,
                 runDto,
                 counts,
@@ -1449,10 +1456,11 @@ public final class CodeInventoryService implements AutoCloseable {
         }
     }
 
-    /** One computed view of a run, reused for {@link #VIEW_TTL_NANOS}. */
+    /** One computed view of a run, reused for {@link #VIEW_TTL_NANOS} while the bridge's inventory version holds. */
     private final class View {
 
         final long builtNanos;
+        final long version;
         final ScanState scan;
         final CodeInventoryRunDto run;
         final CodeInventoryMethodCountsDto counts;
@@ -1465,6 +1473,7 @@ public final class CodeInventoryService implements AutoCloseable {
 
         View(
                 long builtNanos,
+                long version,
                 ScanState scan,
                 CodeInventoryRunDto run,
                 CodeInventoryMethodCountsDto counts,
@@ -1474,6 +1483,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 List<String> limitations,
                 Run owner) {
             this.builtNanos = builtNanos;
+            this.version = version;
             this.scan = scan;
             this.run = run;
             this.counts = counts;

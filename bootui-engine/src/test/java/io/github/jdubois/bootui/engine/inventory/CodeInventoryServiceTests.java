@@ -144,6 +144,33 @@ class CodeInventoryServiceTests {
     }
 
     @Test
+    void aReadAfterAMethodsFirstCallSeesItExecutedWithoutWaitingForTheViewToAge() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            int[] ids = load(INIT, GREET, TOTAL, NEVER);
+            CodeInventoryService service = service(claim, loader, List.of());
+            service.start();
+            service.awaitScan();
+            CodeInventory.hit(ids[0]);
+            assertThat(service.report().methods().executed()).isEqualTo(1);
+            CodeInventoryReport unchanged = service.report();
+            assertThat(unchanged.methods().executed())
+                    .as("nothing ran since: the view is reused")
+                    .isEqualTo(1);
+
+            // The same clock instant: only the bridge's inventory version says the view is stale.
+            CodeInventory.hit(ids[1]);
+
+            assertThat(service.report().methods().executed()).isEqualTo(2);
+            assertThat(byKey(service.methods("shop", null, null, null, null).methods())
+                            .get(GREET)
+                            .status())
+                    .isEqualTo(CodeInventoryService.EXECUTED);
+        }
+    }
+
+    @Test
     void countsExecutedAndNeverExecutedMethodsAmongTrackedOnes() throws Exception {
         Path root = classes();
         try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
