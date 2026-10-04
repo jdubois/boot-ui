@@ -102,6 +102,165 @@ class WorkAfterResponseTests {
     }
 
     @Test
+    void aFastTaskStartingLongAfterTheResponseIsReported() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                observedBody(1_200, 1_500_000, true, 1_500L, 1_030_000L),
+                new Child(
+                        JournalSource.SQL,
+                        1_200,
+                        500_000,
+                        "async-1",
+                        new SqlPayload("insert into orders values (?)", "Seeds.lambda:12", "db", false)));
+
+        assertThat(only(service(true).report()).affected()).isEqualTo(1);
+    }
+
+    @Test
+    void earlySqlIsEvidenceOfATaskWhoseBodyContinuesAfterTheResponse() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                observedBody(1_010, 495_000_000, true, 480_000L, 1_025_000L),
+                sql(1_012));
+
+        assertThat(only(service(true).report()).affected()).isEqualTo(1);
+    }
+
+    @Test
+    void aBodyCompletedBeforeTheResponseDoesNotCountItsEarlierSql() {
+        request(
+                "/seed/work-after-response/waits",
+                1_000,
+                observedBody(1_002, 500_000_000, false, 0L, 1_030_000L),
+                sql(1_005));
+
+        assertThat(byKind(service(true).report())).isEmpty();
+    }
+
+    @Test
+    void aBodyThatFailedBeforeTheResponseIsNotALateFailure() {
+        request(
+                "/seed/work-after-response/waits",
+                1_000,
+                new Child(
+                        JournalSource.AGENT_EXECUTORS,
+                        1_002,
+                        500_000_000,
+                        "async-1",
+                        new AsyncHandoffPayload(
+                                "async-1",
+                                null,
+                                "java.util.concurrent.FutureTask",
+                                "ThreadPoolExecutor.runWorker",
+                                1_001,
+                                0,
+                                null,
+                                true,
+                                "java.lang.IllegalStateException",
+                                true,
+                                472_000L,
+                                false,
+                                false,
+                                0L,
+                                1_030_000L)));
+
+        assertThat(byKind(service(true).report())).isEmpty();
+    }
+
+    @Test
+    void lateTailIoDoesNotTurnAnEarlierFailureIntoALateFailure() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                new Child(
+                        JournalSource.AGENT_EXECUTORS,
+                        1_002,
+                        500_000_000,
+                        "async-1",
+                        new AsyncHandoffPayload(
+                                "async-1",
+                                null,
+                                "java.util.concurrent.FutureTask",
+                                "ThreadPoolExecutor.runWorker",
+                                1_001,
+                                0,
+                                null,
+                                true,
+                                "java.lang.IllegalStateException",
+                                true,
+                                472_000L,
+                                false,
+                                false,
+                                0L,
+                                1_030_000L)),
+                sql(1_200));
+
+        RuntimeObservationDto observation = only(service(true).report());
+        assertThat(observation.affected()).isEqualTo(1);
+        assertThat(observation.sentence()).doesNotContain("failed after the response");
+    }
+
+    @Test
+    void aResultPublicationTailCanFailAfterABodyCompletedBeforeTheResponse() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                new Child(
+                        JournalSource.AGENT_EXECUTORS,
+                        1_002,
+                        500_000_000,
+                        "async-1",
+                        new AsyncHandoffPayload(
+                                "async-1",
+                                null,
+                                "java.util.concurrent.FutureTask",
+                                "ThreadPoolExecutor.runWorker",
+                                1_001,
+                                0,
+                                null,
+                                true,
+                                "java.lang.IllegalStateException",
+                                false,
+                                0L,
+                                false,
+                                false,
+                                0L,
+                                1_030_000L,
+                                true)));
+
+        assertThat(only(service(true).report()).sentence()).contains("1 task failed after the response");
+    }
+
+    @Test
+    void dependentWorkAfterBodyCompletionIsStillReported() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                observedBody(1_002, 500_000_000, false, 0L, 1_030_000L),
+                sql(1_200));
+
+        assertThat(only(service(true).report()).affected()).isEqualTo(1);
+    }
+
+    @Test
+    void anUnmarkedLateTaskUsesTheActualResponseBoundaryNotItsStart() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                observedBody(1_200, 1_500_000, null, null, 1_030_000L),
+                new Child(
+                        JournalSource.SQL,
+                        1_200,
+                        500_000,
+                        "async-1",
+                        new SqlPayload("insert into orders values (?)", "Seeds.lambda:12", "db", false)));
+
+        assertThat(only(service(true).report()).affected()).isEqualTo(1);
+    }
+
+    @Test
     void aQueryEndingWithinTheTimestampsPrecisionOfTheResponseIsNotReported() {
         // As recorded: the query completed at 1_011.1 ms after running 1.9 ms, so it starts at 1_011 - 1 and reads as
         // ending at 1_011.9; the handoff truly started at 1_002.9 and the response at 1_011.2, recovered as 1_010.3.
@@ -263,6 +422,35 @@ class WorkAfterResponseTests {
                 2_000_000,
                 "async-1",
                 new SqlPayload("select * from orders", "Seeds.lambda:12", "db", false));
+    }
+
+    private static Child observedBody(
+            long start,
+            long durationNanos,
+            Boolean bodyAfterResponse,
+            Long bodyAfterResponseMicros,
+            long responseAtMicros) {
+        return new Child(
+                JournalSource.AGENT_EXECUTORS,
+                start,
+                durationNanos,
+                "async-1",
+                new AsyncHandoffPayload(
+                        "async-1",
+                        null,
+                        "java.util.concurrent.FutureTask",
+                        "ThreadPoolExecutor.runWorker",
+                        start - 1,
+                        1_000_000,
+                        2_048L,
+                        false,
+                        null,
+                        true,
+                        Math.max(0, start * 1_000 + durationNanos / 1_000 - Math.max(start * 1_000, responseAtMicros)),
+                        false,
+                        bodyAfterResponse,
+                        bodyAfterResponseMicros,
+                        responseAtMicros));
     }
 
     private void request(String path, long start, Child... children) {

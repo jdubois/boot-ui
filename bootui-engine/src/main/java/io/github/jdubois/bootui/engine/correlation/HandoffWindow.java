@@ -25,6 +25,9 @@ public final class HandoffWindow {
     /** The default {@code bootui.agent.executors.max-handoff}, in milliseconds. */
     public static final long DEFAULT_MAX_HANDOFF_MILLIS = DEFAULT_MAX_HANDOFF.toMillis();
 
+    /** Clock slack for evidence without a causally ordered task-body completion marker. */
+    public static final long RESPONSE_TIMESTAMP_SLACK_MICROS = 2_000L;
+
     private HandoffWindow() {}
 
     /** {@code maxHandoff} in milliseconds, or the default when it is {@code null}, zero, or negative. */
