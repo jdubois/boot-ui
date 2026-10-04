@@ -61,7 +61,12 @@ public final class ErrorsBehind2xx implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of();
+        return Set.of(JournalSource.HTTP);
+    }
+
+    @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
     }
 
     @Override
