@@ -17,6 +17,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
+  when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
+  say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
+  default agent list includes latency rows and omits only an insufficient repeated SELECT under 50 ms of summed
+  measured time that ran fewer than 10 times in any one request; a limitation names how many were left out, and
+  `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
+  evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
+  parent result size was not recorded.
 - **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
   `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
   are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
@@ -29,20 +37,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
   header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
   security-headers response wrapper is now synchronized and drops identical repeated baseline values.
-
 - **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
   messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
   after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
   source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
   undetermined, and disabled-source limitations appear only when relevant evidence was recorded
   ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
-
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
   examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
   Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
   unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
   requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
-
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
