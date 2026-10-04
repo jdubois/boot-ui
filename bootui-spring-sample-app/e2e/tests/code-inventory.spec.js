@@ -57,4 +57,35 @@ test.describe('Code Inventory view', () => {
     const commonsExec = page.getByRole('tabpanel').getByRole('row').filter({hasText: 'org.apache.commons:commons-exec'})
     await expect(commonsExec).toContainText('Not loaded in this run')
   })
+
+  test('feeds the Vulnerabilities panel’s runtime reach, or says why it cannot', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    const report = await (await page.request.get('/bootui/api/vulnerabilities')).json()
+    expect(typeof report.runtimeReach.available).toBe('boolean')
+
+    await openView('vulnerabilities', 'Vulnerabilities')
+    const table = page.locator('table').filter({hasText: 'Dependency'})
+    if (!agentAttached) {
+      expect(report.runtimeReach.available).toBe(false)
+      expect(report.dependencies.every((dependency) => dependency.runtimeReach === null)).toBe(true)
+      await expect(page.locator('.runtime-reach-note')).toContainText('Runtime reach is not shown')
+      await expect(table.getByRole('columnheader', {name: 'Runtime reach'})).toHaveCount(0)
+      return
+    }
+
+    expect(report.runtimeReach.available).toBe(true)
+    await expect(table.getByRole('columnheader', {name: 'Runtime reach'})).toBeVisible()
+    await page.getByLabel('Filter runtime dependencies').fill('commons-exec')
+    await expect(table.getByRole('row').filter({hasText: 'org.apache.commons:commons-exec'})).toContainText(
+      'Not loaded yet'
+    )
+    await page.getByLabel('Filter runtime dependencies').fill('spring-webmvc')
+    await page.getByLabel('Filter by runtime reach').selectOption('LOADED_ANY')
+    await expect(table.getByRole('row').filter({hasText: 'org.springframework:spring-webmvc'})).toContainText('Loaded')
+    await page.getByLabel('Filter by runtime reach').selectOption('NOT_LOADED')
+    await expect(table.getByRole('row').filter({hasText: 'org.springframework:spring-webmvc'})).toHaveCount(0)
+  })
 })
