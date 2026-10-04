@@ -122,23 +122,47 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
      * @return {@code true} when the span was stored, {@code false} when it was dropped
      */
     public boolean add(NormalizedSpan span, boolean selfSpan) {
+        return add(span, selfSpan, false, true);
+    }
+
+    /**
+     * {@link #add(NormalizedSpan, boolean)} for a span decoded from an OTLP export that BootUI's receiver accepted. The
+     * receiver runs in BootUI's own request, so its AI metadata is published through
+     * {@link RuntimeEventSink#offerImported}, which ignores that request's scope: the span was already classified as
+     * the application's rather than BootUI's own by {@code selfSpan} and the trace it joins ({@code docs/PLAN-v2.md}
+     * §5.2, M3-9).
+     *
+     * <p>In the aggregator topology, other services export their spans to this receiver too, so an imported AI span
+     * reaches this application's journal only when it is this application's: a span this application started, or one
+     * whose resource {@code service.name} is this application's ({@code applicationSpan}). Another service's AI call
+     * is still stored for the Traces panel, but never joins a request of this application by trace and time.</p>
+     *
+     * @param applicationSpan whether the span's resource names this application's service
+     */
+    public boolean addImported(NormalizedSpan span, boolean selfSpan, boolean applicationSpan) {
+        return add(span, selfSpan, true, applicationSpan);
+    }
+
+    private boolean add(NormalizedSpan span, boolean selfSpan, boolean imported, boolean applicationSpan) {
         if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
             return false;
         }
         CorrelationContext owner =
                 span.spanId() == null ? null : spanOwners.remove(spanKey(span.traceId(), span.spanId()));
+        // Another service's imported span is never this application's AI call.
+        boolean journaled = !imported || owner != null || applicationSpan;
         if (idleSuspended) {
             // The store is suspended while BootUI is idle, but the runtime journal keeps recording AI calls
             // (docs/PLAN-v2.md §5.2), so an application span is still recognized and published without being stored.
-            if (publishesWhileIdle(span, selfSpan)) {
-                publish(span, owner);
+            if (publishesWhileIdle(span, selfSpan) && journaled) {
+                publish(span, owner, imported);
             }
             return false;
         }
         // The store may be suspended while this span waits for the lock, so whether it is published is decided there.
         Outcome outcome = store(span, selfSpan);
-        if (outcome != Outcome.DROPPED) {
-            publish(span, owner);
+        if (outcome != Outcome.DROPPED && journaled) {
+            publish(span, owner, imported);
         }
         return outcome == Outcome.STORED;
     }
@@ -198,7 +222,7 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
      * Publishes {@code span} to the journal when it is an AI call, under the request or execution that started it,
      * or, when that is unknown, with only its trace id, which links it to its request by trace and time.
      */
-    private void publish(NormalizedSpan span, CorrelationContext owner) {
+    private void publish(NormalizedSpan span, CorrelationContext owner, boolean imported) {
         RuntimeEventSink sink = journal;
         if (!sink.records(JournalSource.AI)) {
             return;
@@ -210,7 +234,7 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
                 return;
             }
             String model = AiSpanRecognizer.responseModel(span);
-            sink.offer(RuntimeEvent.of(
+            RuntimeEvent event = RuntimeEvent.of(
                     JournalSource.AI,
                     span.startEpochNanos() / 1_000_000,
                     span.durationNanos(),
@@ -226,7 +250,12 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
                             AiSpanRecognizer.outputTokens(span),
                             AiSpanRecognizer.finishReason(span),
                             span.isError(),
-                            span.spanId())));
+                            span.spanId()));
+            if (imported) {
+                sink.offerImported(event);
+            } else {
+                sink.offer(event);
+            }
         } catch (RuntimeException ex) {
             // Publishing never disturbs the telemetry store.
         }

@@ -57,6 +57,47 @@ public final class LatencyHistogram {
         maxMicros = Math.max(maxMicros, micros);
     }
 
+    /**
+     * Replaces one previously recorded duration. Used when bounded per-request attribution learns more work after the
+     * request completed, so its route keeps one ORM sample rather than counting the request twice.
+     */
+    void replaceNanos(long previousNanos, long replacementNanos) {
+        if (previousNanos < 0) {
+            recordNanos(replacementNanos);
+            return;
+        }
+        if (replacementNanos < 0) {
+            return;
+        }
+        long previousMicros = previousNanos / 1_000;
+        long replacementMicros = replacementNanos / 1_000;
+        int previousBucket = bucketOf(previousMicros);
+        if (counts[previousBucket] <= 0) {
+            return;
+        }
+        counts[previousBucket]--;
+        counts[bucketOf(replacementMicros)]++;
+        totalMicros += replacementMicros - previousMicros;
+        if (replacementMicros >= maxMicros) {
+            maxMicros = replacementMicros;
+        } else if (previousMicros >= maxMicros && counts[previousBucket] == 0) {
+            maxMicros = highestOccupiedUpperBound();
+        }
+    }
+
+    private long highestOccupiedUpperBound() {
+        for (int bucket = BUCKETS - 1; bucket >= 0; bucket--) {
+            if (counts[bucket] > 0) {
+                if (bucket < SUB_BUCKETS) {
+                    return bucket;
+                }
+                long width = 1L << (bucket / SUB_BUCKETS - 1);
+                return lowerBoundOf(bucket) + width - 1;
+            }
+        }
+        return 0;
+    }
+
     /** Adds every value {@code other} recorded. */
     public void merge(LatencyHistogram other) {
         for (int i = 0; i < BUCKETS; i++) {

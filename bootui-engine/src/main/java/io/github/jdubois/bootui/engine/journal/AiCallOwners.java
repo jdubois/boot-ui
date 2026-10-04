@@ -78,13 +78,21 @@ public final class AiCallOwners {
         if (!linksByTrace(event)) {
             return null;
         }
-        List<Window> windows = windowsByTrace.get(event.traceId());
-        if (windows == null || evicted(event.traceId())) {
+        return ownerOf(event.traceId(), event.epochMillis());
+    }
+
+    /**
+     * The one learned request of {@code traceId} whose window contains {@code epochMillis}, or {@code null} when there
+     * is none, several, or attribution for that trace expired.
+     */
+    String ownerOf(String traceId, long epochMillis) {
+        List<Window> windows = windowsByTrace.get(traceId);
+        if (windows == null || evicted(traceId)) {
             return null;
         }
         String owner = null;
         for (Window window : windows) {
-            if (window.contains(event.epochMillis())) {
+            if (window.contains(epochMillis)) {
                 if (owner != null) {
                     return null;
                 }
@@ -92,6 +100,50 @@ public final class AiCallOwners {
             }
         }
         return owner;
+    }
+
+    /**
+     * Whether no learned request of {@code traceId} spans a call that started at {@code epochMillis}, while attribution
+     * for that trace has not expired.
+     */
+    boolean unowned(String traceId, long epochMillis) {
+        if (evicted(traceId)) {
+            return false;
+        }
+        List<Window> windows = windowsByTrace.get(traceId);
+        if (windows != null) {
+            for (Window window : windows) {
+                if (window.contains(epochMillis)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Whether the time span of the request {@code http} records contains a call that started at {@code epochMillis}. */
+    static boolean windowContains(RuntimeEvent http, long epochMillis) {
+        return Window.of(http).contains(epochMillis);
+    }
+
+    /** Forgets a completed request whose bounded aggregate-attribution record expired. */
+    void forget(String requestId, String traceId) {
+        if (requestId == null || traceId == null) {
+            return;
+        }
+        List<Window> windows = windowsByTrace.get(traceId);
+        if (windows == null) {
+            return;
+        }
+        windows.removeIf(window -> requestId.equals(window.requestId()));
+        if (windows.isEmpty()) {
+            windowsByTrace.remove(traceId);
+        }
+    }
+
+    /** Forgets every learned request window. */
+    void clear() {
+        windowsByTrace.clear();
     }
 
     private boolean evicted(String traceId) {
