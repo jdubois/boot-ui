@@ -48,7 +48,7 @@ import java.util.logging.Logger;
  * excluded method back to the bridge through the claim. Fragments of another claim generation, such as a previous run's
  * still queued, are dropped and counted; a new claim generation starts new trees. Its reads serve the Code Paths panel,
  * {@code get_code_paths}, and {@code route-time-breakdown}'s handler split, and start no scan, network call, or
- * mutation.
+ * mutation. Its method probes ({@link #probes()}, M5-8) are the panel's only actions.
  */
 public final class CodePathsService implements AutoCloseable {
 
@@ -120,6 +120,7 @@ public final class CodePathsService implements AutoCloseable {
             + " its handler.";
 
     private final Object lock = new Object();
+    private final MethodProbeService probes;
     private Run run;
     private boolean closed;
 
@@ -153,6 +154,12 @@ public final class CodePathsService implements AutoCloseable {
         this.nanoTime = nanoTime;
         this.evidence = java.util.Objects.requireNonNull(evidence, "evidence");
         evidence.register(store);
+        this.probes = new MethodProbeService(this.access, this.claims, this::unavailableReason, evidence);
+    }
+
+    /** This run's method probes ({@code docs/PLAN-v2.md} M5-8): part of Code Paths, available when it is. */
+    public MethodProbeService probes() {
+        return probes;
     }
 
     /**
@@ -265,6 +272,7 @@ public final class CodePathsService implements AutoCloseable {
                 run = null;
             }
         }
+        probes.close();
     }
 
     /** Why the sensor does not record for this application, or {@code null} when it does. */

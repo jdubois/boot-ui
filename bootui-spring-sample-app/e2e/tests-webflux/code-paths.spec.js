@@ -17,7 +17,7 @@ test.describe('Code Paths view on Spring WebFlux', () => {
     if (!agentAttached) {
       expect(panel.available).toBe(false)
       expect(panel.unavailableReason).toMatch(/^Requires the BootUI agent's code-paths sensor/)
-      for (const path of ['', '/route?route=GET%20%2F', '/requests/0000000000000000', '/beans']) {
+      for (const path of ['', '/route?route=GET%20%2F', '/requests/0000000000000000', '/beans', '/probes']) {
         const body = await (await request.get(`${baseURL}/bootui/api/code-paths${path}`)).json()
         expect(body.available).toBe(false)
       }
@@ -60,5 +60,19 @@ test.describe('Code Paths view on Spring WebFlux', () => {
     await expect(page.locator('.code-paths-tree')).toContainText('GreetingController.greet')
     await expect(page.locator('.code-paths-assembly-note')).toContainText('Assembly only.')
     await expect(page.locator('.code-paths-routes .code-paths-assembly').first()).toBeVisible()
+
+    // M5-8: a probe on the handler records its next calls, and says it times the Mono's assembly only.
+    await page.locator('.code-paths-tree').getByRole('button', {name: 'GreetingController.greet'}).click()
+    await page.getByRole('button', {name: 'Probe this method'}).click()
+    await page.getByRole('dialog', {name: 'Probe this method?'}).getByRole('button', {name: 'Start probe'}).click()
+    const probe = page.locator('.code-paths-probe').first()
+    await expect(probe.locator('.code-paths-probe-state')).toHaveText('active', {timeout: 15_000})
+    await expect(probe).toContainText('assembly only')
+    for (let i = 0; i < 3; i++) {
+      expect((await request.get(`${baseURL}/api/greetings/probed-${i}`)).ok()).toBeTruthy()
+    }
+    await expect(probe).toContainText(/[3-9] of 20 invocations/, {timeout: 15_000})
+    await probe.getByRole('button', {name: 'Stop'}).click()
+    await expect(probe.locator('.code-paths-probe-state')).toHaveText('ended', {timeout: 15_000})
   })
 })

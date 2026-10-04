@@ -98,6 +98,26 @@ class PanelAccessFilterTests {
     }
 
     @Test
+    void readOnlyCodePathsRefusesMethodProbesButNotItsReads() throws Exception {
+        properties.panel("code-paths").setReadOnly(true);
+        for (String[] write : new String[][] {
+            {"POST", "/bootui/api/code-paths/probes"},
+            {"POST", "/bootui/api/code-paths/probes/1/stop"},
+            {"DELETE", "/bootui/api/code-paths/probes/1"}
+        }) {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(request(write[0], write[1]), response, new MockFilterChain());
+            assertThat(response.getStatus()).as("%s %s", write[0], write[1]).isEqualTo(403);
+            assertThat(response.getContentAsString())
+                    .contains("\"panel\":\"code-paths\"")
+                    .contains("bootui.panels.code-paths.read-only=true");
+        }
+        MockHttpServletResponse read = new MockHttpServletResponse();
+        filter.doFilter(request("GET", "/bootui/api/code-paths/probes"), read, new MockFilterChain());
+        assertThat(read.getStatus()).isEqualTo(200);
+    }
+
+    @Test
     void allowsReadOnlyPanelReadRequest() throws Exception {
         properties.panel("config").setReadOnly(true);
         MockHttpServletRequest request = request("GET", "/bootui/api/config");

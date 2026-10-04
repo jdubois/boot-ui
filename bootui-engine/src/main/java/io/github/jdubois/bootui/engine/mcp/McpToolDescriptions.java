@@ -296,6 +296,27 @@ public final class McpToolDescriptions {
                             + "asynchronous result, or BootUI could not tell where its work ran, so its tree times "
                             + "assembly, not the work. Node percentiles are approximate, from log2 buckets."),
             Map.entry(
+                    "start_method_probe",
+                    "Start a method probe: an action that retransforms one application method of the running "
+                            + "application to record its next 20 invocations, for at most 60 seconds (five probes at "
+                            + "once), then removes itself; it ends with the run. Ask the user for separate approval "
+                            + "before starting one, even when other tools were approved. id is the method, "
+                            + "binary.Class#name, with its JVM descriptor for an overloaded one, as Code Paths, Code "
+                            + "Inventory, and get_code_paths name it (com.example.PriceService#quote(I)J); it must be a "
+                            + "method the agent instrumented, in the application's packages. Refused while the Code "
+                            + "Paths panel or BootUI is read-only, without the BootUI agent, or when five probes run. "
+                            + "Returns the probe, starting; call get_method_probe with its id after the code runs. "
+                            + "Metadata only, in every exposure mode: durations, thread kind, request id, outcome, "
+                            + "exception type, and calling frame, never argument or return values."),
+            Map.entry(
+                    "get_method_probe",
+                    "Return a method probe by id: its state (starting, active, ending, ended, failed), why it ended "
+                            + "or failed, and each recorded invocation's duration, thread kind, request id, outcome or "
+                            + "exception type, and calling frame. Metadata only, never argument or return values. No "
+                            + "invocations after the code ran is evidence the path never reached the method; an active "
+                            + "probe waitingForClass has not seen its class load in this run yet, and an async method's "
+                            + "durations time the assembly of its result only."),
+            Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
                             + "This is a passive calculation and does not change JVM or container settings."),

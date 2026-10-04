@@ -488,7 +488,10 @@ The agent suites start their sample with `-javaagent:` and the jar `./mvnw insta
 assert the armed claim and the recorded run instead of the not-attached state. The Quarkus agent suite passes the jar to
 `quarkus:dev` as `-Djvm.args`. To run one beside another sample, set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT`
 (Spring MVC), `BOOTUI_WEBFLUX_AGENT_PORT` (WebFlux), or `BOOTUI_SAMPLE_PORT` with `BOOTUI_OSV_FIXTURE_PORT` (Quarkus).
-CI runs each as its own leg of `build.yml`'s `spring-e2e` and `quarkus-e2e` jobs, on Java 17.
+CI runs each as its own leg of `build.yml`'s `spring-e2e` and `quarkus-e2e` jobs, on Java 17. These agent legs, the
+`agent-overhead` job, and the Java 21, 25, and 27 lanes run on every push to `main` and `v2`, every pull request into
+`main`, and nightly. A pull request into `v2` runs them only when it changes an agent-related path, listed in
+`.github/scripts/agent-changes.sh`, or carries the `agent` label; add the label to run them on any other change.
 
 ## Formatting
 

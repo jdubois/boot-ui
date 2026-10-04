@@ -50,6 +50,9 @@ public final class AgentRecordDrainer implements AutoCloseable {
     /** The inventory sensor's id in records ({@code AgentRing.SENSOR_INVENTORY}). */
     public static final int SENSOR_INVENTORY = 1;
 
+    /** Method probes' id in records ({@code AgentRing.SENSOR_METHOD_PROBES}). */
+    public static final int SENSOR_METHOD_PROBES = 2;
+
     private static final Logger log = Logger.getLogger(AgentRecordDrainer.class.getName());
 
     private final AgentClaim claim;

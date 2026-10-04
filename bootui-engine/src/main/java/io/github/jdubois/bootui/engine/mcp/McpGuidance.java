@@ -104,8 +104,10 @@ public final class McpGuidance {
                 Account for relevant capabilities without calling every tool or treating every panel as an advisor.
                 Before fresh scans, name the applicable scans and obtain approval for that scope unless it was
                 already explicitly approved. Request separate approval for memory_scan (may trigger a full GC),
-                pentest_scan (bounded loopback probes), vulnerabilities_scan (outbound OSV.dev queries), and
-                database_advisor_scan (contacts the configured database for metadata). Do not run controls,
+                pentest_scan (bounded loopback probes), vulnerabilities_scan (outbound OSV.dev queries),
+                database_advisor_scan (contacts the configured database for metadata), and start_method_probe
+                (retransforms one method of the running application for at most 20 invocations or 60 seconds,
+                recording metadata only; read-only policy refuses it). Do not run controls,
                 generate traffic, install integrations, or loosen disabled/read-only policy to improve coverage.
                 Native-image or CRaC readiness is optional unless relevant to the user's goal.
 

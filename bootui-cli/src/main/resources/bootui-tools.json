@@ -797,6 +797,32 @@
       "summary": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings."
     },
     {
+      "name": "get_method_probe",
+      "command": "probe show",
+      "schema": "ID",
+      "panel": "code-paths",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return a method probe by id: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame."
+    },
+    {
+      "name": "start_method_probe",
+      "command": "probe start",
+      "schema": "ID",
+      "panel": "code-paths",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run."
+    },
+    {
       "name": "get_profile_diff",
       "command": "profile diff",
       "schema": "NONE",

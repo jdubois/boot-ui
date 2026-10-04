@@ -5,6 +5,8 @@ on:
     branches: [ main, v2 ]
   pull_request:
     branches: [ main, v2 ]
+    # `labeled` too, so adding the `agent` label runs the agent legs (.github/scripts/agent-changes.sh).
+    types: [ opened, synchronize, reopened, labeled ]
   workflow_dispatch:
 
 concurrency:
@@ -16,6 +18,29 @@ permissions:
   checks: write
 
 jobs:
+  # Whether this run exercises the BootUI agent's legs (PLAN-v2 M5-12): pushes to main and v2 always do; a pull request
+  # does when it is labelled `agent` or changes an agent-related path (.github/scripts/agent-changes.sh), so the
+  # agent-attached Playwright legs and the overhead benchmark don't queue for every pull request.
+  changes:
+    name: Agent-related changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      agent: ${{ steps.agent.outputs.agent }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Decide whether the agent legs run
+        id: agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: bash .github/scripts/agent-changes.sh
+
   build:
     name: Build (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
@@ -291,6 +316,10 @@ jobs:
   spring-e2e:
     name: Spring end-to-end (${{ matrix.suite.name }}, Java 17)
     runs-on: ubuntu-latest
+    needs: changes
+    env:
+      # An agent leg with nothing agent-related to check passes without starting anything (see the changes job).
+      SKIP_LEG: ${{ matrix.suite.agent == true && needs.changes.outputs.agent != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -332,10 +361,16 @@ jobs:
             results-dir: test-results-webflux-agent
             agent: true
     steps:
+      - name: Skip the agent leg when nothing agent-related changed
+        if: env.SKIP_LEG == 'true'
+        run: echo "::notice::No agent-related change in this pull request; label it agent to run this leg."
+
       - name: Checkout
+        if: env.SKIP_LEG != 'true'
         uses: actions/checkout@v7
 
       - name: Set up JDK 17
+        if: env.SKIP_LEG != 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -343,6 +378,7 @@ jobs:
           cache: maven
 
       - name: Set up Node.js
+        if: env.SKIP_LEG != 'true'
         uses: actions/setup-node@v7
         with:
           node-version: '24.18.0'
@@ -352,6 +388,7 @@ jobs:
       # Install only the Spring sample apps and their dependencies so Playwright can start them.
       # This intentionally runs in parallel with the full coverage reactor above.
       - name: Build Spring sample apps
+        if: env.SKIP_LEG != 'true'
         run: >
           ./mvnw -T 1C -B -ntp
           -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app
@@ -360,7 +397,7 @@ jobs:
       # The agent legs attach bootui-agent/target/bootui-agent-*.jar, which the -am build above produces as the Spring
       # sample's test-scope dependency: fail here, clearly, rather than with a raw ENOENT from Playwright's config.
       - name: Check the BootUI agent jar
-        if: ${{ matrix.suite.agent }}
+        if: env.SKIP_LEG != 'true' && (matrix.suite.agent)
         run: |
           if ! ls bootui-agent/target/bootui-agent-*.jar > /dev/null 2>&1; then
             echo "::error::bootui-agent/target/bootui-agent-*.jar is missing: the Spring sample build must build bootui-agent (-am)."
@@ -368,24 +405,27 @@ jobs:
           fi
 
       - name: Install Playwright dependencies
+        if: env.SKIP_LEG != 'true'
         working-directory: bootui-spring-sample-app/e2e
         run: npm ci --ignore-scripts
 
       - name: Check Playwright formatting
-        if: ${{ matrix.suite.id == 'mvc' }}
+        if: env.SKIP_LEG != 'true' && (matrix.suite.id == 'mvc')
         working-directory: bootui-spring-sample-app/e2e
         run: npm run format:check
 
       - name: Install Playwright browsers
+        if: env.SKIP_LEG != 'true'
         working-directory: bootui-spring-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run Playwright end-to-end tests
+        if: env.SKIP_LEG != 'true'
         working-directory: bootui-spring-sample-app/e2e
         run: npm run "${{ matrix.suite.script }}"
 
       - name: Publish end-to-end test report
-        if: ${{ !cancelled() }}
+        if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: ${{ matrix.suite.report-name }}
@@ -395,7 +435,7 @@ jobs:
           fail-on-empty: false
 
       - name: Upload Playwright report
-        if: ${{ !cancelled() }}
+        if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.suite.report-dir }}
@@ -406,7 +446,7 @@ jobs:
           retention-days: 7
 
       - name: Upload end-to-end JUnit test report
-        if: ${{ !cancelled() }}
+        if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: actions/upload-artifact@v7
         with:
           name: junit-test-reports-spring-e2e-${{ matrix.suite.id }}
@@ -422,6 +462,8 @@ jobs:
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -480,6 +522,10 @@ jobs:
   quarkus-e2e:
     name: Quarkus end-to-end (${{ matrix.suite.name }}, Java 17)
     runs-on: ubuntu-latest
+    needs: changes
+    env:
+      # An agent leg with nothing agent-related to check passes without starting anything (see the changes job).
+      SKIP_LEG: ${{ matrix.suite.id == 'agent' && needs.changes.outputs.agent != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -504,12 +550,18 @@ jobs:
             results-dir: test-results-agent
             artifact: quarkus-playwright-report-agent
     steps:
+      - name: Skip the agent leg when nothing agent-related changed
+        if: env.SKIP_LEG == 'true'
+        run: echo "::notice::No agent-related change in this pull request; label it agent to run this leg."
+
       - name: Checkout
+        if: env.SKIP_LEG != 'true'
         uses: actions/checkout@v7
 
       # The Quarkus sample app can augment on JDK 17/21/25 (Hibernate ORM ByteBuddy cannot read
       # JDK 26+ class files), while the authoritative end-to-end baseline remains Java 17.
       - name: Set up JDK 17
+        if: env.SKIP_LEG != 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -517,6 +569,7 @@ jobs:
           cache: maven
 
       - name: Set up Node.js
+        if: env.SKIP_LEG != 'true'
         uses: actions/setup-node@v7
         with:
           node-version: '24.16.0'
@@ -536,10 +589,11 @@ jobs:
       # @QuarkusTest classloading race is possible, and -am's ordering relies only on the same explicit
       # provided-scope bootui-quarkus-deployment dependency called out above.
       - name: Build BootUI Quarkus extension and sample app
+        if: env.SKIP_LEG != 'true'
         run: ./mvnw -T 1C -B -ntp -pl "${{ matrix.suite.modules }}" -am -DskipTests install
 
       - name: Check the BootUI agent jar
-        if: ${{ matrix.suite.id == 'agent' }}
+        if: env.SKIP_LEG != 'true' && (matrix.suite.id == 'agent')
         run: |
           if ! ls bootui-agent/target/bootui-agent-*.jar > /dev/null 2>&1; then
             echo "::error::bootui-agent/target/bootui-agent-*.jar is missing: the agent leg must build bootui-agent."
@@ -547,26 +601,29 @@ jobs:
           fi
 
       - name: Install Playwright dependencies
+        if: env.SKIP_LEG != 'true'
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm ci --ignore-scripts
 
       - name: Check Playwright formatting
-        if: ${{ matrix.suite.id == 'default' }}
+        if: env.SKIP_LEG != 'true' && (matrix.suite.id == 'default')
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm run format:check
 
       - name: Install Playwright browsers
+        if: env.SKIP_LEG != 'true'
         working-directory: bootui-quarkus-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
       # ubuntu-latest ships with Docker, which Quarkus Dev Services needs to start the throwaway
       # PostgreSQL container the sample app boots against.
       - name: Run Quarkus Playwright end-to-end tests
+        if: env.SKIP_LEG != 'true'
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm run "${{ matrix.suite.script }}"
 
       - name: Publish Quarkus end-to-end test report
-        if: ${{ !cancelled() }}
+        if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: ${{ matrix.suite.report-name }}
@@ -576,7 +633,7 @@ jobs:
           fail-on-empty: false
 
       - name: Upload Quarkus Playwright report
-        if: ${{ !cancelled() }}
+        if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.suite.artifact }}

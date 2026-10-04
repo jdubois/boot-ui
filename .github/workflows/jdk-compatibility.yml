@@ -1,17 +1,21 @@
 name: JDK compatibility (21/25/27)
 
 # Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml),
-# while adding focused compatibility checks on newer supported JDKs for every PR/push to main
-# and to the long-lived v2 branch (PLAN-v2 M5-12: the BootUI agent's acceptance matrix covers
-# Java 21 and 25 there too), and a weekly scheduled run.
+# while adding focused compatibility checks on newer supported JDKs for every push to main and
+# to the long-lived v2 branch (PLAN-v2 M5-12: the BootUI agent's acceptance matrix covers Java 21
+# and 25 there too), every pull request into main, pull requests into v2 that change an
+# agent-related path or carry the `agent` label (.github/scripts/agent-changes.sh), and a nightly
+# scheduled run.
 on:
   push:
     branches: [ main, v2 ]
   pull_request:
     branches: [ main, v2 ]
+    # `labeled` too, so adding the `agent` label runs the agent legs (.github/scripts/agent-changes.sh).
+    types: [ opened, synchronize, reopened, labeled ]
   schedule:
-    # Every Monday at 07:05 UTC.
-    - cron: '5 7 * * 1'
+    # Every night at 03:05 UTC.
+    - cron: '5 3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -22,9 +26,34 @@ permissions:
   contents: read
 
 jobs:
+  # Pull requests into v2 that change nothing the agent depends on skip these lanes; pushes to main and v2, the nightly
+  # run, and pull requests into main run them all.
+  changes:
+    name: Agent-related changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      agent: ${{ steps.agent.outputs.agent }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Decide whether the lanes run
+        id: agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          FORCE_ALL: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+        run: bash .github/scripts/agent-changes.sh
+
   compatibility:
     name: Focused compatibility (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
     # The agent integration tests start the Spring sample three times on top of the focused build.
     timeout-minutes: 45
     # Java 27 is ahead of the frameworks' documented support (Spring Boot 4.1 covers 17-26,

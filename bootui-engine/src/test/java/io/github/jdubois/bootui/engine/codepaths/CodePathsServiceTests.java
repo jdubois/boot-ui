@@ -329,10 +329,13 @@ class CodePathsServiceTests {
         assertThat(service.methodKey(controller)).isNull();
         assertThat(service.issuingMethod("GET /api/quote", controller)).isNull();
         assertThat(service.routeTreesFingerprint()).isZero();
-        assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
-            assertThat(store.visible()).isFalse();
-            assertThat(store.counts()).isEmpty();
-        });
+        assertThat(evidence.status().stores())
+                .filteredOn(store -> store.store().equals("code-paths"))
+                .singleElement()
+                .satisfies(store -> {
+                    assertThat(store.visible()).isFalse();
+                    assertThat(store.counts()).isEmpty();
+                });
 
         hiddenPanels.remove(BootUiPanels.CODE_PATHS);
         assertThat(service.report().routes()).isNotEmpty();
@@ -357,10 +360,13 @@ class CodePathsServiceTests {
         clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
         assertThat(service.report().routes()).isNotEmpty();
         long fingerprint = service.routeTreesFingerprint();
-        assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
-            assertThat(store.retainedBytes()).isPositive();
-            assertThat(store.counts()).containsEntry("requestTrees", 2L).containsEntry("routes", 1L);
-        });
+        assertThat(evidence.status().stores())
+                .filteredOn(store -> store.store().equals("code-paths"))
+                .singleElement()
+                .satisfies(store -> {
+                    assertThat(store.retainedBytes()).isPositive();
+                    assertThat(store.counts()).containsEntry("requestTrees", 2L).containsEntry("routes", 1L);
+                });
 
         assertThat(evidence.clear()).isEqualTo("2 request trees and 1 route tree of Code Paths");
 

@@ -66,7 +66,12 @@ public final class AgentEvidence implements JournalListener {
          * first loads at 160 bytes, 8,192 pending lookups and 4,096 request routes at 64 bytes, and 4,096 route names at
          * about 192 bytes.
          */
-        CODE_INVENTORY_RECORDS((1L << 18) * 21 + 16_384L * 160 + 8_192L * 64 + 4_096L * 64 + 4_096L * 192, false);
+        CODE_INVENTORY_RECORDS((1L << 18) * 21 + 16_384L * 160 + 8_192L * 64 + 4_096L * 64 + 4_096L * 192, false),
+        /**
+         * Method probes (M5-8): 25 probes kept per run at about 512 bytes, each with at most 20 recorded invocations at
+         * about 320 bytes, bounded by the probes' own caps.
+         */
+        METHOD_PROBES(25L * 512 + 25L * 20 * 320, false);
 
         private final long ceilingBytes;
         private final boolean scalable;
@@ -126,7 +131,15 @@ public final class AgentEvidence implements JournalListener {
      * a new one fails {@link Usage} until it is listed here and reviewed.
      */
     public static final java.util.Set<String> COUNTS = java.util.Set.of(
-            "requestTrees", "routes", "routeNodes", "indexBytes", "firstCalls", "firstCallsWithRequest", "firstLoads");
+            "requestTrees",
+            "routes",
+            "routeNodes",
+            "indexBytes",
+            "firstCalls",
+            "firstCallsWithRequest",
+            "firstLoads",
+            "probes",
+            "probeHits");
 
     /**
      * What a store holds.

@@ -90,6 +90,10 @@ executed in this run, then the never-executed, not-tracked, executed, or depende
 **Code Paths read** — `get_code_paths`: with the BootUI agent, the routes ranked by warm median with the application
 methods they spend their time in, or one route's hottest method nodes (see [Code Paths](diagnostics.md#code-paths)).
 
+**Method probes** — `start_method_probe`, an action needing the user's separate approval that read-only policy refuses,
+records one application method's next 20 invocations for at most 60 seconds, metadata only, and `get_method_probe`
+reads them (see [Method probes](diagnostics.md#method-probes)).
+
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
 `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`, `postgresql_read`,

@@ -111,8 +111,9 @@ async function fetchSummary() {
         activeTab.value = tabs.value[0].id
       }
       await loadTab(activeTab.value)
-      // While the scan runs, the counts and changes are not final: read again until it ends.
-      if (SCAN_IN_PROGRESS.includes(summary.value?.scan?.status) && !autoRefresh.value) {
+      // While the scan runs, the counts and changes are not final: read again soon, sooner than auto-refresh would,
+      // until it ends.
+      if (SCAN_IN_PROGRESS.includes(summary.value?.scan?.status)) {
         scanPoll = setTimeout(() => {
           scanPoll = null
           load()
@@ -127,8 +128,7 @@ async function fetchSummary() {
 onBeforeUnmount(stopScanPoll)
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary, {
-  enabled: manifestAvailable,
-  defaultEnabled: false
+  enabled: manifestAvailable
 })
 
 async function loadTab(id) {
@@ -235,6 +235,11 @@ function methodLabel(method) {
   const name =
     method.name === '<init>' ? 'constructor' : method.name === '<clinit>' ? 'static initializer' : method.name
   return `${name}${method.descriptor}`
+}
+
+/** Whether Code Paths can probe the method: a method, not a constructor or a static initializer (M5-8). */
+function probeable(method) {
+  return method.name !== '<init>' && method.name !== '<clinit>'
 }
 
 function statusOf(method) {
@@ -432,6 +437,13 @@ function moreRows(report) {
                     <td>
                       <span :class="['badge', statusOf(method).badge]">{{ statusOf(method).label }}</span>
                       <div v-if="method.notTrackedReason" class="small text-muted">{{ method.notTrackedReason }}</div>
+                      <router-link
+                        v-if="probeable(method)"
+                        :to="{path: '/code-paths', query: {probe: method.key}}"
+                        class="small d-inline-block code-inventory-probe"
+                        :title="`Probe ${method.key} in Code Paths`"
+                        >Probe in Code Paths</router-link
+                      >
                     </td>
                     <td>
                       <router-link

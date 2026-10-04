@@ -1718,7 +1718,8 @@ function toggleFlow() {
   z-index: 1050;
 }
 
-.activity-drawer {
+.activity-drawer.card {
+  background: var(--bootui-surface-solid);
   width: min(560px, 100%);
   height: 100%;
   border-radius: 0;

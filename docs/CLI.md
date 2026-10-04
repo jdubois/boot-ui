@@ -459,6 +459,8 @@ exposes a tool is still what `bootui tools` says.
 | `bootui overview` | `get_overview` | — | read | all |
 | `bootui pentest report` | `get_pentest_report` | — | read | all |
 | `bootui pentest scan` | `pentest_scan` | — | action | all |
+| `bootui probe show` | `get_method_probe` | `<id>` | read | all |
+| `bootui probe start` | `start_method_probe` | `<id>` (the method, `binary.Class#name`) | action | all |
 | `bootui profile diff` | `get_profile_diff` | — | read | all |
 | `bootui rabbitmq` | `get_rabbitmq_activity` | — | read | all |
 | `bootui repositories` | `get_spring_data_repositories` | — | read | Spring MVC, WebFlux |

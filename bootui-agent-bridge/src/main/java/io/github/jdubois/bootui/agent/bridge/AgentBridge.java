@@ -72,7 +72,8 @@ public final class AgentBridge {
 
     /**
      * Called once by the agent's {@code premain}: the handler the bridge calls on every transition, with an {@code op} of
-     * {@code claim}, {@code refine}, {@code disarm}, {@code release}, or {@code status}. Returns false when a handler is
+     * {@code claim}, {@code refine}, {@code disarm}, {@code release}, {@code status}, or {@code method-probe}
+     * ({@link MethodProbes}). Returns false when a handler is
      * already installed (a second agent copy), which then stays dormant.
      */
     public static boolean install(Function<Map<String, Object>, Map<String, Object>> agent) {
@@ -176,6 +177,8 @@ public final class AgentBridge {
                     CodePaths.claimed(next);
                 }
                 CodePaths.refresh();
+                // A probe never outlives the run that started it (PLAN-v2 M5-8).
+                MethodProbes.claimed(next.generation);
                 return transition(agent, "claim", next, ARMED);
             }
         }
@@ -221,6 +224,7 @@ public final class AgentBridge {
             Claim next = current.disarmed();
             if (CLAIM.compareAndSet(current, next)) {
                 CodePaths.refresh();
+                MethodProbes.endAll();
                 return transition(agent, "disarm", next, DISARMED);
             }
         }
@@ -247,6 +251,7 @@ public final class AgentBridge {
             long generation = GENERATIONS.incrementAndGet();
             if (CLAIM.compareAndSet(current, null)) {
                 CodePaths.refresh();
+                MethodProbes.endAll();
                 Map<String, Object> request = new LinkedHashMap<String, Object>();
                 request.put("op", "release");
                 request.put("generation", Long.valueOf(generation));
@@ -316,6 +321,7 @@ public final class AgentBridge {
                 map.put(CodePaths.SENSOR, CodePaths.status());
             }
             map.put("ring", AgentRing.status());
+            map.put(MethodProbes.SENSOR, MethodProbes.status());
         } catch (Throwable ex) {
             error(ex);
         }
@@ -372,6 +378,12 @@ public final class AgentBridge {
         }
         result.put("agent", answer);
         return result;
+    }
+
+    /** Calls the agent's handler, as a bridge class's engine entry point needs: its answer, or {@code null}. */
+    static Map<String, Object> callAgent(Map<String, Object> request) {
+        Function<Map<String, Object>, Map<String, Object>> agent = AGENT.get();
+        return agent == null ? null : call(agent, request);
     }
 
     private static Map<String, Object> call(
@@ -475,6 +487,7 @@ public final class AgentBridge {
         CodeInventory.reset();
         CodePaths.reset();
         AgentRing.reset();
+        MethodProbes.reset();
         inventoryClaimed = false;
     }
 }

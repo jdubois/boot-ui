@@ -9,9 +9,10 @@ import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
+import MethodProbes from './components/MethodProbes.vue'
 
 const props = defineProps(panelProps)
-const {manifestAvailable, manifestUnavailableReason} = usePanelState(props)
+const {manifestAvailable, manifestUnavailableReason, readOnly, readOnlyReason} = usePanelState(props)
 
 /** The deepest level and most nodes one route read asks for: the whole tree the API serves at once. */
 const TREE_DEPTH = 33
@@ -25,6 +26,8 @@ const selectedRoute = ref(typeof route?.query?.route === 'string' ? route.query.
 const tree = ref(null)
 const treeError = ref(null)
 const selectedMethod = ref(null)
+// A method another panel asked to probe, as Code Inventory's Probe links do.
+const requestedProbe = ref(typeof route?.query?.probe === 'string' ? route.query.probe : null)
 
 const TABS = [
   {id: 'routes', label: 'Routes', icon: 'bi-signpost-split'},
@@ -68,8 +71,7 @@ async function fetchSummary() {
 }
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary, {
-  enabled: manifestAvailable,
-  defaultEnabled: false
+  enabled: manifestAvailable
 })
 
 async function loadTree(name) {
@@ -137,6 +139,9 @@ const selectedMethodDetail = computed(() =>
 function selectMethod(key) {
   selectedMethod.value = selectedMethod.value === key ? null : key
 }
+
+/** The method Probe this method offers: the selected tree method, else the one another panel asked for. */
+const probeTarget = computed(() => selectedMethod.value ?? requestedProbe.value)
 
 function callerLabel(caller) {
   if (caller === 'REQUEST') return 'The request itself'
@@ -537,6 +542,8 @@ function moreNodes(report) {
             </template>
           </section>
         </template>
+
+        <MethodProbes :method="probeTarget" :read-only="readOnly" :read-only-reason="readOnlyReason" />
 
         <section class="mb-4" aria-labelledby="code-paths-excluded-heading">
           <h3 id="code-paths-excluded-heading" class="h6 text-muted mb-2">Excluded methods</h3>
