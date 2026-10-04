@@ -420,6 +420,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   The prompt inventory now names all four MCP prompts including `verify_after_change`, the runtime journal page says the
   BootUI agent propagates raw executors and `CompletableFuture`, and PLAN-v2 §8 and M4-18 match the shipped panel gating
   and review fixes ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8, M4-18).
+- **Code Inventory and Code Paths honor a disabled HTTP Exchanges panel.** Code Inventory, its API, and
+  `get_code_inventory` no longer show the first request and route that ran a method, and `changed-code-not-executed`
+  names no route, while HTTP Exchanges is disabled; Code Paths, its API, `get_code_paths`, and the handler split of
+  `route-time-breakdown` are unavailable with that reason, on Spring MVC, Spring WebFlux, and Quarkus.
+- **Code Inventory no longer reports methods as removed when a class root could not be read.** A class directory or
+  jar the scan cannot open or walk now counts as skipped, as a class file it cannot parse already did, and makes the
+  scan partial (failed when nothing could be read) instead of complete.
 - **Runtime Insights write attribution and remote calls.** Anonymous access reports Quarkus Hibernate SQL as an
   unverified preparation instead of a proven table write; hidden Hibernate evidence cannot promote it. Runtime model,
   change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;

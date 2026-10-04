@@ -67,6 +67,7 @@ import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
 import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
@@ -259,6 +260,7 @@ public class BootUiEngineProducer {
             QuarkusDependencyProvider dependencies,
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
+            Instance<QuarkusPanelAvailability> panels,
             Config config) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -279,7 +281,21 @@ public class BootUiEngineProducer {
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        service.setRoutesVisible(() -> httpExchangesVisible(panels));
         return service;
+    }
+
+    /**
+     * Whether HTTP Exchanges, which owns request routes and outcomes, is available and enabled, the journal's
+     * source-panel rule ({@code docs/PLAN-v2.md} §8); resolved on each read, never while the engine is produced.
+     */
+    private static boolean httpExchangesVisible(Instance<QuarkusPanelAvailability> panels) {
+        if (!panels.isResolvable()) {
+            return false;
+        }
+        QuarkusPanelAvailability availability = panels.get();
+        return availability.isPanelAvailable(BootUiPanels.HTTP_EXCHANGES)
+                && availability.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES);
     }
 
     /** Stops Code Inventory's drain and scan threads with the application. */
@@ -298,7 +314,8 @@ public class BootUiEngineProducer {
             Instance<QuarkusAgentClaim> claim,
             JavaAgentService javaAgent,
             Instance<JournalAggregates> aggregates,
-            Instance<RuntimeJournal> journal) {
+            Instance<RuntimeJournal> journal,
+            Instance<QuarkusPanelAvailability> panels) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         CodePathsService service =
                 new CodePathsService(AgentBridgeAccess.locate(), current::claim, javaAgent::codePathsUnavailableReason);
@@ -306,6 +323,7 @@ public class BootUiEngineProducer {
         service.setRequestOutcomes(JournalRequestOutcomes.of(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        service.setRoutesVisible(() -> httpExchangesVisible(panels));
         return service;
     }
 

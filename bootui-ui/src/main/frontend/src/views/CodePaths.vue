@@ -27,6 +27,10 @@ const treeError = ref(null)
 const selectedMethod = ref(null)
 
 const available = computed(() => summary.value?.available === true)
+// Disabling HTTP Exchanges hides Code Paths' route-keyed trees; attaching the agent would not help.
+const httpExchangesDisabled = computed(
+  () => summary.value?.unavailableReason?.startsWith('The HTTP Exchanges panel is disabled') === true
+)
 const routes = computed(() => summary.value?.routes ?? [])
 const status = computed(() => summary.value?.status ?? null)
 
@@ -159,7 +163,7 @@ function moreNodes(report) {
     <template v-else-if="summary && !available">
       <UnavailableState icon="bi-hourglass-split" class="code-paths-unavailable">
         {{ summary.unavailableReason }}
-        <div class="mt-2">
+        <div v-if="!httpExchangesDisabled" class="mt-2">
           <router-link to="/java-agent" class="code-paths-agent-link">Open the Java Agent panel</router-link>
           to attach the BootUI agent.
         </div>

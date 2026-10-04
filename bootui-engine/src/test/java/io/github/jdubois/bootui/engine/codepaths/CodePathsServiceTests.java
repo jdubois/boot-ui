@@ -241,6 +241,53 @@ class CodePathsServiceTests {
                 .isFalse();
     }
 
+    /** HTTP Exchanges owns the route trees' routes and outcomes: disabled, every read hides the trees it retained. */
+    @Test
+    void disablingHttpExchangesHidesTheRouteTreesAlreadyRetained() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome("GET /api/quote", 500, true));
+            }
+            return named;
+        });
+        boolean[] httpExchanges = {true};
+        service.setRoutesVisible(() -> httpExchanges[0]);
+        int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
+        for (int i = 1; i <= 3; i++) {
+            request(String.format("%016x", i), () -> call(controller, CodePathsServiceTests::spin));
+        }
+        awaitFragments(3);
+        assertThat(service.status()).containsEntry("fragments", 3L);
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+        assertThat(service.report().routes()).isNotEmpty();
+        assertThat(service.handlerMethods("GET /api/quote")).isNotNull();
+
+        httpExchanges[0] = false;
+
+        assertThat(service.report().available()).isFalse();
+        assertThat(service.report().unavailableReason()).isEqualTo(CodePathsService.ROUTES_HIDDEN);
+        assertThat(service.report().routes()).isEmpty();
+        assertThat(service.routeTree("GET /api/quote", null, null, null).found())
+                .isFalse();
+        assertThat(service.requestTree("0000000000000002").route()).isNull();
+        assertThat(service.requestTree("0000000000000002").found()).isFalse();
+        assertThat(service.agentReport(null, null).routes()).isEmpty();
+        assertThat(service.agentReport(null, null).unavailableReason()).isEqualTo(CodePathsService.ROUTES_HIDDEN);
+        assertThat(service.handlerMethods("GET /api/quote")).isNull();
+        assertThat(service.routeTreesFingerprint()).isZero();
+        assertThat(service.tree("0000000000000002")).isNull();
+        assertThat(service.recent()).isEmpty();
+        assertThat(service.exemplars("GET /api/quote")).isEmpty();
+
+        httpExchanges[0] = true;
+
+        assertThat(service.report().routes()).isNotEmpty();
+        assertThat(service.exemplars("GET /api/quote")).isNotEmpty();
+        assertThat(service.routeTreesFingerprint()).isNotZero();
+    }
+
     @Test
     void withoutTheSensorEveryReadAnswersItsUnavailableShape() {
         service = new CodePathsService(
@@ -264,6 +311,19 @@ class CodePathsServiceTests {
             context.set(CorrelationContext.NONE);
         }
         service.tree(requestId);
+    }
+
+    /**
+     * Waits until the run has taken {@code count} fragments: the drain thread may have taken them off the bridge before
+     * a read's drain, and must add them before the clock moves, or they would settle only later.
+     */
+    private void awaitFragments(long count) {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        while (((Number) service.status().get("fragments")).longValue() < count) {
+            assertThat(System.nanoTime()).as("fragments drained in time").isLessThan(deadline);
+            Thread.onSpinWait();
+            service.tree("0000000000000001");
+        }
     }
 
     private static void spin() {

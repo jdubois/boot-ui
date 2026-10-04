@@ -16,6 +16,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,7 +39,8 @@ import java.util.stream.Stream;
  * once, and not again on a later restart while its path, size, and modification time are unchanged. A class file whose
  * path and size and modification time (a jar entry's CRC-32) are unchanged is not parsed again: its hashes come from
  * the {@link ScanCache} the run history keeps across restarts. A class file that cannot be parsed is skipped and
- * counted, and makes the result partial, since its methods are neither counted nor compared.
+ * counted, and a root that cannot be read, or not completely, is counted too: either makes the result partial, or
+ * failed when nothing was read, since their methods are neither counted nor compared, never reported as removed.
  *
  * <p>Run it on a BootUI thread marked as BootUI's work, so the classes it loads, if any, are not counted as the
  * application's.
@@ -171,22 +174,33 @@ public final class ClassScanner {
         if (clean.isEmpty()) {
             status = FAILED;
             reason = "No application package is claimed, so no class file was scanned.";
-        } else if (scan.classes.isEmpty() && scan.stopped == null) {
-            status = scan.roots.isEmpty() ? FAILED : COMPLETE;
-            if (scan.roots.isEmpty()) {
-                reason = "No class directory or jar holding " + String.join(", ", clean)
-                        + " was found on the application's class path.";
-            }
-        } else if (scan.stopped == null && scan.skipped > 0) {
-            // A class file it could not parse is neither counted nor compared: not a complete picture of its packages.
-            status = PARTIAL;
-            reason = scan.skipped + (scan.skipped == 1 ? " class file" : " class files")
-                    + " could not be parsed: their methods are neither counted nor compared with the previous run.";
+        } else if (scan.classes.isEmpty() && scan.stopped == null && scan.roots.isEmpty() && scan.unreadable == 0) {
+            status = FAILED;
+            reason = "No class directory or jar holding " + String.join(", ", clean)
+                    + " was found on the application's class path.";
+        } else if (scan.stopped == null && (scan.skipped > 0 || scan.unreadable > 0)) {
+            // A root it could not read, or a class file it could not parse, is neither counted nor compared: not a
+            // complete picture of its packages, and with nothing read at all, no picture.
+            status = scan.classes.isEmpty() ? FAILED : PARTIAL;
+            reason = missing(scan.unreadable, scan.skipped);
         } else {
             status = scan.stopped == null ? COMPLETE : PARTIAL;
         }
         return new Result(
                 status, reason, clean, new ArrayList<>(scan.roots), scan.classes, scan.reused, scan.skipped, millis);
+    }
+
+    /** Why a scan that could not read some roots or class files is partial or failed. */
+    private static String missing(int unreadable, int skipped) {
+        List<String> parts = new ArrayList<>();
+        if (unreadable > 0) {
+            parts.add(unreadable + (unreadable == 1 ? " class directory or jar" : " class directories or jars")
+                    + " could not be read");
+        }
+        if (skipped > 0) {
+            parts.add(skipped + (skipped == 1 ? " class file" : " class files") + " could not be parsed");
+        }
+        return String.join(" and ", parts) + ": their methods are neither counted nor compared with the previous run.";
     }
 
     /** Whether a code-source location is a test root, whose classes are neither instrumented nor scanned. */
@@ -294,8 +308,10 @@ public final class ClassScanner {
      * A class-path entry holding some of {@code paths} (package paths, such as {@code com/example}): a directory holding
      * one, or a jar with an entry under one, read once for all of them, and remembered in {@code cache} by path, size,
      * and modification time. {@code null} for neither.
+     *
+     * @throws IOException when the entry exists but cannot be inspected, so whether it holds a package is unknown
      */
-    private static Root classPathRoot(String entry, List<String> paths, ScanCache cache) {
+    private static Root classPathRoot(String entry, List<String> paths, ScanCache cache) throws IOException {
         try {
             Path file = Path.of(entry).toAbsolutePath().normalize();
             if (Files.isDirectory(file)) {
@@ -325,8 +341,10 @@ public final class ClassScanner {
                 }
                 return holds ? new Root(location, null, null, file) : null;
             }
-        } catch (IOException | InvalidPathException | SecurityException ex) {
-            // Unreadable: skipped.
+        } catch (InvalidPathException ex) {
+            // Not a path: no root.
+        } catch (SecurityException ex) {
+            throw new IOException(ex);
         }
         return null;
     }
@@ -367,6 +385,10 @@ public final class ClassScanner {
         private final Set<String> roots = new LinkedHashSet<>();
         private int reused;
         private int skipped;
+        private int unreadable;
+        /** Per directory root, the package paths discovery saw in it: one missing when read vanished meanwhile. */
+        private final Map<String, Set<String>> discovered = new HashMap<>();
+
         private String stopped;
 
         Scan(
@@ -427,10 +449,13 @@ public final class ClassScanner {
                             Root root = root(urls.nextElement(), path);
                             if (root != null && !testRoot(root.location())) {
                                 found.putIfAbsent(root.location(), root);
+                                discover(root, path);
                             }
                         }
                     } catch (IOException | RuntimeException ex) {
-                        // A loader that cannot list resources: the class path below may still find the roots.
+                        // A loader that cannot list resources: the class path below may still find the roots, but
+                        // whether it held others is unknown.
+                        unreadable++;
                     }
                 }
             }
@@ -438,22 +463,39 @@ public final class ClassScanner {
                 if (interrupted()) {
                     break;
                 }
-                Root root = classPathRoot(entry, paths, cache);
-                if (root != null && !testRoot(root.location())) {
-                    found.putIfAbsent(root.location(), root);
+                try {
+                    Root root = classPathRoot(entry, paths, cache);
+                    if (root != null && !testRoot(root.location())) {
+                        found.putIfAbsent(root.location(), root);
+                        for (String path : paths) {
+                            if (root.directory() != null
+                                    && Files.isDirectory(root.directory().resolve(path))) {
+                                discover(root, path);
+                            }
+                        }
+                    }
+                } catch (IOException ex) {
+                    // Whether this entry holds a claimed package is unknown: its classes may be missing, not removed.
+                    unreadable++;
                 }
             }
             return new ArrayList<>(found.values());
         }
 
+        /**
+         * Reads the classes of one root. A root that cannot be read, or not completely, is counted as unreadable, so
+         * the scan is partial rather than complete: its classes are missing, not removed.
+         */
         void read(Root root) {
             roots.add(root.location());
+            boolean read = false;
             if (root.directory() != null) {
-                readDirectory(root);
+                read = readDirectory(root);
             } else if (root.jarFile() != null) {
                 try (JarFile jar = new JarFile(root.jarFile().toFile(), false)) {
                     readJar(root, jar);
-                } catch (IOException ex) {
+                    read = true;
+                } catch (IOException | RuntimeException ex) {
                     // An unreadable jar: nothing scanned from it.
                 }
             } else if (root.jar() != null) {
@@ -462,23 +504,46 @@ public final class ClassScanner {
                     if (connection instanceof JarURLConnection jarConnection) {
                         // The class loader's own, cached jar: read, never closed here.
                         readJar(root, jarConnection.getJarFile());
+                        read = true;
                     }
                 } catch (IOException | RuntimeException ex) {
                     // A nested jar this scan cannot open.
                 }
             }
+            if (!read) {
+                unreadable++;
+            }
         }
 
-        private void readDirectory(Root root) {
+        /**
+         * Reads a directory root's packages; {@code false} when it no longer holds one discovery found in it, or any of
+         * them, as a build output deleted since it was found, or one vanished while it was walked, as during a
+         * rebuild: what was read stays.
+         */
+        private void discover(Root root, String path) {
+            if (root.directory() != null) {
+                discovered
+                        .computeIfAbsent(root.location(), location -> new HashSet<>())
+                        .add(path);
+            }
+        }
+
+        private boolean readDirectory(Root root) {
+            boolean found = false;
+            boolean vanished = false;
+            Set<String> seen = discovered.getOrDefault(root.location(), Set.of());
             for (String name : packages) {
-                Path start = root.directory().resolve(name.replace('.', '/'));
+                String path = name.replace('.', '/');
+                Path start = root.directory().resolve(path);
                 if (!Files.isDirectory(start)) {
+                    vanished |= seen.contains(path);
                     continue;
                 }
+                found = true;
                 try (Stream<Path> files = Files.walk(start)) {
                     for (Path file : (Iterable<Path>) files::iterator) {
                         if (interrupted()) {
-                            return;
+                            return true;
                         }
                         String fileName = file.getFileName().toString();
                         if (!fileName.endsWith(".class") || !Files.isRegularFile(file)) {
@@ -491,9 +556,10 @@ public final class ClassScanner {
                         accept(root, relative, file.toUri().toString(), size, modified, () -> Files.readAllBytes(file));
                     }
                 } catch (IOException | RuntimeException ex) {
-                    // A directory that vanished while it was walked, as during a rebuild: what was read stays.
+                    return false;
                 }
             }
+            return found && !vanished;
         }
 
         private void readJar(Root root, JarFile jar) {
