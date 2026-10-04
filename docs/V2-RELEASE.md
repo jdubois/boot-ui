@@ -13,8 +13,10 @@ project version on `main` cannot tell 2.0 contents from 1.x contents. The releas
 Every branch declares its release line, the major version its contents belong to, in `.github/release-line`: one
 number, with `#` comments. `v2` declares `2`; `main` and `1.x` declare `1` once the backport below lands. The line must
 be the project version's major, or that major plus one while a branch prepares the next major, and a missing or
-malformed file fails every check that reads it. The first commit on a branch preparing a later major, such as `v3`,
-declares that major.
+malformed file fails every check that reads it. A branch containing `bootui-agent`, which exists only from 2.0, must
+declare at least `2`, so a `main`-to-`v2` sync that resolves a conflict on this file to `1` fails the integrity guard,
+the gate, and the Release workflow instead of letting the merged `main` publish 2.0 as the 1.x line. The first commit on
+a branch preparing a later major, such as `v3`, declares that major.
 
 ## How each channel is guarded
 
@@ -56,8 +58,11 @@ control over them:
   feature branches. Add `1.x` when the branch is cut.
 - `github-pages` accepts `main` and `v*` tags. Right after the 2.0 site deploys, narrow the tag rule to `v2.*`, so an
   old tag's ungated `pages.yml` cannot replace it. Repeat at 3.0.
-- `docker-hub` has no deployment policy. Restrict it to `main`: the daily schedule only runs there, and no other ref can
-  then push `latest`.
+- `docker-hub` accepts only `main` (done 2026-10-04). Without that policy, any ref whose `docker-publish.yml` predates
+  the gate, such as an older `v2` feature branch or a `v1.*` tag after 2.0.0, could push `latest` through a manual run.
+  The daily schedule runs only on `main`, so nothing legitimate lost access. A manual run from any other ref now fails
+  at its first `docker-hub` job, including a `prune_dry_run` preview: run retention previews from `main`. Keep this
+  policy at 3.0.
 
 Re-running a workflow run replays the workflow file of that run, and GitHub allows it for 30 days. Never re-run a
 Pages or Docker run that predates the gate on `main`; landing the `main` preparation below well before release day
@@ -91,8 +96,8 @@ python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day
 `--live` pushes the candidate to a temporary `rehearsal/v2-merge-*` branch, dispatches `pages.yml` and
 `docker-publish.yml` from it, requires every publishing job to be skipped, and deletes the branch. No push trigger
 runs on that branch, and the `github-pages` and `maven-central` environments refuse it, so a broken gate fails rather
-than publishes. Until `docker-hub` is restricted to `main`, the rehearsal cancels a Docker run as soon as any job past
-its gate is queued, long before the first image push, which follows a full Maven build and smoke test.
+than publishes; `docker-hub` refuses it too, so the Docker image jobs could not push even past a broken gate. As a
+second line, the rehearsal cancels a run as soon as any job past its gate is queued.
 
 A merge conflict fails the rehearsal: merge `main` into `v2` first. Prerequisites that are not done yet are reported as
 `PENDING`; `--release-day` turns them into failures.
@@ -113,7 +118,8 @@ over the 2.0 site. One pull request into `main`, well before the cut:
 2. Ports to `main`'s `release.yml` the release-line arguments, the tagged-contents and release-branch checks, the
    deploy confirmation, and the newest-major documentation decision, keeping `main`'s own publication reactor and availability list, which have no agent
    modules; ports `check-release-integrity.sh` and the `test_release_*.py` tests the same way.
-3. Adds `.github/release-line` with `1`. The next `main`-to-`v2` sync then conflicts on that file once: keep `2`.
+3. Adds `.github/release-line` with `1`. The next `main`-to-`v2` sync then conflicts on that file once: keep `2`
+   (the guard rejects `1` on `v2`, which contains `bootui-agent`).
 4. Adds `1.x` to the push and pull-request branches of `build.yml` and `jdk-compatibility.yml`, so `1.x` gets the green
    build a release requires.
 
@@ -122,7 +128,8 @@ over the 2.0 site. One pull request into `main`, well before the cut:
 - A ruleset for `1.x` like `main`'s: no force push or deletion, pull requests required, and `github-actions[bot]`
   allowed to push the release commit and its `v1.*` tag.
 - The `maven-central` environment accepts the `1.x` branch.
-- The `docker-hub` environment accepts only `main` (see above).
+- The `docker-hub` environment already accepts only `main` (done 2026-10-04); nothing to change for `1.x`, which
+  publishes no images.
 
 ### Cutting the branch
 

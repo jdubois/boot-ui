@@ -263,7 +263,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   release line in `.github/release-line`, and `pages.yml` and `docker-publish.yml` publish a branch only when its line
   has a release on Maven Central and no newer major does, so merging `v2` into `main` publishes no 2.0 site or image
   before 2.0.0 is out. The Release workflow releases only versions of the branch's own line, so `main` after the merge
-  cannot release 1.x and a `1.x` maintenance branch cannot release 2.0.0; it releases only from `main` or an `N.x`
+  cannot release 1.x and a `1.x` maintenance branch cannot release 2.0.0 (a branch containing the 2.0-only `bootui-agent`
+  must declare at least line 2); it releases only from `main` or an `N.x`
   maintenance branch, and fails when its documentation run skipped the deploy. `rehearse_v2_merge.py` rehearses the merge
   on a candidate that is never published, and [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the merge and the
   `1.x` branch (PLAN-v2 M4-23, D40).

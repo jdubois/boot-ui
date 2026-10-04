@@ -40,7 +40,8 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   declares `2` while it still carries a 1.x version). `release.yml` passes it to `next-version`, so a branch releases
   only versions of its own line, and rechecks the tagged contents' line before publication. Releases are prepared only
   from `main` or the version's `N.x` maintenance branch, and a tag publishes only when its commit is on one of them. Never remove the file or
-  make it optional; the first commit on a branch preparing a new major declares that major.
+  make it optional; the first commit on a branch preparing a new major declares that major. A branch containing
+  `bootui-agent` (2.0 and later) must declare at least `2`; keep `2` when a `main`-to-`v2` sync conflicts on the file.
 - `pages.yml` and `docker-publish.yml` build from a branch, not a tag, so `.github/scripts/release-line-gate.sh`
   decides whether they publish: only when one tag of the branch's line has its artifacts on Maven Central and no newer
   major does, failing closed on any unreadable answer. This is what keeps merging `v2` into `main` from publishing the

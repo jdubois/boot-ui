@@ -68,10 +68,13 @@ class ReleaseLineGateTests(unittest.TestCase):
         self.central = FakeCentral()
         self.addCleanup(self.central.close)
 
-    def gate(self, project_version, release_line, tags, central_url=None):
+    def gate(self, project_version, release_line, tags, central_url=None, agent=False):
         with tempfile.TemporaryDirectory() as directory:
             checkout = Path(directory)
             (checkout / "pom.xml").write_text(POM.format(version=project_version), encoding="utf-8")
+            if agent:
+                (checkout / "bootui-agent").mkdir()
+                (checkout / "bootui-agent/pom.xml").write_text("<project/>", encoding="utf-8")
             if release_line is not None:
                 (checkout / ".github").mkdir()
                 (checkout / ".github/release-line").write_text(f"# test\n{release_line}\n", encoding="utf-8")
@@ -159,6 +162,14 @@ class ReleaseLineGateTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("refusing to decide", result.stderr)
                 self.assertNotIn("publish", values)
+
+    def test_2x_contents_declaring_line_1_fail_closed(self):
+        # The merged main if a main-to-v2 sync had resolved the release line to 1.
+        self.central.publish("1.19.0")
+        result, values = self.gate("1.19.0", 1, ["v1.19.0"], agent=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("contains bootui-agent", result.stderr)
+        self.assertNotIn("publish", values)
 
     def test_missing_or_inconsistent_release_line_fails_closed(self):
         self.central.publish("1.19.0")

@@ -16,7 +16,9 @@
 #   release-version-policy.sh line-major PROJECT_VERSION RELEASE_LINE_FILE
 #     Prints the release line declared in RELEASE_LINE_FILE: one integer, `#` comments and blank
 #     lines ignored. The file is required, and its major must be PROJECT_VERSION's major, or that
-#     major plus one while a branch prepares the next major. Exits 2 otherwise.
+#     major plus one while a branch prepares the next major, and at least 2 when the repository
+#     around RELEASE_LINE_FILE's directory contains bootui-agent, which exists only from 2.0. Exits 2
+#     otherwise.
 #
 #   git tag --list 'v*' | release-version-policy.sh next-version VERSION CURRENT_PROJECT_VERSION [RELEASE_LINE]
 #     Accepts VERSION only when it is exactly the next patch or minor after the newest stable tag
@@ -119,6 +121,14 @@ line_major() {
   fi
   if ((line != project_major && line != project_major + 1)); then
     reject "Release line $line in '$line_file' does not match project version $project_version: expected $project_major, or $((project_major + 1)) while preparing the next major"
+  fi
+  # 2.x contents are recognizable whatever the project version says: the BootUI Java agent exists
+  # only from 2.0. A main-to-v2 sync that resolves the release line to 1 would otherwise pass and let
+  # the merged main publish 2.0 as the released 1.x line.
+  local repository_root
+  repository_root="$(cd "$(dirname "$line_file")/.." && pwd)"
+  if [[ -f "$repository_root/bootui-agent/pom.xml" ]] && ((line < 2)); then
+    reject "Release line $line in '$line_file' is too low: this branch contains bootui-agent, which exists only from 2.0, so its release line must be at least 2"
   fi
   printf '%s\n' "$line"
 }

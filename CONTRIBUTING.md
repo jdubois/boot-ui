@@ -171,8 +171,10 @@ before their children rather than leaving the children blocked by references.
 
 Use **Run workflow** with `cleanup_only=true` to run retention without rebuilding.
 Set `prune_dry_run=true` to preview **both tag and manifest deletion** without deleting
-anything. A dry run still preserves an inventory artifact. Destructive cleanup runs
-only on `main`; other branches may preview. All publish runs are serialized across
+anything. A dry run still preserves an inventory artifact. Run it from `main`: the
+`docker-hub` environment accepts only `main`, so a preview from another branch is
+refused. The workflow also publishes only through its release-line gate
+([Releasing 2.0](docs/V2-RELEASE.md)). All publish runs are serialized across
 branches to prevent concurrent registry changes. `DOCKERHUB_TOKEN` must have
 **Read, Write, Delete** permissions; `DOCKERHUB_UNTAGGED_PRUNE` is no longer used.
 

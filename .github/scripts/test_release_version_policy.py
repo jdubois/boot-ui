@@ -195,6 +195,24 @@ class ReleaseLineTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("::error::", result.stderr)
 
+    def test_a_branch_with_the_java_agent_declares_at_least_line_2(self):
+        # A main-to-v2 sync that resolves the release-line conflict to 1 must fail, though 1 matches
+        # the 1.x project version: bootui-agent exists only from 2.0.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github").mkdir()
+            line_file = root / ".github/release-line"
+            for agent, content, expected in ((False, "1\n", 0), (True, "1\n", 2), (True, "2\n", 0)):
+                with self.subTest(agent=agent, content=content):
+                    if agent:
+                        (root / "bootui-agent").mkdir(exist_ok=True)
+                        (root / "bootui-agent/pom.xml").write_text("<project/>", encoding="utf-8")
+                    line_file.write_text(content, encoding="utf-8")
+                    result = run_policy("line-major", "1.19.0", str(line_file))
+                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                    if expected:
+                        self.assertIn("contains bootui-agent", result.stderr)
+
     def test_main_after_the_v2_merge_releases_only_2_0_0(self):
         tags = ["v1.18.0", "v1.19.0"]
         self.assertEqual(run_policy("next-version", "2.0.0", "1.19.0", "2", tags=tags).returncode, 0)

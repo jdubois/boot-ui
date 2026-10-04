@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import unittest
@@ -296,6 +297,49 @@ class ReleaseIntegrityTests(unittest.TestCase):
             "\n  sneaky:\n    runs-on: ubuntu-latest\n    steps:\n      - run: docker push example\n"
         )
         self.assert_rejected(None, "unexpected job 'sneaky'", docker=docker)
+
+    def test_release_line_cannot_slip_back_to_1_on_2x_contents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github").mkdir()
+            (root / "pom.xml").write_text((ROOT / "pom.xml").read_text(encoding="utf-8"), encoding="utf-8")
+            (root / "bootui-agent").mkdir()
+            (root / "bootui-agent/pom.xml").write_text("<project/>", encoding="utf-8")
+            for line, expected in (("2", 0), ("1", 1)):
+                with self.subTest(line=line):
+                    (root / ".github/release-line").write_text(f"# test\n{line}\n", encoding="utf-8")
+                    result = subprocess.run(
+                        ["bash", str(SCRIPT), str(WORKFLOW), str(PAGES), str(DOCKER)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        env={**os.environ, "RELEASE_INTEGRITY_ROOT": str(root)},
+                    )
+                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                    if expected:
+                        self.assertIn("contains bootui-agent", result.stderr)
+
+    def test_gate_steps_must_be_whole_lines(self):
+        forced = GATE_RUN + "; echo publish=true >> \"$GITHUB_OUTPUT\""
+        self.assert_rejected(None, "documentation site release-line gate", pages=self.mutate_file(PAGES, GATE_RUN, forced))
+        self.assert_rejected(None, "missing the gate job", docker=self.mutate_file(DOCKER, GATE_RUN, forced))
+
+    def test_docker_config_condition_must_be_the_whole_line(self):
+        self.assert_rejected(
+            None,
+            "docker-config must run only",
+            docker=self.mutate_file(
+                # Text after the expression turns the condition into a non-empty, always-true string.
+                DOCKER, DOCKER_CONFIG_CONDITION, DOCKER_CONFIG_CONDITION.replace(" }}\n", " }} || true\n")
+            ),
+        )
+
+    def test_pages_deploy_job_keeps_the_name_release_yml_selects(self):
+        self.assert_rejected(
+            None,
+            "keep the name 'Deploy documentation site'",
+            pages=self.mutate_file(PAGES, "    name: Deploy documentation site\n", "    name: Deploy site\n"),
+        )
 
     def test_gate_test_seams_cannot_be_set_by_a_workflow(self):
         seam = "    env:\n      BOOTUI_CENTRAL_URL: http://example.invalid\n"

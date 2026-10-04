@@ -19,7 +19,8 @@ Maven Central:
 With --live, the candidate is pushed to a temporary `rehearsal/v2-merge-*` branch, which no push
 trigger and no deployment environment accepts, `pages.yml` and `docker-publish.yml` are dispatched
 from it, the rehearsal asserts that their gates skipped every publishing job, cancelling a run as soon
-as one is queued, and the branch is deleted.
+as one is queued, and the branch is deleted. The `docker-hub` environment, restricted to
+`main`, refuses the image jobs on that branch as well.
 
 Release-day prerequisites that are not done yet are reported as PENDING; --release-day turns them
 into failures. Exit status: 0 when nothing failed, 1 otherwise.
@@ -75,25 +76,118 @@ def show(ref, path, repository):
     return result.stdout if result.returncode == 0 else None
 
 
-def on_block(workflow):
-    lines = workflow.splitlines()
-    block, inside = [], False
+# Events GitHub runs on the default branch, `main`, whatever their filters.
+DEFAULT_BRANCH_EVENTS = ("schedule", "workflow_run", "repository_dispatch")
+
+
+class TriggerParseError(ValueError):
+    pass
+
+
+def _strip(value):
+    value = re.sub(r"\s+#.*$", "", value).strip()
+    return value[1:-1] if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"" else value
+
+
+def _flow_list(value):
+    if not (value.startswith("[") and value.endswith("]")):
+        raise TriggerParseError(f"cannot read {value!r} as a list")
+    return [_strip(item) for item in value[1:-1].split(",") if _strip(item)]
+
+
+def _children(lines):
+    """Splits indented lines into (key, inline value, child lines) at their shallowest indentation."""
+    content = [line for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    if not content:
+        return []
+    indent = min(len(line) - len(line.lstrip()) for line in content)
+    entries = []
+    for line in content:
+        depth = len(line) - len(line.lstrip())
+        if depth == indent:
+            match = re.match(r"^\s*([A-Za-z_][\w-]*|'[^']+'|\"[^\"]+\"):(?:\s+(.*))?$", line)
+            if not match:
+                raise TriggerParseError(f"cannot read {line.strip()!r}")
+            entries.append((_strip(match.group(1)), _strip(match.group(2) or ""), []))
+        elif depth > indent and entries:
+            entries[-1][2].append(line)
+        else:
+            raise TriggerParseError(f"unexpected indentation at {line.strip()!r}")
+    return entries
+
+
+def _values(inline, lines):
+    if inline:
+        return _flow_list(inline)
+    items = []
     for line in lines:
-        if re.match(r"^on:\s*$", line):
-            inside = True
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if inside and re.match(r"^\S", line):
+        if not stripped.startswith("- "):
+            raise TriggerParseError(f"cannot read {stripped!r} as a list item")
+        items.append(_strip(stripped[2:]))
+    return items
+
+
+def parse_triggers(workflow):
+    """Returns {event: {filter: [values]}} for a workflow's `on:`, or raises TriggerParseError."""
+    lines = workflow.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(?:on|'on'|\"on\"|true):(.*)$", line)
+        if match:
             break
-        if inside:
-            block.append(line)
-    return "\n".join(block)
+    else:
+        raise TriggerParseError("no top-level `on:`")
+    inline = _strip(match.group(1))
+    if inline:
+        events = [inline] if not inline.startswith("[") else _flow_list(inline)
+        if any(not re.fullmatch(r"[a-z_]+", event) for event in events):
+            raise TriggerParseError(f"cannot read `on: {inline}`")
+        return {event: {} for event in events}
+    block = []
+    for line in lines[index + 1:]:
+        if line.strip() and not line.startswith((" ", "\t")) and not line.lstrip().startswith("#"):
+            break
+        block.append(line)
+    triggers = {}
+    for event, value, children in _children(block):
+        if value not in ("", "{}", "null", "~"):
+            raise TriggerParseError(f"cannot read `{event}: {value}`")
+        filters = {}
+        # Only push filters decide whether a workflow runs on main; other events' settings, such as
+        # schedule's cron list or workflow_dispatch's inputs, are not read.
+        if event == "push":
+            for key, filter_value, filter_lines in _children(children):
+                filters[key] = _values(filter_value, filter_lines) if filter_value or filter_lines else []
+        triggers[event] = filters
+    return triggers
 
 
-def runs_on_main(workflow):
-    trigger = on_block(workflow)
-    push = re.search(r"^  push:\s*\n((?:    .*\n?)*)", trigger + "\n", re.MULTILINE)
-    pushes_main = bool(push and re.search(r"branches:\s*\[[^\]]*\bmain\b", push.group(1)))
-    return pushes_main or bool(re.search(r"^  schedule:", trigger, re.MULTILINE))
+def _glob(pattern, branch):
+    regex = "".join(
+        ".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
+        for part in re.split(r"(\*\*|\*)", pattern)
+    )
+    return re.fullmatch(regex, branch) is not None
+
+
+def push_runs_on(filters, branch):
+    """Whether a `push` with these filters runs for a push to BRANCH, as GitHub decides it."""
+    if "branches" in filters:
+        included = [pattern for pattern in filters["branches"] if not pattern.startswith("!")]
+        excluded = [pattern[1:] for pattern in filters["branches"] if pattern.startswith("!")]
+        return any(_glob(p, branch) for p in included) and not any(_glob(p, branch) for p in excluded)
+    if "branches-ignore" in filters:
+        return not any(_glob(p, branch) for p in filters["branches-ignore"])
+    # Only tag filters: branch pushes do not trigger it.
+    return not ("tags" in filters or "tags-ignore" in filters)
+
+
+def runs_on_main(triggers):
+    if any(event in triggers for event in DEFAULT_BRANCH_EVENTS):
+        return True
+    return "push" in triggers and push_runs_on(triggers["push"], "main")
 
 
 class FakeCentral:
@@ -181,16 +275,22 @@ def check_triggers(candidate, repository):
         if not name.endswith(".yml"):
             continue
         content = show(candidate, f".github/workflows/{name}", repository)
+        try:
+            triggers = parse_triggers(content)
+        except TriggerParseError as error:
+            # Never skip what cannot be read: it might run on main.
+            record("FAIL", f"{name}'s triggers could be read", f"{error}; check by hand whether it publishes on main")
+            continue
         if name == "release.yml":
-            trigger = on_block(content)
-            branch_push = re.search(r"^  push:\s*\n(?:    .*\n)*?    branches:", trigger + "\n", re.MULTILINE)
-            if branch_push:
+            if "push" in triggers and any(
+                push_runs_on(triggers["push"], branch) for branch in ("main", "v2", "1.x", "any-branch")
+            ):
                 record("FAIL", "release.yml has no branch push trigger", "a push would start a release")
             else:
                 record("PASS", "release.yml runs only on a tag push or a manual dispatch", "the merge pushes no tag")
             continue
         publishes = [marker for marker in PUBLISHING_MARKERS if marker in content]
-        if not runs_on_main(content):
+        if not runs_on_main(triggers):
             continue
         if not publishes:
             record("PASS", f"{name} runs on a push to main or a schedule and publishes nothing")
@@ -254,7 +354,7 @@ def check_environments(release_day):
         record(
             pending,
             "docker-hub accepts only main",
-            "no deployment policy today, so a docker-publish.yml dispatch from a ref without the gate "
+            f"allowed today: {docker}; a docker-publish.yml dispatch from a ref without the gate "
             "(an older v2 feature branch, or a 1.x tag after 2.0.0) could push `latest`",
         )
     pages = policies["github-pages"] or []

@@ -3,7 +3,9 @@
 set -euo pipefail
 
 # Usage: check-release-integrity.sh [release.yml] [pages.yml] [docker-publish.yml]
-readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# RELEASE_INTEGRITY_ROOT is a test seam for the repository checked by the release-line rules; no
+# workflow may set it.
+readonly REPOSITORY_ROOT="${RELEASE_INTEGRITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 readonly WORKFLOW="${1:-.github/workflows/release.yml}"
 readonly PAGES_WORKFLOW="${2:-$REPOSITORY_ROOT/.github/workflows/pages.yml}"
 readonly DOCKER_WORKFLOW="${3:-$REPOSITORY_ROOT/.github/workflows/docker-publish.yml}"
@@ -276,17 +278,22 @@ job_names() {
 
 readonly GATE_RUN='run: bash .github/scripts/release-line-gate.sh'
 for file in "$WORKFLOW" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW"; do
-  if grep -Eq 'BOOTUI_RELEASE_TAGS_FILE|BOOTUI_CENTRAL_URL' "$file"; then
+  if grep -Eq 'BOOTUI_RELEASE_TAGS_FILE|BOOTUI_CENTRAL_URL|RELEASE_INTEGRITY_ROOT' "$file"; then
     report_workflow_error "$file" 'release-line-gate.sh test seams must never be set by a workflow'
   fi
 done
 
-require_workflow_literal "$PAGES_WORKFLOW" "$GATE_RUN" 'documentation site release-line gate'
+# Whole-line matches, so a gate step that appends a forced answer (`...gate.sh; echo publish=true`)
+# does not pass.
+readonly GATE_STEP_LINE="        $GATE_RUN"
+if ! grep -Fxq -- "$GATE_STEP_LINE" "$PAGES_WORKFLOW"; then
+  report_workflow_error "$PAGES_WORKFLOW" "missing documentation site release-line gate ('$GATE_RUN' on a line of its own)"
+fi
 require_workflow_literal "$PAGES_WORKFLOW" 'publish: ${{ steps.gate.outputs.publish }}' \
   'documentation site gate output'
 pages_build="$(job_block "$PAGES_WORKFLOW" build)"
 pages_deploy="$(job_block "$PAGES_WORKFLOW" deploy)"
-if ! grep -Fq -- "$GATE_RUN" <<<"$pages_build"; then
+if ! grep -Fxq -- "$GATE_STEP_LINE" <<<"$pages_build"; then
   report_workflow_error "$PAGES_WORKFLOW" 'the release-line gate must run in the build job'
 fi
 if ! grep -Fq -- "if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'" \
@@ -296,6 +303,10 @@ fi
 if [[ "$(grep -Fc 'actions/deploy-pages' "$PAGES_WORKFLOW" || true)" -ne 1 ]] ||
   ! grep -Fq 'actions/deploy-pages' <<<"$pages_deploy"; then
   report_workflow_error "$PAGES_WORKFLOW" 'the site must be deployed from exactly one deploy job'
+fi
+# release.yml confirms the deployment by selecting this job by its name.
+if ! grep -Fxq '    name: Deploy documentation site' <<<"$pages_deploy"; then
+  report_workflow_error "$PAGES_WORKFLOW" "the deploy job must keep the name 'Deploy documentation site', which release.yml selects"
 fi
 if ! grep -Eq "^    if: github.event_name != 'pull_request' && needs.build.outputs.publish == 'true'$" \
   <<<"$pages_deploy"; then
@@ -309,12 +320,12 @@ docker_gate="$(job_block "$DOCKER_WORKFLOW" gate)"
 docker_config="$(job_block "$DOCKER_WORKFLOW" docker-config)"
 docker_build="$(job_block "$DOCKER_WORKFLOW" build)"
 docker_merge="$(job_block "$DOCKER_WORKFLOW" merge)"
-if ! grep -Fq -- "$GATE_RUN" <<<"$docker_gate" ||
+if ! grep -Fxq -- "$GATE_STEP_LINE" <<<"$docker_gate" ||
   ! grep -Fq 'publish: ${{ steps.gate.outputs.publish }}' <<<"$docker_gate"; then
   report_workflow_error "$DOCKER_WORKFLOW" 'missing the gate job running release-line-gate.sh'
 fi
 if ! grep -Eq '^    needs: gate$' <<<"$docker_config" ||
-  ! grep -Fq "if: \${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}" <<<"$docker_config"; then
+  [[ "$(grep -E '^    if:' <<<"$docker_config" || true)" != "    if: \${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}" ]]; then
   report_workflow_error "$DOCKER_WORKFLOW" 'docker-config must run only when the release-line gate allows it'
 fi
 if ! grep -Eq '^    needs: docker-config$' <<<"$docker_build" || ! grep -Eq '^    needs: build$' <<<"$docker_merge"; then
