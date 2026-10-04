@@ -26,6 +26,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.StampedLock;
+import java.util.function.IntConsumer;
 
 /**
  * The runtime journal of one application run ({@code docs/PLAN-v2.md} §5.2): every runtime event recorded once, in a
@@ -65,7 +67,6 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     private final RuntimeJournalSettings settings;
     private final RunIdentity run;
-    private final ArrayBlockingQueue<Queued> queue;
     private final int routineQueueLimit;
     private final JournalDictionary dictionary;
     private final EvidenceRing ring;
@@ -80,6 +81,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final Runnable beforeQueueOffer;
+    private final IntConsumer beforeQueueDrain;
+    private final long dispatcherPollMillis;
 
     /**
      * Serializes processing a batch with clearing the recording, so a batch is either processed before the clear, and
@@ -87,8 +91,16 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     private final Object processing = new Object();
 
-    /** How many times the recording was cleared, so the dispatcher drops an event it took before a clear. */
-    private volatile long clears;
+    /**
+     * Makes stamping and offering atomic with the clear's constant-time generation and queue swap. The detached queue
+     * must be drained outside this lock: {@link ArrayBlockingQueue#drainTo(java.util.Collection)} holds its own lock,
+     * which would otherwise park application offers for work proportional to the old queue's depth.
+     */
+    private final StampedLock admissionLock = new StampedLock();
+
+    /** The recording generation and the one queue application threads may offer to now. */
+    private volatile Admission admission;
+
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
 
@@ -98,13 +110,40 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** A journal whose dispatcher starts now, when {@code settings} enable it. */
     public RuntimeJournal(RuntimeJournalSettings settings, RunIdentity run) {
-        this(settings, run, true);
+        this(settings, run, true, null, null, 250);
     }
 
     RuntimeJournal(RuntimeJournalSettings settings, RunIdentity run, boolean startDispatcher) {
+        this(settings, run, startDispatcher, null, null, 250);
+    }
+
+    RuntimeJournal(
+            RuntimeJournalSettings settings, RunIdentity run, boolean startDispatcher, Runnable beforeQueueOffer) {
+        this(settings, run, startDispatcher, beforeQueueOffer, null, 250);
+    }
+
+    RuntimeJournal(
+            RuntimeJournalSettings settings,
+            RunIdentity run,
+            boolean startDispatcher,
+            Runnable beforeQueueOffer,
+            IntConsumer beforeQueueDrain) {
+        this(settings, run, startDispatcher, beforeQueueOffer, beforeQueueDrain, 250);
+    }
+
+    RuntimeJournal(
+            RuntimeJournalSettings settings,
+            RunIdentity run,
+            boolean startDispatcher,
+            Runnable beforeQueueOffer,
+            IntConsumer beforeQueueDrain,
+            long dispatcherPollMillis) {
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
         this.run = Objects.requireNonNull(run, "run must not be null");
-        this.queue = new ArrayBlockingQueue<>(settings.enabled() ? settings.queueCapacity() : 1);
+        this.beforeQueueOffer = beforeQueueOffer;
+        this.beforeQueueDrain = beforeQueueDrain;
+        this.dispatcherPollMillis = dispatcherPollMillis;
+        this.admission = new Admission(0, newQueue());
         this.routineQueueLimit = settings.routineQueueLimit();
         this.dictionary =
                 new JournalDictionary(DICTIONARY_MAX_ENTRIES, settings.maxBytes() * DICTIONARY_BYTES_PERCENT / 100);
@@ -161,10 +200,20 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         int source = event.source().ordinal();
         try {
             event = withThreadKind(event);
-            if ((event.failedOrSlow() || queue.size() < routineQueueLimit) && queue.offer(new Queued(event, clears))) {
-                accepted[source].increment();
-                acceptedTotal.increment();
-                return true;
+            long stamp = admissionLock.readLock();
+            try {
+                Admission current = admission;
+                if (beforeQueueOffer != null) {
+                    beforeQueueOffer.run();
+                }
+                if ((event.failedOrSlow() || current.queue.size() < routineQueueLimit)
+                        && current.queue.offer(new Queued(event, current.generation))) {
+                    accepted[source].increment();
+                    acceptedTotal.increment();
+                    return true;
+                }
+            } finally {
+                admissionLock.unlockRead(stamp);
             }
         } catch (RuntimeException ex) {
             // Fall through: the event is dropped and counted, never propagated to the application.
@@ -257,13 +306,16 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         List<Queued> batch = new ArrayList<>(BATCH_SIZE);
         while (running) {
             try {
-                Queued first = queue.poll(250, TimeUnit.MILLISECONDS);
+                Queued first = admission.queue.poll(dispatcherPollMillis, TimeUnit.MILLISECONDS);
                 if (first == null) {
+                    continue;
+                }
+                if (first == Queued.WAKE_UP) {
                     continue;
                 }
                 synchronized (processing) {
                     batch.add(first);
-                    queue.drainTo(batch, BATCH_SIZE - 1);
+                    admission.queue.drainTo(batch, BATCH_SIZE - 1);
                     processCurrent(batch);
                 }
             } catch (InterruptedException ex) {
@@ -282,7 +334,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     void dispatchPending() {
         List<Queued> batch = new ArrayList<>(BATCH_SIZE);
         synchronized (processing) {
-            while (queue.drainTo(batch, BATCH_SIZE) > 0) {
+            while (admission.queue.drainTo(batch, BATCH_SIZE) > 0) {
                 processCurrent(batch);
                 batch.clear();
             }
@@ -295,7 +347,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      * it was cleared with the recording.
      */
     private void processCurrent(List<Queued> batch) {
-        long generation = clears;
+        long generation = admission.generation;
         List<RuntimeEvent> events = new ArrayList<>(batch.size());
         for (Queued queued : batch) {
             if (queued.clears() == generation) {
@@ -308,8 +360,14 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         }
     }
 
+    /** One recording generation and its queue. */
+    private record Admission(long generation, ArrayBlockingQueue<Queued> queue) {}
+
     /** An accepted event and how many times the recording had been cleared when it was offered. */
-    private record Queued(RuntimeEvent event, long clears) {}
+    private record Queued(RuntimeEvent event, long clears) {
+
+        private static final Queued WAKE_UP = new Queued(null, -1);
+    }
 
     private void process(List<RuntimeEvent> batch) {
         List<JournalEntry> entries = new ArrayList<>(batch.size());
@@ -466,9 +524,22 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
     private long clearAndCount() {
         synchronized (processing) {
-            clears++;
-            List<Queued> queued = new ArrayList<>();
-            queue.drainTo(queued);
+            ArrayBlockingQueue<Queued> replacement = newQueue();
+            Admission detached;
+            long stamp = admissionLock.writeLock();
+            try {
+                detached = admission;
+                admission = new Admission(detached.generation + 1, replacement);
+            } finally {
+                admissionLock.unlockWrite(stamp);
+            }
+            int queuedBeforeDrain = detached.queue.size();
+            if (beforeQueueDrain != null) {
+                beforeQueueDrain.accept(queuedBeforeDrain);
+            }
+            List<Queued> queued = new ArrayList<>(queuedBeforeDrain);
+            detached.queue.drainTo(queued);
+            detached.queue.offer(Queued.WAKE_UP);
             processed.addAndGet(queued.size());
             long dropped = ring.counts().retained() + queued.size();
             ring.clear();
@@ -489,6 +560,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     public JournalStatus status() {
         long clearsDone = clearsCompleted;
+        Admission current = admission;
         EvidenceRing.Counts counts = ring.counts();
         return new JournalStatus(
                 settings.enabled(),
@@ -507,12 +579,16 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 counts.evictedByBytes(),
                 counts.lastBound() == null ? null : counts.lastBound().name(),
                 counts.oldestRetainedEpochMillis(),
-                queue.size(),
+                current.queue.size(),
                 settings.enabled() ? settings.queueCapacity() : 0,
                 perSource(accepted),
                 perSource(dropped),
                 listenerFailures.sum(),
                 clearsDone);
+    }
+
+    private ArrayBlockingQueue<Queued> newQueue() {
+        return new ArrayBlockingQueue<>(settings.enabled() ? settings.queueCapacity() : 1);
     }
 
     /**
