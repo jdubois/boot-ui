@@ -478,6 +478,8 @@ public class BootUiEngineConfiguration {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        // Request routes are HTTP Exchanges evidence (docs/PLAN-v2.md §8).
+        service.setRoutesVisible(() -> properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES));
         return service;
     }
 
@@ -490,6 +492,7 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     CodePathsService bootUiCodePathsService(
+            BootUiProperties properties,
             ObjectProvider<AgentClaimOwner> owner,
             ObjectProvider<JavaAgentService> javaAgent,
             ObjectProvider<JournalAggregates> aggregates,
@@ -509,6 +512,8 @@ public class BootUiEngineConfiguration {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestOutcomes(JournalRequestOutcomes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        // Route trees and request outcomes are HTTP Exchanges evidence (docs/PLAN-v2.md §8).
+        service.setRoutesVisible(() -> properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES));
         return service;
     }
 

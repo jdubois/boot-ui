@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -51,6 +52,7 @@ public final class CodePathsService implements AutoCloseable {
     private final LongSupplier nanoTime;
     private volatile Function<Set<String>, Map<String, RequestOutcome>> outcomes = ids -> Map.of();
     private volatile Predicate<String> assemblyOnly = AgentCodePaths::isAssemblyOnly;
+    private volatile BooleanSupplier routesVisible = () -> true;
 
     /** Route-tree nodes returned when a read asks for none. */
     public static final int DEFAULT_LIMIT = 200;
@@ -71,6 +73,10 @@ public final class CodePathsService implements AutoCloseable {
     static final String EXCLUDED_REASON =
             "Called more than 50,000 times a second under 2 µs each: its time stays in its"
                     + " caller for the rest of the run.";
+
+    /** Why the reads answer nothing while HTTP Exchanges, which owns request routes and outcomes, is not visible. */
+    public static final String ROUTES_HIDDEN = "The HTTP Exchanges panel is disabled: Code Paths keys its call trees by"
+            + " HTTP route and request, so they are left out until it is enabled.";
 
     static final String LIMITATION_SCOPE = "Times come from the BootUI agent's code-paths sensor on application bean"
             + " methods: a JDK, framework, or library method shows only as its caller's self time.";
@@ -121,6 +127,27 @@ public final class CodePathsService implements AutoCloseable {
      */
     public void setRequestOutcomes(Function<Set<String>, Map<String, RequestOutcome>> requestOutcomes) {
         this.outcomes = requestOutcomes == null ? ids -> Map.of() : requestOutcomes;
+    }
+
+    /**
+     * Installs whether the panel that owns HTTP evidence, HTTP Exchanges, is visible ({@code docs/PLAN-v2.md} §8):
+     * while it is not, the reads answer {@link #ROUTES_HIDDEN} instead of a route, request tree, or handler split.
+     */
+    public void setRoutesVisible(BooleanSupplier routesVisible) {
+        this.routesVisible = routesVisible == null ? () -> true : routesVisible;
+    }
+
+    /** Why the reads answer nothing: the sensor does not record, or HTTP Exchanges is not visible; else {@code null}. */
+    private String readReason() {
+        String reason = unavailableReason();
+        if (reason != null) {
+            return reason;
+        }
+        try {
+            return routesVisible.getAsBoolean() ? null : ROUTES_HIDDEN;
+        } catch (RuntimeException ex) {
+            return ROUTES_HIDDEN;
+        }
     }
 
     /**
@@ -202,11 +229,11 @@ public final class CodePathsService implements AutoCloseable {
 
     /**
      * The tree of the request {@code requestId} (16 hexadecimal digits), open or kept, after draining what is waiting;
-     * {@code null} when this run has none.
+     * {@code null} when this run has none, or while its routes are hidden.
      */
     public RequestTree tree(String requestId) {
         Run current = current();
-        if (current == null || requestId == null) {
+        if (current == null || readReason() != null || requestId == null) {
             return null;
         }
         current.drainNow();
@@ -216,10 +243,10 @@ public final class CodePathsService implements AutoCloseable {
         }
     }
 
-    /** This run's settled trees kept as recent, newest first, after draining what is waiting. */
+    /** This run's settled trees kept as recent, newest first, after draining what is waiting; none while hidden. */
     public List<RequestTree> recent() {
         Run current = current();
-        if (current == null) {
+        if (current == null || readReason() != null) {
             return List.of();
         }
         current.drainNow();
@@ -229,10 +256,10 @@ public final class CodePathsService implements AutoCloseable {
         }
     }
 
-    /** A route's exemplar trees in this run: its slowest, then its latest failed. */
+    /** A route's exemplar trees in this run: its slowest, then its latest failed; none while hidden. */
     public List<RequestTree> exemplars(String route) {
         Run current = current();
-        if (current == null) {
+        if (current == null || readReason() != null) {
             return List.of();
         }
         current.drainNow();
@@ -265,7 +292,7 @@ public final class CodePathsService implements AutoCloseable {
 
     /** The panel's summary: the routes with a tree, slowest warm median first, the sensor's status, and exclusions. */
     public CodePathsReport report() {
-        String reason = unavailableReason();
+        String reason = readReason();
         if (reason != null) {
             return CodePathsReport.unavailable(reason);
         }
@@ -298,7 +325,7 @@ public final class CodePathsService implements AutoCloseable {
         int maxDepth = depth == null || depth < 0 ? DEFAULT_DEPTH : Math.min(depth, MAX_DEPTH);
         int first = offset == null || offset < 0 ? 0 : offset;
         int max = limit == null || limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
-        String reason = unavailableReason();
+        String reason = readReason();
         if (reason != null) {
             return CodePathsRouteTreeReport.empty(false, reason, route, maxDepth, max);
         }
@@ -372,7 +399,7 @@ public final class CodePathsService implements AutoCloseable {
 
     /** One request's tree while this run keeps it: a recent request, or a route's slowest or latest failed. */
     public CodePathsRequestTreeReport requestTree(String requestId) {
-        String reason = unavailableReason();
+        String reason = readReason();
         if (reason != null) {
             return CodePathsRequestTreeReport.empty(false, reason, requestId);
         }
@@ -502,10 +529,10 @@ public final class CodePathsService implements AutoCloseable {
 
     /**
      * What the route's tree says about its handler, for {@code route-time-breakdown}'s split, or {@code null} when the
-     * sensor does not record this run or the route has no warm tree.
+     * sensor does not record this run, HTTP Exchanges is not visible, or the route has no warm tree.
      */
     public HandlerMethods handlerMethods(String route) {
-        if (route == null || unavailableReason() != null) {
+        if (route == null || readReason() != null) {
             return null;
         }
         Run current = settledRun();
@@ -520,10 +547,11 @@ public final class CodePathsService implements AutoCloseable {
 
     /**
      * A cheap fingerprint of what the route trees hold, which changes with every merged tree and claim generation, so
-     * a cached projection that read them knows it is stale. 0 when the sensor does not record this run.
+     * a cached projection that read them knows it is stale. 0 when the sensor does not record this run, or HTTP
+     * Exchanges is not visible.
      */
     public long routeTreesFingerprint() {
-        if (unavailableReason() != null) {
+        if (readReason() != null) {
             return 0L;
         }
         Run current = settledRun();

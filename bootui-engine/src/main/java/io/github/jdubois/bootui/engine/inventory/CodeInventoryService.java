@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -112,6 +113,10 @@ public final class CodeInventoryService implements AutoCloseable {
     public static final String NOT_SEEN_BEFORE_CLAIM = "Methods called before BootUI claimed the agent are not seen:"
             + " the main class's early work and anything that ran before the claim may read as never executed.";
 
+    /** Said while HTTP Exchanges, which owns request routes, is not visible. */
+    public static final String ROUTES_HIDDEN = "The HTTP Exchanges panel is disabled, so first requests and their"
+            + " routes are left out; which methods executed is still exact.";
+
     static final String NO_PREVIOUS_RUN = "No previous run of this application was kept in this JVM: change detection"
             + " starts with the next DevTools restart or Quarkus live reload.";
 
@@ -139,6 +144,7 @@ public final class CodeInventoryService implements AutoCloseable {
     private Run run;
     private boolean closed;
     private volatile Function<Set<String>, Map<String, String>> requestRoutes = ids -> Map.of();
+    private volatile BooleanSupplier routesVisible = () -> true;
 
     /** One view build at a time; it also guards the method-key index below, which only a build reads and grows. */
     private final Object buildLock = new Object();
@@ -198,6 +204,22 @@ public final class CodeInventoryService implements AutoCloseable {
      */
     public void setRequestRoutes(Function<Set<String>, Map<String, String>> requestRoutes) {
         this.requestRoutes = requestRoutes == null ? ids -> Map.of() : requestRoutes;
+    }
+
+    /**
+     * Installs whether the panel that owns HTTP evidence, HTTP Exchanges, is visible ({@code docs/PLAN-v2.md} §8): while
+     * it is not, no row names its first request or route, and none is looked up, though the agent recorded it.
+     */
+    public void setRoutesVisible(BooleanSupplier routesVisible) {
+        this.routesVisible = routesVisible == null ? () -> true : routesVisible;
+    }
+
+    private boolean routesVisible() {
+        try {
+            return routesVisible.getAsBoolean();
+        } catch (RuntimeException ex) {
+            return false;
+        }
     }
 
     // ---- lifecycle -------------------------------------------------------------------------------------------------
@@ -552,10 +574,14 @@ public final class CodeInventoryService implements AutoCloseable {
                         + method.status().hashCode();
             }
         }
+        String note = view.changeCounts.note();
+        if (!view.routes && view.changeCounts.previousRun()) {
+            note = note == null ? ROUTES_HIDDEN : note + " " + ROUTES_HIDDEN;
+        }
         return new ChangedCode(
                 null,
                 view.changeCounts.previousRun(),
-                view.changeCounts.note(),
+                note,
                 classes,
                 fingerprint,
                 view.scan.status(),
@@ -585,6 +611,7 @@ public final class CodeInventoryService implements AutoCloseable {
             fingerprint = fingerprint * 31 + System.identityHashCode(current.scan);
             fingerprint = fingerprint * 31 + history.version();
             fingerprint = fingerprint * 31 + current.records.version();
+            fingerprint = fingerprint * 31 + (routesVisible() ? 1 : 0);
             return fingerprint;
         } catch (RuntimeException ex) {
             return 0L;
@@ -663,14 +690,15 @@ public final class CodeInventoryService implements AutoCloseable {
         if (current == null) {
             return null;
         }
+        boolean routes = routesVisible();
         View cached = current.view;
-        if (fresh(cached, current, access.inventoryVersion(), nanoTime.getAsLong())) {
+        if (fresh(cached, current, access.inventoryVersion(), routes, nanoTime.getAsLong())) {
             return cached;
         }
         synchronized (buildLock) {
             long now = nanoTime.getAsLong();
             cached = current.view;
-            if (fresh(cached, current, access.inventoryVersion(), now)) {
+            if (fresh(cached, current, access.inventoryVersion(), routes, now)) {
                 return cached;
             }
             if (current.drainer != null) {
@@ -680,16 +708,17 @@ public final class CodeInventoryService implements AutoCloseable {
             if (snapshot == null) {
                 return null;
             }
-            View view = build(current, snapshot, now);
+            View view = build(current, snapshot, routes, now);
             current.view = view;
             return view;
         }
     }
 
-    private static boolean fresh(View cached, Run current, long version, long now) {
+    private static boolean fresh(View cached, Run current, long version, boolean routes, long now) {
         return cached != null
                 && cached.scan == current.scan
                 && cached.version == version
+                && cached.routes == routes
                 && now - cached.builtNanos < VIEW_TTL_NANOS;
     }
 
@@ -780,7 +809,7 @@ public final class CodeInventoryService implements AutoCloseable {
         return Status.of(NEVER_EXECUTED);
     }
 
-    private View build(Run current, Map<String, Object> snapshot, long now) {
+    private View build(Run current, Map<String, Object> snapshot, boolean routes, long now) {
         int methodCount = intValue(snapshot.get("methods"));
         boolean disabled = Boolean.TRUE.equals(snapshot.get("disabled"));
         Map<String, Object> counters = AgentStatus.inventory(access.status());
@@ -870,7 +899,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 generated++;
             }
         }
-        methods = withRoutes(current, methods);
+        methods = routes ? withRoutes(current, methods) : withoutRequests(methods);
         CodeInventoryMethodCountsDto counts = new CodeInventoryMethodCountsDto(
                 packages.size(),
                 result == null ? 0 : result.classes().size(),
@@ -935,6 +964,9 @@ public final class CodeInventoryService implements AutoCloseable {
 
         List<String> limitations = new ArrayList<>();
         limitations.add(NOT_SEEN_BEFORE_CLAIM);
+        if (!routes) {
+            limitations.add(ROUTES_HIDDEN);
+        }
         if (scan.reason() != null && !ClassScanner.COMPLETE.equals(scan.status())) {
             limitations.add(scan.reason());
         }
@@ -970,6 +1002,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 List.copyOf(methods),
                 List.copyOf(changed),
                 limitations,
+                routes,
                 current);
     }
 
@@ -1018,6 +1051,29 @@ public final class CodeInventoryService implements AutoCloseable {
                                     method.firstHitEpochMillis()));
         }
         return resolved;
+    }
+
+    /** The methods without their first request and route, while HTTP Exchanges is not visible. */
+    private static List<CodeInventoryMethodDto> withoutRequests(List<CodeInventoryMethodDto> methods) {
+        List<CodeInventoryMethodDto> hidden = new ArrayList<>(methods.size());
+        for (CodeInventoryMethodDto method : methods) {
+            hidden.add(
+                    method.firstRequestId() == null && method.firstRoute() == null
+                            ? method
+                            : new CodeInventoryMethodDto(
+                                    method.key(),
+                                    method.packageName(),
+                                    method.className(),
+                                    method.name(),
+                                    method.descriptor(),
+                                    method.status(),
+                                    method.notTrackedReason(),
+                                    method.change(),
+                                    null,
+                                    null,
+                                    method.firstHitEpochMillis()));
+        }
+        return hidden;
     }
 
     /** The routes of {@code requestIds}: those the run resolved before, and the others looked up once more. */
@@ -1086,7 +1142,7 @@ public final class CodeInventoryService implements AutoCloseable {
 
     private record Dependencies(List<CodeInventoryDependencyDto> rows, CodeInventoryDependencyCountsDto counts) {}
 
-    private Dependencies dependencies(Run current, ClassScanner.Result scan) {
+    private Dependencies dependencies(Run current, ClassScanner.Result scan, boolean routes) {
         Long ready = safeReadyAt();
         Set<String> applicationRoots = new HashSet<>();
         if (scan != null) {
@@ -1126,7 +1182,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 rows.add(row(current, null, source, ready));
             }
         }
-        rows = withLoadRoutes(current, rows);
+        rows = routes ? withLoadRoutes(current, rows) : withoutLoadRequests(rows);
         rows.sort(Comparator.comparing((CodeInventoryDependencyDto row) -> !row.declared())
                 .thenComparing(row -> switch (row.status()) {
                     case NOT_LOADED -> 0;
@@ -1195,6 +1251,30 @@ public final class CodeInventoryService implements AutoCloseable {
                                     row.firstRequestId()));
         }
         return resolved;
+    }
+
+    /** The rows without the request and route that first loaded a class, while HTTP Exchanges is not visible. */
+    private static List<CodeInventoryDependencyDto> withoutLoadRequests(List<CodeInventoryDependencyDto> rows) {
+        List<CodeInventoryDependencyDto> hidden = new ArrayList<>(rows.size());
+        for (CodeInventoryDependencyDto row : rows) {
+            hidden.add(
+                    row.firstRequestId() == null && row.firstRoute() == null
+                            ? row
+                            : new CodeInventoryDependencyDto(
+                                    row.jar(),
+                                    row.groupId(),
+                                    row.artifactId(),
+                                    row.version(),
+                                    row.declared(),
+                                    row.status(),
+                                    row.classesLoaded(),
+                                    row.classesLoadedTotal(),
+                                    row.loadedAt(),
+                                    row.firstLoadEpochMillis(),
+                                    null,
+                                    null));
+        }
+        return hidden;
     }
 
     private static Source match(DependencyDto dependency, List<Source> seen) {
@@ -1479,6 +1559,7 @@ public final class CodeInventoryService implements AutoCloseable {
         final List<CodeInventoryMethodDto> methods;
         final List<CodeInventoryMethodDto> changes;
         private final List<String> limitations;
+        final boolean routes;
         private final Run owner;
         private Dependencies dependencies;
 
@@ -1492,6 +1573,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 List<CodeInventoryMethodDto> methods,
                 List<CodeInventoryMethodDto> changes,
                 List<String> limitations,
+                boolean routes,
                 Run owner) {
             this.builtNanos = builtNanos;
             this.version = version;
@@ -1502,12 +1584,13 @@ public final class CodeInventoryService implements AutoCloseable {
             this.methods = methods;
             this.changes = changes;
             this.limitations = limitations;
+            this.routes = routes;
             this.owner = owner;
         }
 
         synchronized Dependencies dependencies() {
             if (dependencies == null) {
-                dependencies = CodeInventoryService.this.dependencies(owner, scan.result());
+                dependencies = CodeInventoryService.this.dependencies(owner, scan.result(), routes);
             }
             return dependencies;
         }
