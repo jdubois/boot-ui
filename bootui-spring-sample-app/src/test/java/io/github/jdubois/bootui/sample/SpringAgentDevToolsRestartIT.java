@@ -139,7 +139,7 @@ class SpringAgentDevToolsRestartIT {
     }
 
     /**
-     * Waits until a claim newer than {@code previous} is armed, and returns its generation. With a {@code trigger},
+     * Waits until a claim newer than {@code previous} is armed and its run is ready, and returns its generation. With a {@code trigger},
      * changes it first, and again every few seconds until DevTools starts a restart: its file watcher takes its first
      * snapshot only once the restarted context is ready, which can be after the claim is already armed.
      */
@@ -147,6 +147,7 @@ class SpringAgentDevToolsRestartIT {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(240);
         long touched = 0;
         long restarts = restarts();
+        int readyRuns = lastRun();
         while (true) {
             // Changed again while DevTools has not started a restart since, so a slow restart is not restarted, and
             // every 30 seconds anyway, so a restart that failed, as under a heavy load, is followed by another.
@@ -165,7 +166,10 @@ class SpringAgentDevToolsRestartIT {
                 if (response.status() == 200) {
                     JsonNode report = response.json();
                     long generation = report.path("claim").path("generation").asLong(-1);
-                    if ("ARMED".equals(report.path("state").asText()) && generation > previous) {
+                    // Ready too: a restart triggered while a run still starts would fail that run.
+                    if ("ARMED".equals(report.path("state").asText())
+                            && generation > previous
+                            && lastRun() > readyRuns) {
                         return generation;
                     }
                 }
