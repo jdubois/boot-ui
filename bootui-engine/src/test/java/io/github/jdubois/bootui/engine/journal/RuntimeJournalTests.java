@@ -250,7 +250,7 @@ class RuntimeJournalTests {
     }
 
     @Test
-    void theByteBoundEvictsTooButNeverTheNewestEvent() {
+    void theByteBoundRejectsAnOversizedEventWithoutDisplacingOlderEvidence() {
         int eventBytes = sql(0, false).estimatedBytes();
         RuntimeJournal journal = journal(settings(1_000, eventBytes * 3L, 1_000, 10, JournalSource.all()), false);
 
@@ -263,11 +263,26 @@ class RuntimeJournalTests {
 
         JournalStatus status = journal.status();
         assertThat(status.bindingBound()).isEqualTo("BYTES");
-        assertThat(status.evictedByBytes()).isEqualTo(10);
-        assertThat(journal.entries())
-                .singleElement()
-                .extracting(JournalEntry::sequence)
-                .isEqualTo(11L);
+        assertThat(status.evictedByBytes()).isPositive();
+        assertThat(journal.entries()).noneMatch(entry -> entry.sequence() == 11L);
+        assertThat(journal.entries()).isNotEmpty();
+        assertThat(status.retainedBytes() + status.dictionaryBytes()).isLessThanOrEqualTo(eventBytes * 3L);
+    }
+
+    @Test
+    void anOversizedFirstEventIsStillDeliveredToAggregatesButNotRetained() {
+        RuntimeJournal journal = journal(settings(10, 100, 1_000, 10, JournalSource.all()), false);
+        AtomicLong observed = new AtomicLong();
+        journal.addListener(entries -> observed.addAndGet(entries.size()));
+
+        journal.offer(sql(0, false));
+        journal.dispatchPending();
+
+        assertThat(observed.get()).isEqualTo(1);
+        assertThat(journal.entries()).isEmpty();
+        assertThat(journal.status().evictedByBytes()).isEqualTo(1);
+        assertThat(journal.status().retainedBytes() + journal.status().dictionaryBytes())
+                .isLessThanOrEqualTo(100);
     }
 
     @Test

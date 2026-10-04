@@ -132,10 +132,13 @@ class LiveActivityResourceTests {
                     new StoredActivityEntry("instance-a", 3L, storedRow("sql-1", "SQL", "select * from audit"))));
 
             // Rows written while SQL Trace was enabled stay in bootui_activity, but are not read once it is off.
-            assertThat(resource.activity(0, null, null, null, null, null, null, 50)
-                            .entries())
-                    .extracting(ActivityEntryDto::id)
-                    .containsExactly("req-1", "marker-1");
+            LiveActivityReport first = resource.activity(0, null, null, null, null, null, null, 1);
+            assertThat(first.entries()).extracting(ActivityEntryDto::id).containsExactly("req-1");
+            assertThat(first.pageInfo().hasMore()).isTrue();
+            LiveActivityReport second = resource.activity(
+                    0, null, null, null, null, null, first.pageInfo().nextCursor(), 1);
+            assertThat(second.entries()).extracting(ActivityEntryDto::id).containsExactly("marker-1");
+            assertThat(second.pageInfo().hasMore()).isFalse();
         } finally {
             cleanup(resource, store);
         }

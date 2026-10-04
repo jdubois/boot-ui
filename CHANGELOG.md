@@ -17,6 +17,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime journal and persisted Live Activity bounds.** Oversized evidence no longer exceeds the configured
+  byte budget; SQL events identify their named data source even with connection recording
+  off; per-request SELECT tracking is capped and uses the same literal-free fingerprints for live and persisted N+1
+  badges, replacing the least frequent shape when full so a later repeated SELECT remains detectable; and persisted
+  activity pages scan past rows hidden by a disabled panel
+  while keeping a continuation cursor (PLAN-v2 §5.2, §8; [Live Activity](docs/features/overview.md#durable-history);
+  follow-up to #1216).
+
 - **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
   `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
   are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
