@@ -75,6 +75,10 @@ import java.util.function.ToLongFunction;
  */
 public final class ExecutionProfileAssembler {
 
+    /** Starts the note on a profile using the propagated tier while the agent no longer propagates. */
+    static final String RETAINED_PROPAGATION_NOTE = "Work the BootUI agent propagated before it stopped is shown at the"
+            + " propagated tier, but it does not propagate executor work now. ";
+
     /** Maximum number of children each profile section shows; the rest are counted as truncated. */
     public static final int DEFAULT_MAX_CHILDREN_PER_SECTION = 200;
 
@@ -204,6 +208,11 @@ public final class ExecutionProfileAssembler {
         List<RestClientTraceEntryDto> allRestCalls = restCalls.records();
         List<Section<?>> sections = List.of(sql, exceptions, security, restCalls, cache);
         boolean approximate = sections.stream().anyMatch(section -> section.tier() == CorrelationTier.TIME_WINDOW);
+        List<RequestProfileTierDto> tiers = tiers(capabilities, sections);
+        if (!capabilities.provides(CorrelationTier.PROPAGATED)
+                && sections.stream().anyMatch(section -> section.uses(CorrelationTier.PROPAGATED))) {
+            notes.add(RETAINED_PROPAGATION_NOTE + capabilities.unavailableReason(CorrelationTier.PROPAGATED));
+        }
 
         return new RequestProfileDto(
                 true,
@@ -222,7 +231,7 @@ public final class ExecutionProfileAssembler {
                         .map(ExecutionProfileAssembler::toCacheAccess)
                         .toList(),
                 sections.stream().map(this::toSectionDto).toList(),
-                tiers(capabilities),
+                tiers,
                 approximate);
     }
 
@@ -811,11 +820,18 @@ public final class ExecutionProfileAssembler {
                 section.ambiguous());
     }
 
-    private static List<RequestProfileTierDto> tiers(ProfileCapabilities capabilities) {
+    /**
+     * Each tier, available when the adapter provides it now or when this profile attributed a child at it: a profile
+     * never uses a tier its own tier table calls unavailable. Only the BootUI agent's propagated tier can be used
+     * without being provided now, by work it propagated before it stopped.
+     */
+    private static List<RequestProfileTierDto> tiers(ProfileCapabilities capabilities, List<Section<?>> sections) {
         List<RequestProfileTierDto> tiers = new ArrayList<>();
         for (CorrelationTier tier : CorrelationTier.values()) {
-            boolean available = capabilities.provides(tier);
-            tiers.add(new RequestProfileTierDto(tier.name(), available, capabilities.unavailableReason(tier)));
+            boolean available =
+                    capabilities.provides(tier) || sections.stream().anyMatch(section -> section.uses(tier));
+            tiers.add(new RequestProfileTierDto(
+                    tier.name(), available, available ? null : capabilities.unavailableReason(tier)));
         }
         return tiers;
     }

@@ -35,6 +35,8 @@ snippets first. Available snippets include:
 - Surefire/Failsafe `<argLine>@{argLine} -javaagent:...</argLine>`, which preserves JaCoCo's own `argLine`.
 - IntelliJ IDEA VM options.
 - `JAVA_TOOL_OPTIONS` scoped to one run command, such as `JAVA_TOOL_OPTIONS="-javaagent:..." ./mvnw spring-boot:run`.
+  The JVM splits `JAVA_TOOL_OPTIONS` on whitespace, so a jar path with spaces or quotes is quoted inside the value and
+  the value is single-quoted for the shell: `JAVA_TOOL_OPTIONS='"-javaagent:/my agents/bootui-agent.jar"' ...`.
   Never export it in a shell: every JVM started there (Maven, the Gradle daemon, IDE tooling) would load the agent and
   print HotSpot's class-data-sharing warning.
 
@@ -81,7 +83,10 @@ The engine looks up the bridge only from the bootstrap class loader, so an accid
 ignored.
 
 Sensor removal runs off the caller's thread. A new claim supersedes a queued release; if removal has already begun,
-the sensor is installed and self-tested again afterward. This applies to both `executors` and `threads`. Each threads
+the sensor is installed and self-tested again afterward. This applies to both `executors` and `threads`.
+A transformer stays installed across claims, so the sensor row's **This claim** column says whether this application's
+armed claim uses it: a sensor missing from the claim's `bootui.agent.sensors` reads `inactive`, and an inactive
+`executors` sensor propagates nothing. Each threads
 transformer retains its own package history for restoration: reclaiming with different packages cannot leave advice
 on subclasses from the previous claim. The replacement transformer uses the new claim's packages.
 
@@ -89,8 +94,13 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, the default, and the opt-in
 [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
-shows its state (`installing`, `installed`, `failed`, or `off`), how long installing and the self-test took, the
-self-test's result, how many JDK types it instrumented, and the types that failed to transform. Without a sensor, the
+shows its state (`installing`, `installed`, `failed`, or `off`), how long the last install (including its
+retransformation of loaded classes) and its self-test each took, the self-test's result, how many JDK types it
+instrumented, how many loaded classes it retransformed and how long all its installs and releases took, and the types
+that failed to transform. The **Class transformation** card sums every sensor's transformed, retransformed, failed, and
+skipped classes and its install and release time since the JVM started: the time is aggregate work, not a wall-clock
+interval, because the sensors install one after another and also retransform when a claim is released. Its state is
+`off` once every sensor is released. Without a sensor, the
 panel says:
 
 > No sensor installed: the agent installs the sensors this application asks for when it claims the agent
@@ -114,7 +124,8 @@ records its own allocated bytes (none on a virtual thread).
 
 | Hook | Role | JDK type |
 | --- | --- | --- |
-| `ThreadPoolExecutor` | receives tasks | `ThreadPoolExecutor.execute`, `submit`, and `addWorker` |
+| `ThreadPoolExecutor.addWorker` | receives tasks | a task that starts a new `ThreadPoolExecutor` worker |
+| `ThreadPoolExecutor.queue` | receives tasks | a task `ThreadPoolExecutor.execute` or `submit` puts on the work queue |
 | `ScheduledThreadPoolExecutor` | receives tasks | one-shot delayed tasks; periodic tasks are never propagated |
 | `ForkJoinPool` | receives tasks | `execute`, `submit`, and `invoke` of a root task |
 | `ForkJoinTask adapters` | receives tasks | the pool's `Runnable` and `Callable` adapters |
@@ -123,12 +134,17 @@ records its own allocated bytes (none on a virtual thread).
 | `CompletableFuture.ThreadPerTaskExecutor` | receives tasks | the thread-per-task fallback of `CompletableFuture` (JDK 17 to 25) |
 | `ThreadPoolExecutor.runWorker` | runs tasks | every task a `ThreadPoolExecutor` runs |
 | `ForkJoinTask.doExec` | runs tasks | every task a `ForkJoinPool` runs |
-| `CompletableFuture.Async` | runs tasks | `supplyAsync` and `runAsync` stages, whose outcome it reads |
+| `CompletableFuture.AsyncSupply` | runs tasks | `supplyAsync` stages, whose outcome it reads |
+| `CompletableFuture.AsyncRun` | runs tasks | `runAsync` stages, whose outcome it reads |
 
 The hooks table shows, for each one, whether this JDK has its type, whether the agent instrumented it, its self-test
-result (`passed`, `failed`, `not-exercised`, `unsupported`, or `not-run`), and how many tasks it received or ran. A
-self-test failure of a `ThreadPoolExecutor` or `ForkJoinTask.doExec` hook disables propagation for that claim, and the
-panel says why; the next claim tests again. The hooks are verified on JDK 17, 21, 25, 26, and 27; on any other JDK the
+result (`passed`, `failed`, `not-exercised`, `unsupported`, or `not-run`), and how many tasks it received or ran. Each
+hook passes only on its own count: a thread pool's `addWorker` and `queue` keys and `CompletableFuture`'s supply and run
+stages are tested separately, so one working sibling cannot hide a missing hook. A self-test failure of a
+`ThreadPoolExecutor` or `ForkJoinTask.doExec` hook disables propagation for that claim, and the panel says why; the next
+claim tests again. A failed `CompletableFuture.AsyncSupply` or `AsyncRun` hook disables nothing: a pool's run hook
+then propagates that kind of stage itself, without reading its outcome; a stage `CompletableFuture` runs on its own
+thread-per-task fallback has no other run hook, so it is counted as never applied. The hooks are verified on JDK 17, 21, 25, 26, and 27; on any other JDK the
 report warns that the self-test decides.
 
 ### Counters
@@ -223,7 +239,8 @@ stays stopped and its state reads `self-test-failed (release-failed)`.
 | --- | --- | --- |
 | `Thread.start` | starts threads | `Thread.start()`, and on JDK 21+ the `start(ThreadContainer)` executors use |
 | `VirtualThread.start` | starts threads | JDK 21+ virtual threads |
-| `Thread.run` | runs threads | the thread's task, through `Thread.run` (JDK 17) or `Thread.runWith` (JDK 21+) |
+| `Thread.run` | runs threads | a platform thread's task, through `Thread.run` (JDK 17) or `Thread.runWith` (JDK 21+) |
+| `VirtualThread.run` | runs threads | JDK 21+ a virtual thread's task, through `Thread.runWith`, self-tested on its own |
 | `Thread subclass run` | runs threads | `run()` of a `Thread` subclass in the claimed packages |
 
 On JDK 21 and later the task's call inside `Thread.runWith` is replaced, never wrapped, so the scoped-value bindings a

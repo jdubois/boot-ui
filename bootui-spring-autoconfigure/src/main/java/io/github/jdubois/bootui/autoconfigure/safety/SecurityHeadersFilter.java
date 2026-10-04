@@ -71,7 +71,9 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
     /**
      * Installs BootUI's baseline immediately for streaming responses while allowing downstream host
      * security writers to replace it without creating duplicate values. Cache headers remain locked to
-     * BootUI's response-class policy.
+     * BootUI's response-class policy. Header state is guarded by the instance monitor because a streaming
+     * response can be committed from an async thread while the container thread leaves the filter, and a host
+     * writer must never turn the baseline into duplicate values.
      */
     private static final class SecurityHeadersResponse extends HttpServletResponseWrapper {
 
@@ -89,7 +91,7 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
         }
 
         @Override
-        public boolean containsHeader(String name) {
+        public synchronized boolean containsHeader(String name) {
             if (isBaselineSecurityHeader(name) && !hostHeaders.contains(name)) {
                 return false;
             }
@@ -97,7 +99,7 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
         }
 
         @Override
-        public void setHeader(String name, String value) {
+        public synchronized void setHeader(String name, String value) {
             if (BootUiSecurityHeaders.overridesExisting(name)) {
                 return;
             }
@@ -106,7 +108,7 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
         }
 
         @Override
-        public void addHeader(String name, String value) {
+        public synchronized void addHeader(String name, String value) {
             if (BootUiSecurityHeaders.overridesExisting(name)) {
                 return;
             }
@@ -115,12 +117,15 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
                 super.setHeader(name, value);
                 return;
             }
+            if (isBaselineSecurityHeader(name) && super.getHeaders(name).contains(value)) {
+                return;
+            }
             markHostHeader(name);
             super.addHeader(name, value);
         }
 
         @Override
-        public void reset() {
+        public synchronized void reset() {
             super.reset();
             hostHeaders.clear();
             initialized = false;
@@ -158,7 +163,7 @@ public class SecurityHeadersFilter extends AbstractBootUiFilter {
             applyPolicy(getStatus());
         }
 
-        private void applyPolicy(int statusCode) {
+        private synchronized void applyPolicy(int statusCode) {
             policy = BootUiSecurityHeaders.headersFor(path, apiPath, statusCode);
             if (BootUiSecurityHeaders.removesPragma(path, apiPath, statusCode)) {
                 super.setHeader(BootUiSecurityHeaders.PRAGMA, null);

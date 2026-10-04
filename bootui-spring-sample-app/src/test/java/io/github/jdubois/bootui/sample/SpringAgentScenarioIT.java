@@ -106,6 +106,10 @@ class SpringAgentScenarioIT {
         assertThat(sensor.path("selfTestPassed").asBoolean())
                 .as(sensor.toString())
                 .isTrue();
+        assertThat(sensor.path("active").asBoolean()).as(sensor.toString()).isTrue();
+        for (JsonNode hook : sensor.path("hooks")) {
+            assertThat(hook.path("selfTest").asText()).as(hook.toString()).isNotEqualTo("failed");
+        }
 
         long since = System.currentTimeMillis() - 1;
         for (int i = 0; i < 4; i++) {

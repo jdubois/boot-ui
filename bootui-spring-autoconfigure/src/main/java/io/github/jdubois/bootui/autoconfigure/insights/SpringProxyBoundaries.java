@@ -111,7 +111,9 @@ public final class SpringProxyBoundaries implements ProxyBoundaries {
                         String.valueOf(transactional.getValue("propagation").orElse("REQUIRED")));
         Set<String> caches = new LinkedHashSet<>();
         MergedAnnotation<?> cacheable = present(onMethod.get(CACHEABLE), onType.get(CACHEABLE));
-        if (cacheable != null) {
+        if (cacheable != null
+                && !cacheable.getBoolean("sync")
+                && cacheable.getString("condition").isBlank()) {
             caches.addAll(names(cacheable, "cacheNames"));
             if (caches.isEmpty()) {
                 MergedAnnotation<?> config = onType.get(CACHE_CONFIG);

@@ -3,8 +3,10 @@ package io.github.jdubois.bootui.agent.ithook;
 import io.github.jdubois.bootui.agent.AgentTestHook;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The forked-JVM tests' hook, packaged only into the test variant of the agent jar: system properties enable the
@@ -29,6 +31,12 @@ public final class ItHook implements AgentTestHook {
     @Override
     public boolean privilegedInstall() {
         return !Boolean.getBoolean("bootui.agent.it.unprivileged");
+    }
+
+    @Override
+    public Set<String> omittedHooks() {
+        String hooks = System.getProperty("bootui.agent.it.omit", "");
+        return hooks.isEmpty() ? Collections.<String>emptySet() : new HashSet<String>(Arrays.asList(hooks.split(",")));
     }
 
     @Override

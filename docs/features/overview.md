@@ -176,8 +176,8 @@ under full value exposure.
 Each row carries a timestamp, a type icon, a severity (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a
 duration. Failed rows are highlighted. Slow requests are tinted on a graduated yellow-to-red heat scale crossing 100,
 200, 500, and 1000 ms, with a matching latency badge. A request whose correlated SQL looks like an N+1 access pattern
-carries a red **N+1** badge in the row itself, computed with the same threshold and logic the profiler uses, so the two
-views never disagree.
+carries a red **N+1** badge in the row itself, computed from literal-free SQL shapes with the same threshold for live
+and persisted rows when the same SQL events are available.
 
 When the feed is unfiltered, signals BootUI can pin to a request are **nested chronologically beneath it** and expanded
 by default, so one click shows exactly what a single request did, in order. Requests that triggered a security event are
@@ -389,6 +389,9 @@ or email subjects. This is a 2.0 change from the former buffer-polling persisten
 those details must read the bounded live panel evidence instead.
 The journal is the only source of durable history in 2.0: with `bootui.runtime-journal.enabled=false`, persistence logs
 a warning and writes nothing.
+When a source panel is disabled, its older rows are also hidden. A history page scans past hidden rows within a
+bounded read budget and keeps a continuation cursor when older rows remain; a page can be empty while **Load older**
+is still available.
 
 You do not have to edit configuration or restart to turn this on. While persistence is inactive, a "Currently saving N
 events in memory" tip appears with a **Use a database** button. If the application already has a `DataSource`, a **Use
@@ -406,7 +409,8 @@ exceptions, security events, REST client calls, cache accesses, messages, schedu
 database connections, and application `WARN` and `ERROR` log events, each with the request or execution it belongs to. A log event keeps its
 unformatted template, never its arguments. SQL statements, REST client calls, and cache accesses keep up to four
 frames of your own code that issued them, skipping framework classes and generated proxies, and a message consumed
-with a `traceparent` header keeps the trace that sent it. A task a request hands to a framework-managed executor, such
+with a `traceparent` header keeps the trace that sent it. SQL events from named JDBC pools retain the pool name even
+when connection recording is disabled. A task a request hands to a framework-managed executor, such
 as an `@Async` method on Spring Boot's auto-configured executor or scheduler, or a Quarkus `ManagedExecutor` task, runs
 as an execution of that request, so its work stays with the request; on Spring this applies when the application
 defines no task decorator of its own, which BootUI never displaces. Raw executors and `CompletableFuture` are not
@@ -639,8 +643,8 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
 | `connections-per-request` | Requests that held two or more connections of one data source at the same time |
 | `safe-method-dml` | GET or HEAD requests that wrote to the database, worded as a question |
-| `proxy-bypass` | Spring only: a `@Transactional` method whose statement ran outside every transaction, a `@Cacheable` method whose statement ran before any access to its cache, or an `@Async` method whose statement ran on the request's own thread, named with the frame that called it. The proxy was bypassed, as by a call from inside the bean, a `private` or `final` method, or an instance created with `new`; the Architecture advisor's ARCH-SPRING-004 finds such calls in the code. Not applicable with AspectJ weaving or on Quarkus, whose ArC intercepts self-invocation |
-| `anonymous-data-reach` | Successful requests an authorization decision proved anonymous that wrote a table, per route and table. Anonymous reads, authenticated writes, and requests no rule checked are never counted, and each row says not to add authorization from it alone |
+| `proxy-bypass` | Spring only: a `@Transactional` method whose statement ran outside every transaction, a `@Cacheable` method whose statement ran before any access to its cache, or an `@Async` method whose statement ran on the request's own thread, named with the frame that called it. Cache methods with `sync = true` or a nonblank `condition` are not judged: the synchronous miss follows the loader's SQL, and a condition can skip cache access. `unless` only vetoes the later put and remains judgeable; other annotations on the method still count. The proxy was bypassed, as by a call from inside the bean, a `private` or `final` method, or an instance created with `new`; the Architecture advisor's ARCH-SPRING-004 finds such calls in the code. Not applicable with AspectJ weaving or on Quarkus, whose ArC intercepts self-invocation |
+| `anonymous-data-reach` | Successful requests an authorization decision proved anonymous that wrote a table, per route and table, including every captured statement of a JDBC batch. A confidently identified INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO target excludes SELECT, subquery, and FROM source tables. Ambiguous dialect forms such as multi-table writes retain all lexical candidates, explicitly labelled as names that may be read-side tables or aliases, not proven writes; CTE-headed statements are not parsed. Anonymous reads and authenticated writes produce no finding; requests whose anonymity is unproven are outside the eligible count. Intended public writes such as sign-up or contact forms still produce a fact to verify, and each row says not to add authorization from it alone |
 | `anonymous-success-on-restricted-route` | 2xx answers to proven-anonymous requests on a route whose rules this run saw deny another anonymous caller or require an authority: "a successful anonymous response, not proof that the rule is wrong" |
 | `split-transaction-writes` | Requests whose writes committed in two or more independent transactions or autocommit statements |
 | `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held. A method is reported once one of its calls took 20 ms or more, and its median and slowest call are named; a method whose calls were all faster is not reported, and the check's reason counts it |
@@ -655,6 +659,17 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
+
+Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
+but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented
+anonymous requests or per-route findings. A missing required source makes the check **NOT_APPLICABLE**.
+
+Anonymous-write evidence counts **captured DML texts**, not affected rows or prepared-batch executions. Plain JDBC
+statement batches retain at most five previews, each truncated at 256 characters; prepared batches retain one SQL
+text. A truncation may hide targets, so every finding states the capture limits and the check explicitly flags
+requests with possibly truncated SQL. Truncation-marked captures yield candidates only, including later previews
+recovered after a truncated literal. Unparsed hash syntax, nested or executable block comments, and DELETE … USING also prevent
+exact write claims. Proven targets and ambiguous lexical candidates stay in separate findings.
 
 Scheduled runs and consumed messages are projected like requests, named `@Scheduled OrderJob.run` or
 `consume kafka:orders`, and so is each WebSocket message an application handler runs, named by its mapping, such as

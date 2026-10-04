@@ -369,16 +369,17 @@ public class LiveActivityResource {
                 until,
                 cursor,
                 pageSize == null ? 0 : pageSize);
-        ActivityPage page = activityStore.query(query);
+        ActivityPage page = io.github.jdubois.bootui.engine.activity.ReadableActivityPages.query(
+                activityStore,
+                query,
+                row -> JournalSourcePanels.isReadable(
+                        row,
+                        panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel)));
         return new LiveActivityReport(
                 live.available(),
                 // Stored rows were written under MASKED (or raw, by an older build) while their panel was enabled;
                 // the live panel gate and exposure policy apply on read.
                 page.entryDtos().stream()
-                        .filter(row -> JournalSourcePanels.isReadable(
-                                row,
-                                panel -> panelAvailability.isPanelAvailable(panel)
-                                        && panelAvailability.isPanelEnabled(panel)))
                         .map(JournalTextExposure.of(exposure)::reapply)
                         .toList(),
                 live.typeCounts(),
