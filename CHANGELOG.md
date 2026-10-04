@@ -17,6 +17,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
+  in a successful request. Connections held together now use the known pool maximum and the corrected first possible
+  hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
+  top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
+
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
   examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
   Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an

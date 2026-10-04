@@ -634,10 +634,10 @@ Twenty-two observations run over the completed requests and garbage collections 
 | Observation | What it counts |
 | --- | --- |
 | `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls (a model call reported by Spring AI or Quarkus LangChain4j is placed over the HTTP call that carried it, so that time counts once, as AI; one known only from a GenAI span is placed by its wall-clock start, to the millisecond, and adds only its time inside the handler that no placed call covers; tool and retrieval operations stay in the handler they wrap), synchronous message sends (RabbitMQ and JMS; a Kafka send is timed until the broker's asynchronous acknowledgement, so it stays in the handler's time and the row says so), other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold. On Spring MVC and Quarkus, a request that reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with 401 or 403, is never split as handler work: it is left out of its route's phases, and a route whose requests mostly did is reported insufficient with its recorded calls. On WebFlux, which marks no handler or response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is insufficient, since its breakdown would be one unattributed span |
-| `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them |
-| `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; requests a retry or fallback recovered are listed apart |
+| `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them; specific checks follow captured exception subclasses and causes, preferring the deepest cause over a serialization wrapper |
+| `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; matching exceptions a retry or fallback recovered are listed apart, without hiding other errors in the same request |
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
-| `connections-per-request` | Requests that held two or more connections of one data source at the same time |
+| `connections-per-request` | Requests that held two or more connections of one data source at the same time, with the known pool maximum and a hold-and-wait concurrency estimate: floor((pool − 1) ÷ (held − 1)) + 1 |
 | `safe-method-dml` | GET or HEAD requests that wrote to the database, worded as a question |
 | `proxy-bypass` | Spring only: a `@Transactional` method whose statement ran outside every transaction, a `@Cacheable` method whose statement ran before any access to its cache, or an `@Async` method whose statement ran on the request's own thread, named with the frame that called it. The proxy was bypassed, as by a call from inside the bean, a `private` or `final` method, or an instance created with `new`; the Architecture advisor's ARCH-SPRING-004 finds such calls in the code. Not applicable with AspectJ weaving or on Quarkus, whose ArC intercepts self-invocation |
 | `anonymous-data-reach` | Successful requests an authorization decision proved anonymous that wrote a table, per route and table. Anonymous reads, authenticated writes, and requests no rule checked are never counted, and each row says not to add authorization from it alone |
@@ -662,6 +662,14 @@ Scheduled runs and consumed messages are projected like requests, named `@Schedu
 WebSockets Next endpoint's path. So the observations that read a unit of work's own SQL, transactions, calls, exceptions, and
 logs also cover jobs and listeners, counted in runs or messages. Those that read what only a request has (its status,
 method, phases, authorization, or measured resources) stay on HTTP requests.
+
+Recovery attribution requires a recorded terminal success for the same policy name, type, and target after its retry,
+or a successful fallback. Each failed attempt matches at most one earlier exception of its reported class on the same
+thread; this is bounded evidence, not causal proof. Logs, failed downstream calls, and root rollbacks remain in the
+unrecovered group, and a request can appear in both groups. The current Spring retry feeders report retries and
+exhaustion but not terminal success, and Quarkus reports breaker transitions, so these alone never establish recovery.
+Connection estimates assume nested hold-and-wait checkouts rather than parallel independent work; other pool users
+can exhaust the pool at lower concurrency. Neither overlapping connections nor the estimate proves a deadlock.
 
 Every observation reports whether it ran. One whose journal source is not recorded, whose panel is disabled, or which
 does not apply to this stack says so with its reason, so an empty list never reads as healthy. One that reads SQL is

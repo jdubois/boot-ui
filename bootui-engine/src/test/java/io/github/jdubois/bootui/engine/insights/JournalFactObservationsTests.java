@@ -107,6 +107,85 @@ class JournalFactObservationsTests {
     }
 
     @Test
+    void exceptionChecksPreferCausesAndIncludeSubtypeAdviceAcrossOccurrencesOfOneGroup() {
+        String wrapper = "org.springframework.http.converter.HttpMessageNotWritableException";
+        request(
+                "/api/orders/{id}",
+                500,
+                child(
+                        JournalSource.EXCEPTION,
+                        new ExceptionPayload(
+                                "wrapped",
+                                wrapper,
+                                "wrapped",
+                                List.of("org.hibernate.LazyInitializationException", wrapper))));
+        request(
+                "/api/orders/{id}",
+                500,
+                child(
+                        JournalSource.EXCEPTION,
+                        new ExceptionPayload(
+                                "wrapped",
+                                wrapper,
+                                "wrapped",
+                                List.of(
+                                        "com.example.DuplicateKeyException",
+                                        "org.springframework.dao.DataIntegrityViolationException",
+                                        wrapper))));
+        request(
+                "/api/pool",
+                500,
+                child(
+                        JournalSource.EXCEPTION,
+                        new ExceptionPayload(
+                                "pool",
+                                "java.lang.IllegalStateException",
+                                "pool",
+                                List.of(
+                                        "com.example.DriverConnectionException",
+                                        "java.sql.SQLTransientConnectionException"))));
+        request(
+                "/api/orders/{id}",
+                500,
+                child(
+                        JournalSource.EXCEPTION,
+                        new ExceptionPayload(
+                                "wrapped",
+                                wrapper,
+                                "wrapped",
+                                List.of("jakarta.persistence.OptimisticLockException", wrapper))));
+
+        List<RuntimeObservationDto> found = byKind(service(null, null).report(), ExceptionHotspots.KIND);
+        assertThat(found.get(0).whatToCheck()).hasSize(3);
+        assertThat(found.get(0).whatToCheck().get(0)).contains("join fetch");
+        assertThat(found.get(0).whatToCheck().get(1)).contains("constraint");
+        assertThat(found.get(0).whatToCheck()).last().isEqualTo(ExceptionHotspots.GENERIC_CHECK);
+        assertThat(found.get(0).whatToCheck()).noneMatch(check -> check.contains("bidirectional"));
+        assertThat(found.get(0).limitations()).anyMatch(text -> text.contains("first two"));
+        assertThat(found.get(1).whatToCheck().get(0)).contains("pool timed out", "connectivity");
+    }
+
+    @Test
+    void parsingExceptionSubclassesDoNotGetSerializationRecursionAdvice() {
+        request(
+                "/api/orders/{id}",
+                400,
+                child(
+                        JournalSource.EXCEPTION,
+                        new ExceptionPayload(
+                                "input",
+                                "org.springframework.http.converter.HttpMessageNotReadableException",
+                                "input",
+                                List.of(
+                                        "com.fasterxml.jackson.databind.exc.MismatchedInputException",
+                                        "com.fasterxml.jackson.databind.JsonMappingException"))));
+        assertThat(byKind(service(null, null).report(), ExceptionHotspots.KIND))
+                .singleElement()
+                .satisfies(observation ->
+                        assertThat(observation.whatToCheck()).containsExactly(ExceptionHotspots.GENERIC_CHECK));
+    }
+
+    @Test
     void errorsBehind2xxCountsSeveralRequestsInPlainWords() {
         for (int i = 0; i < 2; i++) {
             request(
@@ -135,11 +214,19 @@ class JournalFactObservationsTests {
         request(
                 "/api/orders/{id}",
                 200,
-                child(JournalSource.LOG, new LogPayload("com.example.Pricing", "ERROR", "Price lookup failed", null)),
+                exception("pricing", "java.lang.IllegalArgumentException"),
                 child(
                         JournalSource.FAULT_TOLERANCE,
                         new FaultTolerancePayload(
-                                "pricing", "RETRY", "Pricing.lookup", "RETRY", 1, null, null, true, true)),
+                                "pricing",
+                                "RETRY",
+                                "Pricing.lookup",
+                                "RETRY",
+                                1,
+                                null,
+                                "IllegalArgumentException",
+                                true,
+                                true)),
                 child(
                         JournalSource.FAULT_TOLERANCE,
                         new FaultTolerancePayload(
@@ -175,9 +262,135 @@ class JournalFactObservationsTests {
                 found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":recovered"));
         assertThat(recovered.affected()).isEqualTo(1);
         assertThat(recovered.sentence())
-                .endsWith("in 1 of 4 successful requests: 1 request that wrote an ERROR log; a retry or fallback"
+                .endsWith("in 1 of 4 successful requests: 1 request that recorded an exception; a retry or fallback"
                         + " recovered.");
         assertThat(found).hasSize(2);
+    }
+
+    @Test
+    void aRecoveredRetryDoesNotHideUnrelatedErrorsOrConsumeEveryExceptionOfItsClass() {
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("unrelated", "java.lang.IllegalArgumentException"),
+                exception("pricing", "java.lang.IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "RETRY", "IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "SUCCESS", null),
+                exception("late", "java.lang.IllegalStateException"),
+                child(JournalSource.LOG, new LogPayload("com.example.Stock", "ERROR", "Stock failed", null)),
+                child(
+                        JournalSource.REST_CLIENT,
+                        new RestClientPayload("GET", "stock:8080", "/items/1", 503, "RestClient", true)),
+                child(JournalSource.TRANSACTION, new TransactionPayload("OrderService.place", true, false, false, 1)));
+
+        RuntimeInsightsService insights = service(null, null);
+        List<RuntimeObservationDto> found = byKind(insights.report(), ErrorsBehind2xx.KIND);
+
+        assertThat(found).hasSize(2);
+        assertThat(found.get(0).sentence()).contains("transaction rolled back", "ERROR log", "downstream");
+        assertThat(insights.insight(found.get(0).id()).rows().get(0).cells().get(2))
+                .contains("IllegalArgumentException", "IllegalStateException");
+        assertThat(found.get(1).sentence()).contains("a retry or fallback recovered");
+        assertThat(insights.insight(found.get(1).id()).rows().get(0).cells().get(2))
+                .isEqualTo("exception: IllegalArgumentException");
+        assertThat(found).allSatisfy(observation -> {
+            assertThat(observation.affected()).isEqualTo(1);
+            assertThat(observation.exemplarRequestIds()).containsExactly("r1");
+        });
+    }
+
+    @Test
+    void recoveryRequiresTheSamePolicyTypeTargetAndTerminalOutcome() {
+        for (String outcome : List.of("SUCCESS", "RETRY_EXHAUSTED")) {
+            request(
+                    "/api/orders/{id}",
+                    200,
+                    exception("pricing", "java.lang.IllegalArgumentException"),
+                    policy("pricing", "Pricing.lookup", "RETRY", "IllegalArgumentException"),
+                    policy(outcome.equals("SUCCESS") ? "stock" : "pricing", "Pricing.lookup", outcome, null));
+        }
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "RETRY", "IllegalArgumentException"),
+                policy("pricing", "Stock.lookup", "SUCCESS", null));
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "RETRY", "IllegalArgumentException"));
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "FALLBACK", "IllegalStateException"));
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "RETRY", "IllegalArgumentException"),
+                child(
+                        JournalSource.FAULT_TOLERANCE,
+                        new FaultTolerancePayload(
+                                "pricing",
+                                "CIRCUIT_BREAKER",
+                                "Pricing.lookup",
+                                "SUCCESS",
+                                1,
+                                null,
+                                null,
+                                false,
+                                false)));
+
+        assertThat(byKind(service(null, null).report(), ErrorsBehind2xx.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.affected()).isEqualTo(6);
+                    assertThat(observation.sentence()).doesNotContain("recovered");
+                });
+    }
+
+    @Test
+    void successfulFallbackRecoversOnlyItsEarlierMatchingException() {
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException"),
+                policy("pricing", "Pricing.lookup", "FALLBACK", "IllegalArgumentException"),
+                exception("fallback", "java.lang.IllegalArgumentException"));
+
+        assertThat(byKind(service(null, null).report(), ErrorsBehind2xx.KIND))
+                .hasSize(2)
+                .allSatisfy(observation -> assertThat(observation.affected()).isEqualTo(1));
+    }
+
+    @Test
+    void nestedExceptionClassNamesMatchTheProvidersSimpleFailureCategory() {
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("server", "org.springframework.web.client.HttpServerErrorException$InternalServerError"),
+                policy("pricing", "Pricing.lookup", "RETRY", "InternalServerError"),
+                policy("pricing", "Pricing.lookup", "SUCCESS", null));
+        assertThat(byKind(service(null, null).report(), ErrorsBehind2xx.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.sentence()).contains("recovered"));
+    }
+
+    private static Child policy(String name, String target, String outcome, String category) {
+        return child(
+                JournalSource.FAULT_TOLERANCE,
+                new FaultTolerancePayload(
+                        name,
+                        "RETRY",
+                        target,
+                        outcome,
+                        1,
+                        null,
+                        category,
+                        "RETRY".equals(outcome) || "RETRY_EXHAUSTED".equals(outcome),
+                        true));
     }
 
     @Test

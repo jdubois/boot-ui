@@ -265,11 +265,44 @@ class RuntimeInsightsServiceTests {
         // Two data sources at once are two pools, each holding one.
         request("POST", "/api/report", connection("db", 0, 10_000_000), connection("audit", 1_000, 5_000_000));
 
-        Map<String, RuntimeObservationDto> byRoute = observations(service().report(), ConnectionsPerRequest.KIND);
+        RuntimeInsightsService insights = service();
+        insights.setPoolSizes(name -> name.equals("db") ? 10 : null);
+        Map<String, RuntimeObservationDto> byRoute = observations(insights.report(), ConnectionsPerRequest.KIND);
 
         assertThat(byRoute).containsOnlyKeys("POST /api/orders");
         assertThat(byRoute.get("POST /api/orders").sentence())
                 .isEqualTo("`POST /api/orders` held 2 connections of `db` at the same time in 1 of 1 request.");
+        assertThat(byRoute.get("POST /api/orders").whatToCheck().get(1))
+                .contains("pool of 10 connections", "10 concurrent requests", "estimate", "not proof");
+        assertThat(observations(service().report(), ConnectionsPerRequest.KIND)
+                        .get("POST /api/orders")
+                        .whatToCheck()
+                        .get(1))
+                .contains("floor((P - 1) / 1) + 1");
+    }
+
+    @Test
+    void connectionEstimateRoundsUpWithThreeHeldAndOneRequestCanExhaustASmallerPool() {
+        request(
+                "POST",
+                "/api/orders",
+                connection("db", 0, 30_000_000),
+                connection("db", 1_000, 20_000_000),
+                connection("db", 2_000, 10_000_000));
+        RuntimeInsightsService insights = service();
+        insights.setPoolSizes(name -> 10);
+        assertThat(observations(insights.report(), ConnectionsPerRequest.KIND)
+                        .get("POST /api/orders")
+                        .whatToCheck()
+                        .get(1))
+                .contains("5 concurrent requests");
+        RuntimeInsightsService small = service();
+        small.setPoolSizes(name -> 1);
+        assertThat(observations(small.report(), ConnectionsPerRequest.KIND)
+                        .get("POST /api/orders")
+                        .whatToCheck()
+                        .get(1))
+                .contains("1 concurrent request can");
     }
 
     @Test
