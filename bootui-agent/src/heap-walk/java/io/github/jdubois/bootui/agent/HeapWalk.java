@@ -254,8 +254,8 @@ public final class HeapWalk {
     /**
      * Whether the thread runs a task of a BootUI module beside the agent, as the engine's {@code bootui-agent-drain}
      * thread does for its claim: the engine's, not the agent's, so not a root (a walk from it would follow the
-     * application run that owns it into whatever that run, or its framework, retains). JDK 19 and later keep the task in the thread's
-     * {@code holder}, earlier JDKs in {@code target}.
+     * application run that owns it into whatever that run, or its framework, retains). JDK 19 and later keep the task
+     * in the thread's {@code holder}, earlier JDKs in {@code target}.
      */
     private boolean engineTask(long thread, long type, String agentPrefix) {
         Object task = null;
