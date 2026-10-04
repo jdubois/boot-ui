@@ -414,8 +414,8 @@ with a `traceparent` header keeps the trace that sent it. SQL events from named 
 when connection recording is disabled. A task a request hands to a framework-managed executor, such
 as an `@Async` method on Spring Boot's auto-configured executor or scheduler, or a Quarkus `ManagedExecutor` task, runs
 as an execution of that request, so its work stays with the request; on Spring this applies when the application
-defines no task decorator of its own, which BootUI never displaces. Raw executors and `CompletableFuture` are not
-followed. It keeps running aggregates per route, statement, exception group, and thread family, which
+defines no task decorator of its own, which BootUI never displaces. Without the BootUI agent, raw executors and
+`CompletableFuture` are not followed; with it attached, they are propagated too ([Java Agent](java-agent.md)). It keeps running aggregates per route, statement, exception group, and thread family, which
 count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
 it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
 and the SQL its panels run while serving them, are never recorded. Pausing a panel's recording, or BootUI releasing
@@ -445,7 +445,7 @@ when it failed, a warning when the model stopped at its length limit), and four 
 **Route** such as `GET /api/orders/{id}`, with its requests' children, a **Request id**, a **Run id** (the run named in the **Recording** status, so a restart or live reload can be isolated), and **No request**, which keeps
 only work outside any request. The journal keeps no exception or log messages, principals, or email subjects, so a row
 shows them only while the panel that captured them still holds them. **Panel buffers** merges each panel's own buffer,
-as BootUI 1.x does. The feed refreshes whenever the journal records anything.
+as BootUI 1.x does; while durable activity storage serves the feed, the selector is hidden, because the stored rows are always journal-rendered. The feed refreshes whenever the journal records anything.
 
 A request's profile drawer also shows **Recorded by the runtime journal**: the route it was grouped under and where it
 stands against that route's median and 95th percentile once the route has 5 requests; the CPU time, memory, and GC
