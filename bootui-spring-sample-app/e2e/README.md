@@ -99,6 +99,9 @@ armed claim and its sensor rows there instead of the not-attached state. Build t
 npm run test:agent
 ```
 
+To explore the sample with the agent attached by hand, against PostgreSQL, run
+`./bootui-spring-sample-app/run-local-agent.sh` from the repository root (see the sample's README).
+
 Set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT` to run it beside another sample.
 
 ## Prerequisites
