@@ -699,7 +699,14 @@ does not apply to this stack says so with its reason, so an empty list never rea
 application's SQL checks say so instead of finding nothing; an observation that only optionally reads SQL, such as
 `route-time-breakdown`, runs and names what it could not count. Findings below their minimum are shown as
 **insufficient** (**Not enough evidence**), naming what is missing, and a source that dropped events marks its findings
-**partial**. Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
+**partial**. This includes dropped completion events for the visible requests, scheduled runs, consumed messages,
+and WebSocket handlers that an observation examines, but not optional evidence hidden by a disabled panel.
+Messaging drops are counted per source, not per broker or message direction: when any broker is visible,
+they conservatively mark checks that examine consumed messages partial.
+Collection checks and `changed-code-not-executed`, which reads Code Inventory rather than the journal,
+do not read execution completion events and are not made partial by their drops.
+A new drop refreshes the report, coverage, and observation details even before another event is dispatched.
+Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
 three exemplar request ids to open in Live Activity, and at most 20 evidence rows. When BootUI changed something during the
 window, the report names it among its limitations, and a finding whose evidence names the logger, cache, or key that a
 change targeted says so. A breakdown's evidence draws each phase's share
@@ -789,8 +796,12 @@ and restart/bean timings are not journal-source evidence and remain available. I
 comparison is **Unavailable**, not a suggestion to send more traffic.
 Allocation compares a bounded histogram's median, not its mean;
 summaries from the previous codec remain readable but cannot supply an allocation median or execution aggregates.
-It also compares Hibernate flushes and entities in the persistence context per request or execution when both runs
-recorded sessions. For HTTP routes, it compares the share of 4xx and 5xx answers and the memory allocated per request,
+It also compares Hibernate flushes and entities in the persistence context per request or execution when both runs'
+start facts record the ORM source, including flush counts changing to or from zero. Entity counts still require
+measured persistence-context sizes in both runs. If only one run recorded ORM events, a limitation
+explains that zero assumes its capture listener was active: an application-provided `hibernate.session.events.auto`
+listener can prevent BootUI from recording sessions. Legacy summaries without both runs' source settings require
+ORM events in both runs. For HTTP routes, it compares the share of 4xx and 5xx answers and the memory allocated per request,
 each once the route served 3 requests in both runs; new exceptions and routes are listed from their first occurrence.
 The runtime model's edges come next, such as "`GET /api/orders` calls host `pay.internal:8443`, 15 times, and not in
 run 4", then the restart cost: the time to ready and the beans whose initialization moved by 200 ms and 50 %, compared

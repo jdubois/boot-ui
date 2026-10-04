@@ -17,6 +17,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
+  completion events now mark observations that examine those executions partial, while disabled optional evidence
+  does not. Collection and Code Inventory checks do not count unrelated execution drops.
+  A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
+  includes Hibernate flush counts changing to or from zero when both runs recorded the ORM source,
+  with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
+  event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
+  [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
+  [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
 - **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
   pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
   `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own
@@ -36,6 +45,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
   and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
   tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
+
 - **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CodeInventoryMethodDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
@@ -11,13 +12,18 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.inventory.CodeChanges;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
+import io.github.jdubois.bootui.engine.journal.GcPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.OrmPayload;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -25,6 +31,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
@@ -42,6 +49,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class RuntimeInsightsServiceTests {
 
@@ -1013,6 +1022,268 @@ class RuntimeInsightsServiceTests {
         RuntimeInsightCheckDto check = checks(service().report()).get(SafeMethodDml.KIND);
         assertThat(check.status()).isEqualTo("PARTIAL");
         assertThat(check.reason()).contains("dropped 1 events").doesNotContain("dropped 2 events");
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = JournalSource.class,
+            names = {"SCHEDULED", "MESSAGING", "WEBSOCKET"})
+    void droppedExecutionAnchorsMakeExecutionObservationsPartial(JournalSource source) throws InterruptedException {
+        useSingleSlotQueue();
+        RuntimeEventPayload payload =
+                switch (source) {
+                    case SCHEDULED -> new ScheduledPayload("OrderJob.run", null);
+                    case MESSAGING -> new MessagingPayload("kafka", false, "orders", false);
+                    case WEBSOCKET -> WebSocketPayload.handled("/orders", "/orders", 0L, false);
+                    default -> throw new AssertionError(source);
+                };
+        for (int i = 0; i < 3; i++) {
+            CorrelationContext context = CorrelationContext.forExecution("execution-" + i);
+            for (Child child : sqls("select * from orders", 6, "select * from lines where order_id = ?")) {
+                assertThat(journal.offer(RuntimeEvent.of(
+                                child.source(), 1_000, child.nanos(), context, "worker", null, false, child.payload())))
+                        .isTrue();
+                drain();
+            }
+            assertThat(journal.offer(
+                            RuntimeEvent.of(source, 1_000, 30_000_000, context, "worker", null, false, payload)))
+                    .isTrue();
+            drain();
+        }
+        withUndispatchedDrop(
+                RuntimeEvent.of(
+                        source, 2_000, 1_000, CorrelationContext.forExecution("lost"), "worker", null, false, payload),
+                () -> {
+                    RuntimeInsightsReportDto report = service().report();
+                    assertThat(checks(report).get(RepeatedSelects.KIND).status())
+                            .isEqualTo("PARTIAL");
+                    assertThat(checks(report).get(RepeatedSelects.KIND).reason())
+                            .contains("dropped 1 events");
+                    assertThat(observations(report, RepeatedSelects.KIND).values())
+                            .singleElement()
+                            .satisfies(row -> assertThat(row.status()).isEqualTo("PARTIAL"));
+                    assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+                });
+    }
+
+    @Test
+    void optionalSourceDropsAreNotReadWhenItsPanelIsDisabled() throws InterruptedException {
+        useSingleSlotQueue();
+        for (int i = 0; i < 6; i++) {
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            1_000,
+                            30_000_000,
+                            CorrelationContext.forRequest("r" + i),
+                            "worker",
+                            null,
+                            false,
+                            new HttpPayload(
+                                    "GET",
+                                    "/orders",
+                                    "/orders",
+                                    null,
+                                    200,
+                                    null,
+                                    new RequestTiming(1_000_000_000, -1, 1_000_000, 29_000_000)))))
+                    .isTrue();
+            drain();
+        }
+        withUndispatchedDrop(sqlDrop(), () -> {
+            RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                            journal, null, panel -> !panel.equals(BootUiPanels.SQL_TRACE), null, null)
+                    .report();
+            assertThat(report.window().droppedEvents()).isEqualTo(1);
+            RuntimeInsightCheckDto check = checks(report).get(RouteTimeBreakdown.KIND);
+            assertThat(check.status()).isEqualTo("EVALUATED");
+            assertThat(check.reason()).contains("sql-trace", "disabled").doesNotContain("dropped");
+        });
+    }
+
+    @Test
+    void aDropWithoutANewWatermarkInvalidatesCachedCoverageFindingsAndDetails() throws InterruptedException {
+        useSingleSlotQueue();
+        for (int i = 0; i < 3; i++) {
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.SQL,
+                            1_000,
+                            1_000,
+                            CorrelationContext.forRequest("r" + (requests + 1)),
+                            "worker",
+                            null,
+                            false,
+                            new SqlPayload("insert into audit (id) values (1)", null, "db", false))))
+                    .isTrue();
+            drain();
+            request("GET", "/orders");
+        }
+        RuntimeInsightsService service = service();
+        withUndispatchedDrop(
+                sqlDrop(),
+                () -> {
+                    RuntimeInsightsReportDto before = service.report();
+                    assertThat(checks(before).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+                    assertThat(before.window().droppedEvents()).isZero();
+                    long watermark = journal.status().lastSequence();
+                    assertThat(journal.offer(sqlDrop())).isTrue();
+                    assertThat(journal.offer(sqlDrop())).isFalse();
+                    assertThat(journal.status().lastSequence()).isEqualTo(watermark);
+
+                    RuntimeInsightsReportDto after = service.report();
+                    assertThat(after).isNotSameAs(before);
+                    assertThat(after.window().droppedEvents()).isEqualTo(1);
+                    assertThat(after.coverage())
+                            .filteredOn(row -> row.source().equals("sql"))
+                            .singleElement()
+                            .satisfies(row -> assertThat(row.dropped()).isEqualTo(1));
+                    assertThat(checks(after).get(SafeMethodDml.KIND).status()).isEqualTo("PARTIAL");
+                    RuntimeObservationDto finding =
+                            observations(after, SafeMethodDml.KIND).get("GET /orders");
+                    assertThat(finding.status()).isEqualTo("PARTIAL");
+                    assertThat(service.insight(finding.id()).observation()).isEqualTo(finding);
+                    assertThat(service.report()).isSameAs(after);
+                },
+                false);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = JournalSource.class,
+            names = {"HTTP", "SCHEDULED", "MESSAGING", "WEBSOCKET"})
+    void executionAnchorDropsDoNotMakeRunLevelGcChecksPartial(JournalSource source) throws InterruptedException {
+        useSingleSlotQueue();
+        for (int i = 0; i < 5; i++) {
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.GC,
+                            1_000 + i,
+                            1_000,
+                            null,
+                            "gc",
+                            null,
+                            false,
+                            new GcPayload("old", i, "major", "test", true, 200, 100, 200, 100))))
+                    .isTrue();
+            drain();
+        }
+        RuntimeEventPayload payload =
+                switch (source) {
+                    case HTTP -> new HttpPayload("GET", "/lost", "/lost", null, 200);
+                    case SCHEDULED -> new ScheduledPayload("Job.run", null);
+                    case MESSAGING -> new MessagingPayload("kafka", false, "orders", false);
+                    case WEBSOCKET -> WebSocketPayload.handled("/orders", "/orders", 0L, false);
+                    default -> throw new AssertionError(source);
+                };
+        withUndispatchedDrop(RuntimeEvent.of(source, 2_000, 1_000, null, "worker", null, false, payload), () -> {
+            RuntimeInsightsReportDto report = service().report();
+            assertThat(checks(report).get(HeapGrowthAfterGc.KIND).status()).isEqualTo("EVALUATED");
+            assertThat(checks(report).get(HeapGrowthAfterGc.KIND).reason()).doesNotContain("dropped");
+        });
+    }
+
+    private void useSingleSlotQueue() {
+        journal.close();
+        journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 10_000, 50_000_000, 1, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+    }
+
+    @Test
+    void aScheduledDropDoesNotMakeCodeInventoryEvidencePartial() throws InterruptedException {
+        useSingleSlotQueue();
+        CodeInventoryMethodDto method = new CodeInventoryMethodDto(
+                "shop.OrderService#pay()V",
+                "shop",
+                "shop.OrderService",
+                "pay",
+                "()V",
+                CodeInventoryService.NEVER_EXECUTED,
+                null,
+                CodeChanges.CHANGED,
+                null,
+                null,
+                null);
+        RuntimeInsightsService service = service();
+        service.setCodeInventory(() -> new CodeInventoryService.ChangedCode(
+                null,
+                true,
+                null,
+                List.of(new CodeInventoryService.ChangedClass("shop.OrderService", List.of(method), List.of())),
+                1,
+                "COMPLETE",
+                null));
+        withUndispatchedDrop(
+                RuntimeEvent.of(
+                        JournalSource.SCHEDULED,
+                        2_000,
+                        1_000,
+                        CorrelationContext.forExecution("lost"),
+                        "worker",
+                        null,
+                        false,
+                        new ScheduledPayload("Job.run", null)),
+                () -> {
+                    RuntimeInsightsReportDto report = service.report();
+                    assertThat(report.window().droppedEvents()).isEqualTo(1);
+                    assertThat(checks(report).get(ChangedCodeNotExecuted.KIND).status())
+                            .isEqualTo("EVALUATED");
+                    assertThat(observations(report, ChangedCodeNotExecuted.KIND).values())
+                            .singleElement()
+                            .satisfies(row -> assertThat(row.status()).isEqualTo("OBSERVED"));
+                });
+    }
+
+    private static RuntimeEvent sqlDrop() {
+        return RuntimeEvent.of(
+                JournalSource.SQL,
+                2_000,
+                1_000,
+                CorrelationContext.forRequest("lost"),
+                "worker",
+                null,
+                false,
+                new SqlPayload("select * from orders", null, "db", false));
+    }
+
+    private void withUndispatchedDrop(RuntimeEvent event, Runnable assertions) throws InterruptedException {
+        withUndispatchedDrop(event, assertions, true);
+    }
+
+    private void withUndispatchedDrop(RuntimeEvent event, Runnable assertions, boolean dropFirst)
+            throws InterruptedException {
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            blocked.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Dispatcher was not released");
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(ex);
+            }
+        });
+        try {
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            2_000,
+                            1_000,
+                            CorrelationContext.forRequest("blocker"),
+                            "worker",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/blocker", "/blocker", null, 200))))
+                    .isTrue();
+            assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+            if (dropFirst) {
+                assertThat(journal.offer(event)).isTrue();
+                assertThat(journal.offer(event)).isFalse();
+            }
+            assertions.run();
+        } finally {
+            release.countDown();
+        }
+        drain();
     }
 
     @Test
