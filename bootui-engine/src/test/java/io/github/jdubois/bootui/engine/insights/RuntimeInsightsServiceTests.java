@@ -757,8 +757,9 @@ class RuntimeInsightsServiceTests {
                 .report();
         assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("NOT_APPLICABLE");
         assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
-        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
-        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).isNull();
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("INSUFFICIENT");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason())
+                .isEqualTo("No eligible work was recorded for this check.");
     }
 
     @Test
@@ -855,8 +856,9 @@ class RuntimeInsightsServiceTests {
                         InsightsStack.QUARKUS,
                         null)
                 .report();
-        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("EVALUATED");
-        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).isNull();
+        assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("INSUFFICIENT");
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason())
+                .isEqualTo("No eligible work was recorded for this check.");
     }
 
     @Test
