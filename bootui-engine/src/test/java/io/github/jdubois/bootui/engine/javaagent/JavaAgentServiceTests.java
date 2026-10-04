@@ -398,7 +398,7 @@ class JavaAgentServiceTests {
 
         assertThat(stub.requests.get(0))
                 .as("the default claim asks for the inventory sensor and the ring's capacity")
-                .containsEntry("sensors", List.of("executors", "inventory"))
+                .containsEntry("sensors", List.of("executors", "inventory", "code-paths"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat(report.sensors()).singleElement().satisfies(row -> {
             assertThat(row.id()).isEqualTo("inventory");
@@ -416,6 +416,56 @@ class JavaAgentServiceTests {
             assertThat(row.inventory().ringDropped()).isZero();
             assertThat(row.inventory().disabledReason()).isNull();
         });
+    }
+
+    @Test
+    void theCodePathsSensorRowCarriesItsOwnCountersAndItsReasonWhenUnavailable() {
+        JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
+        assertThat(absent.codePathsUnavailableReason())
+                .startsWith(JavaAgentService.CODE_PATHS_REQUIREMENT + ": ")
+                .contains("-javaagent");
+
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> codePaths = new LinkedHashMap<>();
+        codePaths.put("id", AgentSensorSettings.CODE_PATHS);
+        codePaths.put("state", "installed");
+        codePaths.put("selfTestPassed", true);
+        codePaths.put("instrumentedTypes", 4);
+        codePaths.put(
+                "hooks",
+                List.of(Map.of(
+                        "id", "bean methods",
+                        "kind", "record",
+                        "type", "(bean classes)",
+                        "present", true,
+                        "transformed", true,
+                        "selfTest", "passed")));
+        codePaths.put("sharedTransformer", "inventory");
+        stub.sensors = List.of(codePaths);
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        int id = io.github.jdubois.bootui.agent.bridge.CodeInventory.methodId("com.example.Shop#greet()V");
+        io.github.jdubois.bootui.agent.bridge.CodePaths.exclude(
+                claim.get().result().get("token") instanceof Long token ? token : -1L, id);
+
+        JavaAgentReport report = service.report();
+
+        assertThat(service.codePathsUnavailableReason()).isNull();
+        assertThat(report.sensors()).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo("code-paths");
+            assertThat(row.active()).isTrue();
+            assertThat(row.instrumentedTypes()).isEqualTo(4);
+            assertThat(row.executors()).isNull();
+            assertThat(row.inventory()).isNull();
+            assertThat(row.codePaths()).isNotNull();
+            assertThat(row.codePaths().excludedMethods()).isEqualTo(1L);
+            assertThat(row.codePaths().fragmentsFlushed()).isZero();
+            assertThat(row.codePaths().disabledReason()).isNull();
+            assertThat(row.hooks()).extracting(JavaAgentHookDto::id).containsExactly("bean methods");
+        });
+        assertThat(report.retransformation().durationMillis())
+                .as("the shared transformer's time is never counted twice")
+                .isZero();
     }
 
     @Test

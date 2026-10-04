@@ -2829,6 +2829,7 @@ public class BootUiProperties {
          * The agent sensors this application asks for. {@code executors} propagates a request's context through the
          * JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request.
          * {@code inventory} records which application methods ran in this run and which jars loaded classes.
+         * {@code code-paths} times the application's bean methods per request, as call trees.
          * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
          * into virtual threads.
          */

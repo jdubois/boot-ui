@@ -1,14 +1,21 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import org.springframework.aop.framework.AopProxyUtils;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.DefaultSingletonBeanRegistry;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.context.event.ApplicationFailedEvent;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -16,6 +23,8 @@ import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.SmartApplicationListener;
 import org.springframework.core.Ordered;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.util.ClassUtils;
 
 /**
  * Owns one {@code SpringApplication} run's claim on the BootUI Java agent ({@code docs/PLAN-v2.md} D34). The
@@ -23,7 +32,8 @@ import org.springframework.core.Ordered;
  * initializer and listener; nothing static holds it, so a DevTools restart's discarded run takes its claim with it.
  *
  * <p>As initializer, it records its context and registers itself as a singleton so the Java Agent panel can read the
- * claim. As listener, it refines the claim with the auto-configuration packages when its own context is refreshed, and
+ * claim. As listener, it refines the claim with the auto-configuration packages and the application's bean classes (for
+ * the agent's {@code code-paths} sensor) when its own context is refreshed, and
  * attaches the context's {@link AgentHandoffs} so the agent starts propagating requests' context, and disarms it when its own context closes or the application fails to start. It also disarms when the context destroys
  * its singletons. Disarming is idempotent.
  */
@@ -127,6 +137,12 @@ public final class AgentClaimOwner
         if (inventory != null) {
             inventory.start();
         }
+        // Code Paths' request trees from the code-paths sensor (PLAN-v2 §5.14); the bean stops routing at close.
+        CodePathsService codePaths =
+                applicationContext.getBeanProvider(CodePathsService.class).getIfUnique();
+        if (codePaths != null) {
+            codePaths.start();
+        }
     }
 
     private void refine(ConfigurableListableBeanFactory beanFactory) {
@@ -135,6 +151,77 @@ public final class AgentClaimOwner
         }
         List<String> packages =
                 AutoConfigurationPackages.has(beanFactory) ? AutoConfigurationPackages.get(beanFactory) : List.of();
-        claim.refine(packages);
+        List<String> applicationPackages = new ArrayList<>(claim.claimedPackages());
+        for (String name : packages) {
+            if (!applicationPackages.contains(name)) {
+                applicationPackages.add(name);
+            }
+        }
+        claim.refine(packages, beanClasses(beanFactory, applicationPackages));
+    }
+
+    /**
+     * The user classes of the context's beans in the application's packages ({@code docs/PLAN-v2.md} M5-4a): a
+     * singleton's ultimate target class through any AOP proxy, else the bean definition's type without initializing a
+     * factory bean, with CGLIB subclasses resolved to the user class. Interfaces, lambdas and other hidden or synthetic
+     * classes, configuration-properties holders, whether their class or the {@code @Bean} method creating them carries
+     * {@code @ConfigurationProperties}, and beans whose type cannot be read are left out. Never throws.
+     */
+    static List<String> beanClasses(ConfigurableListableBeanFactory beanFactory, List<String> packages) {
+        Set<String> names = new LinkedHashSet<>();
+        Set<String> configurationProperties = new HashSet<>();
+        if (packages.isEmpty()) {
+            return List.of();
+        }
+        String[] definitions;
+        try {
+            definitions = beanFactory.getBeanDefinitionNames();
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
+        for (String name : definitions) {
+            try {
+                Class<?> type;
+                Object singleton = beanFactory.containsSingleton(name) ? beanFactory.getSingleton(name) : null;
+                if (singleton != null) {
+                    type = AopProxyUtils.ultimateTargetClass(singleton);
+                } else {
+                    type = beanFactory.getType(name, false);
+                }
+                if (type == null) {
+                    continue;
+                }
+                type = ClassUtils.getUserClass(type);
+                if (type.isInterface()
+                        || type.isArray()
+                        || type.isPrimitive()
+                        || type.isHidden()
+                        || type.isSynthetic()
+                        || !inPackages(type.getName(), packages)) {
+                    continue;
+                }
+                if (AnnotatedElementUtils.hasAnnotation(type, ConfigurationProperties.class)
+                        || beanFactory.findAnnotationOnBean(name, ConfigurationProperties.class, false) != null) {
+                    // A configuration holder, as a @Bean @ConfigurationProperties method's: left out wherever else
+                    // its class is a bean too, since the agent instruments by class.
+                    configurationProperties.add(type.getName());
+                    continue;
+                }
+                names.add(type.getName());
+            } catch (RuntimeException | LinkageError ex) {
+                // A bean whose type cannot be read: its methods stay untimed.
+            }
+        }
+        names.removeAll(configurationProperties);
+        return List.copyOf(names);
+    }
+
+    private static boolean inPackages(String className, List<String> packages) {
+        for (String name : packages) {
+            if (className.startsWith(name + ".")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -138,14 +140,24 @@ public class QuarkusHttpExchangeCaptureFilter {
         // its thread was metered for when it opened, so a meter begun outside would follow this event loop on to the
         // next request it serves once routing returns with the response still pending.
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-            if (correlation != CorrelationContext.BOOTUI) {
-                try {
-                    observe(rc, correlation);
-                } catch (RuntimeException failure) {
-                    logCaptureFailure(failure);
-                }
+            if (correlation == CorrelationContext.BOOTUI) {
+                rc.next();
+                return;
             }
-            rc.next();
+            try {
+                observe(rc, correlation);
+            } catch (RuntimeException failure) {
+                logCaptureFailure(failure);
+            }
+            // The BootUI agent's code-paths fragment of this request on the event loop (docs/PLAN-v2.md M5-4a): a
+            // blocking resource method runs on a worker, where its own fragment starts at its outermost bean call.
+            AgentCodePaths.begin();
+            AgentCodePaths.phase(RequestPhase.FILTERS);
+            try {
+                rc.next();
+            } finally {
+                AgentCodePaths.end();
+            }
         }
     }
 
@@ -191,6 +203,9 @@ public class QuarkusHttpExchangeCaptureFilter {
             }
         });
         rc.addBodyEndHandler(v -> {
+            // Runs on the thread that ended the response: on a worker, no end() closes the request's scope, so the
+            // code-paths phase its response filter marked is cleared here, before the worker takes other work.
+            AgentCodePaths.clearPhase();
             try {
                 long durationNanos = System.nanoTime() - startNanos;
                 long durationMs = durationNanos / 1_000_000L;

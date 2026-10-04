@@ -11,6 +11,8 @@ import io.github.jdubois.bootui.engine.architecture.ArchitecturePlatform;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
+import io.github.jdubois.bootui.engine.codepaths.JournalRequestOutcomes;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
@@ -282,6 +284,33 @@ public class BootUiEngineProducer {
 
     /** Stops Code Inventory's drain and scan threads with the application. */
     public void closeCodeInventoryService(@Disposes CodeInventoryService service) {
+        service.close();
+    }
+
+    /**
+     * Code Paths ({@code docs/PLAN-v2.md} §5.14, M5-4a): routes the agent's {@code code-paths} fragments of this start's
+     * claim into request trees and decides the sensor's adaptive exclusion. {@code QuarkusAgentClaimLifecycle} starts it
+     * at startup; a live reload's next start claims again and produces a new one.
+     */
+    @Produces
+    @Singleton
+    public CodePathsService codePathsService(
+            Instance<QuarkusAgentClaim> claim,
+            JavaAgentService javaAgent,
+            Instance<JournalAggregates> aggregates,
+            Instance<RuntimeJournal> journal) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        CodePathsService service =
+                new CodePathsService(AgentBridgeAccess.locate(), current::claim, javaAgent::codePathsUnavailableReason);
+        JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
+        service.setRequestOutcomes(JournalRequestOutcomes.of(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        return service;
+    }
+
+    /** Stops routing Code Paths' fragments with the application. */
+    public void closeCodePathsService(@Disposes CodePathsService service) {
         service.close();
     }
 

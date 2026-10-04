@@ -304,6 +304,50 @@ class SpringAgentScenarioIT {
         assertThat(changes.path("page").isObject()).isTrue();
     }
 
+    /**
+     * The code-paths sensor with the agent ({@code docs/PLAN-v2.md} M5-4a): installed beside the inventory sensor on
+     * the same transformer, self-tested, active for this claim, and recording a fragment for each request through the
+     * sample's beans, with nothing dropped and no internal error.
+     */
+    @Test
+    void theCodePathsSensorRecordsTheRequestsThroughTheSamplesBeans() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            assertThat(probe.get("/api/hello").status()).isEqualTo(200);
+        }
+        JsonNode codePaths = null;
+        JsonNode inventory = null;
+        for (JsonNode sensor : probe.get("/bootui/api/java-agent").json().path("sensors")) {
+            if ("code-paths".equals(sensor.path("id").asText())) {
+                codePaths = sensor;
+            } else if ("inventory".equals(sensor.path("id").asText())) {
+                inventory = sensor;
+            }
+        }
+        assertThat(codePaths).as("the code-paths sensor's row").isNotNull();
+        assertThat(inventory).as("the inventory sensor's row").isNotNull();
+        assertThat(codePaths.path("state").asText()).as(codePaths.toString()).isEqualTo("installed");
+        assertThat(codePaths.path("selfTestPassed").asBoolean())
+                .as(codePaths.toString())
+                .isTrue();
+        assertThat(codePaths.path("active").asBoolean())
+                .as(codePaths.toString())
+                .isTrue();
+        assertThat(codePaths.path("instrumentedTypes").asInt())
+                .as(codePaths.toString())
+                .isPositive();
+        JsonNode counters = codePaths.path("codePaths");
+        assertThat(counters.path("fragmentsFlushed").asLong())
+                .as(counters.toString())
+                .isGreaterThanOrEqualTo(3);
+        assertThat(counters.path("fragmentsDropped").asLong()).isZero();
+        assertThat(counters.path("queueDropped").asLong()).isZero();
+        assertThat(counters.path("errors").asLong()).isZero();
+        assertThat(counters.path("disabledReason").isNull()).isTrue();
+        assertThat(inventory.path("selfTestPassed").asBoolean())
+                .as(inventory.toString())
+                .isTrue();
+    }
+
     /** The ids of the requests to {@code path} in the journal. */
     private static Set<String> requests(String path) {
         Set<String> ids = new HashSet<>();

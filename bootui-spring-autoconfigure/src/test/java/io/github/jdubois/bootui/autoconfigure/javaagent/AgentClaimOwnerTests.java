@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.context.event.ApplicationFailedEvent;
+import org.springframework.context.annotation.AnnotationConfigUtils;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.support.GenericApplicationContext;
@@ -51,6 +52,90 @@ class AgentClaimOwnerTests {
         owner.destroy();
         assertThat(FakeBridge.CALLS).containsExactly("claim", "refine", "disarm");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void refinesWithTheUserClassesOfTheApplicationsBeans() {
+        AgentClaimOwner owner = owner();
+        String here = AgentClaimOwnerTests.class.getPackageName();
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AutoConfigurationPackages.register(context, here);
+            context.registerBean(OrderService.class, OrderService::new);
+            // A proxied singleton: its target's class, not the proxy's.
+            context.registerBean("proxied", Object.class, () -> {
+                org.springframework.aop.framework.ProxyFactory factory =
+                        new org.springframework.aop.framework.ProxyFactory(new Cart());
+                factory.setProxyTargetClass(true);
+                return factory.getProxy();
+            });
+            // A lazy bean never created: its definition's type.
+            context.registerBean(Lazy.class, Lazy::new, definition -> definition.setLazyInit(true));
+            context.registerBean(ShopProperties.class, ShopProperties::new);
+            context.registerBean(Runnable.class, () -> () -> {});
+            context.registerBean(StringBuilder.class, () -> new StringBuilder());
+            owner.initialize(context);
+            context.addApplicationListener(owner);
+
+            context.refresh();
+
+            assertThat((List<String>) FakeBridge.REQUESTS.get(1).get("beanClasses"))
+                    .containsExactlyInAnyOrder(OrderService.class.getName(), Cart.class.getName(), Lazy.class.getName())
+                    .doesNotContain(AgentClaimOwner.class.getName());
+            assertThat(context.getBeanFactory().containsSingleton("proxied")).isTrue();
+        }
+        assertThat(AgentClaimOwner.beanClasses(new GenericApplicationContext().getBeanFactory(), List.of()))
+                .isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void leavesOutTheClassesOfConfigurationPropertiesBeanMethods() {
+        AgentClaimOwner owner = owner();
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AnnotationConfigUtils.registerAnnotationConfigProcessors(context);
+            AutoConfigurationPackages.register(context, AgentClaimOwnerTests.class.getPackageName());
+            context.registerBean(PaymentConfiguration.class, PaymentConfiguration::new);
+            context.registerBean(OrderService.class, OrderService::new);
+            owner.initialize(context);
+            context.addApplicationListener(owner);
+
+            context.refresh();
+
+            assertThat(context.getBean(PaymentSettings.class)).isNotNull();
+            assertThat((List<String>) FakeBridge.REQUESTS.get(1).get("beanClasses"))
+                    .contains(OrderService.class.getName(), PaymentConfiguration.class.getName())
+                    .doesNotContain(PaymentSettings.class.getName());
+        }
+    }
+
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    public static class PaymentConfiguration {
+
+        @org.springframework.context.annotation.Bean
+        @org.springframework.boot.context.properties.ConfigurationProperties("payment")
+        public PaymentSettings paymentSettings() {
+            return new PaymentSettings();
+        }
+    }
+
+    public static class PaymentSettings {
+        public String getCurrency() {
+            return "EUR";
+        }
+    }
+
+    public static class OrderService {}
+
+    public static class Cart {
+        public int size() {
+            return 0;
+        }
+    }
+
+    public static class Lazy {}
+
+    @org.springframework.boot.context.properties.ConfigurationProperties("shop")
+    public static class ShopProperties {}
 
     @Test
     void attachesTheContextsHandoffsWhenItsContextIsRefreshedAndDetachesThemWhenItCloses() {

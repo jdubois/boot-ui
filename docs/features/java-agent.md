@@ -92,8 +92,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 ## The executors sensor
 
-A claim asks for the sensors in `bootui.agent.sensors`: `executors` and [`inventory`](#the-inventory-sensor), the
-defaults, and the opt-in [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then
+A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor), and
+[`code-paths`](#the-code-paths-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -354,7 +354,102 @@ Accepted limits: calls made before BootUI claims the agent (typically the main c
 startup code before its claim) are not seen, though in the agent's first run the classes already loaded are marked
 late; a thread of the previous run still running after a DevTools restart marks its methods executed in the new run; a
 method HotSwapped without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
-sensor's check, so a stubbed method does not count as executed, while a spy's real call does.
+sensor's check, so a stubbed method does not count as executed, while a spy's real call does. The `inventory` sensor
+shares its transformer with the [`code-paths` sensor](#the-code-paths-sensor).
+
+## The code-paths sensor
+
+The `code-paths` sensor, on by default, times the application's bean methods per request: for each request, a call
+tree of the public and protected methods of its beans, merged by caller and method, with each node's calls, total time,
+time in its callees, and the request phase it entered in (filters, handler, or response). It is the evidence behind
+Code Paths (PLAN-v2 §5.14); in this release BootUI keeps the trees in memory, and the Java Agent panel shows the sensor's
+row, its hook, and its counters. The panel and tools that read the trees come next.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `bean methods` | times bean methods per request | the public and protected instance methods of the application's bean classes |
+
+**What is timed.** The bean classes come from the adapter: on Spring, the user class of every bean in the
+application's packages, read when the context refreshes (a singleton's target class through any AOP proxy, else the
+bean definition's type, CGLIB subclasses resolved to their user class); on Quarkus, the application archive's classes
+with a bean-defining annotation (`@ApplicationScoped`, `@RequestScoped`, `@SessionScoped`, `@Dependent`, `@Singleton`,
+`@Startup`) or `@Path` or `@Provider`, read at build time and sent with the static-init claim. The agent keeps them as a
+union across claims, so a DevTools restart's or a live reload's classes get their timing as they load, and a refine
+that names a bean class already loaded retransforms it. Never timed: constructors, static initializers, static methods
+(such as Panache's), private and package-private methods, `$`-prefixed, synthetic, and bridge methods, `equals`,
+`hashCode`, and `toString`, record accessors, configuration-properties holders (a class annotated
+`@ConfigurationProperties`, or created by a `@Bean` method annotated so), interfaces, lambdas, and everything the
+[inventory sensor](#the-inventory-sensor) never instruments. A framework or library method appears only
+as time of the bean method that called it.
+
+**One transformer.** The `inventory` and `code-paths` sensors share one transformer of the application's classes, with
+one advice per sensor: a claim asking for one of them applies only its advice, a claim asking for another set
+retransforms the classes whose advice changes, and a claim asking for neither removes the transformer and restores every
+class. Each advice has its own self-test; the code paths' calls a bundled probe whose methods must see their entry
+counted and their exit popped, both on return and on a thrown exception. A failed self-test removes only that sensor's
+advice. A class whose transformation fails with the code paths' advice, as a method that advice pushes past the JVM's
+64 KB code limit, is never given it again and is retransformed with the inventory's advice alone, so it keeps its
+inventory. Loaded classes are retransformed in batches of 64, a batch the JVM rejects split down to the class it
+rejects.
+
+**On the application thread.** The advice is one call into the agent's bridge at entry and one at exit. A thread's
+first timed call captures its owner once, through the same correlation BootUI's executor propagation uses: a request,
+or a task an executor runs for one, which the tree keeps apart as an asynchronous child of its request. A call with no
+owner, as at startup or in a scheduled job, only counts depth, so its callees never capture again. With an owner, the
+thread borrows a tree from a pool of 256 and records into it until the outermost call returns, or, around a Spring MVC
+request's scope and a Quarkus request's event-loop routing, until the adapter closes the scope, so application filters
+outside BootUI's own filter are recorded apart; a scope opened again inside it for the same request, as a Vert.x
+reroute, is part of it, and a scope in which no bean method ran hands nothing over. The tree is then handed to BootUI as
+one fragment of at most 512 nodes:
+calls deeper than 32 levels stay in their level-32 ancestor's time, and once 480 nodes are used, each caller's further
+methods share one **Other** node. A Quarkus blocking resource method runs on a worker thread, whose fragment starts at
+its outermost bean call; its nodes record the phase the request's filters last marked on that worker, which is cleared
+when the worker's fragment ends and when the response has been written, so the worker's next work never inherits it.
+
+**Adaptive exclusion.** BootUI sums each method's calls and time from the fragments, with the time those fragments
+recorded, not the wall time between them, so a request a minute that calls a cheap mapper a million times is judged on
+what it did. A method is judged once its fragments recorded 100 ms, which one long request can do alone, and otherwise
+every second if it was called at least 5,000 times; one called more than 50,000 times a second of that recorded time,
+with a mean under 2 µs, such as a getter in a loop, is no longer timed for the rest of the run, and its time stays in
+its caller. A new run times it again.
+
+**Bounds and failures.** Nothing on the application thread blocks or allocates per call: an empty pool drops the
+fragment, a full queue (4 MB of fragments) drops it, and both are counted. Every entry point of the bridge catches its
+own errors and resets the thread's state, and after 100 internal errors the sensor switches itself off for the JVM's
+life, which its row says. A `StackOverflowError` or `OutOfMemoryError` thrown inside the bridge, as an application's
+runaway recursion through timed methods, resets the thread's state too but is the application's, never counted toward
+that limit. A thread that dies inside a request's scope keeps its tree only until the next run, whose pool starts from
+the free trees. On the machine this was measured on, a timed call costs about 110 ns, most of it the two
+`System.nanoTime()` reads (43 ns each there); a call with no owner about 26 ns, and an excluded one about 10 ns.
+
+| Counter | What it counts |
+| --- | --- |
+| Fragments recorded | Call trees of requests' bean methods handed to BootUI, one per thread. |
+| Fragments dropped | Fragments not recorded because every tree of the pool was in use. |
+| Queue full | Fragments dropped because the fragment queue was full. |
+| Calls in no node | Calls deeper than 32 levels or past a fragment's node budget, whose time stays in their caller. |
+| Bytes waiting | Fragments waiting for BootUI to read them. |
+| Methods excluded | Methods no longer timed in this run by the adaptive exclusion. |
+| Internal errors | Errors of the sensor itself; after 100 it switches itself off. |
+
+In the report, the sensor's `codePaths` object carries them as `fragmentsFlushed`, `fragmentsDropped`, `queueDropped`,
+`callsDropped`, `queueBytes`, `excludedMethods`, and `errors`, with `disabledReason` when the sensor stopped recording;
+its hook's `fired` count is fragments, not calls, since the advice keeps no global counter. Other sensors' `codePaths`
+is `null`. The shared transformer's counters are on the `inventory` row while its advice applies, and on the
+`code-paths` row otherwise.
+
+**Debuggers.** The agent's bridge, which the advice calls, carries no line numbers or local variable tables, only its
+source file names, so stepping into an instrumented method in IntelliJ IDEA, Eclipse, or any JDI debugger steps over
+the advice's calls into BootUI and stops in the application's method, as a forked JDI test verifies; an error the bridge
+reports shows its file but no line number. Two calls also reach BootUI's correlation capture, which is regular
+application-class-path code: the first timed call on a thread with no request scope open, as an executor task or a
+scheduled job, and the first call of each method in a run, which the inventory sensor records with its owner. A debugger
+stepping into one of those can stop there, unless `io.github.jdubois.bootui.*` is in its step filters.
+
+Accepted limits: Spring WebFlux and reactive Quarkus endpoints time the assembly of their pipeline on the thread that
+builds it, not its execution; a request's handler phase cannot yet be split by these trees (that comes with the Code
+Paths panel); calls made before BootUI claims the agent are not seen; and an agent jar from before this sensor leaves
+it unavailable while the other sensors keep working.
 
 ## Coexistence and class data sharing
 
@@ -385,7 +480,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory` | The sensors this application asks for: `executors` and `inventory`, and the opt-in `threads`. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths` | The sensors this application asks for: `executors`, `inventory`, and `code-paths`, and the opt-in `threads`. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |

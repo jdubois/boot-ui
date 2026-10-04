@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.Ordered;
 import org.springframework.http.MediaType;
@@ -44,6 +45,7 @@ public final class RequestPhaseResponseBodyAdvice implements ResponseBodyAdvice<
             Class<? extends HttpMessageConverter<?>> selectedConverterType,
             ServerHttpRequest request,
             ServerHttpResponse response) {
+        AgentCodePaths.phase(RequestPhase.RESPONSE);
         try {
             phases.mark(BootUiCorrelation.current().requestId(), RequestPhase.RESPONSE);
         } catch (RuntimeException ex) {

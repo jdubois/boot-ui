@@ -364,6 +364,7 @@ public final class RuntimeInsightsService {
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of(),
                     0,
+                    Map.of(),
                     0);
         }
         JournalStatus status = journal.status();
@@ -382,6 +383,7 @@ public final class RuntimeInsightsService {
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
                 && cached.clears() == status.clears()
+                && cached.dropped().equals(status.dropped())
                 && text.equals(cached.exposure())
                 && cached.inventory() == inventory) {
             return cached;
@@ -680,7 +682,8 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears(), 0L);
+        return new Cached(
+                watermark, evicted, visibility, capture, text, report, details, status.clears(), status.dropped(), 0L);
     }
 
     /**
@@ -903,17 +906,30 @@ public final class RuntimeInsightsService {
         Set<JournalSource> sources = EnumSet.noneOf(JournalSource.class);
         sources.addAll(observation.reads());
         for (JournalSource source : observation.optionalReads()) {
-            if (snapshot.records(source)) {
+            if (snapshot.available(source)) {
                 sources.add(source);
             }
         }
         if (observation.unitKinds().contains(ProjectedRequest.Kind.HTTP)) {
-            sources.add(JournalSource.HTTP);
+            addAnchor(sources, JournalSource.HTTP, snapshot);
+        }
+        if (observation.unitKinds().contains(ProjectedRequest.Kind.SCHEDULED)) {
+            addAnchor(sources, JournalSource.SCHEDULED, snapshot);
+        }
+        if (observation.unitKinds().contains(ProjectedRequest.Kind.MESSAGE)) {
+            addAnchor(sources, JournalSource.MESSAGING, snapshot);
+            addAnchor(sources, JournalSource.WEBSOCKET, snapshot);
         }
         long dropped = sources.stream().mapToLong(snapshot::dropped).sum();
         return dropped == 0
                 ? null
                 : "The journal dropped " + dropped + " events this observation reads, so its counts are a floor.";
+    }
+
+    private static void addAnchor(Set<JournalSource> sources, JournalSource source, InsightsSnapshot snapshot) {
+        if (snapshot.available(source)) {
+            sources.add(source);
+        }
     }
 
     /** {@code The sql-trace panel}, or {@code The kafka, rabbitmq and jms panels} when several are named. */
@@ -1019,11 +1035,21 @@ public final class RuntimeInsightsService {
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
             long clears,
+            Map<JournalSource, Long> dropped,
             long inventory) {
 
         Cached withInventory(long fingerprint) {
             return new Cached(
-                    watermark, evicted, visibility, sqlCapture, exposure, report, details, clears, fingerprint);
+                    watermark,
+                    evicted,
+                    visibility,
+                    sqlCapture,
+                    exposure,
+                    report,
+                    details,
+                    clears,
+                    dropped,
+                    fingerprint);
         }
     }
 }

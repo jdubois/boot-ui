@@ -192,7 +192,7 @@ class RunComparisonTests {
     }
 
     @Test
-    void hibernateFlushesAndEntitiesPerRequestAreBehaviorRowsOnlyWhenBothRunsRecordedSessions() {
+    void hibernateFlushesAndEntitiesPerRequestAreBehaviorRowsWhenBothRunsRecordedOrm() {
         Run before = new Run();
         Run after = new Run();
         Run withoutOrm = new Run();
@@ -213,9 +213,31 @@ class RunComparisonTests {
         assertThat(comparison.behavior().get(1).sentence())
                 .isEqualTo("`POST /api/import` held 600 entities in its persistence context per request, up from 30 in"
                         + " run 4.");
-        assertThat(compare(withoutOrm, after, H2, H2).behavior())
-                .as("a run that recorded no session never reads as a route that stopped flushing")
+        RuntimeRunComparisonDto added = compare(withoutOrm, after, H2, H2);
+        RuntimeRunComparisonDto removed = compare(after, withoutOrm, H2, H2);
+        assertThat(added.behavior()).extracting(RuntimeRunChangeDto::kind).containsExactly("flushes-per-request");
+        assertThat(removed.behavior()).extracting(RuntimeRunChangeDto::kind).containsExactly("flushes-per-request");
+        assertThat(added.behavior().get(0).before()).isZero();
+        assertThat(added.behavior().get(0).after()).isEqualTo(4);
+        assertThat(removed.behavior().get(0).before()).isEqualTo(4);
+        assertThat(removed.behavior().get(0).after()).isZero();
+        assertThat(added.limitations()).anyMatch(value -> value.contains("hibernate.session.events.auto"));
+        assertThat(removed.limitations()).anyMatch(value -> value.contains("hibernate.session.events.auto"));
+        RunStart ormDisabled = new RunStart(
+                null,
+                List.of(),
+                ComparabilityFacts.of(
+                        List.of("dev"),
+                        Map.of("dataSource", "jdbc:h2:mem:shop"),
+                        null,
+                        true,
+                        java.util.Set.of(JournalSource.HTTP)));
+        assertThat(compare(withoutOrm, after, ormDisabled, H2).behavior()).isEmpty();
+        assertThat(compare(after, withoutOrm, H2, ormDisabled).behavior()).isEmpty();
+        assertThat(compare(withoutOrm, after, null, H2).behavior())
+                .as("legacy summaries without source settings require events in both runs")
                 .isEmpty();
+        assertThat(compare(after, withoutOrm, H2, null).behavior()).isEmpty();
     }
 
     @Test

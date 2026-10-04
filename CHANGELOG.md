@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
+  protected methods of the application's beans per request, as call trees built on the request's own threads, with
+  executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
+  bounded memory that drops and counts rather than blocks. It shares one transformer with the `inventory` sensor; the
+  Java Agent panel shows its row and counters on Spring MVC, Spring WebFlux, and Quarkus. Spring sends its bean classes
+  when the context refreshes and Quarkus at build time. A debugger stepping into a timed method steps over the agent's
+  calls, whose bridge carries no line numbers. The Code Paths panel and tools that read the trees follow
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
+
 ### Changed
 
 - **Durable Live Activity history is journal-rendered.** With
@@ -22,6 +33,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,
   ambiguity-aware request attribution for route child counts, time, and tokens as for runtime-model edges, including
   late-request reclaim without double counting (PLAN-v2 §5.2, M3-3c, M4-11).
+
+- **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
+  completion events now mark observations that examine those executions partial, while disabled optional evidence
+  does not. Collection and Code Inventory checks do not count unrelated execution drops.
+  A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
+  includes Hibernate flush counts changing to or from zero when both runs recorded the ORM source,
+  with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
+  event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
+  [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
+  [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
 
 - **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
   pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
@@ -42,6 +63,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
   and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
   tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
+
 - **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the

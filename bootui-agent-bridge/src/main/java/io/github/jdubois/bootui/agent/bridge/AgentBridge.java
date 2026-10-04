@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -120,6 +121,12 @@ public final class AgentBridge {
         String[] skipThreads = array(options instanceof Map ? ((Map<?, ?>) options).get("skipThreads") : null);
         Object capacity = request.get("ringCapacity");
         int ringCapacity = capacity instanceof Number ? ((Number) capacity).intValue() : AgentRing.DEFAULT_CAPACITY;
+        List<String> beanClasses = beanClasses(request.get("beanClasses"));
+        Object codePathsOptions = request.get("codePaths");
+        Object pool = codePathsOptions instanceof Map ? ((Map<?, ?>) codePathsOptions).get("poolSize") : null;
+        Object queue = codePathsOptions instanceof Map ? ((Map<?, ?>) codePathsOptions).get("queueBytes") : null;
+        int codePathsPool = pool instanceof Number ? ((Number) pool).intValue() : 0;
+        long codePathsQueueBytes = queue instanceof Number ? ((Number) queue).longValue() : 0L;
         String slot = Claim.slot(mode, application);
         while (true) {
             Claim current = CLAIM.get();
@@ -142,6 +149,9 @@ public final class AgentBridge {
                     skipTasks,
                     skipThreads,
                     ringCapacity,
+                    beanClasses,
+                    codePathsPool,
+                    codePathsQueueBytes,
                     System.currentTimeMillis(),
                     true,
                     new WeakReference<Supplier<Object>>(capture),
@@ -161,25 +171,35 @@ public final class AgentBridge {
                         error(ex);
                     }
                 }
+                if (next.hasSensor(CodePaths.SENSOR)) {
+                    // Before the agent hears of the claim, so the sensor records for the new run as soon as it can.
+                    CodePaths.claimed(next);
+                }
+                CodePaths.refresh();
                 return transition(agent, "claim", next, ARMED);
             }
         }
     }
 
-    /** Adds packages to the current claim (bean classes known once the application context started). */
+    /**
+     * Adds {@code packages} and {@code beanClasses} (binary names, for the code-paths sensor) to the current claim, as
+     * known once the application context started.
+     */
     public static Map<String, Object> refine(long token, Map<String, ?> request) {
         Function<Map<String, Object>, Map<String, Object>> agent = AGENT.get();
         if (agent == null) {
             return result(UNAVAILABLE, "the BootUI agent did not start", null);
         }
         List<String> packages = request == null ? Collections.<String>emptyList() : strings(request.get("packages"));
+        List<String> beanClasses =
+                request == null ? Collections.<String>emptyList() : beanClasses(request.get("beanClasses"));
         while (true) {
             Claim current = CLAIM.get();
             if (current == null || current.token != token || !current.armed) {
                 STALE_TOKENS.increment();
                 return result(STALE, "this claim was replaced or ended", current);
             }
-            Claim next = current.withPackages(packages);
+            Claim next = current.refined(packages, beanClasses);
             if (CLAIM.compareAndSet(current, next)) {
                 return transition(agent, "refine", next, ARMED);
             }
@@ -200,6 +220,7 @@ public final class AgentBridge {
             }
             Claim next = current.disarmed();
             if (CLAIM.compareAndSet(current, next)) {
+                CodePaths.refresh();
                 return transition(agent, "disarm", next, DISARMED);
             }
         }
@@ -225,6 +246,7 @@ public final class AgentBridge {
             // A release takes its own generation, so the agent never applies it over a newer claim it saw first.
             long generation = GENERATIONS.incrementAndGet();
             if (CLAIM.compareAndSet(current, null)) {
+                CodePaths.refresh();
                 Map<String, Object> request = new LinkedHashMap<String, Object>();
                 request.put("op", "release");
                 request.put("generation", Long.valueOf(generation));
@@ -290,6 +312,9 @@ public final class AgentBridge {
             if (inventoryClaimed) {
                 map.put(CodeInventory.SENSOR, CodeInventory.status());
             }
+            if (CodePaths.claimedOnce) {
+                map.put(CodePaths.SENSOR, CodePaths.status());
+            }
             map.put("ring", AgentRing.status());
         } catch (Throwable ex) {
             error(ex);
@@ -322,6 +347,8 @@ public final class AgentBridge {
             Function<Map<String, Object>, Map<String, Object>> agent, String op, Claim claim, String status) {
         Map<String, Object> request = claim.describe();
         request.put("op", op);
+        // The names only for the agent: status and answers carry their count.
+        request.put("beanClasses", new ArrayList<String>(claim.beanClasses));
         return answered(agent, request, claim, status);
     }
 
@@ -394,6 +421,24 @@ public final class AgentBridge {
         return CLAIM.get();
     }
 
+    /** Bean class names, at most {@link Claim#MAX_BEAN_CLASSES}. */
+    private static List<String> beanClasses(Object value) {
+        if (!(value instanceof Collection)) {
+            return Collections.<String>emptyList();
+        }
+        LinkedHashSet<String> names = new LinkedHashSet<String>();
+        Object[] items = ((Collection<?>) value).toArray();
+        for (int i = 0; i < items.length && names.size() < Claim.MAX_BEAN_CLASSES; i++) {
+            if (items[i] != null) {
+                String name = String.valueOf(items[i]);
+                if (!name.isEmpty()) {
+                    names.add(name);
+                }
+            }
+        }
+        return Collections.unmodifiableList(new ArrayList<String>(names));
+    }
+
     private static List<String> strings(Object value) {
         List<String> list = new ArrayList<String>();
         if (value instanceof Collection) {
@@ -428,6 +473,7 @@ public final class AgentBridge {
         TaskPropagation.reset();
         ThreadPropagation.reset();
         CodeInventory.reset();
+        CodePaths.reset();
         AgentRing.reset();
         inventoryClaimed = false;
     }

@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory.KeptRun;
 import io.github.jdubois.bootui.engine.inventory.InventoryRecords.First;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
@@ -52,7 +53,7 @@ import java.util.logging.Logger;
  * claim on the BootUI agent, which application methods executed, which changed since the previous run, and which
  * dependencies loaded classes.
  *
- * <p>Per run, {@link #start()} starts the {@link AgentRecordDrainer} for the claim and scans the application's class
+ * <p>Per run, {@link #start()} routes the inventory sensor's records from the claim's {@link AgentRecordDrainer} and scans the application's class
  * files off the calling thread ({@link ClassScanner}), comparing their method hashes with the previous run's kept in the
  * {@link CodeInventoryHistory}. A read drains the agent's records once more, then joins three sources: the scan, which
  * gives the denominator and the change set; the bridge's hit flags, which say exactly which tracked methods executed;
@@ -221,7 +222,7 @@ public final class CodeInventoryService implements AutoCloseable {
                         run.close();
                     }
                     run = new Run(claim, access);
-                    run.drainer.start();
+                    run.start();
                 }
                 List<String> packages = claim.claimedPackages();
                 if (!packages.equals(run.scanPackages)) {
@@ -672,7 +673,9 @@ public final class CodeInventoryService implements AutoCloseable {
             if (fresh(cached, current, access.inventoryVersion(), now)) {
                 return cached;
             }
-            current.drainer.drainNow();
+            if (current.drainer != null) {
+                current.drainer.drainNow();
+            }
             Map<String, Object> snapshot = access.inventorySnapshot(current.generation);
             if (snapshot == null) {
                 return null;
@@ -1440,7 +1443,13 @@ public final class CodeInventoryService implements AutoCloseable {
             this.claim = claim;
             this.generation = claim.generation();
             this.records = new InventoryRecords(generation, access);
-            this.drainer = new AgentRecordDrainer(claim, access, Map.of(AgentRecordDrainer.SENSOR_INVENTORY, records));
+            this.drainer = claim.drainer();
+        }
+
+        void start() {
+            if (drainer != null) {
+                drainer.route(AgentRecordDrainer.SENSOR_INVENTORY, records);
+            }
         }
 
         synchronized DependencyRead declared(CodeInventoryService service) {
@@ -1452,7 +1461,9 @@ public final class CodeInventoryService implements AutoCloseable {
 
         void close() {
             closed = true;
-            drainer.close();
+            if (drainer != null) {
+                drainer.unroute(AgentRecordDrainer.SENSOR_INVENTORY, records);
+            }
         }
     }
 

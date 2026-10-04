@@ -42,6 +42,8 @@ public final class ChildMain {
             case "thread-behaviors" -> ThreadBehaviors.main(new String[0]);
             case "inventory-behaviors" -> InventoryBehaviors.main(new String[0]);
             case "inventory-mockito" -> InventoryMockito.main(new String[] {args[1]});
+            case "code-paths-behaviors" -> CodePathsBehaviors.main(new String[] {args[1]});
+            case "code-paths-mockito" -> CodePathsMockito.main(new String[] {args[1]});
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }
@@ -244,6 +246,8 @@ public final class ChildMain {
         System.out.println("EXECUTORS=" + executors(bridge()));
         System.out.println(
                 "INVENTORY=" + ((Map<?, ?>) bridge().getMethod("status").invoke(null)).get("inventory"));
+        System.out.println(
+                "CODE_PATHS=" + ((Map<?, ?>) bridge().getMethod("status").invoke(null)).get("code-paths"));
         for (int i = 0; i < 3; i++) {
             System.gc();
             Thread.sleep(100);
