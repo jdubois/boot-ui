@@ -25,6 +25,41 @@ import tools.jackson.databind.node.ObjectNode;
 class BootUiMcpServiceTests {
 
     @Test
+    void comparisonAdvertisesAnOptionalIdAndAcceptsOmission() {
+        AtomicReference<McpArguments> received = new AtomicReference<>();
+        BootUiMcpService comparison = new BootUiMcpService(
+                List.of(new McpTool(
+                        "get_runtime_run_comparison",
+                        "Compare.",
+                        McpToolSchema.OPTIONAL_ID,
+                        BootUiPanels.RUNTIME_INSIGHTS,
+                        false,
+                        args -> {
+                            received.set(args);
+                            return java.util.Map.of("selected", args.id() == null ? "previous" : args.id());
+                        })),
+                properties,
+                objectMapper,
+                "1.2.3",
+                (operation, failure) -> {
+                    throw new AssertionError(failure);
+                });
+        JsonNode schema = comparison
+                .handle(request("tools/list", 1, null))
+                .path("result")
+                .path("tools")
+                .get(0)
+                .path("inputSchema");
+        assertThat(schema.has("required")).isFalse();
+        assertThat(schema.path("properties").has("id")).isTrue();
+        JsonNode reply = comparison.handle(
+                objectMapper.readTree(
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_runtime_run_comparison\"}}"));
+        assertThat(reply.has("error")).isFalse();
+        assertThat(received.get().id()).isNull();
+    }
+
+    @Test
     void advisorSchemaAndCodecProjectAllRequiredAndOptionalPageArguments() {
         AtomicReference<McpArguments> received = new AtomicReference<>();
         BootUiMcpService pages = advisorService(args -> {

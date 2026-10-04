@@ -55,14 +55,18 @@ public final class JournalSourcePanels {
     public static String panelOf(RuntimeEvent event) {
         if (event.source() == JournalSource.MESSAGING) {
             String broker = event.payload() instanceof MessagingPayload message ? String.valueOf(message.broker()) : "";
-            return switch (broker) {
-                case "jms" -> BootUiPanels.JMS;
-                case "rabbitmq" -> BootUiPanels.RABBITMQ;
-                default -> BootUiPanels.KAFKA;
-            };
+            return messagingPanel(broker);
         }
         List<String> panels = panelsOf(event.source());
         return panels.isEmpty() ? null : panels.get(0);
+    }
+
+    /** The owning panel of a broker, including the same Kafka fallback used for journal events. */
+    public static String messagingPanel(String broker) {
+        if ("jms".equals(broker)) {
+            return BootUiPanels.JMS;
+        }
+        return "rabbitmq".equals(broker) ? BootUiPanels.RABBITMQ : BootUiPanels.KAFKA;
     }
 
     /**
@@ -105,12 +109,7 @@ public final class JournalSourcePanels {
             case JournalActivityFeed.TYPE_WEBSOCKET -> BootUiPanels.WEBSOCKETS;
             case JournalActivityFeed.TYPE_ORM -> BootUiPanels.HIBERNATE;
             case JournalActivityFeed.TYPE_ASYNC -> BootUiPanels.JAVA_AGENT;
-            case JournalActivityFeed.TYPE_MESSAGING ->
-                switch (String.valueOf(row.detail())) {
-                    case "jms" -> BootUiPanels.JMS;
-                    case "rabbitmq" -> BootUiPanels.RABBITMQ;
-                    default -> BootUiPanels.KAFKA;
-                };
+            case JournalActivityFeed.TYPE_MESSAGING -> messagingPanel(String.valueOf(row.detail()));
             default -> null;
         };
     }

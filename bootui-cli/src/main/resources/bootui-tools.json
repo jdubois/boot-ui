@@ -501,7 +501,7 @@
     {
       "name": "get_runtime_run_comparison",
       "command": "insights compare",
-      "schema": "ID",
+      "schema": "OPTIONAL_ID",
       "panel": "runtime-insights",
       "action": false,
       "stacks": [
@@ -509,7 +509,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Compare this run with a kept one: id is previous or a run id."
+      "summary": "Compare this run with a kept one: id is optional, previous or a run id."
     },
     {
       "name": "get_runtime_impact",

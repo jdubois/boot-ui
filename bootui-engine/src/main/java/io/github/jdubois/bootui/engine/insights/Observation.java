@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -31,6 +32,11 @@ public interface Observation {
         return Set.of();
     }
 
+    /** The request and execution kinds it examines; none when it reads only unowned collection events. */
+    default Set<ProjectedRequest.Kind> unitKinds() {
+        return EnumSet.allOf(ProjectedRequest.Kind.class);
+    }
+
     /**
      * Why it does not apply to this snapshot, such as a stack that has no event loop, or {@code null} when it applies.
      * Called after its {@linkplain #reads() sources} are known to be recorded and visible.
@@ -51,11 +57,20 @@ public interface Observation {
      *     judge and left out of {@code eligibleRequests}, such as requests whose statements could not be placed
      *     against their transactions, or what it judged but does not report, such as methods whose remote calls were
      *     all fast; {@code null} when it left nothing out
+     * @param hasEligibleWork whether it examined eligible work, including evidence not counted as requests, such as
+     *     garbage collections; positive request counts or a sufficient finding always establish this
      */
-    record Evaluation(long eligibleRequests, List<Finding> findings, String uncounted) {
+    record Evaluation(long eligibleRequests, List<Finding> findings, String uncounted, boolean hasEligibleWork) {
 
         public Evaluation {
             findings = List.copyOf(findings);
+            hasEligibleWork =
+                    hasEligibleWork || eligibleRequests > 0 || findings.stream().anyMatch(Finding::sufficient);
+        }
+
+        /** An evaluation whose eligible work is counted as requests or established by its findings. */
+        public Evaluation(long eligibleRequests, List<Finding> findings, String uncounted) {
+            this(eligibleRequests, findings, uncounted, eligibleRequests > 0);
         }
 
         /** An evaluation that judged everything it read. */

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.model.EdgeDiff.EdgeRef;
 import io.github.jdubois.bootui.engine.model.ObservedEdge;
@@ -93,6 +94,11 @@ public final class JournalAggregates implements JournalListener {
             new CappedMap<>(MAX_TRANSACTIONAL_METHODS, TransactionalMethod::new);
     private final CappedMap<ThreadFamily> threadFamilies = new CappedMap<>(MAX_THREAD_FAMILIES, ThreadFamily::new);
     private final LinkedHashMap<String, PendingRequest> pending = new LinkedHashMap<>();
+    private final CappedMap<Route> executionStats = new CappedMap<>(MAX_ROUTES, Route::new);
+    private final Map<String, JournalSource> executionSources = new LinkedHashMap<>();
+    private final LinkedHashMap<String, PendingRequest> pendingExecutions = new LinkedHashMap<>();
+    private final Map<String, Boolean> completedExecutions = bounded(MAX_PENDING_REQUESTS);
+    private long unattributedExecutions;
 
     /** The most recently completed requests, including the state needed to apply exactly owned late events once. */
     private final LinkedHashMap<String, CompletedRequest> completed = new LinkedHashMap<>();
@@ -252,6 +258,24 @@ public final class JournalAggregates implements JournalListener {
             }
             return;
         }
+        ObservedEdges.Execution execution = ObservedEdges.execution(event, http -> null);
+        if (event.requestId() == null && execution != null && !execution.request()) {
+            String subject = event.source().propertyName() + " " + execution.key();
+            Route stats = executionStats.get(subject);
+            if (executionSources.containsKey(subject) || executionSources.size() < MAX_ROUTES) {
+                executionSources.putIfAbsent(subject, event.source());
+            }
+            boolean failed = payload instanceof ScheduledPayload job && job.exceptionClass() != null
+                    || payload instanceof MessagingPayload message && message.failed()
+                    || payload instanceof WebSocketPayload socket && socket.failed();
+            stats.add(event, failed ? 500 : 200);
+            PendingRequest held = pendingExecutions.remove(event.executionId());
+            if (held != null) {
+                stats.fold(held, subject, failed ? 500 : 200, this);
+            }
+            completedExecutions.put(event.executionId(), Boolean.TRUE);
+            return;
+        }
         CompletedRequest completedRequest = event.requestId() == null ? null : completed.get(event.requestId());
         boolean expiredRequest = event.requestId() != null
                 && completedRequest == null
@@ -259,9 +283,11 @@ public final class JournalAggregates implements JournalListener {
         if (expiredRequest) {
             lateAttributionExpiry++;
         }
-        PendingRequest children = completedRequest != null
-                ? completedRequest.children
-                : expiredRequest ? null : pendingFor(event.requestId());
+        PendingRequest children = event.requestId() == null
+                ? executionChildren(event.executionId())
+                : completedRequest != null
+                        ? completedRequest.children
+                        : expiredRequest ? null : pendingFor(event.requestId());
         if (children != null) {
             children.add(event);
         }
@@ -597,6 +623,24 @@ public final class JournalAggregates implements JournalListener {
         return expiredTraces.containsKey(edge.traceId);
     }
 
+    private PendingRequest executionChildren(String id) {
+        if (id == null || ExecutionIds.isAsync(id) || id.startsWith("task-") || completedExecutions.containsKey(id)) {
+            return null;
+        }
+        PendingRequest children = pendingExecutions.get(id);
+        if (children == null) {
+            if (pendingExecutions.size() >= MAX_PENDING_REQUESTS) {
+                Iterator<String> oldest = pendingExecutions.keySet().iterator();
+                oldest.next();
+                oldest.remove();
+                unattributedExecutions++;
+            }
+            children = new PendingRequest();
+            pendingExecutions.put(id, children);
+        }
+        return children;
+    }
+
     /**
      * What the run recorded when it started, from its first {@link LifecyclePayload#RUN_STARTED} event, or {@code null}
      * before it. <b>Clear recording</b> keeps it, as it describes the run rather than its activity.
@@ -622,6 +666,11 @@ public final class JournalAggregates implements JournalListener {
     /** Drops every aggregate, for <b>Clear recording</b>. */
     public synchronized void clear() {
         resourceTrack.clear();
+        executionStats.clear();
+        executionSources.clear();
+        pendingExecutions.clear();
+        completedExecutions.clear();
+        unattributedExecutions = 0;
         routes.clear();
         statements.clear();
         exceptionGroups.clear();
@@ -724,11 +773,26 @@ public final class JournalAggregates implements JournalListener {
         }
         overflowed.put(TRACE_AI_ATTRIBUTIONS, projectedTraceExpiry);
         overflowed.put(EDGES, projectedEdgeOverflow);
+        overflowed.put("executions", executionStats.overflowed());
+        overflowed.put("unattributedExecutions", unattributedExecutions);
+        List<ExecutionStats> work = new ArrayList<>();
+        executionStats
+                .entries()
+                .forEach((key, value) -> work.add(new ExecutionStats(executionSources.get(key), value.stats(key))));
         List<ObservedEdge> edgeStats = new ArrayList<>(projectedEdges.size());
         projectedEdges.forEach(
                 (edge, count) -> edgeStats.add(new ObservedEdge(edge, count.count, count.first, count.last)));
         return new AggregatesSnapshot(
-                routeStats, statementStats, groupStats, methodStats, familyStats, edgeStats, run, overflowed);
+                routeStats,
+                statementStats,
+                groupStats,
+                methodStats,
+                familyStats,
+                edgeStats,
+                run,
+                overflowed,
+                work,
+                true);
     }
 
     /** Adds one observation of {@code edge} to {@code projected}, and whether it was kept rather than overflowed. */
@@ -892,6 +956,7 @@ public final class JournalAggregates implements JournalListener {
 
     private static final class Route {
 
+        private long samples;
         private final LatencyHistogram latency = new LatencyHistogram();
         private final LatencyHistogram warmLatency = new LatencyHistogram();
         private final long[] statusClasses = new long[5];
@@ -904,6 +969,7 @@ public final class JournalAggregates implements JournalListener {
         private long unmeasuredRequests;
         private long cpuNanos;
         private long allocatedBytes;
+        private final LatencyHistogram allocation = new LatencyHistogram();
         private long gcPauses;
         private long requestsWithGcPause;
         private long gcPauseNanos;
@@ -925,6 +991,7 @@ public final class JournalAggregates implements JournalListener {
                     measuredRequests++;
                     cpuNanos += usage.cpuNanos();
                     allocatedBytes += usage.allocatedBytes();
+                    allocation.recordValue(usage.allocatedBytes());
                 }
                 case PARTIAL -> partialRequests++;
                 case UNAVAILABLE -> unmeasuredRequests++;
@@ -937,7 +1004,7 @@ public final class JournalAggregates implements JournalListener {
 
         void add(RuntimeEvent event, int status) {
             // A route's first request is its cold one, which loads classes and fills caches.
-            if (latency.count() > 0) {
+            if (samples++ > 0) {
                 warmLatency.recordNanos(event.durationNanos());
             }
             latency.recordNanos(event.durationNanos());
@@ -1033,7 +1100,7 @@ public final class JournalAggregates implements JournalListener {
             statements.entries().forEach((fingerprint, count) -> statementCounts.put(fingerprint, count[0]));
             return new RouteStats(
                     route,
-                    latency.count(),
+                    samples,
                     List.of(statusClasses[0], statusClasses[1], statusClasses[2], statusClasses[3], statusClasses[4]),
                     latency.copy(),
                     bySource(childCounts),
@@ -1048,7 +1115,8 @@ public final class JournalAggregates implements JournalListener {
                             allocatedBytes,
                             gcPauses,
                             requestsWithGcPause,
-                            gcPauseNanos),
+                            gcPauseNanos,
+                            allocation.copy()),
                     warmLatency.copy(),
                     cacheMisses,
                     aiTokens,
@@ -1157,7 +1225,9 @@ public final class JournalAggregates implements JournalListener {
             List<ThreadFamilyStats> threadFamilies,
             List<ObservedEdge> edges,
             RunStats run,
-            Map<String, Long> overflowed) {
+            Map<String, Long> overflowed,
+            List<ExecutionStats> executions,
+            boolean executionsRecorded) {
 
         public AggregatesSnapshot {
             edges = List.copyOf(edges);
@@ -1167,8 +1237,34 @@ public final class JournalAggregates implements JournalListener {
             transactionalMethods = List.copyOf(transactionalMethods);
             threadFamilies = List.copyOf(threadFamilies);
             overflowed = Collections.unmodifiableMap(new LinkedHashMap<>(overflowed));
+            executions = List.copyOf(executions);
+        }
+
+        public AggregatesSnapshot(
+                List<RouteStats> routes,
+                List<StatementStats> statements,
+                List<ExceptionGroupStats> exceptionGroups,
+                List<TransactionalMethodStats> transactionalMethods,
+                List<ThreadFamilyStats> threadFamilies,
+                List<ObservedEdge> edges,
+                RunStats run,
+                Map<String, Long> overflowed) {
+            this(
+                    routes,
+                    statements,
+                    exceptionGroups,
+                    transactionalMethods,
+                    threadFamilies,
+                    edges,
+                    run,
+                    overflowed,
+                    List.of(),
+                    false);
         }
     }
+
+    /** Scheduled jobs and consumed messages, with the same bounded work counters as routes, never HTTP statuses. */
+    public record ExecutionStats(JournalSource source, RouteStats stats) {}
 
     /**
      * One route, keyed as {@code METHOD route}: its requests, status classes ({@code 1xx} to {@code 5xx}), latency, the count and time of its
@@ -1301,13 +1397,39 @@ public final class JournalAggregates implements JournalListener {
             long allocatedBytes,
             long gcPauses,
             long requestsWithGcPause,
-            long gcPauseNanos) {
+            long gcPauseNanos,
+            LatencyHistogram allocation) {
+
+        /** Older summaries have no allocation histogram; their mean must not be read as a median. */
+        public RouteResources(
+                long measuredRequests,
+                long partialRequests,
+                long unmeasuredRequests,
+                long cpuNanos,
+                long allocatedBytes,
+                long gcPauses,
+                long requestsWithGcPause,
+                long gcPauseNanos) {
+            this(
+                    measuredRequests,
+                    partialRequests,
+                    unmeasuredRequests,
+                    cpuNanos,
+                    allocatedBytes,
+                    gcPauses,
+                    requestsWithGcPause,
+                    gcPauseNanos,
+                    null);
+        }
 
         /** A route whose requests carried no measurement, as when the {@code resources} source is off. */
         public static final RouteResources NONE = new RouteResources(0, 0, 0, 0, 0, 0, 0, 0);
     }
 
-    /** One literal-free statement fingerprint: its executions, failures, latency, and executions per call site. */
+    /**
+     * One statement grouping fingerprint, not a display or persistence form: its executions, failures, latency, and
+     * executions per call site. {@link JournalTextExposure#displayShape} removes ambiguous quoted literals.
+     */
     public record StatementStats(
             String fingerprint,
             long executions,

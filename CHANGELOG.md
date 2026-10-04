@@ -17,6 +17,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
+  examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
+  Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
+  unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
+  requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
+
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
@@ -456,6 +462,23 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   the authentication time out of the request's unattributed time: a WebFlux route is insufficient only when neither a
   recorded call nor authentication time names any of its time
   ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
+
+- **Run comparison reports comparable work, not changes in instrumentation.** SQL, REST, AI, cache, exception, and
+  runtime-model edge changes require their sources in both runs. Scheduled jobs and consumed messages compare beside
+  routes, disappeared fingerprints are listed when bounded evidence permits it, and no eligible work reports
+  `INSUFFICIENT`, never `COMPARED` or an `EVALUATED` check. Eligibility follows each check's unit: heap-growth checks
+  run when they examine collections, even with zero requests, and stable heaps explain what was examined. The UI
+  labels insufficient checks **Not enough evidence**. Allocation uses the median; summary codec v10 reads v8/v9
+  without inventing missing medians or execution history. Restart cost requires adjacent in-memory restarts, and
+  Quarkus explicitly reports that its lifecycle hook supplies no complete reload total. History that cannot survive
+  reload reports `UNAVAILABLE` without a usable baseline. `bootui insights compare` and its MCP tool default to the
+  previous run, including an idle one. Comparison also honors source-panel policy: disabled panels' facts, root
+  executions, and edges are hidden with an explicit limitation, each messaging broker is gated independently, and
+  hidden HTTP totals are labelled hidden rather than zero traffic. SQL groups are literal-free display shapes under
+  every exposure mode, including in kept runs and the baseline file; legacy fingerprints are sanitized on read,
+  and masking-indistinguishable groups retain summed counts and histograms
+  ([#1222](https://github.com/jdubois/boot-ui/pull/1222),
+  [Run comparison](docs/PLAN-v2.md#58-run-comparison--runtime-insights--delivered), CMP-02/04/05/06/07, M4-18b, C15-1).
 
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
