@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -24,6 +25,15 @@ public final class AgentBridgeAccess {
     /** The bridge class the agent appends to the bootstrap class path. */
     public static final String BRIDGE_CLASS = "io.github.jdubois.bootui.agent.bridge.AgentBridge";
 
+    /** The inventory sensor's bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-3). */
+    static final String CODE_INVENTORY_CLASS = "io.github.jdubois.bootui.agent.bridge.CodeInventory";
+
+    /** The agent's never-instrumented class names, beside the bridge. */
+    static final String EXCLUSIONS_CLASS = "io.github.jdubois.bootui.agent.bridge.Exclusions";
+
+    /** The agent's transport ring, beside the bridge. */
+    static final String AGENT_RING_CLASS = "io.github.jdubois.bootui.agent.bridge.AgentRing";
+
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
 
@@ -40,6 +50,7 @@ public final class AgentBridgeAccess {
     private final MethodHandle refine;
     private final MethodHandle disarm;
     private final MethodHandle release;
+    private final Inventory inventory;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -95,6 +106,7 @@ public final class AgentBridgeAccess {
         this.refine = refineHandle;
         this.disarm = disarmHandle;
         this.release = releaseHandle;
+        this.inventory = releaseHandle == null ? null : Inventory.bind(bridge);
     }
 
     /**
@@ -215,6 +227,179 @@ public final class AgentBridgeAccess {
             return copy(release.invoke(application, mode));
         } catch (Throwable ex) {
             return failed(ex);
+        }
+    }
+
+    /**
+     * Whether the bridge carries the inventory sensor's entry points ({@code CodeInventory}, {@code AgentRing}, and
+     * {@code AgentBridge.bootUiWork}): an agent of the same protocol from before M5-3 does not.
+     */
+    public boolean inventorySupported() {
+        return compatible() && inventory != null;
+    }
+
+    /**
+     * The inventory sensor's state for the run of claim {@code generation} ({@code CodeInventory.snapshot}): copies of
+     * its executed and late bitsets and tracking states, or {@code null} without the sensor's bridge, before any claim
+     * asked for it, or when the current run belongs to another generation.
+     */
+    public Map<String, Object> inventorySnapshot(long generation) {
+        if (!inventorySupported()) {
+            return null;
+        }
+        try {
+            Object value = inventory.snapshot.invoke(generation);
+            return value == null ? null : copy(value);
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /**
+     * A number that changes whenever the inventory sensor's snapshot may have ({@code CodeInventory.version}): a cheap
+     * fingerprint, -1 without the sensor's bridge.
+     */
+    public long inventoryVersion() {
+        if (!inventorySupported()) {
+            return -1L;
+        }
+        try {
+            return (long) inventory.version.invoke();
+        } catch (Throwable ex) {
+            return -1L;
+        }
+    }
+
+    /**
+     * Whether the attached agent never instruments the class {@code binaryName} by name ({@code Exclusions.excluded}):
+     * BootUI's own, the JDK's, and generated proxies. False without the sensor's bridge.
+     */
+    public boolean excluded(String binaryName) {
+        if (!inventorySupported()) {
+            return false;
+        }
+        try {
+            return (boolean) inventory.excluded.invoke(binaryName);
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
+    /** The method keys of ids {@code from} to {@code from + max - 1}, as far as they exist: a copy. Never null. */
+    public String[] methodKeys(int from, int max) {
+        if (!inventorySupported()) {
+            return new String[0];
+        }
+        try {
+            Object value = inventory.methodKeys.invoke(from, max);
+            return value instanceof String[] keys ? keys : new String[0];
+        } catch (Throwable ex) {
+            return new String[0];
+        }
+    }
+
+    /** Every code source the inventory sensor counted, with its counters: copies. Never null. */
+    public List<Map<String, Object>> codeSources() {
+        if (!inventorySupported()) {
+            return List.of();
+        }
+        try {
+            Object value = inventory.codeSources.invoke();
+            List<Map<String, Object>> sources = new java.util.ArrayList<>();
+            if (value instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?>) {
+                        sources.add(copy(item));
+                    }
+                }
+            }
+            return sources;
+        } catch (Throwable ex) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Drains the agent's ring into {@code sink} with the claim token {@code token}: only the current claim's token
+     * drains, one caller at a time. Returns how many records were drained, 0 without the ring.
+     */
+    public int drain(long token, Consumer<long[]> sink) {
+        if (!inventorySupported()) {
+            return 0;
+        }
+        try {
+            return (int) inventory.drain.invoke(token, sink);
+        } catch (Throwable ex) {
+            return 0;
+        }
+    }
+
+    /**
+     * The strings the ring's records of claim {@code generation} refer to, from id {@code from}, or {@code null} when
+     * the intern table belongs to another generation.
+     */
+    public String[] interned(long generation, int from) {
+        if (!inventorySupported()) {
+            return null;
+        }
+        try {
+            Object value = inventory.interned.invoke(generation, from);
+            return value instanceof String[] strings ? strings : null;
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Marks or unmarks the calling thread's work as BootUI's own, so the inventory sensor does not count what it loads:
+     * returns the previous mark. Does nothing without the sensor's bridge.
+     */
+    public boolean bootUiWork(boolean on) {
+        if (!inventorySupported()) {
+            return false;
+        }
+        try {
+            return (boolean) inventory.bootUiWork.invoke(on);
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
+    /** The inventory sensor's bridge entry points, bound once; {@code null} when the bridge has none. */
+    private record Inventory(
+            MethodHandle snapshot,
+            MethodHandle methodKeys,
+            MethodHandle codeSources,
+            MethodHandle drain,
+            MethodHandle interned,
+            MethodHandle bootUiWork,
+            MethodHandle version,
+            MethodHandle excluded) {
+
+        static Inventory bind(Class<?> bridge) {
+            try {
+                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                ClassLoader loader = bridge.getClassLoader();
+                Class<?> codeInventory = Class.forName(CODE_INVENTORY_CLASS, false, loader);
+                Class<?> ring = Class.forName(AGENT_RING_CLASS, false, loader);
+                Class<?> exclusions = Class.forName(EXCLUSIONS_CLASS, false, loader);
+                return new Inventory(
+                        lookup.findStatic(codeInventory, "snapshot", MethodType.methodType(Map.class, long.class)),
+                        lookup.findStatic(
+                                codeInventory,
+                                "methodKeys",
+                                MethodType.methodType(String[].class, int.class, int.class)),
+                        lookup.findStatic(codeInventory, "codeSources", MethodType.methodType(List.class)),
+                        lookup.findStatic(ring, "drain", MethodType.methodType(int.class, long.class, Consumer.class)),
+                        lookup.findStatic(
+                                ring, "interned", MethodType.methodType(String[].class, long.class, int.class)),
+                        lookup.findStatic(bridge, "bootUiWork", MethodType.methodType(boolean.class, boolean.class)),
+                        lookup.findStatic(codeInventory, "version", MethodType.methodType(long.class)),
+                        lookup.findStatic(exclusions, "excluded", MethodType.methodType(boolean.class, String.class)));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-3: no inventory sensor.
+                return null;
+            }
         }
     }
 

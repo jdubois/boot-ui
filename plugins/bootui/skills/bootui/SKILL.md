@@ -134,6 +134,7 @@ Once it is on the `PATH`:
 bootui tools                                   # what this application actually exposes
 bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
+bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -171,6 +172,16 @@ Java Agent panel. It is optional, local-only, and development-time only; never a
 Read `bootui agent status --json` / `get_agent_status` first: the report includes the exact jar path and copyable
 Maven, Gradle, Quarkus dev, Surefire/Failsafe, IntelliJ, and `JAVA_TOOL_OPTIONS` snippets. If the jar is missing, follow
 the report's `maven-download` snippet before adding `-javaagent:<path>`.
+
+### Verify that a change ran
+
+With the agent attached, after an edit and a DevTools restart or Quarkus live reload, run
+`bootui code inventory --json` (`get_code_inventory`, query `changed` by default). It lists the methods changed or
+added since the previous run, each `EXECUTED`, `NEVER_EXECUTED`, or `NOT_TRACKED` in this run, with the first request
+and route that ran it. A changed method still `NEVER_EXECUTED` has not run yet: run the test or send the request that
+reaches it and read the inventory again before claiming the change works, or say plainly that it did not run.
+`NOT_TRACKED` is not evidence either way. Without the agent the command is not available here (exit code `2` or an
+unknown tool): `bootui agent status --json` says why.
 
 ### Read MySQL operational evidence
 

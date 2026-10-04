@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
@@ -68,6 +70,20 @@ public class PanelsController {
                 platform(), BootUiPanels.all().stream().map(this::panel).toList());
     }
 
+    /** Available while the BootUI agent's inventory sensor records this run, else with the agent's reason. */
+    private Availability codeInventoryAvailability() {
+        try {
+            CodeInventoryService service = applicationContext
+                    .getBeanProvider(CodeInventoryService.class)
+                    .getIfUnique();
+            String reason =
+                    service == null ? JavaAgentService.INVENTORY_REQUIREMENT + "." : service.unavailableReason();
+            return availability(reason == null, reason);
+        } catch (RuntimeException ex) {
+            return availability(false, JavaAgentService.INVENTORY_REQUIREMENT + ".");
+        }
+    }
+
     private String platform() {
         return isReactive() ? PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE : PanelsReport.PLATFORM_SPRING_BOOT;
     }
@@ -121,6 +137,7 @@ public class PanelsController {
                     BootUiPanels.DATABASE_ADVISOR -> available();
             case BootUiPanels.RUNTIME_INSIGHTS ->
                 availability(properties.getRuntimeJournal().isEnabled(), RuntimeInsightsService.DISABLED);
+            case BootUiPanels.CODE_INVENTORY -> codeInventoryAvailability();
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(

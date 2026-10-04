@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
@@ -101,6 +102,16 @@ public class RuntimeInsightsController {
         this.insights.setAgent(
                 () -> AgentPropagation.unavailableReason(javaAgent),
                 properties.getAgent().getExecutors().getMaxHandoff());
+        ObjectProvider<CodeInventoryService> codeInventory = context.getBeanProvider(CodeInventoryService.class);
+        this.insights.setCodeInventory(
+                () -> {
+                    CodeInventoryService inventory = codeInventory.getIfUnique();
+                    return inventory == null ? null : inventory.changedCode();
+                },
+                () -> {
+                    CodeInventoryService inventory = codeInventory.getIfUnique();
+                    return inventory == null ? 0L : inventory.changesFingerprint();
+                });
     }
 
     @GetMapping

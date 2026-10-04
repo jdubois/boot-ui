@@ -89,7 +89,7 @@ import tools.jackson.databind.ObjectMapper;
  * <p>Every source fails soft: an unreadable descriptor, a malformed SBOM, or an unreadable archive is logged
  * and skipped without discarding the entries that did resolve.</p>
  */
-final class DependencyCatalog implements DependencyProvider {
+public final class DependencyCatalog implements DependencyProvider {
 
     private static final String MAVEN_PROPERTIES_PATTERN = "classpath*:META-INF/maven/*/*/pom.properties";
 
@@ -167,6 +167,16 @@ final class DependencyCatalog implements DependencyProvider {
         this.resolver = resolver;
         this.basePackages = basePackages == null ? List::of : basePackages;
         this.agentJars = agentJars == null ? Set::of : agentJars;
+    }
+
+    /**
+     * The application's dependency catalogue, as the Vulnerabilities panel reads it, for another panel: Code
+     * Inventory matches it to the jars the BootUI agent saw define classes ({@code docs/PLAN-v2.md} §5.15).
+     *
+     * @param basePackages the application's base packages, read live on every inventory
+     */
+    public static DependencyProvider forApplication(Supplier<List<String>> basePackages) {
+        return new DependencyCatalog(new PathMatchingResourcePatternResolver(), basePackages);
     }
 
     @Override

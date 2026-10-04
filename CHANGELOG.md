@@ -140,6 +140,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both
   ([Java Agent](docs/features/java-agent.md#the-threads-sensor), PLAN-v2 M5-2c).
 
+- **Code inventory recording with the BootUI agent.** The agent's new `inventory` sensor, on by default with
+  `executors`, records which application methods run in each run, with the first call's request, route, and time, and
+  how many classes each jar and class directory loads, through a bounded transport ring in the agent that drops and
+  counts rather than blocks (`bootui.agent.ring-capacity`, default 65,536 records). It skips static initializers,
+  `$`-prefixed methods, proxies, synthetic classes, test roots, and BootUI's own work, and self-tests before it records.
+  The Java Agent panel shows its row, hooks, and counters
+  ([Java Agent](docs/features/java-agent.md#the-inventory-sensor), PLAN-v2 M5-3).
+
+- **Code Inventory: did my change run?** A view-only Code Inventory panel in Diagnostics, on Spring MVC, Spring WebFlux,
+  and Quarkus, reads the agent's `inventory` sensor: "N of M application methods executed" for this run, then
+  **Changed since the previous run** (the methods changed or added since the previous DevTools restart or Quarkus live
+  reload, found without git from method hashes of the application's class files that ignore debug information and the
+  compiler's renumbering of lambdas and anonymous classes, and count class, field, and abstract-method annotations, each
+  executed or not with the first request and route that ran it, or the scan's state while it runs or after it failed),
+  **Application code** (packages and classes with
+  executed, never-executed, and not-tracked counts), and **Dependencies** (declared jars matched to the jars that loaded
+  classes, at startup or later; a jar with no class loaded is *not loaded in this run*, never "unused"). Methods the
+  agent could not see in this run, including classes it excludes by name, failed to transform, or ran past its method
+  limit for, are *not tracked* with their reason, never counted either way. `GET /bootui/api/code-inventory`,
+  `/changes`, `/methods`, and `/dependencies`, the read-only `get_code_inventory` MCP tool and `bootui code inventory`
+  serve it; the `verify_after_change` prompt now starts from it, and the new Runtime Insights observation
+  `changed-code-not-executed` reports "your change has not run yet" (23 checks). Without the agent it is unavailable with
+  the Java Agent panel's reason. New properties: `bootui.code-inventory.max-classes` and
+  `bootui.code-inventory.scan-timeout`. The samples seed a never-called method and a declared jar they never load
+  ([Code Inventory](docs/features/diagnostics.md#code-inventory), PLAN-v2 M5-3).
+
 - **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
   expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
   exchanges, traces, SQL, REST client, transaction, messaging, WebSocket, cache, scheduler, fault-tolerance, exception,

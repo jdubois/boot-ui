@@ -404,3 +404,70 @@ Quarkus has no config key that always equals the bound port, so the adapter sele
 `quarkus.http.port` by launch mode. A random `=0` port still resolves, because Quarkus rewrites the property to the
 actual port once the server is up.
 :::
+
+## Code Inventory
+
+The Code Inventory panel answers the question an agent or a developer asks right after an edit: **did the code I changed
+actually run?** It needs the [BootUI agent](java-agent.md)'s `inventory` sensor, on by default once the agent is
+attached; without it the panel is unavailable with the Java Agent panel's reason and a link to it, and every read and
+`get_code_inventory` answer `available: false` with that reason. It is view-only on Spring MVC, Spring WebFlux, and
+Quarkus.
+
+Its header states the run and **N of M application methods executed**, where M counts the methods the agent tracked in
+this run. Three tabs follow:
+
+- **Changed since the previous run**, first when a previous run of the application was kept in this JVM: the methods
+  whose code changed, and those added, since the previous DevTools restart or Quarkus live reload, without git. Each says
+  whether it executed in this run, with the first request and route that ran it, which opens that request in Live
+  Activity. Methods not executed come first; removed methods are a count.
+- **Application code**: the claimed packages, then their classes and methods, with executed, never-executed, and
+  not-tracked counts, filterable to *never executed*.
+- **Dependencies**: the application's declared dependencies (the Vulnerabilities panel's inventory), matched by
+  `groupId:artifactId` from each jar's Maven metadata, else by its file name, to the jars the agent saw define classes:
+  classes loaded in this run, whether the first loaded at startup or later, and the route of the request that loaded it.
+  A declared jar with no class loaded is **not loaded in this run**, never "unused": a route this run did not exercise
+  may load it. BootUI's own jars and the agent are left out.
+
+How it works:
+
+- At each run, BootUI scans the application's own class files in the claimed packages, off the request path, in the
+  directories and jars the application class loader finds them in (test roots excluded), and hashes each method over
+  its resolved instructions: constant-pool operands by their symbolic value, `invokedynamic` through its bootstrap
+  arguments, branch targets as instruction positions, its exception table, and its runtime-visible annotations, never
+  line numbers or other debug attributes. The class's own annotations (a `@RequestMapping` prefix) count toward every
+  method, its fields' annotations (`@Value`, `@Autowired`) toward its constructors, and abstract methods (a repository's
+  `@Query`) are listed too. A recompilation with other debug settings, or another constant-pool order, hashes the same,
+  and so does a lambda or anonymous class the compiler only renumbered because another was added before it; a changed
+  literal, method reference, or `@GetMapping` value does not. The scan is bounded by
+  `bootui.code-inventory.max-classes` (20,000) and `bootui.code-inventory.scan-timeout` (30 seconds), finding its roots
+  included; past either it is partial and says so. A class file unchanged since the previous scan is not parsed again,
+  nor a class-path jar opened again, and a class file that cannot be parsed makes the scan partial. While the scan runs,
+  or after it failed, the **Changed** tab says so rather than "no previous run", and nothing is compared.
+- The previous run's method hashes are kept across restarts in the same JVM, at most 1 MB a run (12 bytes a method),
+  per application, beside the run summaries of [run comparison](overview.md). Only classes both scans covered are
+  compared. When another application claimed the agent in between, the panel says the runs are mixed. A full JVM
+  restart, or BootUI itself loaded by the restart class loader, keeps no previous run, which the panel says too.
+- Which methods executed comes from the agent's hit flags, exactly, and the first request, route, and time from its
+  records, which a full ring may drop (counted, and said).
+- A method counts as executed or never executed only when the agent instrumented its class in this run, or when its
+  class has not loaded in this run at all (after a DevTools restart, a class the new class loader has not loaded yet
+  has not run). Any other method on disk is **not tracked**, with its reason (static initializer, abstract method,
+  `$`-prefixed name, synthetic class, a class the agent never instruments by name such as a generated proxy, transform
+  failed, over the agent's method limit, or **ran before instrumentation** when its class loaded before the agent
+  instrumented it), and never counted as executed or never executed. A method that executed but has no class file in
+  the scanned roots, as in a generated class, is counted apart as **generated**. Methods called before BootUI claimed
+  the agent are not seen.
+
+API, all `GET`, paged with `offset` and `limit` where they list:
+
+| Path | Returns |
+| --- | --- |
+| `/bootui/api/code-inventory` | The run, the scan, the method counts, the change counts, the dependency counts, and the limitations |
+| `/bootui/api/code-inventory/changes` | The changed and added methods, not executed first |
+| `/bootui/api/code-inventory/methods` | Methods filtered by `package`, `class`, and `status` (`executed`, `never-executed`, `not-tracked`, `generated`), with package and class counts |
+| `/bootui/api/code-inventory/dependencies` | The dependency use, declared jars not loaded first, filtered by `status` |
+
+`get_code_inventory` and `bootui code inventory` return the counts first, then at most `limit` (25) rows of `query`:
+`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
+`verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
+`changed-code-not-executed`.

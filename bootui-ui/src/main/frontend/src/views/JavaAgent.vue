@@ -119,9 +119,37 @@ const THREAD_COUNTERS = [
   ['failures', 'Failed threads', 'propagated threads that ended with an exception']
 ]
 
+// The inventory sensor's counters (docs/PLAN-v2.md M5-3), each with what it counts.
+const INVENTORY_COUNTERS = [
+  ['methodsTracked', 'Methods tracked', 'application methods instrumented, whose executions the sensor sees'],
+  ['executedThisRun', 'Executed this run', 'tracked methods that ran at least once since this run claimed the agent'],
+  [
+    'methodOverflow',
+    'Over the method limit',
+    'methods left uninstrumented because the agent’s method limit was reached'
+  ],
+  [
+    'transformFailures',
+    'Transform failures',
+    'application classes that failed to transform, whose methods are not tracked'
+  ],
+  ['codeSources', 'Code sources', 'jars and class directories that defined at least one class'],
+  ['ringDropped', 'Records dropped', 'records dropped because the agent’s ring was full (bootui.agent.ring-capacity)'],
+  ['ringLost', 'Records lost', 'records whose writer never finished them'],
+  ['internOverflow', 'Strings over the limit', 'routes recorded as unknown because the run’s string table was full']
+]
+
 const sensorsWithHooks = computed(() => (report.value?.sensors ?? []).filter((sensor) => sensor.hooks?.length))
 
 function sensorCounters(sensor) {
+  if (sensor.inventory) {
+    return INVENTORY_COUNTERS.map(([key, label, explanation]) => ({
+      key,
+      label,
+      explanation,
+      value: sensor.inventory[key] ?? 0
+    }))
+  }
   const definitions = sensor.id === 'threads' ? THREAD_COUNTERS : EXECUTOR_COUNTERS
   return definitions.map(([key, label, explanation]) => ({
     key,
@@ -129,6 +157,10 @@ function sensorCounters(sensor) {
     explanation,
     value: sensor.executors?.[key] ?? 0
   }))
+}
+
+function sensorDisabledReason(sensor) {
+  return sensor.executors?.disabledReason ?? sensor.inventory?.disabledReason ?? null
 }
 
 function sensorState(sensor) {
@@ -146,6 +178,7 @@ function sensorRetransformation(sensor) {
 }
 
 function hookRole(sensor, hook) {
+  if (hook.kind === 'record') return hook.id === 'class load' ? 'counts loaded classes' : 'records first calls'
   if (sensor.id === 'threads') return hook.kind === 'apply' ? 'runs threads' : 'starts threads'
   return hook.kind === 'apply' ? 'runs tasks' : 'receives tasks'
 }
@@ -475,12 +508,17 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                   </tbody>
                 </table>
               </div>
-              <template v-if="sensor.executors">
-                <p v-if="sensor.executors.disabledReason" class="alert alert-warning small mt-3 mb-0" role="note">
-                  Propagation is disabled for this claim: {{ sensor.executors.disabledReason }}
+              <template v-if="sensor.executors || sensor.inventory">
+                <p v-if="sensorDisabledReason(sensor)" class="alert alert-warning small mt-3 mb-0" role="note">
+                  {{ sensor.inventory ? 'Recording' : 'Propagation' }} is disabled for this claim:
+                  {{ sensorDisabledReason(sensor) }}
                 </p>
-                <h4 class="h6 small text-muted mt-4 mb-2">Counters</h4>
-                <dl class="row small mb-0 java-agent-counters">
+                <h4 :id="`java-agent-counters-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">Counters</h4>
+                <dl
+                  class="row small mb-0 java-agent-counters"
+                  :data-sensor="sensor.id"
+                  :aria-labelledby="`java-agent-counters-${sensor.id}`"
+                >
                   <template v-for="counter in sensorCounters(sensor)" :key="counter.key">
                     <dt class="col-sm-4 col-lg-3">
                       {{ counter.label }} <span class="fw-normal">{{ formatNumber(counter.value) }}</span>

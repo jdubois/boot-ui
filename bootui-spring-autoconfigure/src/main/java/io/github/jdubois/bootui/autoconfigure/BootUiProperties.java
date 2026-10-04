@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
+import io.github.jdubois.bootui.engine.inventory.CodeInventorySettings;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
@@ -229,6 +230,10 @@ public class BootUiProperties {
      * Runtime Insights settings: the observations projected from the runtime journal.
      */
     private RuntimeInsights runtimeInsights = new RuntimeInsights();
+    /**
+     * Code Inventory settings: the scan of the application's class files that the agent's executed methods join.
+     */
+    private CodeInventory codeInventory = new CodeInventory();
     /**
      * Resource correlation settings: the CPU ledger and resource track.
      */
@@ -649,6 +654,14 @@ public class BootUiProperties {
 
     public void setRuntimeInsights(RuntimeInsights runtimeInsights) {
         this.runtimeInsights = runtimeInsights == null ? new RuntimeInsights() : runtimeInsights;
+    }
+
+    public CodeInventory getCodeInventory() {
+        return codeInventory;
+    }
+
+    public void setCodeInventory(CodeInventory codeInventory) {
+        this.codeInventory = codeInventory == null ? new CodeInventory() : codeInventory;
     }
 
     public Resources getResources() {
@@ -2658,6 +2671,43 @@ public class BootUiProperties {
         }
     }
 
+    /** Code Inventory ({@code docs/PLAN-v2.md} §5.15), which needs the BootUI agent's inventory sensor. */
+    public static class CodeInventory {
+
+        /** Most application classes the scan of the application's class files hashes; past it the scan is partial. */
+        private int maxClasses = CodeInventorySettings.DEFAULT_MAX_CLASSES;
+
+        /** Deadline of that scan, which runs off the request path once per run; past it the scan is partial. */
+        private Duration scanTimeout = CodeInventorySettings.DEFAULT_SCAN_TIMEOUT;
+
+        public int getMaxClasses() {
+            return maxClasses;
+        }
+
+        public void setMaxClasses(int maxClasses) {
+            if (maxClasses < 1) {
+                throw new IllegalArgumentException("bootui.code-inventory.max-classes must be positive.");
+            }
+            this.maxClasses = maxClasses;
+        }
+
+        public Duration getScanTimeout() {
+            return scanTimeout;
+        }
+
+        public void setScanTimeout(Duration scanTimeout) {
+            if (scanTimeout == null || scanTimeout.isNegative() || scanTimeout.isZero()) {
+                throw new IllegalArgumentException("bootui.code-inventory.scan-timeout must be positive.");
+            }
+            this.scanTimeout = scanTimeout;
+        }
+
+        /** The engine's settings. */
+        public CodeInventorySettings toSettings() {
+            return new CodeInventorySettings(maxClasses, scanTimeout);
+        }
+    }
+
     public static class RuntimeJournal {
 
         /** Whether the journal records runtime events. */
@@ -2778,10 +2828,17 @@ public class BootUiProperties {
         /**
          * The agent sensors this application asks for. {@code executors} propagates a request's context through the
          * JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request.
-         * {@code threads}, opt-in, also propagates it into threads started from application code and into virtual
-         * threads.
+         * {@code inventory} records which application methods ran in this run and which jars loaded classes.
+         * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
+         * into virtual threads.
          */
         private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
+
+        /**
+         * The records the agent's transport ring holds before it drops new ones, clamped to 1,024 to 4,194,304 and
+         * rounded up to a power of two. Each record takes 64 bytes; the first claim of the JVM sizes the ring.
+         */
+        private int ringCapacity = AgentSensorSettings.DEFAULT_RING_CAPACITY;
 
         private final Executors executors = new Executors();
 
@@ -2799,6 +2856,14 @@ public class BootUiProperties {
 
         public Executors getExecutors() {
             return executors;
+        }
+
+        public int getRingCapacity() {
+            return ringCapacity;
+        }
+
+        public void setRingCapacity(int ringCapacity) {
+            this.ringCapacity = ringCapacity;
         }
 
         public void setEnabled(boolean enabled) {

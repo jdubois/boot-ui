@@ -28,12 +28,14 @@ public class BootUiAgentRecorder {
                 defaults.sensors(),
                 defaults.skipTasks(),
                 defaults.skipThreads(),
-                defaults.maxHandoff().toMillis());
+                defaults.maxHandoff().toMillis(),
+                defaults.ringCapacity());
     }
 
     /**
      * Claims the agent for this start of {@code application}, asking for {@code sensors} ({@code bootui.agent.sensors})
-     * with the executors sensor's options ({@code bootui.agent.executors.*}).
+     * with the executors sensor's options ({@code bootui.agent.executors.*}) and the transport ring's capacity
+     * ({@code bootui.agent.ring-capacity}).
      */
     public RuntimeValue<QuarkusAgentClaim> claim(
             String application,
@@ -42,14 +44,15 @@ public class BootUiAgentRecorder {
             List<String> sensors,
             List<String> skipTasks,
             List<String> skipThreads,
-            long maxHandoffMillis) {
+            long maxHandoffMillis,
+            int ringCapacity) {
         AgentBridgeAccess access = AgentBridgeAccess.locate();
         if (!access.present()) {
             return new RuntimeValue<>(QuarkusAgentClaim.none());
         }
         String owner = application + "@" + UUID.randomUUID().toString().substring(0, 8);
-        AgentSensorSettings settings =
-                new AgentSensorSettings(sensors, skipTasks, skipThreads, Duration.ofMillis(maxHandoffMillis));
+        AgentSensorSettings settings = new AgentSensorSettings(
+                sensors, skipTasks, skipThreads, Duration.ofMillis(maxHandoffMillis), ringCapacity);
         return new RuntimeValue<>(
                 new QuarkusAgentClaim(AgentClaim.claim(access, application, owner, mode, packages, settings)));
     }

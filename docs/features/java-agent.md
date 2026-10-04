@@ -92,8 +92,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 ## The executors sensor
 
-A claim asks for the sensors in `bootui.agent.sensors`: `executors`, the default, and the opt-in
-[`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
+A claim asks for the sensors in `bootui.agent.sensors`: `executors` and [`inventory`](#the-inventory-sensor), the
+defaults, and the opt-in [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
 shows its state (`installing`, `installed`, `failed`, or `off`), how long the last install (including its
 retransformation of loaded classes) and its self-test each took, the self-test's result, how many JDK types it
 instrumented, how many loaded classes it retransformed and how long all its installs and releases took, and the types
@@ -245,6 +245,81 @@ Its counters are those of the executors sensor, over threads instead of tasks, p
 | Library threads skipped | Threads started inside owned work by code outside the claimed packages. |
 | Pool workers skipped | Pool worker threads, never propagated. |
 
+## The inventory sensor
+
+The `inventory` sensor, on by default, records which application methods ran in this run and which jars and class
+directories loaded classes. The [Code Inventory](diagnostics.md#code-inventory) panel reads it (changed methods since the
+previous run, executed and never-executed code, dependency use); the Java Agent panel shows the sensor's row, its hooks,
+and its counters.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `method entry` | records first calls | every non-abstract, non-native method and constructor of the claimed packages' classes |
+| `class load` | counts loaded classes | every class definition with a code source, outside the JDK, BootUI, and Byte Buddy |
+
+**Executed methods.** The agent adds one entry check to each instrumented method: a method that already ran in this
+run costs one array read and one volatile read. Its first call in a run marks it executed and, when the call belongs to
+a request or another BootUI execution, records the request id, the route, and the time. A first call with nothing to
+attribute, as at startup, is marked executed without a record. Each claim starts a new run, so a DevTools restart or a
+Quarkus live reload counts executions afresh, while a method keeps the same id for the agent's lifetime, in every class
+loader that defines its class. While nothing records (the claim disarmed, or the sensor stopped), a method's first call
+still marks it, without a record, so it never stays on the slower first-call path; a claim that does not ask for the
+sensor removes its instrumentation.
+
+Instrumented packages only grow while the sensor is installed: a package a refine added stays instrumented when a later
+claim asks only for its base packages, as after a DevTools restart, so its classes are instrumented in the new class
+loader too, and a release restores every class instrumented. Each claim and refine also retransforms the claimed
+packages' loaded classes that were never instrumented in their class loader.
+
+Never instrumented: static initializers, methods whose names start with `$` (such as JaCoCo's `$jacocoInit`),
+abstract and native methods, BootUI's own classes, the agent and Byte Buddy, Spring's CGLIB and AOT proxies (`$$` in
+the name), ArC's generated `_Subclass`, `_ClientProxy`, and `_Bean` classes, Hibernate and Mockito proxies, synthetic
+classes, and classes loaded from a test root (`test-classes`, or Gradle's `build/classes/<language>/test`). Lambda
+bodies, bridge methods, default and static interface methods, and records' methods are instrumented. A method counts as
+**tracked** only once its class was transformed; a class that fails to transform, such as one with a method near the
+JVM's 64 KB code limit, is named in the sensor row and its methods are not tracked. A class instrumented only after it
+loaded (retransformed when the sensor installed or a refine added its package) may have run before, unseen: its methods
+are marked **late** for that run, so the Code Inventory panel can say they ran before instrumentation rather than that
+they never ran. From the next run on, they are tracked from the start.
+
+**Class loads.** A second transformer, which never changes a class, counts the classes each code source (a jar or a
+class directory, keyed by its location) defines in this run, with the time of its first class and, for that first
+class, the route that loaded it. Classes already loaded when the sensor installs are counted once, as loaded before the
+claim; redefinitions are ignored; and classes BootUI loads for its own scans and checks are not counted.
+
+**Self-test.** The sensor installs once, off the claiming thread, then calls a bundled probe class whose advice must
+reach the bridge. A failure stops only this sensor at once, then removes its transformers; if the JVM refuses that, it
+stays stopped for good.
+
+**Transport and limits.** Records travel through the agent's bounded ring, `bootui.agent.ring-capacity` records of 64
+bytes (65,536 by default, 4 MB; the first claim in a JVM sizes it). The ring never blocks: a record that does not fit is
+dropped and counted, and since the executed flags are kept apart, a dropped record loses only the first request, route,
+and time, never the fact that the method ran. Routes are interned per run, at most 16,384 of them; past that they are
+recorded as unknown. At most 262,144 methods and 4,096 code sources are tracked for the agent's lifetime; past that,
+methods are left uninstrumented and counted.
+
+| Counter | What it counts |
+| --- | --- |
+| Methods tracked | Application methods instrumented, whose executions the sensor sees. |
+| Executed this run | Tracked methods that ran at least once since this run claimed the agent. |
+| Over the method limit | Methods left uninstrumented because the method limit was reached. |
+| Transform failures | Application classes that failed to transform. |
+| Code sources | Jars and class directories that defined at least one class. |
+| Records dropped | Records dropped because the ring was full. |
+| Records lost | Records whose writer never finished them: skipped after 50 drains and a second, or found half-written. |
+| Strings over the limit | Routes recorded as unknown because the run's string table was full. |
+
+In the report, the sensor's `inventory` object carries them as `methodsTracked`, `executedThisRun`, `methodOverflow`,
+`transformFailures`, `codeSources`, `ringDropped`, `ringLost`, and `internOverflow`, with `disabledReason` when the
+sensor stopped recording; its hooks' `fired` counts are first calls and counted class loads. Other sensors' `inventory`
+is `null`, as the inventory sensor's `executors` is.
+
+Accepted limits: calls made before BootUI claims the agent (typically the main class's, or a restarted context's
+startup code before its claim) are not seen, though in the agent's first run the classes already loaded are marked
+late; a thread of the previous run still running after a DevTools restart marks its methods executed in the new run; a
+method HotSwapped without a restart keeps its flag; and Mockito's inline mock maker dispatches a stubbed call before the
+sensor's check, so a stubbed method does not count as executed, while a spy's real call does.
+
 ## Coexistence and class data sharing
 
 The BootUI agent coexists with the OpenTelemetry Java agent and with JaCoCo. Put JaCoCo's Surefire/Failsafe placeholder
@@ -274,10 +349,11 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors` | The sensors this application asks for: `executors`, and the opt-in `threads`. |
+| `bootui.agent.sensors` | `executors`, `inventory` | The sensors this application asks for: `executors` and `inventory`, and the opt-in `threads`. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
+| `bootui.agent.ring-capacity` | `65536` | The records the agent's transport ring holds, clamped to 1,024–4,194,304 and rounded up to a power of two; the first claim in a JVM sizes it. |
 
 On Quarkus these are build-time properties, read when the application is built (augmented); dev mode rebuilds when
 they change.

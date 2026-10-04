@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorCon
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
@@ -107,7 +108,8 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<SpringCacheController> cache,
             ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
             ObjectProvider<RuntimeInsightsController> runtimeInsights,
-            ObjectProvider<JavaAgentController> javaAgent) {
+            ObjectProvider<JavaAgentController> javaAgent,
+            ObjectProvider<CodeInventoryController> codeInventory) {
         OverviewController overviewBean = overview.getIfAvailable();
         HealthController healthBean = health.getIfAvailable();
         ConfigController configBean = config.getIfAvailable();
@@ -142,6 +144,7 @@ public class ReactiveBootUiMcpTools {
         DatabaseConnectionPoolsController connectionPoolsBean = connectionPools.getIfAvailable();
         RuntimeInsightsController runtimeInsightsBean = runtimeInsights.getIfAvailable();
         JavaAgentController javaAgentBean = javaAgent.getIfAvailable();
+        CodeInventoryController codeInventoryBean = codeInventory.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -284,6 +287,12 @@ public class ReactiveBootUiMcpTools {
                     "get_agent_status",
                     McpToolDescriptions.spring("get_agent_status"),
                     args -> javaAgentBean.report()));
+        }
+        if (codeInventoryBean != null) {
+            registry.add(tool(
+                    "get_code_inventory",
+                    McpToolDescriptions.spring("get_code_inventory"),
+                    args -> codeInventoryBean.agentReport(args.query(), args.limit())));
         }
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         if (runtimeInsightsBean != null) {

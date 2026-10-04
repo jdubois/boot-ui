@@ -64,6 +64,9 @@ public final class AgentBridge {
     private static final LongAdder ERRORS = new LongAdder();
     private static final LongAdder PROBE_HITS = new LongAdder();
 
+    /** Whether a claim ever asked for the inventory sensor: until then its state is never initialized. */
+    private static volatile boolean inventoryClaimed;
+
     private AgentBridge() {}
 
     /**
@@ -115,6 +118,8 @@ public final class AgentBridge {
         Object options = request.get("executors");
         String[] skipTasks = array(options instanceof Map ? ((Map<?, ?>) options).get("skipTasks") : null);
         String[] skipThreads = array(options instanceof Map ? ((Map<?, ?>) options).get("skipThreads") : null);
+        Object capacity = request.get("ringCapacity");
+        int ringCapacity = capacity instanceof Number ? ((Number) capacity).intValue() : AgentRing.DEFAULT_CAPACITY;
         String slot = Claim.slot(mode, application);
         while (true) {
             Claim current = CLAIM.get();
@@ -136,6 +141,7 @@ public final class AgentBridge {
                     sensors,
                     skipTasks,
                     skipThreads,
+                    ringCapacity,
                     System.currentTimeMillis(),
                     true,
                     new WeakReference<Supplier<Object>>(capture),
@@ -144,6 +150,16 @@ public final class AgentBridge {
                 CLAIMS.increment();
                 if (current != null && current.armed && !current.slot.equals(slot)) {
                     TAKEOVERS.increment();
+                }
+                if (next.hasSensor(CodeInventory.SENSOR)) {
+                    // Before the agent hears of the claim, so its self-test and advice see the new run's epoch.
+                    inventoryClaimed = true;
+                    try {
+                        CodeInventory.claimed(next);
+                    } catch (Throwable ex) {
+                        // Even the inventory state failing to initialize must not fail the claim.
+                        error(ex);
+                    }
                 }
                 return transition(agent, "claim", next, ARMED);
             }
@@ -223,6 +239,20 @@ public final class AgentBridge {
         return current != null && current.armed;
     }
 
+    /**
+     * Marks or unmarks the calling thread's current work as BootUI's own, so the inventory sensor does not count the
+     * classes it loads, nor capture for the methods it runs (PLAN-v2 M5-3): the engine sets it around its scans, its
+     * drainer, and its class-presence checks, and restores the previous value it returns. Never throws.
+     */
+    public static boolean bootUiWork(boolean on) {
+        try {
+            return Reentrancy.bootUiWork(on);
+        } catch (Throwable ex) {
+            error(ex);
+            return false;
+        }
+    }
+
     /** Counts an error of an advice entry point, which never throws to the application. */
     static void error(Throwable ex) {
         ERRORS.increment();
@@ -256,6 +286,14 @@ public final class AgentBridge {
         counters.put("probeHits", Long.valueOf(PROBE_HITS.sum()));
         map.put("executors", TaskPropagation.status());
         map.put("threads", ThreadPropagation.status());
+        try {
+            if (inventoryClaimed) {
+                map.put(CodeInventory.SENSOR, CodeInventory.status());
+            }
+            map.put("ring", AgentRing.status());
+        } catch (Throwable ex) {
+            error(ex);
+        }
         map.put("counters", counters);
         if (agent != null) {
             Map<String, Object> request = new LinkedHashMap<String, Object>();
@@ -389,5 +427,8 @@ public final class AgentBridge {
         PROBE_HITS.reset();
         TaskPropagation.reset();
         ThreadPropagation.reset();
+        CodeInventory.reset();
+        AgentRing.reset();
+        inventoryClaimed = false;
     }
 }
