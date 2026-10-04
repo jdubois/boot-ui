@@ -662,8 +662,10 @@ anonymous requests or per-route findings. A missing required source makes the ch
 
 Anonymous-write evidence counts **captured DML texts**, not affected rows or prepared-batch executions. Plain JDBC
 statement batches retain at most five previews, each truncated at 256 characters; prepared batches retain one SQL
-text. A truncation may hide later targets, so every finding states the capture limits and the check explicitly flags
-requests with possibly truncated SQL. Proven targets and ambiguous lexical candidates stay in separate findings.
+text. A truncation may hide targets, so every finding states the capture limits and the check explicitly flags
+requests with possibly truncated SQL. Truncation-marked captures yield candidates only, including later previews
+recovered after a truncated literal. Unparsed hash syntax, nested or executable block comments, and DELETE … USING also prevent
+exact write claims. Proven targets and ambiguous lexical candidates stay in separate findings.
 
 Scheduled runs and consumed messages are projected like requests, named `@Scheduled OrderJob.run` or
 `consume kafka:orders`, and so is each WebSocket message an application handler runs, named by its mapping, such as

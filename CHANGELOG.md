@@ -71,7 +71,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
   Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
   subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
-  writes, and possible batch truncation is explicit. The anonymous-access documentation now describes intended public
+  writes. Truncated batch literals no longer hide later previews; truncation, uncertain comments, and DELETE … USING
+  never produce exact write claims. Possible batch truncation is explicit. The anonymous-access documentation now describes intended public
   writes and unproven anonymity honestly
   ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
 

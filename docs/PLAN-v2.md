@@ -1198,13 +1198,15 @@ Scope:
 - `anonymous-data-reach` reports anonymous successful requests that executed INSERT, UPDATE, DELETE, or MERGE,
   reading every statement in a JDBC batch preview. When a single target can be confidently read at a statement head,
   it never promotes INSERT … SELECT sources, subquery tables, or UPDATE … FROM sources to writes. Ambiguous dialect
-  forms, including multi-table DELETE/UPDATE and FROM aliases, retain all lexically identified names as explicitly
+  forms, including multi-table DELETE/UPDATE and FROM/USING aliases, retain all lexically identified names as explicitly
   labelled candidates, not proven writes; these can include read-side tables or aliases. CTE-headed statements are
   not parsed. Anonymous and protected reads of the same table stay in §3.18's data access map as exploration, not as
   an observation.
   The evidence counts captured DML texts, not affected rows or prepared-batch executions. Statement batches retain
   only five previews, each truncated at 256 characters; prepared batches retain one SQL text. Truncation can hide
-  later targets, so findings state these bounds and checks explicitly flag requests with possibly truncated SQL.
+  targets, so findings state these bounds and checks explicitly flag requests with possibly truncated SQL.
+  Truncation-marked captures, unparsed hash syntax, and nested or executable block comments yield candidates only; a truncated
+  literal cannot hide later previews separated by the capture's truncation marker and batch boundary.
   Proven targets and ambiguous candidates are reported separately rather than downgrading a known write.
 - `anonymous-success-on-restricted-route` reports a 2xx answered to a proven-anonymous request on a route whose first
   matching declared security rule requires authentication or a role. If a preceding filter chain cannot be read, it

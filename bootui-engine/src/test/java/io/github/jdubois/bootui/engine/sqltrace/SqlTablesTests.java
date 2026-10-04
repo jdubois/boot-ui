@@ -113,6 +113,54 @@ class SqlTablesTests {
     }
 
     @Test
+    void truncatedBatchPreviewsRecoverLaterTargetsOnlyAsCandidates() {
+        String head = "insert into audit_log values ('";
+        String sql = head + "x".repeat(256 - head.length()) + "…;\n delete from payroll";
+        assertThat(SqlTables.writes(sql))
+                .containsExactly(
+                        new SqlTables.WriteTargets(java.util.Set.of("audit_log"), false),
+                        new SqlTables.WriteTargets(java.util.Set.of("payroll"), false));
+        assertThat(SqlTables.writeTarget("delete from customer_or…")).isNull();
+        assertThat(SqlTables.writes("delete from customer_or…"))
+                .singleElement()
+                .satisfies(targets -> assertThat(targets.exact()).isFalse());
+    }
+
+    @Test
+    void uncertainCommentSyntaxNeverTurnsCommentedDmlIntoExactWrites() {
+        for (String sql : new String[] {
+            "insert into audit_log values (?) # ; delete from secrets;",
+            "insert into audit_log values (?) /* outer /* inner */ ; delete from secrets; */",
+            "insert into audit_log values (?) /* outer /* inner */ ; delete from secrets ' */",
+            "update a /*! join secrets s on s.id = a.id */ set s.x = 1",
+            "update a /*M! join secrets s on s.id = a.id */ set s.x = 1"
+        }) {
+            assertThat(SqlTables.writeTarget(sql)).as(sql).isNull();
+            assertThat(SqlTables.writes(sql)).as(sql).isNotEmpty().allSatisfy(targets -> {
+                assertThat(targets.exact()).isFalse();
+            });
+        }
+        assertThat(SqlTables.writes("/* first */ insert into audit_log values ('# /* nested'); /* second */"))
+                .containsExactly(new SqlTables.WriteTargets(java.util.Set.of("audit_log"), true));
+    }
+
+    @Test
+    void deleteUsingRetainsTheRealTableAsACandidateInsteadOfProvingItsAliasWasWritten() {
+        String sql = "delete from a using audit_log as a join products p on p.id = a.id";
+        assertThat(SqlTables.writeTarget(sql)).isNull();
+        assertThat(SqlTables.writes(sql)).singleElement().satisfies(targets -> {
+            assertThat(targets.exact()).isFalse();
+            assertThat(targets.tables()).contains("audit_log");
+        });
+        assertThat(SqlTables.writes("delete from \"a\" using \"audit_log\" as \"a\""))
+                .singleElement()
+                .satisfies(targets -> {
+                    assertThat(targets.exact()).isFalse();
+                    assertThat(targets.tables()).contains("audit_log");
+                });
+    }
+
+    @Test
     void multiTableDmlRetainsEveryLexicalCandidateWithoutCallingItAProvenWrite() {
         assertThat(SqlTables.writes("delete from audit_log, payroll using audit_log join payroll on true"))
                 .singleElement()

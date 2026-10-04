@@ -35,6 +35,7 @@ public final class SqlTables {
             Pattern.compile("^\\s+(?:(?:as\\s+)?" + IDENTIFIER + "\\s+)?set\\b", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern FROM = Pattern.compile("\\bfrom\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern USING = Pattern.compile("\\busing\\b", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern DML_HEAD =
             Pattern.compile("^\\s*(?:insert|update|delete|merge|replace)\\b", Pattern.CASE_INSENSITIVE);
@@ -46,7 +47,7 @@ public final class SqlTables {
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern TABLE_LIST = Pattern.compile(
-            "\\b(?:from|into|update)\\s+(" + DELETE_IDENTIFIER + "(?:\\s*,\\s*" + DELETE_IDENTIFIER + ")*)",
+            "\\b(?:from|into|update|using)\\s+(" + DELETE_IDENTIFIER + "(?:\\s*,\\s*" + DELETE_IDENTIFIER + ")*)",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern DELETE_LIST = Pattern.compile(
@@ -85,7 +86,11 @@ public final class SqlTables {
         if (sql == null || sql.isBlank()) {
             return null;
         }
-        String text = withoutLiteralsAndComments(sql, true);
+        Sanitized sanitized = sanitize(sql, true);
+        if (sanitized.uncertain()) {
+            return null;
+        }
+        String text = sanitized.text();
         Matcher matcher = WRITE_TARGET.matcher(text);
         if (!matcher.find()) {
             return null;
@@ -98,7 +103,9 @@ public final class SqlTables {
         boolean delete = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("delete");
         String rest = text.substring(matcher.end());
         if (delete
-                && (rest.stripLeading().startsWith(",") || rest.stripLeading().startsWith(".*"))) {
+                && (rest.stripLeading().startsWith(",")
+                        || rest.stripLeading().startsWith(".*")
+                        || USING.matcher(rest).find())) {
             return null;
         }
         if (update && !UPDATE_SET.matcher(rest).find()) {
@@ -127,23 +134,33 @@ public final class SqlTables {
         if (sql == null || sql.isBlank()) {
             return List.of();
         }
-        String text = withoutLiteralsAndComments(sql, true);
-        List<WriteTargets> writes = new ArrayList<>();
-        int start = 0;
-        int index = 0;
-        while (index < text.length()) {
-            char c = text.charAt(index);
-            if (c == '"' || c == '`' || c == '[') {
-                index = skipQuoted(text, index, c == '[' ? ']' : c);
-                continue;
-            }
-            if (c == ';') {
-                addWrite(writes, text.substring(start, index));
-                start = index + 1;
-            }
-            index++;
+        List<Sanitized> previews = new ArrayList<>();
+        boolean uncertain = false;
+        // A truncated value must not consume the capture's separator and all subsequent previews.
+        for (String preview : sql.split("(?<=…);\\n", -1)) {
+            Sanitized sanitized = sanitize(preview, true);
+            previews.add(sanitized);
+            uncertain |= sanitized.uncertain();
         }
-        addWrite(writes, text.substring(start));
+        List<WriteTargets> writes = new ArrayList<>();
+        for (Sanitized preview : previews) {
+            String text = preview.text();
+            int start = 0;
+            int index = 0;
+            while (index < text.length()) {
+                char c = text.charAt(index);
+                if (c == '"' || c == '`' || c == '[') {
+                    index = skipQuoted(text, index, c == '[' ? ']' : c);
+                    continue;
+                }
+                if (c == ';') {
+                    addWrite(writes, text.substring(start, index), uncertain);
+                    start = index + 1;
+                }
+                index++;
+            }
+            addWrite(writes, text.substring(start), uncertain);
+        }
         return List.copyOf(writes);
     }
 
@@ -157,11 +174,11 @@ public final class SqlTables {
         }
     }
 
-    private static void addWrite(List<WriteTargets> writes, String statement) {
+    private static void addWrite(List<WriteTargets> writes, String statement, boolean uncertain) {
         if (!DML_HEAD.matcher(statement).find()) {
             return;
         }
-        String target = writeTarget(statement);
+        String target = uncertain ? null : writeTarget(statement);
         if (target != null) {
             writes.add(new WriteTargets(Set.of(target), true));
             return;
@@ -199,11 +216,14 @@ public final class SqlTables {
      * identifiers that contain punctuation or non-ASCII characters.
      */
     private static String withoutLiteralsAndComments(String sql) {
-        return withoutLiteralsAndComments(sql, false);
+        return sanitize(sql, false).text();
     }
 
-    private static String withoutLiteralsAndComments(String sql, boolean targetLists) {
+    private record Sanitized(String text, boolean uncertain) {}
+
+    private static Sanitized sanitize(String sql, boolean targetLists) {
         StringBuilder out = new StringBuilder(sql.length());
+        boolean uncertain = sql.indexOf('…') >= 0;
         int index = 0;
         boolean tableIdentifierExpected = false;
         boolean tableIdentifierContinues = false;
@@ -215,7 +235,13 @@ public final class SqlTables {
                 continue;
             }
             if (blockCommentAt(sql, index)) {
-                index = skipBlockComment(sql, index);
+                int end = skipBlockComment(sql, index);
+                int nested = sql.indexOf("/*", index + 2);
+                uncertain |= (nested >= 0 && nested < end)
+                        || sql.startsWith("/*!", index)
+                        || sql.startsWith("/*M!", index)
+                        || sql.startsWith("/*m!", index);
+                index = end;
                 appendSpace(out);
                 continue;
             }
@@ -263,6 +289,7 @@ public final class SqlTables {
                 out.append(word);
                 if (isTableKeyword(word)
                         || (targetLists && "delete".equalsIgnoreCase(word))
+                        || (targetLists && "using".equalsIgnoreCase(word))
                         || (targetLists
                                 && tableIdentifierExpected
                                 && (TARGET_MODIFIERS.contains(word.toLowerCase(Locale.ROOT))
@@ -289,7 +316,7 @@ public final class SqlTables {
             }
             index++;
         }
-        return out.toString();
+        return new Sanitized(out.toString(), uncertain || out.indexOf("#") >= 0);
     }
 
     private static boolean isTableKeyword(String word) {

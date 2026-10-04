@@ -216,6 +216,11 @@ class AnonymousAccessObservationsTests {
                                 "possibly truncated SQL previews",
                                 "not every write target"));
         assertThat(byKind(report, AnonymousDataReach.KIND))
+                .anySatisfy(finding ->
+                        assertThat(finding.sentence()).contains("`POST /truncated`", "lexical candidate `payroll`"))
+                .allSatisfy(finding -> assertThat(finding.sentence())
+                        .contains("lexical candidate")
+                        .doesNotContain("wrote table"))
                 .allSatisfy(finding -> assertThat(finding.limitations())
                         .anyMatch(limit ->
                                 limit.contains("at most five statements") && limit.contains("256 characters")));
