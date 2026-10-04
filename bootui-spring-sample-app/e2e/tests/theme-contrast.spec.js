@@ -139,6 +139,7 @@ test('keeps the request profile drawer opaque in every theme', async ({page, ope
   for (const theme of ['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95']) {
     await page.goto('/bootui/')
     await page.evaluate((value) => localStorage.setItem('bootui.theme', value), theme)
+    await page.reload()
     await openView('activity', 'Live Activity')
     await expect(page.locator('html')).toHaveAttribute('data-bootui-theme', theme)
 
