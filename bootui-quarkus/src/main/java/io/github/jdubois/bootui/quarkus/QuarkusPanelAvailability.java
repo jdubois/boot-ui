@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusClaudeCodeProperties;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusCopilotProperties;
 import io.github.jdubois.bootui.quarkus.devservices.CapturedDevServices;
@@ -545,6 +546,10 @@ public class QuarkusPanelAvailability {
     @Inject
     Instance<CodePathsService> codePaths;
 
+    /** Side Effects, whose availability is the BootUI agent's, computed fresh per call. */
+    @Inject
+    Instance<SideEffectsService> sideEffects;
+
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this(config, mySqlJdbcDriverPresent());
@@ -764,7 +769,8 @@ public class QuarkusPanelAvailability {
                 || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
                 || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable())
                 || (BootUiPanels.CODE_INVENTORY.equals(panelId) && codeInventoryUnavailableReason() == null)
-                || (BootUiPanels.CODE_PATHS.equals(panelId) && codePathsUnavailableReason() == null);
+                || (BootUiPanels.CODE_PATHS.equals(panelId) && codePathsUnavailableReason() == null)
+                || (BootUiPanels.SIDE_EFFECTS.equals(panelId) && sideEffectsUnavailableReason() == null);
     }
 
     /** Why Code Inventory is unavailable: the BootUI agent's inventory sensor does not record this run. */
@@ -790,6 +796,19 @@ public class QuarkusPanelAvailability {
             return services.get().unavailableReason();
         } catch (RuntimeException ex) {
             return JavaAgentService.CODE_PATHS_REQUIREMENT + ".";
+        }
+    }
+
+    /** Why Side Effects is unavailable: the BootUI agent is not armed for this run with Side Effects support. */
+    private String sideEffectsUnavailableReason() {
+        try {
+            Instance<SideEffectsService> services = sideEffects;
+            if (services == null || !services.isResolvable()) {
+                return JavaAgentService.SIDE_EFFECTS_REQUIREMENT + ".";
+            }
+            return services.get().unavailableReason();
+        } catch (RuntimeException ex) {
+            return JavaAgentService.SIDE_EFFECTS_REQUIREMENT + ".";
         }
     }
 
@@ -821,6 +840,10 @@ public class QuarkusPanelAvailability {
         if (BootUiPanels.CODE_PATHS.equals(panelId)) {
             String reason = codePathsUnavailableReason();
             return reason == null ? JavaAgentService.CODE_PATHS_REQUIREMENT + "." : reason;
+        }
+        if (BootUiPanels.SIDE_EFFECTS.equals(panelId)) {
+            String reason = sideEffectsUnavailableReason();
+            return reason == null ? JavaAgentService.SIDE_EFFECTS_REQUIREMENT + "." : reason;
         }
         return CAPABILITY_ABSENT.getOrDefault(
                 panelId,

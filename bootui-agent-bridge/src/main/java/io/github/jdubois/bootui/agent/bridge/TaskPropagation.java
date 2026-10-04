@@ -389,6 +389,8 @@ public final class TaskPropagation {
                 APPLIED[hook].increment();
                 // The work's code-paths fragment records the node that submitted it (PLAN-v2 §5.14, design I7).
                 CodePaths.handoff(snapshot.stamp);
+                // The side-effect sensors' owner slot names the submitting request (PLAN-v2 M5-5 design B1).
+                SideEffects.handoff(snapshot.payload, snapshot.generation);
                 if (handle instanceof Runnable) {
                     Active active = new Active(completionTarget, handle, ACTIVE.get());
                     ACTIVE.set(active);
@@ -523,6 +525,7 @@ public final class TaskPropagation {
             // Matches the handoff where the handle was opened: the thread's previous submitter is back, as when an
             // executor ran the work on the submitting thread inside work it ran itself.
             CodePaths.handoffDone();
+            SideEffects.handoffDone();
         }
         try {
             if (failure != null && handle instanceof BiConsumer) {

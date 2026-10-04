@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
@@ -28,18 +29,21 @@ public class QuarkusAgentClaimLifecycle {
     private final AgentHandoffs handoffs;
     private final Supplier<CodeInventoryService> codeInventory;
     private final Supplier<CodePathsService> codePaths;
+    private final Supplier<SideEffectsService> sideEffects;
 
     @Inject
     public QuarkusAgentClaimLifecycle(
             Instance<QuarkusAgentClaim> claim,
             Instance<AgentHandoffs> handoffs,
             Instance<CodeInventoryService> codeInventory,
-            Instance<CodePathsService> codePaths) {
+            Instance<CodePathsService> codePaths,
+            Instance<SideEffectsService> sideEffects) {
         this(
                 claim.isResolvable() ? claim.get().claim() : null,
                 handoffs.isResolvable() ? handoffs.get() : null,
                 () -> codeInventory.isResolvable() ? codeInventory.get() : null,
-                () -> codePaths.isResolvable() ? codePaths.get() : null);
+                () -> codePaths.isResolvable() ? codePaths.get() : null,
+                () -> sideEffects.isResolvable() ? sideEffects.get() : null);
     }
 
     QuarkusAgentClaimLifecycle(AgentClaim claim) {
@@ -59,10 +63,20 @@ public class QuarkusAgentClaimLifecycle {
             AgentHandoffs handoffs,
             Supplier<CodeInventoryService> codeInventory,
             Supplier<CodePathsService> codePaths) {
+        this(claim, handoffs, codeInventory, codePaths, () -> null);
+    }
+
+    QuarkusAgentClaimLifecycle(
+            AgentClaim claim,
+            AgentHandoffs handoffs,
+            Supplier<CodeInventoryService> codeInventory,
+            Supplier<CodePathsService> codePaths,
+            Supplier<SideEffectsService> sideEffects) {
         this.claim = claim;
         this.handoffs = handoffs;
         this.codeInventory = codeInventory == null ? () -> null : codeInventory;
         this.codePaths = codePaths == null ? () -> null : codePaths;
+        this.sideEffects = sideEffects == null ? () -> null : sideEffects;
     }
 
     void onStart(@Observes StartupEvent event) {
@@ -83,6 +97,11 @@ public class QuarkusAgentClaimLifecycle {
             CodePathsService paths = codePaths.get();
             if (paths != null) {
                 paths.start();
+            }
+            // Side Effects' rows from the side-effect sensors (PLAN-v2 §5.16): startup ends here for its attribution.
+            SideEffectsService effects = sideEffects.get();
+            if (effects != null) {
+                effects.start();
             }
         }
     }

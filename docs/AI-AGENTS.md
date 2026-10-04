@@ -277,6 +277,8 @@ the classpath) are simply not advertised.
   [Where does the handler's time go?](#where-does-the-handler-s-time-go).
 - **Method probes:** `start_method_probe`, an action that needs the user's separate approval, and `get_method_probe`;
   see [Did this method run, and how?](#did-this-method-run-and-how).
+- **Side Effects read:** `get_side_effects`, which processes and other side-effect sensor rows each route or background
+  execution produced; see [What side effects did the application start?](#what-side-effects-did-the-application-start).
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
@@ -431,6 +433,21 @@ changed, run the test or send the request that should reach it, then read `get_m
 code ran is evidence the path never reaches the method (the wrong route, the wrong bean, never wired). A probe
 `waitingForClass` has not seen this run load its class yet; an `async` method's durations time the assembly of its
 reactive or asynchronous result, not the work that runs later.
+
+### What side effects did the application start?
+
+With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
+side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor.
+
+| Tool | CLI | Returns |
+| --- | --- | --- |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, or part of a route, target, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`), with counts, failures, exits, durations, call site, bean method stamp, and up to three request ids |
+
+Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
+the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
+`(route hidden: HTTP Exchanges is disabled)` and expose no request ids. When Code Paths is disabled, rows lose their
+inside bean method. A disabled Side Effects panel shows no rows. Non-process sensor groups are listed as `not-available`
+with reason `Not available in this version.`
 
 ### MySQL operational evidence
 

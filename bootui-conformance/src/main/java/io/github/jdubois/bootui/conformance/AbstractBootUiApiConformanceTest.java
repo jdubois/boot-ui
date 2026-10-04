@@ -1942,6 +1942,71 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(failures).as("code paths contracts").isEmpty();
     }
 
+    /**
+     * Side Effects without the BootUI agent ({@code docs/PLAN-v2.md} §5.16): the panel is unavailable with the Java Agent
+     * panel's reason, and its reads still answer their shape, {@code available: false} with that reason, every sensor
+     * listed; an unknown sensor is a {@code 400}. The available shape is asserted with the agent attached, by the Spring
+     * sample's agent scenario.
+     */
+    @Test
+    void sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent() {
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        JsonNode panel = panelFromLiveManifest("side-effects");
+        assertThat(panel).as("the side-effects panel is in the manifest").isNotNull();
+        assumeTrue(panel.path("enabled").asBoolean(true), "the side-effects panel is disabled here");
+        assertThat(panel.path("available").asBoolean())
+                .as("Side Effects needs the agent")
+                .isFalse();
+        assertThat(panel.path("unavailableReason").asText()).startsWith("Requires the BootUI agent");
+
+        List<String> failures = new ArrayList<>();
+        List<ReadContract> contracts = new ArrayList<>();
+        contracts.add(BootUiApiContractCatalog.reads().stream()
+                .filter(contract -> contract.relativePath().equals("/side-effects"))
+                .findFirst()
+                .orElseThrow());
+        contracts.add(BootUiApiContractCatalog.sideEffectsSensor());
+        for (ReadContract contract : contracts) {
+            Response response = probe().get(api(contract.relativePath()));
+            assertThat(response.status())
+                    .as("GET %s status", contract.relativePath())
+                    .isEqualTo(200);
+            JsonNode body = response.json();
+            assertJsonContract(contract.relativePath(), contract, body, failures);
+            assertThat(body.path("available").asBoolean())
+                    .as("GET %s available", contract.relativePath())
+                    .isFalse();
+            assertThat(body.path("unavailableReason").asText())
+                    .as("GET %s unavailableReason", contract.relativePath())
+                    .startsWith("Requires the BootUI agent");
+        }
+        JsonNode report = probe().get(api("/side-effects")).json();
+        List<String> sensors = new ArrayList<>();
+        report.path("sensors").forEach(sensor -> sensors.add(sensor.path("id").asText()));
+        assertThat(sensors)
+                .containsExactly(
+                        "network",
+                        "files",
+                        "processes",
+                        "environment",
+                        "thread-activity",
+                        "thread-locals",
+                        "resources",
+                        "blocking",
+                        "security-sinks");
+        report.path("sensors").forEach(sensor -> {
+            if (!"processes".equals(sensor.path("id").asText())) {
+                assertThat(sensor.path("state").asText()).isEqualTo("not-available");
+                assertThat(sensor.path("reason").asText()).isEqualTo("Not available in this version.");
+            }
+        });
+        assertThat(failures).as("side effects contracts").isEmpty();
+
+        Response unknown = probe().get(api("/side-effects/sensor?sensor=not-a-sensor"));
+        assertThat(unknown.status()).as("an unknown sensor").isEqualTo(400);
+        assertThat(unknown.json().path("error").asText()).contains("not-a-sensor");
+    }
+
     @Test
     void runtimeResourcesReportOneShapeWithABalancedLedger() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");

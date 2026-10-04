@@ -51,6 +51,7 @@ const allPanelLinks = [
   {id: 'java-agent', title: 'Java Agent', heading: /^Java Agent/},
   {id: 'code-paths', title: 'Code Paths', heading: /^Code Paths/},
   {id: 'code-inventory', title: 'Code Inventory', heading: /^Code Inventory/},
+  {id: 'side-effects', title: 'Side Effects', heading: /^Side Effects/},
   {id: 'email', title: 'Email', heading: /^Email/},
   {id: 'kafka', title: 'Kafka', heading: /^Kafka/},
   {id: 'rabbitmq', title: 'RabbitMQ', heading: /^RabbitMQ/},
@@ -429,7 +430,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
       {title: 'Diagnostics', count: 5},
-      {title: 'Java agent', count: 3},
+      {title: 'Java agent', count: 4},
       {title: 'Developer tools', count: 7}
     ]
 
@@ -493,11 +494,12 @@ test.describe('BootUI app shell', () => {
       'HTTP Probe'
     ])
 
-    await page.getByRole('button', {name: /Java agent\s+3/}).click()
+    await page.getByRole('button', {name: /Java agent\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Java agent panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Java Agent',
       'Code Paths',
-      'Code Inventory'
+      'Code Inventory',
+      'Side Effects'
     ])
 
     await page.getByRole('button', {name: /Developer tools\s+7/}).click()
@@ -577,11 +579,11 @@ test.describe('BootUI app shell', () => {
     })
     await page.goto('/bootui/')
 
-    const agentToggle = page.getByRole('button', {name: /Java agent\s+2/})
+    const agentToggle = page.getByRole('button', {name: /Java agent\s+3/})
     await expect(agentToggle).toHaveAttribute('aria-expanded', 'false')
     await agentToggle.click()
     const agentGroup = page.getByRole('group', {name: 'Java agent panels'})
-    await expect(agentGroup.locator('.bootui-nav-link__label')).toHaveText(['Java Agent', 'Code Paths'])
+    await expect(agentGroup.locator('.bootui-nav-link__label')).toHaveText(['Java Agent', 'Code Paths', 'Side Effects'])
     const codePathsLink = agentGroup.locator('.nav-link', {hasText: 'Code Paths'})
     await expect(codePathsLink).toHaveClass(/bootui-nav-link--unavailable/)
     await expect(codePathsLink).toHaveAttribute('title', `Code Paths - unavailable: ${reason}`)

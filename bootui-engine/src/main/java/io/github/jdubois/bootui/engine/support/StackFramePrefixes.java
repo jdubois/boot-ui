@@ -69,6 +69,19 @@ public final class StackFramePrefixes {
 
     private StackFramePrefixes() {}
 
+    /** Whether {@code className} belongs to one of BootUI's own modules, the agent and its bridge included. */
+    public static boolean isBootUiModule(String className) {
+        if (className == null) {
+            return false;
+        }
+        for (String prefix : BOOTUI_MODULE_PREFIXES) {
+            if (className.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Whether {@code className} belongs to a known framework/JDK/BootUI-internal package rather than
      * application code. Returns {@code true} (i.e. "not application code") for {@code null}, so callers

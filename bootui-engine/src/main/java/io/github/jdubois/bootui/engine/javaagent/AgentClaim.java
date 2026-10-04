@@ -312,6 +312,28 @@ public final class AgentClaim {
     }
 
     /**
+     * Drains the side-effect sensors' ring into {@code sink} with this claim's token, while it is armed
+     * ({@code docs/PLAN-v2.md} M5-5a): the sink receives one reused {@code long[]} per record and copies what it keeps.
+     * Returns how many records were drained.
+     */
+    public int drainSideEffects(Consumer<long[]> sink) {
+        Long granted = token;
+        if (granted == null || ended.get() || sink == null) {
+            return 0;
+        }
+        return access.drainSideEffects(granted, sink);
+    }
+
+    /**
+     * The strings this claim's side-effect records refer to, from id {@code from}, or {@code null} when the bridge's
+     * table belongs to another claim generation.
+     */
+    public String[] sideEffectsInterned(int from) {
+        Long current = generation;
+        return current == null ? null : access.sideEffectsInterned(current, from);
+    }
+
+    /**
      * Excludes method {@code id} from the code-paths sensor for the rest of this run, as the engine's adaptive exclusion
      * decides. Returns whether it is excluded.
      */

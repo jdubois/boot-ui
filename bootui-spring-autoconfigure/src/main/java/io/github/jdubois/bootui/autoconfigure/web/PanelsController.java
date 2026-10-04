@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.telemetry.AiFrameworkDetector;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import java.nio.file.Path;
@@ -98,6 +99,19 @@ public class PanelsController {
         }
     }
 
+    /** Available while the BootUI agent is armed for this run with Side Effects support, else with the agent's reason. */
+    private Availability sideEffectsAvailability() {
+        try {
+            SideEffectsService service =
+                    applicationContext.getBeanProvider(SideEffectsService.class).getIfUnique();
+            String reason =
+                    service == null ? JavaAgentService.SIDE_EFFECTS_REQUIREMENT + "." : service.unavailableReason();
+            return availability(reason == null, reason);
+        } catch (RuntimeException ex) {
+            return availability(false, JavaAgentService.SIDE_EFFECTS_REQUIREMENT + ".");
+        }
+    }
+
     private String platform() {
         return isReactive() ? PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE : PanelsReport.PLATFORM_SPRING_BOOT;
     }
@@ -153,6 +167,7 @@ public class PanelsController {
                 availability(properties.getRuntimeJournal().isEnabled(), RuntimeInsightsService.DISABLED);
             case BootUiPanels.CODE_INVENTORY -> codeInventoryAvailability();
             case BootUiPanels.CODE_PATHS -> codePathsAvailability();
+            case BootUiPanels.SIDE_EFFECTS -> sideEffectsAvailability();
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(

@@ -83,6 +83,8 @@ import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.sideeffects.JournalExecutions;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
@@ -365,6 +367,40 @@ public class BootUiEngineProducer {
 
     /** Stops routing Code Paths' fragments with the application. */
     public void closeCodePathsService(@Disposes CodePathsService service) {
+        service.close();
+    }
+
+    /**
+     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a): routes the agent's side-effect records of this start's claim
+     * into bounded rows per sensor, attributed to their request's route through HTTP Exchanges.
+     * {@code QuarkusAgentClaimLifecycle} starts it at startup; a live reload's next start claims again and produces a new
+     * one.
+     */
+    @Produces
+    @Singleton
+    public SideEffectsService sideEffectsService(
+            Instance<QuarkusAgentClaim> claim,
+            JavaAgentService javaAgent,
+            Instance<JournalAggregates> aggregates,
+            Instance<RuntimeJournal> journal,
+            AgentEvidence evidence) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        SideEffectsService service = new SideEffectsService(
+                AgentBridgeAccess.locate(),
+                current::claim,
+                javaAgent::sideEffectsUnavailableReason,
+                javaAgent::sideEffectsCoverage,
+                evidence);
+        JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
+        service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        service.setExecutionLabels(JournalExecutions.of(journal.isResolvable() ? journal.get() : null));
+        return service;
+    }
+
+    /** Stops routing Side Effects' records with the application. */
+    public void closeSideEffectsService(@Disposes SideEffectsService service) {
         service.close();
     }
 

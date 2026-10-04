@@ -366,6 +366,14 @@ public final class BootUiApiContractCatalog {
                             "routes", JsonType.ARRAY,
                             "excludedMethods", JsonType.ARRAY,
                             "limitations", JsonType.ARRAY)),
+            read(
+                    "side-effects",
+                    "/side-effects",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "sensors", JsonType.ARRAY,
+                            "limitations", JsonType.ARRAY)),
             capabilityList("email", "/email", "messages", "total", fields("devTrapEnabled", JsonType.BOOLEAN)),
             capture("kafka", "/kafka", "messages"),
             capture("rabbitmq", "/rabbitmq", "messages"),
@@ -502,6 +510,24 @@ public final class BootUiApiContractCatalog {
                             "counts", JsonType.NULLABLE_OBJECT,
                             "dependencies", JsonType.ARRAY,
                             "page", JsonType.OBJECT)));
+
+    /**
+     * One Side Effects sensor's rows ({@code docs/PLAN-v2.md} §5.16), a read of the {@code side-effects} panel kept out of
+     * {@link #reads()}: it answers the same shape with or without the BootUI agent, {@code available: false} and no rows
+     * without it.
+     */
+    private static final ReadContract SIDE_EFFECTS_SENSOR = read(
+            "side-effects",
+            "/side-effects/sensor?sensor=processes",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "sensor", JsonType.OBJECT,
+                    "sensor.id", JsonType.STRING,
+                    "sensor.state", JsonType.STRING,
+                    "rows", JsonType.ARRAY,
+                    "page", JsonType.OBJECT,
+                    "limitations", JsonType.ARRAY));
 
     /**
      * Code Paths' tree reads, Beans at runtime, and method probes ({@code docs/PLAN-v2.md} §5.14), reads of the
@@ -717,6 +743,11 @@ public final class BootUiApiContractCatalog {
     /** The journal request profile's read contract ({@code docs/PLAN-v2.md} §5.3, §5.11). */
     public static ReadContract requestJournalProfile() {
         return REQUEST_JOURNAL_PROFILE;
+    }
+
+    /** One Side Effects sensor's rows' read contract ({@code docs/PLAN-v2.md} §5.16). */
+    public static ReadContract sideEffectsSensor() {
+        return SIDE_EFFECTS_SENSOR;
     }
 
     /** Code Paths' tree reads' contracts ({@code docs/PLAN-v2.md} §5.14). */

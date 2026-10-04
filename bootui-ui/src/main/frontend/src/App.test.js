@@ -224,7 +224,8 @@ describe('App sidebar navigation', () => {
     const agentGroup = wrapper.find('#bootui-nav-group-agent')
     expect(agentGroup.findAll('.bootui-nav-link__label').map((label) => label.text())).toEqual([
       'Java Agent',
-      'Code Paths'
+      'Code Paths',
+      'Side Effects'
     ])
     const codePathsLink = agentGroup.findAll('a').find((link) => link.text().includes('Code Paths'))
     expect(codePathsLink.classes()).toContain('bootui-nav-link--unavailable')

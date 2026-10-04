@@ -52,6 +52,7 @@ import io.github.jdubois.bootui.quarkus.web.RuntimeInsightsResource;
 import io.github.jdubois.bootui.quarkus.web.ScheduledResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityResource;
+import io.github.jdubois.bootui.quarkus.web.SideEffectsResource;
 import io.github.jdubois.bootui.quarkus.web.SpringResource;
 import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
 import io.github.jdubois.bootui.quarkus.web.ThreadsResource;
@@ -144,7 +145,8 @@ public class QuarkusMcpTools {
             RuntimeInsightsResource runtimeInsights,
             JavaAgentResource javaAgent,
             CodeInventoryResource codeInventory,
-            CodePathsResource codePaths) {
+            CodePathsResource codePaths,
+            SideEffectsResource sideEffects) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -370,6 +372,14 @@ public class QuarkusMcpTools {
                         "get_method_probe",
                         McpToolDescriptions.quarkus("get_method_probe"),
                         args -> codePaths.agentProbe(args.id())));
+        // Side Effects, advertised while the BootUI agent is armed for this start (§5.16).
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_side_effects",
+                        McpToolDescriptions.quarkus("get_side_effects"),
+                        args -> sideEffects.agentReport(args.query(), args.limit())));
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         // Read at call time, so a next step never names a tool this application does not advertise (M4-21).
         Predicate<String> advertised = RuntimeInsightsAgentView.advertisedBy(this::tools);

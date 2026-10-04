@@ -132,8 +132,9 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 ## The executors sensor
 
-A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor), and
-[`code-paths`](#the-code-paths-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then
+A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
+[`code-paths`](#the-code-paths-sensor), and [`processes`](#the-processes-sensor), the defaults, and the opt-in
+[`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -528,6 +529,56 @@ builds it, not its execution; a request's handler phase cannot yet be split by t
 Paths panel); calls made before BootUI claims the agent are not seen; and an agent jar from before this sensor leaves
 it unavailable while the other sensors keep working.
 
+## The processes sensor
+
+The `processes` sensor, on by default, records the processes application code starts for the
+[Side Effects](#side-effects) panel, `get_side_effects`, and `bootui side-effects`. It records the
+command name only, never its arguments or environment, then records whether the process started and, when the JVM
+reports it, the exit status and lifetime.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `ProcessBuilder.start` | records process starts | the private `start(Redirect[])` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and `Runtime.exec(...)` |
+
+The command label is sanitized before it leaves the agent. For a process that started, it is its executable's file
+name: everything before the last `/` or `\` of the first command element is dropped, so a path with spaces, such as
+`C:\Program Files\Java\bin\java.exe`, gives `java.exe`. For a start that failed, which may have been given a command and
+its arguments or an environment assignment as one element, that element is first cut at its first whitespace or `=`:
+`/bin/sh -c secret` records only `sh`, and an environment assignment keeps only the variable name. In both cases an
+element that opens with a quote keeps only its quoted text, since Windows passes one element such as
+`"C:\Tools\app.exe" --token x` verbatim to `CreateProcess`, which starts it: it records `app.exe`. Nothing past a quote
+inside the element is kept either, since Windows also starts `C:\Tools\app.exe" --token "x` as `app.exe`. Only letters,
+digits, `.`, `_`, `+`, and `-` are kept; other characters become `?`, and the result is capped at 128 characters. A start failure records the `IOException` outcome, but no arguments, environment variables, working
+directory, or stream redirections.
+
+The sensor's self-test starts a deliberately invalid command whose file name contains a NUL character. The JDK rejects
+it before spawning anything; the test passes only when the hook fires. A failed self-test disables the sensor and
+removes its transformer. JDK retransformation of `ProcessBuilder` is checked on JDK 17, 21, and the newest verified JDK,
+and the Java Agent panel shows the hook and counters beside the other sensor rows.
+
+A process start is published at once because the hook is rare. Completion is watched with `Process.onExit()`, whose JDK
+stage runs on the common ForkJoin pool, then on the agent-owned `bootui-agent-process-exits` executor, so the application process and thread are not pinned. An exit is
+attributed as its start was, carrying the start's time. At most 1,024 exits are watched at once; starts beyond that
+still record that their exit was not watched. On Windows, each watched live process holds a JDK reaper thread. BootUI's own process starts, the agent's threads, BootUI threads whose
+names start `bootui-`, and starts that happen while the agent is transforming a class are ignored. Reentrant starts on
+the same thread record only the outermost hook.
+
+A start names its owner from the thread's owner slots, which adapter request scopes and executor handoffs push, or,
+when no slot names one, by capturing BootUI's context on the thread: a request, an execution no request owns (a
+scheduled run, a consumed message, a WebSocket message), or neither, when the row falls to startup or the thread's
+family. On Spring WebFlux, the request scope's slot is not yet filled where Reactor restores BootUI's context on another
+scheduler thread; the hot sensors of later slices need that, while `processes`, a rare hook, captures the context
+instead.
+
+The Side Effects bridge has its own ring of 1,024 records and string table. A full ring drops and counts records instead
+of blocking application code. The per-thread aggregation table is for the hotter side-effect sensors in later slices,
+not for process starts. After 100 internal sensor errors, the side-effect sensors switch off for the JVM's life and the
+report says why.
+
+In the report, the sensor's side-effect coverage is `recording` when this application's armed claim includes it and the
+bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason. The non-process Side Effects
+sensors are listed as `not-available` with reason `Not available in this version.`
+
 ## HotSwap
 
 A debugger's HotSwap, as IntelliJ IDEA's **Reload Changed Classes** through JDI, or another agent's
@@ -562,29 +613,34 @@ This is why the agent is a development-time tool and should not be placed on pro
 
 ## Agent evidence outside the journal
 
-Code Paths' request and route trees and Code Inventory's first calls are kept in bounded stores of the run, not as
-runtime journal events. One engine contract, the agent evidence projection, applies to them what the journal applies
-to its own events:
+Code Paths' request and route trees, Code Inventory's first calls, and Side Effects' rows are kept in bounded stores
+of the run, not as runtime journal events. One engine contract, the agent evidence projection, applies to them what the
+journal applies to its own events:
 
-- **Panel visibility.** Each read resolves once whether the store's panel (Code Paths, Code Inventory) and
-  [HTTP Exchanges](diagnostics.md#http-exchanges), which owns requests and routes, are visible, and derives its answer,
-  its cache key, and its reason from that one read. While the store's panel is disabled, its panel, its MCP tool, its
-  CLI command, and the Runtime Insights observations that read it say so, and its evidence is neither shown nor counted.
-  Without the agent, the agent's own reason comes first.
+- **Panel visibility.** Each read resolves once whether the store's panel (Code Paths, Code Inventory, or Side
+  Effects) and [HTTP Exchanges](diagnostics.md#http-exchanges), which owns requests and routes, are visible, and derives
+  its answer, its cache key, and its reason from that one read. While the store's panel is disabled, its panel, its MCP
+  tool, its CLI command, and the Runtime Insights observations that read it say so, and its evidence is not shown by
+  those reads. A disabled Side Effects panel shows nothing and says `The Side Effects panel is disabled.` Without the agent,
+  the agent's own reason comes first. When Code Paths is disabled, Side Effects rows lose their inside bean method and
+  merge without it.
 - **Clear recording.** The evidence is a listener of the runtime journal, so every clear of the journal, by **Clear
   recording** after its confirmation or by **Free BootUI memory**, drops it in the same step, under the journal's lock:
-  every tree recorded before the clear, the fragments still queued in the agent's ring included, and Code Inventory's
-  first requests and routes. A request whose tree lost a fragment to the clear is left out whole, never shown partial.
-  Counts since the claim, the adaptive exclusions, and which methods executed are kept.
+  every Code Paths tree recorded before the clear, the fragments still queued in the agent's ring included, Code
+  Inventory's first requests and routes, and Side Effects rows. Side Effects records still in the agent whose first
+  occurrence came before the clear are dropped by a watermark, and the panel then says `The recording was cleared`. A
+  request whose Code Paths tree lost a fragment to the clear is left out whole, never shown partial. Counts since the
+  claim, the adaptive exclusions, and which methods executed are kept.
 - **Exports.** The panels, Runtime Insights' **Export JSON** and **Copy for AI**, the MCP tools, and the CLI carry only
   what these reads return: method keys, route templates (or masked observed paths), request ids, times, and counts.
   No surface serializes a store, and nothing of it is written to disk.
 - **Memory.** The journal status reports the stores' estimated bytes as **Agent evidence**, beside the journal's own,
-  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 62 MB by default, the sum of the stores' fixed caps.
-  A smaller bound shrinks Code Paths' trees in proportion; Code Inventory's first calls, bounded by the agent's method
-  limit, and method probes, bounded at 25 probes of 20 invocations, are only counted. A disabled panel's store adds its bytes to the total without its own row's figures, and a
-  store that records nothing for the application, as without the agent, is left out. The method names each store keeps
-  beside its evidence are reported apart, and kept through a clear.
+  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 68 MB by default, the sum of the stores' fixed caps,
+  now including Side Effects rows (about 5.3 MB). A smaller bound shrinks Code Paths' trees and Side Effects' rows and
+  waiting records in proportion; Code Inventory's first calls, bounded by the agent's method limit, and method probes,
+  bounded at 25 probes of 20 invocations, are only counted. Side Effects contributes `sideEffectRows` and
+  `sideEffectsWaiting`. A disabled panel's store adds its bytes to the total without its own row's figures, and a store
+  that records nothing for the application, as without the agent, is left out. The method names each store keeps beside its evidence are reported apart, and kept through a clear.
 
 ## Privacy and dependency inventory
 
@@ -601,8 +657,8 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths` | The sensors this application asks for: `executors`, `inventory`, and `code-paths`, and the opt-in `threads`. |
-| `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, and `processes`, and the opt-in `threads`. The Side Effects sensors this version does not ship (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
 | `bootui.agent.ring-capacity` | `65536` | The records the agent's transport ring holds, clamped to 1,024–4,194,304 and rounded up to a power of two; the first claim in a JVM sizes it. |
@@ -859,3 +915,95 @@ API, all `GET`, paged with `offset` and `limit` where they list:
 `changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
 `verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
 `changed-code-not-executed`.
+
+## Side Effects
+
+The Side Effects panel shows what application code starts outside the JVM or touches through agent sensors, grouped by
+route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
+application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
+reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus.
+
+The panel has one tab per sensor group:
+
+| Tab | Sensors | State in this version |
+| --- | --- | --- |
+| Network | `network` | `not-available`: Not available in this version. |
+| Files and processes | `files`, `processes` | `processes` records; `files` is `not-available`: Not available in this version. |
+| Environment | `environment` | `not-available`: Not available in this version. |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
+| Blocking | `blocking` | `not-available`: Not available in this version. |
+| Security sinks | `security-sinks` | `not-available`: Not available in this version. |
+
+The `processes` sensor is on by default through `bootui.agent.sensors`. It hooks the JDK process start path used by
+`ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and `Runtime.exec(...)`. A row records the command name
+only: for a process that started, the file name of its executable, after the last path separator of the first command
+element, so `C:\Program Files\Java\bin\java.exe` records `java.exe`; for a start that failed, the first command
+element up to its first whitespace or `=`, then after its last path separator, so a command and its arguments passed as
+one element, such as `/bin/sh -c secret`, records only `sh`, and an environment assignment passed as one element keeps
+only the variable name. An element that opens with a quote, as Windows starts `"C:\Tools\app.exe" --token x`, keeps
+only its quoted text, and nothing past a quote inside the element is kept. Only letters, digits, `.`, `_`, `+`, and `-`
+are kept; other characters become `?`, and the result is at most 128 characters. It never records arguments or environment values. The row
+also records whether the process started, the failure if `ProcessBuilder` rejected or failed it, and the exit status and
+lifetime when the JVM observes completion. `Process.onExit()` completes through a JDK stage on the common ForkJoin pool
+before BootUI's own thread records the exit. On Windows, the JDK waits for each watched live process on a reaper thread
+of its own, so up to 1,024 such threads while that many processes run.
+
+A process start is published at once because the hook is rare. Its exit is attributed as the start was, carrying the
+start's time, and is watched on an agent-owned `bootui-agent-process-exits` executor so the application process and
+thread are not pinned. At most 1,024 exits are watched at once; further exits are counted as not watched. BootUI's own
+process starts, such as a GitHub panel `gh auth token` call, the agent's threads, BootUI threads whose names start
+`bootui-`, and work done while the agent transforms a class are never recorded. Only the outermost hook on a thread
+records.
+
+Rows are bounded by the agent evidence contract. The agent writes process records to a Side Effects ring of 1,024
+records and a string table separate from other sensors. A full ring drops and counts records; application work never
+blocks on the panel. The per-thread aggregation table is reserved for the hotter side-effect sensors in later slices.
+
+How rows are named:
+
+- Attribution is the request route from HTTP Exchanges, then the execution no request owns that did it, named by its
+  runtime journal event (`scheduled ReportJob.run`, `consumed kafka orders`, `websocket /ws`), then startup, then a
+  normalized thread family such as `pool-{n}-thread-{n}`. A request that never receives a route after 30 seconds is
+  `(unknown route)`, and an execution the journal never names is `work no request owns`. A
+  task owned by another request but run inline on the current request's thread, as a caller-runs executor or a
+  `ForkJoinTask` join can do, is attributed to that other request; owner slots are kept as a small per-thread stack.
+  While HTTP Exchanges is disabled, route rows merge under `(route hidden: HTTP Exchanges is disabled)` and carry no
+  request ids.
+- Targets are normalized: the home directory becomes `~`, UUIDs become `{uuid}`, long hex strings with a digit become
+  `{hex}`, and digit runs become `{n}`.
+- The call site is the first frame in the application's packages, otherwise the first frame outside the JDK, rendered as
+  `Class#method`. When the Code Paths panel is enabled and the `code-paths` sensor is on, the row carries the bean
+  method stamp active when the process started. While Code Paths is disabled, rows lose this **inside** method and merge
+  without it.
+
+Each row has starts, failed starts, completed exits, non-zero exits, last exit status, total and longest lifetime,
+first and last seen times, and up to three exemplar request ids linking to Live Activity. Rows are capped at 500 per
+sensor and 2,000 per run; extra observations are counted in the sensor's **Other** row. Up to 10,000 observations wait
+for a route before falling back to `(unknown route)`. These bounds shrink in proportion when
+`bootui.runtime-journal.agent-evidence-max-bytes` is set below its default.
+
+Side Effects is an agent evidence store. **Clear recording** and **Free BootUI memory** clear its rows; records still in
+the agent whose first occurrence came before the clear are dropped by a watermark, and the panel then says **The
+recording was cleared**. The journal status reports its memory under **Agent evidence** as `sideEffectRows` and
+`sideEffectsWaiting`. The Side Effects panel's own visibility gates every read: when disabled, the panel, API, MCP tool,
+and CLI show nothing except **The Side Effects panel is disabled.** HTTP Exchanges still gates route attribution as
+above.
+
+API, all `GET`:
+
+| Path | Returns |
+| --- | --- |
+| `/bootui/api/side-effects` | Every sensor with its tab, state, reason, rows, occurrences, dropped records, hooks, and limitations |
+| `/bootui/api/side-effects/sensor?sensor=<id>&offset=&limit=` | One sensor's rows, most frequent first, paged; an unknown sensor id returns `400` with `{error}` |
+
+`get_side_effects` and `bootui side-effects` return every sensor's coverage, then at most `limit` (20) rows matching
+`query`: a sensor id such as `processes`, or part of a route, target, or call site, most frequent first. The MCP tool is
+advertised only while the agent is armed for the run.
+
+The Spring sample seeds two routes: `GET /api/side-effects/java-version` starts the JDK's `java -version` from
+`JavaVersionReporter#version` with an extra `-D...` argument that never appears, and
+`GET /api/side-effects/runtime-version` answers from the running JVM and starts no process. With the agent, the first
+route shows a `java` process row and the counterexample shows none. The WebFlux and Quarkus samples seed the same two
+routes, and the Quarkus sample's `ScheduledJavaVersion`, when `side-effects-seed.scheduled-every` sets its period (the
+agent Playwright leg uses `20s`; it is off otherwise), starts `java -version` from a scheduled run, a row of that run
+(`scheduled …ScheduledJavaVersion#report`) with no request.

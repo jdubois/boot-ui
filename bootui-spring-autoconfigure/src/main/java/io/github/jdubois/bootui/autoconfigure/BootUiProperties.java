@@ -2724,9 +2724,9 @@ public class BootUiProperties {
 
         /**
          * Maximum memory the BootUI agent's evidence kept outside the journal may use, estimated: Code Paths' request
-         * and route trees and Code Inventory's first calls. Unset means about 62 MB, the sum of their fixed caps; a
-         * smaller value shrinks Code Paths' trees in proportion, and Code Inventory's first calls, bounded by the
-         * agent's method limit, are only counted.
+         * and route trees, Code Inventory's first calls, and Side Effects' rows. Unset means about 68 MB, the sum of
+         * their fixed caps; a smaller value shrinks Code Paths' trees and Side Effects' rows in proportion, and Code
+         * Inventory's first calls, bounded by the agent's method limit, are only counted.
          */
         private DataSize agentEvidenceMaxBytes;
 
@@ -2846,6 +2846,8 @@ public class BootUiProperties {
          * JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request.
          * {@code inventory} records which application methods ran in this run and which jars loaded classes.
          * {@code code-paths} times the application's bean methods per request, as call trees.
+         * {@code processes} records the processes the application starts, for Side Effects: the command's file name,
+         * never its arguments or environment. An unknown sensor id fails the application's start.
          * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
          * into virtual threads.
          */

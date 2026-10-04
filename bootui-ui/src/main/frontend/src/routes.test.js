@@ -142,15 +142,15 @@ function parseQuarkusAvailability() {
     'private static final Map<String, String> NOT_YET_AVAILABLE_REASONS = Map.of',
     constants
   )
-  // Detector-gated panels decide availability per call: GitHub from the working directory, Code Inventory and Code
-  // Paths from the BootUI agent's sensors.
+  // Detector-gated panels decide availability per call: GitHub from the working directory, Code Inventory, Code
+  // Paths, and Side Effects from the BootUI agent.
   const detectorMatches = [
     ...source.matchAll(
-      /BootUiPanels\.([A-Z_]+)\.equals\(panelId\)\s*&&\s*(?:githubAvailable\(\)|codeInventoryUnavailableReason\(\) == null|codePathsUnavailableReason\(\) == null)/g
+      /BootUiPanels\.([A-Z_]+)\.equals\(panelId\)\s*&&\s*(?:githubAvailable\(\)|codeInventoryUnavailableReason\(\) == null|codePathsUnavailableReason\(\) == null|sideEffectsUnavailableReason\(\) == null)/g
     )
   ]
-  if (detectorMatches.length !== 3 || detectorMatches.some((match) => !constants.has(match[1]))) {
-    throw new Error('Unable to parse the dynamic GitHub, Code Inventory, and Code Paths panel detectors')
+  if (detectorMatches.length !== 4 || detectorMatches.some((match) => !constants.has(match[1]))) {
+    throw new Error('Unable to parse the dynamic GitHub, Code Inventory, Code Paths, and Side Effects panel detectors')
   }
   const detectorGated = new Set(detectorMatches.map((match) => constants.get(match[1])))
 
@@ -320,6 +320,7 @@ describe('routes', () => {
       'Java Agent',
       'Code Paths',
       'Code Inventory',
+      'Side Effects',
       'MCP Server',
       'Command Line',
       'Spring DevTools',
@@ -554,6 +555,7 @@ describe('routes', () => {
       groups.agent,
       groups.agent,
       groups.agent,
+      groups.agent,
       groups.developerTools,
       groups.developerTools,
       groups.developerTools,
@@ -566,8 +568,13 @@ describe('routes', () => {
 
   it('groups the agent-backed panels under Java agent, setup first', () => {
     const agentRoutes = namedRoutes.filter((route) => route.meta.group === groups.agent)
-    expect(agentRoutes.map((route) => route.name)).toEqual(['java-agent', 'code-paths', 'code-inventory'])
-    expect(agentRoutes.map((route) => route.meta.requiresAgent === true)).toEqual([false, true, true])
+    expect(agentRoutes.map((route) => route.name)).toEqual([
+      'java-agent',
+      'code-paths',
+      'code-inventory',
+      'side-effects'
+    ])
+    expect(agentRoutes.map((route) => route.meta.requiresAgent === true)).toEqual([false, true, true, true])
     expect(namedRoutes.filter((route) => route.meta.requiresAgent).every((r) => r.meta.group === groups.agent)).toBe(
       true
     )

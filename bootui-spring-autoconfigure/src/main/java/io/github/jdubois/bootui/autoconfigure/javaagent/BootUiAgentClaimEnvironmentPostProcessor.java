@@ -65,8 +65,11 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
     }
 
     /**
-     * Never breaks start-up: this runs in every JVM with the BootUI starter, production included, so any failure
-     * (a malformed property, an unexpected launcher) leaves the agent unclaimed and the application starting.
+     * Breaks start-up for one reason only: with the agent attached and BootUI enabled, {@code bootui.agent.sensors}
+     * names a sensor no version of the agent lists, which the application's developer asked for and must fix, as a
+     * Quarkus application fails to start for it. A sensor Side Effects lists but this version does not ship is accepted
+     * with a warning. This runs in every JVM with the BootUI starter, production included, so any other failure (an
+     * unexpected launcher) leaves the agent unclaimed and the application starting.
      */
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -92,11 +95,24 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 AgentClaim.release(access, name, mode);
                 return;
             }
+            AgentSensorSettings sensors;
+            try {
+                sensors = sensors(environment);
+            } catch (IllegalArgumentException ex) {
+                throw new InvalidAgentSensors(ex);
+            }
+            String notAvailable = sensors.notAvailableWarning();
+            if (notAvailable != null) {
+                LOGGER.warn(notAvailable);
+            }
             AgentClaim claim = AgentClaim.claim(
-                    access, name, owner(name), mode, packages(environment, application, mode), sensors(environment));
+                    access, name, owner(name), mode, packages(environment, application, mode), sensors);
             AgentClaimOwner owner = new AgentClaimOwner(claim);
             application.addInitializers(owner);
             application.addListeners(owner);
+        } catch (InvalidAgentSensors ex) {
+            // Invalid input fails the start, as it fails a Quarkus start, rather than silently claiming nothing.
+            throw ex;
         } catch (RuntimeException | LinkageError ex) {
             LOGGER.debug("Could not claim the BootUI agent", ex);
         }
@@ -257,5 +273,13 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
 
     private static String owner(String application) {
         return application + "@" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    /** {@code bootui.agent.sensors} names an unknown sensor: the application does not start. */
+    static final class InvalidAgentSensors extends IllegalStateException {
+
+        InvalidAgentSensors(IllegalArgumentException cause) {
+            super(cause.getMessage(), cause);
+        }
     }
 }

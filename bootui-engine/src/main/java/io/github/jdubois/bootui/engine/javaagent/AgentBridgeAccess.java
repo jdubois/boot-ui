@@ -39,6 +39,8 @@ public final class AgentBridgeAccess {
 
     /** Method probes' bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-8). */
     static final String METHOD_PROBES_CLASS = "io.github.jdubois.bootui.agent.bridge.MethodProbes";
+    /** The side-effect sensors' bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-5a). */
+    static final String SIDE_EFFECTS_CLASS = "io.github.jdubois.bootui.agent.bridge.SideEffects";
 
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
@@ -60,6 +62,7 @@ public final class AgentBridgeAccess {
     private final CodePathsHandles codePaths;
     private final ClassEvidenceHandles classEvidence;
     private final MethodProbesHandles methodProbes;
+    private final SideEffectsHandles sideEffects;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -119,6 +122,7 @@ public final class AgentBridgeAccess {
         this.codePaths = this.inventory == null ? null : CodePathsHandles.bind(bridge);
         this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
         this.methodProbes = this.inventory == null ? null : MethodProbesHandles.bind(bridge);
+        this.sideEffects = this.inventory == null ? null : SideEffectsHandles.bind(bridge);
     }
 
     /**
@@ -454,6 +458,46 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Whether the bridge carries the side-effect sensors' entry points ({@code SideEffects}): an agent of the same
+     * protocol from before M5-5a does not, and then Side Effects is simply unavailable.
+     */
+    public boolean sideEffectsSupported() {
+        return inventorySupported() && sideEffects != null;
+    }
+
+    /**
+     * Drains the side-effect sensors' ring into {@code sink} with the claim token {@code token}: only the current
+     * claim's token drains, one caller at a time. The sink receives one reused {@code long[]} per record and copies what
+     * it keeps. Returns how many records were drained, 0 without the sensors' bridge.
+     */
+    public int drainSideEffects(long token, Consumer<long[]> sink) {
+        if (!sideEffectsSupported()) {
+            return 0;
+        }
+        try {
+            return (int) sideEffects.drain.invoke(token, sink);
+        } catch (Throwable ex) {
+            return 0;
+        }
+    }
+
+    /**
+     * The strings the side-effect records of claim {@code generation} refer to, from id {@code from}, or {@code null}
+     * when their table belongs to another generation or without the sensors' bridge.
+     */
+    public String[] sideEffectsInterned(long generation, int from) {
+        if (!sideEffectsSupported()) {
+            return null;
+        }
+        try {
+            Object value = sideEffects.interned.invoke(generation, from);
+            return value instanceof String[] strings ? strings : null;
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /**
      * When the classes {@code binaryNames} of code source {@code sourceId} last loaded, and by whom
      * ({@code CodeInventory.classLoads}): two values per name, or {@code null} without the evidence, for an unknown
      * code source, or on failure.
@@ -560,6 +604,25 @@ public final class AgentBridgeAccess {
                         lookup.findStatic(probes, "list", MethodType.methodType(List.class)));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-8: no method probes.
+                return null;
+            }
+        }
+    }
+
+    /** The side-effect sensors' bridge entry points, bound once; {@code null} when the bridge has none. */
+    private record SideEffectsHandles(MethodHandle drain, MethodHandle interned) {
+
+        static SideEffectsHandles bind(Class<?> bridge) {
+            try {
+                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                Class<?> sideEffects = Class.forName(SIDE_EFFECTS_CLASS, false, bridge.getClassLoader());
+                return new SideEffectsHandles(
+                        lookup.findStatic(
+                                sideEffects, "drain", MethodType.methodType(int.class, long.class, Consumer.class)),
+                        lookup.findStatic(
+                                sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-5a: no side-effect sensors.
                 return null;
             }
         }

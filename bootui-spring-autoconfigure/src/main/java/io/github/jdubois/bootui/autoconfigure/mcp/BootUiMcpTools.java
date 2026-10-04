@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.SideEffectsController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
@@ -131,7 +132,8 @@ public class BootUiMcpTools {
             ObjectProvider<RuntimeInsightsController> runtimeInsights,
             ObjectProvider<JavaAgentController> javaAgent,
             ObjectProvider<CodeInventoryController> codeInventory,
-            ObjectProvider<CodePathsController> codePaths) {
+            ObjectProvider<CodePathsController> codePaths,
+            ObjectProvider<SideEffectsController> sideEffects) {
         // Resolve each (lazy) controller bean; conditionally-registered controllers (e.g. Hibernate,
         // Spring Security) may be absent depending on the host app's classpath, so the matching tool is
         // simply not advertised rather than failing the whole server.
@@ -171,6 +173,7 @@ public class BootUiMcpTools {
         JavaAgentController javaAgentBean = javaAgent.getIfAvailable();
         CodeInventoryController codeInventoryBean = codeInventory.getIfAvailable();
         CodePathsController codePathsBean = codePaths.getIfAvailable();
+        SideEffectsController sideEffectsBean = sideEffects.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -339,6 +342,13 @@ public class BootUiMcpTools {
                     "get_method_probe",
                     McpToolDescriptions.spring("get_method_probe"),
                     args -> codePathsBean.agentProbe(args.id())));
+        }
+        // Side Effects, advertised while the BootUI agent is armed for this run (docs/PLAN-v2.md §5.16).
+        if (sideEffectsBean != null) {
+            registry.add(tool(
+                    "get_side_effects",
+                    McpToolDescriptions.spring("get_side_effects"),
+                    args -> sideEffectsBean.agentReport(args.query(), args.limit())));
         }
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         // Read at call time, so a next step never names a tool this application does not advertise (M4-21).

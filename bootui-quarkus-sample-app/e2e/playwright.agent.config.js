@@ -35,7 +35,8 @@ function agentJar() {
   return join(target, jar)
 }
 
-const JVM_ARGS = ` "-Djvm.args=-javaagent:${agentJar()}"`
+// The sample's ScheduledJavaVersion seed is off unless its period is set: only this leg asserts its Side Effects row.
+const JVM_ARGS = ` "-Djvm.args=-javaagent:${agentJar()}" -Dside-effects-seed.scheduled-every=20s`
 const webServers = Array.isArray(base.webServer) ? base.webServer : base.webServer ? [base.webServer] : []
 
 export default defineConfig({

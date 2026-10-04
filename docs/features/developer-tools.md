@@ -93,6 +93,8 @@ methods they spend their time in, or one route's hottest method nodes (see [Code
 **Method probes** — `start_method_probe`, an action needing the user's separate approval that read-only policy refuses,
 records one application method's next 20 invocations for at most 60 seconds, metadata only, and `get_method_probe`
 reads them (see [Method probes](java-agent.md#method-probes)).
+**Side Effects read** — `get_side_effects`: with the BootUI agent, the side-effect sensor coverage and most frequent
+rows matching a process sensor, route, target, or call site (see [Side Effects](java-agent.md#side-effects)).
 
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
@@ -144,7 +146,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 82 tools against Spring MVC's 98, because the tools behind
+keys from MicroProfile Config. Its catalog declares 85 tools against Spring MVC's 101, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.
