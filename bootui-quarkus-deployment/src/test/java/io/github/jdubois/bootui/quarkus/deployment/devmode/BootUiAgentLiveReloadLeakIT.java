@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -35,9 +36,9 @@ import org.junit.jupiter.api.extension.RegisterExtension;
  * The BootUI agent across real Quarkus live reloads of a minimal application ({@code docs/PLAN-v2.md} M5-1, §5.13's
  * leak risk): run by failsafe, after the agent jar is packaged, in a JVM started with the agent, so BootUI's static-init
  * recorder claims it again at each of ten reloads of the dev-mode application. A heap walk rooted at the agent (its
- * classes' statics, its instances, and its threads) must then reach no earlier run's class loader but the first, which
- * a mutation keeps through a thread named as the agent's, to prove the walk finds such a hold; the engine's drain
- * thread, which works for the run still going, is the walk's other control.
+ * classes' statics, its instances, and its threads) must then reach no earlier run's class loader, the first included.
+ * A control walk that also starts from a mutation thread, named as the agent's and keeping the first run, proves the
+ * walk finds such a hold, and the engine's drain thread, which works for the run still going, is the other control.
  *
  * <p>Disabled on JDK 27 and later, as {@link BootUiLiveReloadRunIdentityTest} is: the Quarkus LTS platform's dev mode
  * cannot read class files of that version.</p>
@@ -102,12 +103,16 @@ class BootUiAgentLiveReloadLeakIT {
             HeapWalk walk = HeapWalk.read(dump);
             SortedSet<Integer> present = walk.runsPresent(SENTINEL);
             Map<String, Integer> roots = walk.agentRoots(AGENT);
-            Map<Integer, String> reached = walk.runsReachedByAgent(AGENT, SENTINEL);
+            // The real check never starts from the mutation thread; the control walk does.
+            Map<Integer, String> reached =
+                    walk.runsReachedByAgent(AGENT, SENTINEL, Set.of(ReloadProbeResource.MUTATION_THREAD));
+            Map<Integer, String> control = walk.runsReachedByAgent(AGENT, SENTINEL);
             Map<Integer, String> fromDrain = walk.runsReachedFromThreads("bootui-agent-drain", AGENT, SENTINEL);
             int drainThreads = walk.liveThreads("bootui-agent-drain");
             System.out.println("AGENT_ROOTS=" + roots);
             System.out.println("RUNS_IN_HEAP=" + present);
             System.out.println("RUNS_REACHED_BY_AGENT=" + reached.keySet());
+            System.out.println("RUNS_REACHED_WITH_THE_MUTATION=" + control.keySet());
             System.out.println("RUNS_REACHED_FROM_THE_ENGINE_DRAIN=" + fromDrain.keySet());
 
             assertThat(present).as("the run still going is in the heap").contains(current);
@@ -120,15 +125,16 @@ class BootUiAgentLiveReloadLeakIT {
             assertThat(roots)
                     .as("the walk starts from the agent's classes, instances, and threads")
                     .allSatisfy((kind, count) -> assertThat(count).as(kind).isPositive());
-            // The mutation: the first run's thread named as an agent thread keeps that run, and the walk must find it.
-            assertThat(reached)
+            // The control: the first run's thread named as an agent thread keeps that run, and the walk must find it.
+            assertThat(control)
                     .as("the first run, which the mutation thread keeps")
                     .containsKey(1);
-            assertThat(reached.get(1)).contains("ROOT agent thread " + ReloadProbeResource.MUTATION_THREAD);
-            // The test's own class loader holds an uninitialized copy, numbered -1, which is no run.
+            assertThat(control.get(1)).contains("ROOT agent thread " + ReloadProbeResource.MUTATION_THREAD);
+            // The real check, without the mutation thread: no earlier run, run 1 included. The test's own class
+            // loader holds an uninitialized copy, numbered -1, which is no run.
             assertThat(reached.keySet())
                     .as("earlier runs the agent strongly reaches: %s", reached)
-                    .allMatch(run -> run == 1 || run == current || run < 1);
+                    .allMatch(run -> run == current || run < 1);
         } finally {
             delete(dump);
             delete(dump.getParent());

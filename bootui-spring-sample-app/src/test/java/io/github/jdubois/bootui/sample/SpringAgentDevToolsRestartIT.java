@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
@@ -22,8 +23,8 @@ import org.junit.jupiter.api.Timeout;
  * The agent across real DevTools restarts ({@code docs/PLAN-v2.md} M5-1, §5.13's leak risk): the sample runs in a JVM
  * of its own with the BootUI agent and DevTools, every restart claims the agent again in the same slot, and after ten
  * restarts a heap walk rooted at the agent (its classes' statics, its instances, and its threads) must reach no earlier
- * restart's class loader but the first, which a mutation keeps through a thread named as the agent's, to prove the
- * walk finds such a hold. Earlier restarts stay in the heap without the agent too (Spring Data's static type caches and
+ * restart's class loader, the first included. A control walk that also starts from a mutation thread, named as the
+ * agent's and keeping the first run, proves the walk finds such a hold; the real walk leaves that thread out. Earlier restarts stay in the heap without the agent too (Spring Data's static type caches and
  * the first run's logging shutdown handler hold them), so only the agent's own paths are asserted; the engine's drain
  * thread, which reaches the run still going, is the walk's control.
  */
@@ -86,6 +87,9 @@ class SpringAgentDevToolsRestartIT {
                 .redirectErrorStream(true)
                 .redirectOutput(log.toFile())
                 .start();
+        // A Maven fork killed mid-test must not leave the sample running.
+        Process started = process;
+        Runtime.getRuntime().addShutdownHook(new Thread(started::destroyForcibly, "stop-devtools-sample"));
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
 
         List<Long> generations = new ArrayList<>();
@@ -115,7 +119,10 @@ class SpringAgentDevToolsRestartIT {
         HeapWalk walk = HeapWalk.read(dump);
         SortedSet<Integer> present = walk.runsPresent(SENTINEL);
         Map<String, Integer> roots = walk.agentRoots(AGENT);
-        Map<Integer, String> reached = walk.runsReachedByAgent(AGENT, SENTINEL);
+        // The real check never starts from the mutation thread; the control walk does.
+        Map<Integer, String> reached =
+                walk.runsReachedByAgent(AGENT, SENTINEL, Set.of(RestartSentinel.MUTATION_THREAD));
+        Map<Integer, String> control = walk.runsReachedByAgent(AGENT, SENTINEL);
         // The control: the engine's drain thread works for the run still going, so the walk reaches that run from it.
         Map<Integer, String> fromDrain = walk.runsReachedFromThreads("bootui-agent-drain", AGENT, SENTINEL);
         int drainThreads = walk.liveThreads("bootui-agent-drain");
@@ -124,6 +131,7 @@ class SpringAgentDevToolsRestartIT {
         System.out.println("AGENT_ROOTS=" + roots);
         System.out.println("RUNS_IN_HEAP=" + present);
         System.out.println("RUNS_REACHED_BY_AGENT=" + reached.keySet());
+        System.out.println("RUNS_REACHED_WITH_THE_MUTATION=" + control.keySet());
         System.out.println("RUNS_REACHED_FROM_THE_ENGINE_DRAIN=" + fromDrain.keySet());
         assertThat(present).as("the run still going is in the heap").contains(current);
         assertThat(fromDrain)
@@ -135,12 +143,13 @@ class SpringAgentDevToolsRestartIT {
         assertThat(roots)
                 .as("the walk starts from the agent's classes, instances, and threads")
                 .allSatisfy((kind, count) -> assertThat(count).as(kind).isPositive());
-        // The mutation: the first run's thread named as an agent thread keeps that run, and the walk must find it.
-        assertThat(reached).as("the first run, which the mutation thread keeps").containsKey(1);
-        assertThat(reached.get(1)).contains("ROOT agent thread " + RestartSentinel.MUTATION_THREAD);
+        // The control: the first run's thread named as an agent thread keeps that run, and the walk must find it.
+        assertThat(control).as("the first run, which the mutation thread keeps").containsKey(1);
+        assertThat(control.get(1)).contains("ROOT agent thread " + RestartSentinel.MUTATION_THREAD);
+        // The real check, without the mutation thread: no earlier restart, run 1 included.
         assertThat(reached.keySet())
                 .as("earlier restarts the agent strongly reaches: %s", reached)
-                .allMatch(run -> run == 1 || run == current);
+                .allMatch(run -> run == current);
         // Kept when an assertion fails, to find what else holds an earlier restart; best effort, since on Windows the
         // walk's mapped buffers keep the dump open until they are collected.
         try {

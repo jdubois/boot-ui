@@ -137,6 +137,15 @@ public final class HeapWalk {
 
     /** Run number to the path the agent reaches it by. */
     public Map<Integer, String> runsReachedByAgent(String agentPrefix, String runClass) {
+        return runsReachedByAgent(agentPrefix, runClass, Set.of());
+    }
+
+    /**
+     * Run number to the path the agent reaches it by, never starting from a thread named in {@code excludedThreads}: a
+     * leak test's own mutation thread, named as an agent thread, so its control cannot hide a real leak of the run it
+     * keeps.
+     */
+    public Map<Integer, String> runsReachedByAgent(String agentPrefix, String runClass, Set<String> excludedThreads) {
         Map<Long, Long> parent = new HashMap<>();
         Map<Long, String> edge = new HashMap<>();
         ArrayDeque<Long> queue = new ArrayDeque<>();
@@ -154,6 +163,7 @@ public final class HeapWalk {
                 String threadName = threadName(object, type);
                 if (threadName != null
                         && threadName.startsWith("bootui-agent")
+                        && !excludedThreads.contains(threadName)
                         && !engineTask(object, type, agentPrefix)) {
                     root(object, parent, edge, queue, "agent thread " + threadName);
                 }

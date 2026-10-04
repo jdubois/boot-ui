@@ -109,7 +109,9 @@ values:
 
 **Across restarts and reloads.** Tests restart the Spring sample ten times with DevTools, and live-reload a minimal
 Quarkus application ten times, with the agent claimed again at each run, then walk the heap from the agent (its classes'
-statics, its instances, and its threads): no earlier run's class loader is reachable from it. Earlier runs can stay in
+statics, its instances, and its threads): no earlier run's class loader, the first included, is reachable from it. A
+second walk of the same heap, which also starts from a thread the test names as an agent thread and makes keep the first
+run, must find that run, so the walk is shown to catch such a hold. Earlier runs can stay in
 the heap for reasons of their own, such as Spring Data's static type caches, Spring Boot's shutdown hook keeping the
 first run's logging system, or a timer thread whose context class loader is the first Quarkus run's.
 
