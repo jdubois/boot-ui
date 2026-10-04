@@ -82,7 +82,8 @@ public final class RuntimeModelService {
                 snapshot,
                 evicted,
                 System::nanoTime,
-                RuntimeModelProjection.READ_BUDGET_NANOS);
+                RuntimeModelProjection.READ_BUDGET_NANOS,
+                journal::evictedARequestOf);
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
         cachedClears = status.clears();

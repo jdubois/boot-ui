@@ -8,7 +8,10 @@ import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,10 +98,21 @@ public class OtlpReceiverController {
         try {
             List<NormalizedSpan> spans = decoder.decode(body);
             boolean excludeSelf = telemetry.isExcludeSelfSpans();
+            // Self spans first, collecting their traces, so that no span of a BootUI trace in the batch, such as an AI
+            // child exported ahead of its BootUI request span, reaches the journal as application work.
+            Set<String> selfTraces = new HashSet<>();
+            List<NormalizedSpan> others = new ArrayList<>(spans.size());
             int kept = 0;
             for (NormalizedSpan span : spans) {
-                boolean selfSpan = excludeSelf && selfClassifier.isBootUiSpan(span);
-                if (store.add(span, selfSpan)) {
+                if (excludeSelf && selfClassifier.isBootUiSpan(span)) {
+                    selfTraces.add(span.traceId());
+                    store.addImported(span, true);
+                } else {
+                    others.add(span);
+                }
+            }
+            for (NormalizedSpan span : others) {
+                if (store.addImported(span, selfTraces.contains(span.traceId()))) {
                     kept++;
                 }
             }

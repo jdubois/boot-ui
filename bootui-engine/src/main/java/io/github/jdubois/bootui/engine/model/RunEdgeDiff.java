@@ -71,6 +71,18 @@ public record RunEdgeDiff(
             limitations.add("This run observed more than " + JournalAggregates.MAX_EDGES + " edges; " + currentOverflow
                     + " observations were not counted, so an edge reported as removed may still occur.");
         }
+        long previousUnattributed = unattributed(before);
+        if (previousUnattributed > 0) {
+            limitations.add(run + " could not attribute " + previousUnattributed
+                    + " late events to their request once its bounded record expired, so an edge reported as added"
+                    + " may have occurred in it.");
+        }
+        long currentUnattributed = unattributed(current);
+        if (currentUnattributed > 0) {
+            limitations.add("This run could not attribute " + currentUnattributed
+                    + " late events to their request once its bounded record expired, so an edge reported as removed"
+                    + " may still occur.");
+        }
         Map<EdgeDiff.EdgeRef, ObservedEdge> earlier = byEdge(before.edges());
         Map<EdgeDiff.EdgeRef, ObservedEdge> later = byEdge(current.edges());
         List<ObservedEdge> added = new ArrayList<>();
@@ -88,6 +100,12 @@ public record RunEdgeDiff(
         added.sort(MOST_OBSERVED);
         removed.sort(MOST_OBSERVED);
         return new RunEdgeDiff(previous.header().runId(), added, removed, limitations);
+    }
+
+    /** The late events of {@code aggregates}' run whose edges were not counted, since no owner was kept for them. */
+    private static long unattributed(AggregatesSnapshot aggregates) {
+        return aggregates.overflowed().getOrDefault(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L)
+                + aggregates.overflowed().getOrDefault(JournalAggregates.LATE_REQUEST_ATTRIBUTIONS, 0L);
     }
 
     private static Map<EdgeDiff.EdgeRef, ObservedEdge> byEdge(List<ObservedEdge> edges) {

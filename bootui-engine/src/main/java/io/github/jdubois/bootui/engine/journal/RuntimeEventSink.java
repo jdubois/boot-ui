@@ -29,6 +29,14 @@ public interface RuntimeEventSink {
     boolean offer(RuntimeEvent event);
 
     /**
+     * Offers an application event already classified while BootUI handles an import request. Implementations may
+     * bypass only the current request's self-work marker; every other source, capacity, and thread guard still applies.
+     */
+    default boolean offerImported(RuntimeEvent event) {
+        return offer(event);
+    }
+
+    /**
      * Whether events of {@code source} are recorded, so a recorder can skip work only the journal needs, such as
      * walking the stack for application frames.
      */

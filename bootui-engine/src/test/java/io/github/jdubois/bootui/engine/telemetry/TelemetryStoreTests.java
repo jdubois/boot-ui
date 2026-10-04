@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.journal.AiCallEvents;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Field;
 import java.time.Duration;
@@ -116,6 +117,34 @@ class TelemetryStoreTests {
             assertThat(ai).isEqualTo(new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "length", false, "span-1"));
             assertThat(ai.lengthLimited()).isTrue();
         });
+    }
+
+    @Test
+    void onlyAnImportedApplicationAiSpanIsPublishedAsImported() {
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
+        List<RuntimeEvent> regular = new ArrayList<>();
+        List<RuntimeEvent> imported = new ArrayList<>();
+        store.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                regular.add(event);
+                return true;
+            }
+
+            @Override
+            public boolean offerImported(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+        });
+
+        store.addImported(aiSpan("trace-imported", "span-imported", "orders-service"), false);
+        store.addImported(aiSpan("trace-self", "span-self", "sample"), true);
+        store.addImported(aiSpan("trace-self", "span-self-child", "sample"), false);
+        store.add(aiSpan("trace-local", "span-local", "sample"));
+
+        assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly("trace-imported");
+        assertThat(regular).extracting(RuntimeEvent::traceId).containsExactly("trace-local");
     }
 
     @Test
@@ -266,6 +295,23 @@ class TelemetryStoreTests {
         Field lockField = TelemetryStore.class.getDeclaredField("lock");
         lockField.setAccessible(true);
         return (ReentrantReadWriteLock) lockField.get(store);
+    }
+
+    private static NormalizedSpan aiSpan(String traceId, String spanId, String serviceName) {
+        return new NormalizedSpan(
+                traceId,
+                spanId,
+                null,
+                "chat gpt-4o",
+                "CLIENT",
+                serviceName,
+                "spring-ai",
+                5_000_000L,
+                45_000_000L,
+                "OK",
+                null,
+                Map.of("gen_ai.operation.name", AttributeValue.ofString("chat")),
+                List.of());
     }
 
     private static void awaitCondition(Condition condition) throws Exception {

@@ -12,15 +12,18 @@ import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -67,6 +70,11 @@ public final class JournalAggregates implements JournalListener {
     /** The {@link AggregatesSnapshot#overflowed()} key of the edge observations not counted beyond {@value #MAX_EDGES}. */
     public static final String EDGES = "edges";
 
+    public static final String COMPLETED_REQUEST_ATTRIBUTIONS = "completedRequestAttributions";
+    public static final String LATE_REQUEST_ATTRIBUTIONS = "lateRequestAttributions";
+    public static final String ATTRIBUTION_TOMBSTONES = "attributionTombstones";
+    public static final String TRACE_AI_ATTRIBUTIONS = "traceAiAttributions";
+
     static final int MAX_EDGES_PER_EXECUTION = 64;
     static final int MAX_FINGERPRINTS_PER_REQUEST = 64;
     static final int MAX_GROUPS_PER_REQUEST = 16;
@@ -92,11 +100,23 @@ public final class JournalAggregates implements JournalListener {
     private final Map<String, Boolean> completedExecutions = bounded(MAX_PENDING_REQUESTS);
     private long unattributedExecutions;
 
+    /** The most recently completed requests, including the state needed to apply exactly owned late events once. */
+    private final LinkedHashMap<String, CompletedRequest> completed = new LinkedHashMap<>();
+
+    private final LinkedHashMap<String, Boolean> expiredRequestIds = new LinkedHashMap<>();
+    private final LinkedHashMap<String, Boolean> expiredTraces = new LinkedHashMap<>();
+    private final AiCallOwners aiCallOwners = new AiCallOwners(traceId -> expiredTraces.containsKey(traceId));
+    private final ArrayDeque<TraceAiEdge> traceAiEdges = new ArrayDeque<>();
+    private final Map<String, Integer> heldTraceAiEdges = new HashMap<>();
+
     /**
-     * The most recently completed requests, so a child recorded after its request, such as an AI call exported in a
-     * later batch or a send acknowledged after the response, opens no pending entry that nothing would ever complete.
+     * The trace-only AI edges settled under their one owner, by trace, and counted only when they leave this bounded
+     * ledger, so that a request recorded before then whose time span also contains one retracts it, as its owner is
+     * then unknown. At most {@value #MAX_PENDING_REQUESTS}.
      */
-    private final Map<String, Boolean> completed = bounded(MAX_PENDING_REQUESTS);
+    private final LinkedHashMap<String, List<SettledClaim>> settledClaims = new LinkedHashMap<>();
+
+    private int settledClaimCount;
 
     private final Map<String, Long> recentPauses = bounded(MAX_RECENT_COLLECTIONS);
     private final Map<String, List<String>> awaitedPauses = bounded(MAX_AWAITED_COLLECTIONS);
@@ -104,8 +124,11 @@ public final class JournalAggregates implements JournalListener {
     private final LinkedHashMap<EdgeRef, EdgeCount> edges = new LinkedHashMap<>();
     private final LinkedHashMap<String, PendingEdges> pendingEdges = new LinkedHashMap<>();
     private final Map<String, ObservedEdges.Execution> executions = bounded(MAX_PENDING_REQUESTS);
-    private final Map<String, ObservedEdges.Execution> requestsByTrace = bounded(MAX_PENDING_REQUESTS);
     private long edgeOverflow;
+    private long completedAttributionExpiry;
+    private long lateAttributionExpiry;
+    private long attributionTombstoneOverflow;
+    private long traceAiAttributionExpiry;
     private final long[] runCounts = new long[SOURCES];
     private final long[] runNanos = new long[SOURCES];
     private long firstEpochMillis = Long.MAX_VALUE;
@@ -214,11 +237,24 @@ public final class JournalAggregates implements JournalListener {
                 joinPauses(http.resources(), label, route);
             }
             PendingRequest children = event.requestId() == null ? null : pending.remove(event.requestId());
-            if (children != null) {
-                route.fold(children, label, http.status(), this);
+            if (children == null) {
+                children = new PendingRequest();
             }
+            route.fold(children, label, http.status(), this);
             if (event.requestId() != null) {
-                completed.put(event.requestId(), Boolean.TRUE);
+                // Before an older request's eviction settles or finalizes claims that this request makes ambiguous.
+                aiCallOwners.learn(event);
+                retractClaimsContaining(event);
+                rememberCompleted(
+                        event.requestId(),
+                        new CompletedRequest(
+                                event.requestId(),
+                                route,
+                                label,
+                                http.status(),
+                                event.traceId(),
+                                children,
+                                ObservedEdges.execution(event, ignored -> label)));
             }
             return;
         }
@@ -240,38 +276,73 @@ public final class JournalAggregates implements JournalListener {
             completedExecutions.put(event.executionId(), Boolean.TRUE);
             return;
         }
-        PendingRequest children = event.requestId() != null
-                ? completed.containsKey(event.requestId()) ? null : pendingFor(event.requestId())
-                : executionChildren(event.executionId());
+        CompletedRequest completedRequest = event.requestId() == null ? null : completed.get(event.requestId());
+        boolean expiredRequest = event.requestId() != null
+                && completedRequest == null
+                && expiredRequestIds.containsKey(event.requestId());
+        if (expiredRequest) {
+            lateAttributionExpiry++;
+        }
+        PendingRequest children = event.requestId() == null
+                ? executionChildren(event.executionId())
+                : completedRequest != null
+                        ? completedRequest.children
+                        : expiredRequest ? null : pendingFor(event.requestId());
         if (children != null) {
             children.add(event);
+        }
+        if (completedRequest != null) {
+            completedRequest.route.addChild(event);
         }
         if (payload instanceof SqlPayload sql) {
             String fingerprint = SqlShapes.fingerprint(sql.sql());
             statements.get(fingerprint).add(event, sql);
             if (children != null) {
-                children.statement(fingerprint);
+                String key = children.statement(fingerprint);
+                if (completedRequest != null) {
+                    completedRequest.route.statement(key);
+                }
             }
         } else if (payload instanceof ExceptionPayload exception) {
             exceptionGroups.get(exception.groupId()).add(exception);
-            if (children != null) {
-                children.exceptionGroup(exception.groupId());
+            boolean newGroup = children != null && children.exceptionGroup(exception.groupId());
+            if (completedRequest != null && newGroup) {
+                exceptionGroups.get(exception.groupId()).routes.get(completedRequest.label)[0]++;
             }
         } else if (payload instanceof TransactionPayload transaction) {
             transactionalMethods.get(transaction.method()).add(event, transaction);
         } else if (payload instanceof ConnectionPayload connection && children != null) {
             children.connectionWaitNanos += connection.waitNanos();
+            if (completedRequest != null) {
+                completedRequest.route.connectionWaitNanos += connection.waitNanos();
+            }
         } else if (payload instanceof CachePayload cache
                 && children != null
                 && "MISS".equalsIgnoreCase(cache.operation())) {
             children.cacheMisses++;
+            if (completedRequest != null) {
+                completedRequest.route.cacheMisses++;
+            }
         } else if (payload instanceof AuthorizationPayload decision && children != null) {
+            AuthorizationState before = children.authorizationState();
             children.authorization(decision);
+            if (completedRequest != null) {
+                completedRequest.route.reclassifyAuthorization(
+                        before, children.authorizationState(), completedRequest.status);
+            }
         } else if (payload instanceof OrmPayload orm && children != null) {
+            OrmState before = children.ormState();
             children.orm(orm);
+            if (completedRequest != null) {
+                completedRequest.route.adjustOrm(before, children.ormState());
+            }
         } else if (payload instanceof AiPayload ai && children != null) {
-            children.aiTokens += Math.max(0, ai.inputTokens() == null ? 0 : ai.inputTokens())
+            long tokens = Math.max(0, ai.inputTokens() == null ? 0 : ai.inputTokens())
                     + Math.max(0, ai.outputTokens() == null ? 0 : ai.outputTokens());
+            children.aiTokens += tokens;
+            if (completedRequest != null) {
+                completedRequest.route.aiTokens += tokens;
+            }
         }
     }
 
@@ -284,9 +355,6 @@ public final class JournalAggregates implements JournalListener {
         if (execution != null) {
             String key = ObservedEdges.executionKey(event, execution);
             executions.put(key, execution);
-            if (execution.request() && event.traceId() != null) {
-                requestsByTrace.put(event.traceId(), execution);
-            }
             PendingEdges held = pendingEdges.remove(key);
             if (held != null) {
                 held.targets.forEach((target, count) -> count(execution.to(target), count));
@@ -297,14 +365,20 @@ public final class JournalAggregates implements JournalListener {
             return;
         }
         String owner = ObservedEdges.ownerKey(event);
-        ObservedEdges.Execution completed = owner != null
-                ? executions.get(owner)
-                : ObservedEdges.ownedByTrace(event) ? requestsByTrace.get(event.traceId()) : null;
+        ObservedEdges.Execution completed = owner == null ? null : executions.get(owner);
+        if (completed == null && event.requestId() != null) {
+            CompletedRequest request = this.completed.get(event.requestId());
+            completed = request == null ? null : request.execution;
+        }
         long at = event.epochMillis();
         if (completed != null) {
             for (ObservedEdges.Target target : targets) {
                 EdgeCount observed = new EdgeCount(at);
                 count(completed.to(target), observed);
+            }
+        } else if (ObservedEdges.ownedByTrace(event)) {
+            for (ObservedEdges.Target target : targets) {
+                rememberTraceAiEdge(new TraceAiEdge(event.traceId(), at, target));
             }
         } else if (owner != null) {
             PendingEdges held = pendingEdges.get(owner);
@@ -321,6 +395,93 @@ public final class JournalAggregates implements JournalListener {
                 held.add(target, at);
             }
         }
+    }
+
+    private void rememberTraceAiEdge(TraceAiEdge edge) {
+        if (traceAiEdges.size() >= MAX_PENDING_REQUESTS) {
+            TraceAiEdge oldest = traceAiEdges.removeFirst();
+            released(oldest);
+            settle(oldest);
+        }
+        traceAiEdges.addLast(edge);
+        heldTraceAiEdges.merge(edge.traceId, 1, Integer::sum);
+    }
+
+    private void released(TraceAiEdge edge) {
+        heldTraceAiEdges.computeIfPresent(edge.traceId, (trace, held) -> held > 1 ? held - 1 : null);
+    }
+
+    /**
+     * Settles every held trace-only AI edge of {@code traceId}, while the completed requests of that trace are still
+     * known, before one of them leaves the bounded ledger.
+     */
+    private void settleHeld(String traceId) {
+        if (!heldTraceAiEdges.containsKey(traceId)) {
+            return;
+        }
+        heldTraceAiEdges.remove(traceId);
+        for (Iterator<TraceAiEdge> held = traceAiEdges.iterator(); held.hasNext(); ) {
+            TraceAiEdge edge = held.next();
+            if (edge.traceId.equals(traceId)) {
+                held.remove();
+                settle(edge);
+            }
+        }
+    }
+
+    /**
+     * Counts a held trace-only AI edge when it leaves the bounded buffer or its trace's owners are about to expire: under
+     * the one request whose window contains it, retractable while its claim is kept, or, when none owns it or
+     * attribution for its trace expired, as an expired attribution.
+     */
+    private void settle(TraceAiEdge edge) {
+        CompletedRequest request = traceExpired(edge) ? null : ownerOf(edge);
+        if (request == null) {
+            traceAiAttributionExpiry++;
+            return;
+        }
+        rememberClaim(edge.traceId, new SettledClaim(request.requestId, edge.at, request.execution.to(edge.target)));
+    }
+
+    private void rememberClaim(String traceId, SettledClaim claim) {
+        settledClaims.computeIfAbsent(traceId, trace -> new ArrayList<>(1)).add(claim);
+        settledClaimCount++;
+        while (settledClaimCount > MAX_PENDING_REQUESTS) {
+            Iterator<List<SettledClaim>> oldest = settledClaims.values().iterator();
+            List<SettledClaim> finalClaims = oldest.next();
+            oldest.remove();
+            settledClaimCount -= finalClaims.size();
+            for (SettledClaim finalClaim : finalClaims) {
+                count(finalClaim.edge, new EdgeCount(finalClaim.at));
+            }
+        }
+    }
+
+    /**
+     * Retracts every kept claim of a settled trace-only AI edge that the time span of {@code http}, another request of
+     * the same trace, also contains, since which of the two made that call is then unknown.
+     */
+    private void retractClaimsContaining(RuntimeEvent http) {
+        List<SettledClaim> claims = settledClaims.get(http.traceId());
+        if (claims == null) {
+            return;
+        }
+        for (Iterator<SettledClaim> kept = claims.iterator(); kept.hasNext(); ) {
+            SettledClaim claim = kept.next();
+            if (!claim.requestId.equals(http.requestId()) && AiCallOwners.windowContains(http, claim.at)) {
+                kept.remove();
+                settledClaimCount--;
+            }
+        }
+        if (claims.isEmpty()) {
+            settledClaims.remove(http.traceId());
+        }
+    }
+
+    private CompletedRequest ownerOf(TraceAiEdge edge) {
+        String owner = aiCallOwners.ownerOf(edge.traceId, edge.at);
+        CompletedRequest request = owner == null ? null : completed.get(owner);
+        return request == null || request.execution == null ? null : request;
     }
 
     private void count(EdgeRef edge, EdgeCount observed) {
@@ -417,6 +578,51 @@ public final class JournalAggregates implements JournalListener {
         return children;
     }
 
+    private void rememberCompleted(String requestId, CompletedRequest request) {
+        CompletedRequest previous = completed.put(requestId, request);
+        if (previous != null || completed.size() <= MAX_PENDING_REQUESTS) {
+            return;
+        }
+        Iterator<Map.Entry<String, CompletedRequest>> oldest =
+                completed.entrySet().iterator();
+        Map.Entry<String, CompletedRequest> expired = oldest.next();
+        CompletedRequest value = expired.getValue();
+        if (value.traceId != null) {
+            settleHeld(value.traceId);
+        }
+        oldest.remove();
+        completedAttributionExpiry++;
+        rememberExpiredRequest(expired.getKey());
+        if (value.traceId != null) {
+            aiCallOwners.forget(expired.getKey(), value.traceId);
+            rememberExpiredTrace(value.traceId);
+        }
+    }
+
+    private void rememberExpiredRequest(String requestId) {
+        expiredRequestIds.put(requestId, Boolean.TRUE);
+        if (expiredRequestIds.size() > MAX_PENDING_REQUESTS) {
+            Iterator<String> oldest = expiredRequestIds.keySet().iterator();
+            oldest.next();
+            oldest.remove();
+            attributionTombstoneOverflow++;
+        }
+    }
+
+    private void rememberExpiredTrace(String traceId) {
+        expiredTraces.put(traceId, Boolean.TRUE);
+        if (expiredTraces.size() > MAX_PENDING_REQUESTS) {
+            Iterator<String> oldest = expiredTraces.keySet().iterator();
+            oldest.next();
+            oldest.remove();
+            attributionTombstoneOverflow++;
+        }
+    }
+
+    private boolean traceExpired(TraceAiEdge edge) {
+        return expiredTraces.containsKey(edge.traceId);
+    }
+
     private PendingRequest executionChildren(String id) {
         if (id == null || ExecutionIds.isAsync(id) || id.startsWith("task-") || completedExecutions.containsKey(id)) {
             return null;
@@ -472,13 +678,23 @@ public final class JournalAggregates implements JournalListener {
         threadFamilies.clear();
         pending.clear();
         completed.clear();
+        expiredRequestIds.clear();
+        expiredTraces.clear();
+        aiCallOwners.clear();
+        traceAiEdges.clear();
+        heldTraceAiEdges.clear();
+        settledClaims.clear();
+        settledClaimCount = 0;
         recentPauses.clear();
         awaitedPauses.clear();
         edges.clear();
         pendingEdges.clear();
         executions.clear();
-        requestsByTrace.clear();
         edgeOverflow = 0;
+        completedAttributionExpiry = 0;
+        lateAttributionExpiry = 0;
+        attributionTombstoneOverflow = 0;
+        traceAiAttributionExpiry = 0;
         Arrays.fill(runCounts, 0);
         Arrays.fill(runNanos, 0);
         firstEpochMillis = Long.MAX_VALUE;
@@ -530,15 +746,42 @@ public final class JournalAggregates implements JournalListener {
         overflowed.put("exceptionGroups", exceptionGroups.overflowed());
         overflowed.put("transactionalMethods", transactionalMethods.overflowed());
         overflowed.put("threadFamilies", threadFamilies.overflowed());
-        overflowed.put(EDGES, edgeOverflow);
+        overflowed.put(COMPLETED_REQUEST_ATTRIBUTIONS, completedAttributionExpiry);
+        overflowed.put(LATE_REQUEST_ATTRIBUTIONS, lateAttributionExpiry);
+        overflowed.put(ATTRIBUTION_TOMBSTONES, attributionTombstoneOverflow);
+        LinkedHashMap<EdgeRef, EdgeCount> projectedEdges = new LinkedHashMap<>();
+        edges.forEach((edge, count) -> projectedEdges.put(edge, count.copy()));
+        long projectedEdgeOverflow = edgeOverflow;
+        long projectedTraceExpiry = traceAiAttributionExpiry;
+        // In the order they will be counted: settled claims, then the held edges that settle after them.
+        for (List<SettledClaim> claims : settledClaims.values()) {
+            for (SettledClaim claim : claims) {
+                if (!project(projectedEdges, claim.edge, claim.at)) {
+                    projectedEdgeOverflow++;
+                }
+            }
+        }
+        for (TraceAiEdge traceEdge : traceAiEdges) {
+            if (traceExpired(traceEdge)) {
+                projectedTraceExpiry++;
+                continue;
+            }
+            CompletedRequest request = ownerOf(traceEdge);
+            if (request != null && !project(projectedEdges, request.execution.to(traceEdge.target), traceEdge.at)) {
+                projectedEdgeOverflow++;
+            }
+        }
+        overflowed.put(TRACE_AI_ATTRIBUTIONS, projectedTraceExpiry);
+        overflowed.put(EDGES, projectedEdgeOverflow);
         overflowed.put("executions", executionStats.overflowed());
         overflowed.put("unattributedExecutions", unattributedExecutions);
         List<ExecutionStats> work = new ArrayList<>();
         executionStats
                 .entries()
                 .forEach((key, value) -> work.add(new ExecutionStats(executionSources.get(key), value.stats(key))));
-        List<ObservedEdge> edgeStats = new ArrayList<>(edges.size());
-        edges.forEach((edge, count) -> edgeStats.add(new ObservedEdge(edge, count.count, count.first, count.last)));
+        List<ObservedEdge> edgeStats = new ArrayList<>(projectedEdges.size());
+        projectedEdges.forEach(
+                (edge, count) -> edgeStats.add(new ObservedEdge(edge, count.count, count.first, count.last)));
         return new AggregatesSnapshot(
                 routeStats,
                 statementStats,
@@ -550,6 +793,20 @@ public final class JournalAggregates implements JournalListener {
                 overflowed,
                 work,
                 true);
+    }
+
+    /** Adds one observation of {@code edge} to {@code projected}, and whether it was kept rather than overflowed. */
+    private static boolean project(Map<EdgeRef, EdgeCount> projected, EdgeRef edge, long at) {
+        EdgeCount count = projected.get(edge);
+        if (count != null) {
+            count.merge(new EdgeCount(at));
+            return true;
+        }
+        if (projected.size() < MAX_EDGES) {
+            projected.put(edge, new EdgeCount(at));
+            return true;
+        }
+        return false;
     }
 
     private static Map<JournalSource, Long> bySource(long[] values) {
@@ -607,6 +864,25 @@ public final class JournalAggregates implements JournalListener {
         }
     }
 
+    private record TraceAiEdge(String traceId, long at, ObservedEdges.Target target) {}
+
+    /** A held trace-only AI edge settled under the request that owned it. */
+    private record SettledClaim(String requestId, long at, EdgeRef edge) {}
+
+    private record CompletedRequest(
+            String requestId,
+            Route route,
+            String label,
+            int status,
+            String traceId,
+            PendingRequest children,
+            ObservedEdges.Execution execution) {}
+
+    private record AuthorizationState(String authentication, boolean denied) {}
+
+    private record OrmState(
+            int sessions, long flushes, long autoFlushes, long nanos, boolean entitiesMeasured, long entities) {}
+
     private static final class PendingRequest {
 
         private final long[] counts = new long[SOURCES];
@@ -652,17 +928,29 @@ public final class JournalAggregates implements JournalListener {
             ormEntities = Math.max(ormEntities, orm.entitiesInContext());
         }
 
-        void statement(String fingerprint) {
+        /** Counts {@code fingerprint} and returns the key it was counted under. */
+        String statement(String fingerprint) {
             String key = statements.containsKey(fingerprint) || statements.size() < MAX_FINGERPRINTS_PER_REQUEST
                     ? fingerprint
                     : CappedMap.OTHER;
             statements.merge(key, 1L, Long::sum);
+            return key;
         }
 
-        void exceptionGroup(String groupId) {
+        boolean exceptionGroup(String groupId) {
             if (exceptionGroups.size() < MAX_GROUPS_PER_REQUEST) {
-                exceptionGroups.add(groupId);
+                return exceptionGroups.add(groupId);
             }
+            return false;
+        }
+
+        AuthorizationState authorizationState() {
+            return new AuthorizationState(authentication, denied);
+        }
+
+        OrmState ormState() {
+            return new OrmState(
+                    ormSessions, ormFlushes, ormAutoFlushes, ormNanos, ormEntities >= 0, Math.max(0, ormEntities));
         }
     }
 
@@ -722,6 +1010,54 @@ public final class JournalAggregates implements JournalListener {
             latency.recordNanos(event.durationNanos());
             if (status >= 100 && status < 600) {
                 statusClasses[status / 100 - 1]++;
+            }
+        }
+
+        void addChild(RuntimeEvent event) {
+            childCounts[event.source().ordinal()]++;
+            childNanos[event.source().ordinal()] += Math.max(0, event.durationNanos());
+        }
+
+        void statement(String fingerprint) {
+            statements.get(fingerprint)[0]++;
+        }
+
+        void reclassifyAuthorization(AuthorizationState before, AuthorizationState after, int status) {
+            if (!Objects.equals(before.authentication, after.authentication)) {
+                if (before.authentication != null) {
+                    int oldIndex = authenticationIndex(before.authentication);
+                    authentications[oldIndex]--;
+                    if (oldIndex == 0 && status >= 200 && status < 300) {
+                        anonymousSuccesses--;
+                    }
+                }
+                if (after.authentication != null) {
+                    int newIndex = authenticationIndex(after.authentication);
+                    authentications[newIndex]++;
+                    if (newIndex == 0 && status >= 200 && status < 300) {
+                        anonymousSuccesses++;
+                    }
+                }
+            }
+            if (!before.denied && after.denied) {
+                deniedRequests++;
+            }
+        }
+
+        void adjustOrm(OrmState before, OrmState after) {
+            if (before.sessions == 0 && after.sessions > 0) {
+                ormRequests++;
+                ormTime.recordNanos(after.nanos);
+            } else if (before.sessions > 0 && after.sessions > 0) {
+                ormTime.replaceNanos(before.nanos, after.nanos);
+            }
+            ormFlushes += after.flushes - before.flushes;
+            ormAutoFlushes += after.autoFlushes - before.autoFlushes;
+            if (!before.entitiesMeasured && after.entitiesMeasured) {
+                ormEntityRequests++;
+                ormEntities += after.entities;
+            } else if (before.entitiesMeasured && after.entitiesMeasured) {
+                ormEntities += after.entities - before.entities;
             }
         }
 
