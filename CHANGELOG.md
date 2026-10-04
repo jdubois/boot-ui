@@ -17,13 +17,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread now stops being metered for a
-  request as soon as Quarkus completes that request on it, instead of staying charged to it until the event loop
-  takes the request when the response body ends. Whatever the thread did back in its pool in between — unrelated
-  work, or a task an agent propagated for another request — is no longer added to the finished request's CPU time
-  and allocation, and its `bootui.ExecutionSegment` interval no longer covers that window, so **Profile resources**
-  stops joining those JFR samples and hot frames to the wrong route. Taking the request remains the fallback for a
-  chain that never comes back to its thread (PLAN-v2 §5.11, D17;
+- **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
+  chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
+  the request as soon as Quarkus completes that request on it, instead of staying charged to it for the whole
+  transfer. Whatever the thread did back in its pool in between — unrelated work, or a task an agent propagated for
+  another request — is no longer added to the finished request's CPU time and allocation, and its
+  `bootui.ExecutionSegment` interval no longer covers that window, so **Profile resources** stops joining those JFR
+  samples and hot frames to the wrong route. An ordinary response was already attributed correctly, because the
+  worker writes it itself and the request is taken inline on that thread. A suspended chain — a blocking method
+  returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
+  hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
   [Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible

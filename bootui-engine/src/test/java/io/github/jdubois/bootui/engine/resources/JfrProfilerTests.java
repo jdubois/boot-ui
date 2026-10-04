@@ -109,6 +109,9 @@ class JfrProfilerTests {
         assertThat(samples.frames().keySet())
                 .as("what the thread does back in its pool, before the request is taken, is not the request's")
                 .noneMatch(frame -> frame.contains("JfrProfilerTests.burnBackInThePool"));
+        assertThat(done.analysis().outsideSamples())
+                .as("the session was still sampling while the thread burned back in its pool")
+                .isPositive();
     }
 
     @Test

@@ -15,19 +15,29 @@ import org.jboss.resteasy.reactive.server.spi.ResteasyReactiveContainerRequestCo
  * {@link BootUiCorrelation} scope, so no scope opens or closes a segment when the request hops from the event loop to
  * a worker. {@link #enter(ContainerRequestContext)} opens it where the chain reaches the resource method, and closes
  * it on that same thread when Quarkus completes the request there, so the thread goes back to its pool metered for
- * nothing. Without the close, the thread stays charged to the finished request until its {@code bodyEndHandler} takes
- * it on the event loop, and any work it does in between — including an agent-propagated task, which deliberately
- * leaves the meter unchanged ({@code docs/PLAN-v2.md} D32) — is measured under that request, and its JFR samples are
- * joined to it.</p>
+ * nothing.</p>
+ *
+ * <p>For an ordinary response this close is not the one that matters, and the measurement was already right without
+ * it: the worker itself writes the response, {@code Http1xServerResponse.end} runs the {@code bodyEndHandler} inline
+ * on the thread that ended the response, and {@code SegmentMeter.take} therefore closes the worker's segment on the
+ * worker, before the chain even reaches completion. The close here is what covers the chain that finishes on its
+ * worker while the response body is still outstanding — a {@code File} or {@code Path} entity, which Quarkus writes
+ * with {@code HttpServerResponse.sendFile} and whose body end is emitted later, on the event loop. Without it, such a
+ * worker stays charged to the finished request for the whole transfer, and any work it does back in its pool in
+ * between — including an agent-propagated task, which deliberately leaves the meter unchanged ({@code docs/PLAN-v2.md}
+ * D32) — is measured under that request and has its JFR samples joined to it.</p>
  *
  * <p>The close rides on Quarkus' own request-completion callback rather than on a response filter or a writer
  * interceptor. Completion runs once the whole chain is done — after every response filter, after the entity has been
  * serialized, and after an exception mapper has written its own response — so nothing the request still owes is left
- * unmetered, and BootUI adds no provider that could change how Quarkus serializes an application's responses. A chain
- * that completes on a different thread, such as an asynchronous hand-off resumed elsewhere, is left alone here, and so
- * is one whose completion BootUI never hears, such as one an application's own callback aborted by throwing: both fall
- * back to {@code SegmentMeter.take} when the event loop takes the request, which is as late as the close used to
- * be.</p>
+ * unmetered, and BootUI adds no provider that could change how Quarkus serializes an application's responses.</p>
+ *
+ * <p>A chain that leaves its worker without completing on it is left alone here and falls back to
+ * {@code SegmentMeter.take} when the request's body ends. That fallback is the honest limit of this close: a
+ * <em>suspended</em> chain — a blocking method returning a {@code Uni} or a {@code CompletionStage}, a {@code Multi},
+ * an SSE or {@code @Suspended} response — releases its worker at suspension, which Quarkus 3.33 exposes no supported
+ * hook for, so that worker stays attributed to the request until it is taken or until the worker switches to its next
+ * measured request. {@code docs/PLAN-v2.md} §5.11 records that limit.</p>
  */
 final class QuarkusRequestSegments {
 
@@ -55,7 +65,8 @@ final class QuarkusRequestSegments {
 
     /**
      * Stops metering {@code owner} for {@code requestId} once Quarkus completes the request on that very thread. A
-     * completion reached from anywhere else cannot close another thread's segment, so it defers to the fallback.
+     * completion reached from anywhere else cannot close another thread's segment, so it defers to the fallback, and
+     * so does a completion that arrives after the response body already ended and the request was taken.
      */
     private static void onCompletion(ContainerRequestContext request, String requestId, Thread owner) {
         if (!(request instanceof ResteasyReactiveContainerRequestContext resteasy)) {

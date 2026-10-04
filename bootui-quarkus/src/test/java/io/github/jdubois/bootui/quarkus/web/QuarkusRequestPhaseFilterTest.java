@@ -16,6 +16,7 @@ import jakarta.ws.rs.container.CompletionCallback;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerResponseContext;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -25,10 +26,13 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Pins that a Quarkus REST worker stops being metered for a request when Quarkus completes that request on it
- * ({@code docs/PLAN-v2.md} §5.11). The request's segment used to stay open until the event loop's
- * {@code bodyEndHandler} took the request, so whatever the worker did back in its pool — unrelated work, or a task an
- * agent propagated for another request — was charged to the request that had already finished, and its JFR samples
- * were joined to it.
+ * ({@code docs/PLAN-v2.md} §5.11), and that a completion reached from another thread never closes the segment that
+ * other thread is using.
+ *
+ * <p>For an ordinary response the worker is already released earlier, by the inline {@code bodyEndHandler} that takes
+ * the request on the worker itself; this close is what covers a chain that finishes on its worker while the response
+ * body is still outstanding, such as a file transfer. {@code BootUiQuarkusWorkerSegmentReleaseTest} proves that
+ * ordering on a real Quarkus request.</p>
  */
 class QuarkusRequestPhaseFilterTest {
 
@@ -83,35 +87,65 @@ class QuarkusRequestPhaseFilterTest {
     }
 
     @Test
-    void aRequestCompletedOnAnotherThreadIsStillClosedByTake() throws Exception {
+    void aWorkerLeftOpenByASuspendedChainIsClosedByTakeOnItsBehalf() throws Exception {
         String requestId = RequestIds.next();
-        SegmentMeter meter = SegmentMeter.shared();
-
-        AtomicReference<CompletionCallback> completion = new AtomicReference<>();
-        String meteredAfterChain = onWorkerOfRequest(requestId, request -> {
-            new QuarkusRequestPhaseFilter(new RequestPhases()).filter(request.context());
-            completion.set(request.callback());
-            // The chain hands off and is completed elsewhere: this worker never hears the end of it.
-            return meter.currentRequestId();
-        });
-
-        assertThat(meteredAfterChain)
-                .as("the hand-off leaves the worker's segment open")
-                .isEqualTo(requestId);
         String elsewhere = RequestIds.next();
-        meter.begin(elsewhere); // this thread is busy with another request when the hand-off completes
+        SegmentMeter meter = SegmentMeter.shared();
+        AtomicReference<CompletionCallback> completion = new AtomicReference<>();
+        CompletableFuture<String> meteredAfterChain = new CompletableFuture<>();
+        CompletableFuture<String> meteredAfterTake = new CompletableFuture<>();
+        CountDownLatch taken = new CountDownLatch(1);
+
+        Vertx vertx = Vertx.vertx();
         try {
-            completion.get().onComplete(null);
-            assertThat(meter.currentRequestId())
-                    .as("completing on another thread must not close the segment that thread is using")
-                    .isEqualTo(elsewhere);
+            Context duplicated = VertxContext.createNewDuplicatedContext(vertx.getOrCreateContext());
+            duplicated.executeBlocking(
+                    () -> {
+                        QuarkusRequestCorrelation.attach(CorrelationContext.forRequest(requestId));
+                        meter.begin(requestId);
+                        meter.switchTo(null); // the event loop began it, not this worker
+                        RequestUnderTest request = RequestUnderTest.create();
+                        new QuarkusRequestPhaseFilter(new RequestPhases()).filter(request.context());
+                        completion.set(request.callback());
+                        meteredAfterChain.complete(meter.currentRequestId());
+                        // The chain suspends: this worker stays alive in its pool while the request ends elsewhere.
+                        taken.await(30, TimeUnit.SECONDS);
+                        meteredAfterTake.complete(meter.currentRequestId());
+                        return null;
+                    },
+                    false);
+
+            assertThat(meteredAfterChain.get(30, TimeUnit.SECONDS))
+                    .as("a chain that leaves its worker without completing on it leaves the segment open")
+                    .isEqualTo(requestId);
+
+            meter.begin(elsewhere); // the completing thread is busy with another request
+            try {
+                completion.get().onComplete(null);
+                assertThat(meter.currentRequestId())
+                        .as("completing on another thread must not close the segment that thread is using")
+                        .isEqualTo(elsewhere);
+            } finally {
+                meter.switchTo(null);
+                meter.take(elsewhere);
+            }
+
+            assertThat(meter.take(requestId))
+                    .as("taking is the fallback, and it measured the worker the chain left open")
+                    .isNotNull()
+                    .satisfies(usage -> assertThat(usage.segments())
+                            .as("the worker's segment counts towards the request")
+                            .isPositive());
+
+            taken.countDown();
+            assertThat(meteredAfterTake.get(30, TimeUnit.SECONDS))
+                    .as("taking closed the worker's segment on its behalf, so the worker is metered for nothing")
+                    .isNull();
+            assertThat(meter.take(requestId)).as("a request is only taken once").isNull();
         } finally {
-            meter.switchTo(null);
-            meter.take(elsewhere);
+            taken.countDown();
+            vertx.close().toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         }
-        assertThat(meter.take(requestId))
-                .as("taking is the fallback that closes it")
-                .isNotNull();
     }
 
     /** A Quarkus REST request context that records the completion callback BootUI registers on it. */
