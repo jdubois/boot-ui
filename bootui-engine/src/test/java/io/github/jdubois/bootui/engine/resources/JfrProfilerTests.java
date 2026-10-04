@@ -73,6 +73,48 @@ class JfrProfilerTests {
     }
 
     @Test
+    void aThreadThatLeftARequestStopsContributingSamplesToIt() throws Exception {
+        assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
+        profiler.start(Duration.ofMinutes(1));
+        String id = RequestIds.next();
+        SegmentMeter meter = SegmentMeter.shared();
+        CountDownLatch worked = new CountDownLatch(1);
+        CountDownLatch taken = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            meter.begin(id);
+            burn(600);
+            meter.switchTo(null); // the request's chain is done with this thread
+            burnBackInThePool(600);
+            worked.countDown();
+            try {
+                taken.await();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        worker.start();
+        worked.await();
+        meter.take(id);
+        taken.countDown();
+        worker.join();
+
+        Snapshot done = profiler.stop();
+
+        RequestSamples samples = done.analysis().requests().get(id);
+        assertThat(samples).isNotNull();
+        assertThat(samples.frames().keySet())
+                .as("the request keeps the samples of the work the thread did for it")
+                .anyMatch(frame -> frame.contains("JfrProfilerTests.burn")
+                        && !frame.contains("JfrProfilerTests.burnBackInThePool"));
+        assertThat(samples.frames().keySet())
+                .as("what the thread does back in its pool, before the request is taken, is not the request's")
+                .noneMatch(frame -> frame.contains("JfrProfilerTests.burnBackInThePool"));
+        assertThat(done.analysis().outsideSamples())
+                .as("the session was still sampling while the thread burned back in its pool")
+                .isPositive();
+    }
+
+    @Test
     void aSegmentTakenByAnotherThreadStillJoinsItsOwnThreadsSamples() throws Exception {
         assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
         profiler.start(Duration.ofMinutes(1));
@@ -123,6 +165,15 @@ class JfrProfilerTests {
     }
 
     private static void burn(long millis) {
+        long end = System.nanoTime() + millis * 1_000_000;
+        long sum = 0;
+        while (System.nanoTime() < end) {
+            sum += new byte[256].length + Long.toString(sum).length();
+        }
+        sink = sum;
+    }
+
+    private static void burnBackInThePool(long millis) {
         long end = System.nanoTime() + millis * 1_000_000;
         long sum = 0;
         while (System.nanoTime() < end) {
