@@ -41,7 +41,7 @@ class RunBaselineFileTests {
         }
         assertThat(Files.readString(file.path(), java.nio.charset.StandardCharsets.ISO_8859_1))
                 .as("the file holds no SQL text, only its literal-free fingerprint")
-                .doesNotContain("where id = 42")
+                .doesNotContain("sentinelAlpha", "sentinelBeta")
                 .contains("orders");
     }
 
@@ -160,8 +160,8 @@ class RunBaselineFileTests {
     private static RunSummary summary() {
         JournalAggregates aggregates = new JournalAggregates();
         aggregates.onEntries(java.util.List.of(
-                entry(1, sql("r1", "select * from orders where id = 42")),
-                entry(2, sql("r1", "select * from orders where id = 43")),
+                entry(1, sql("r1", "select * from orders where code = 'sentinelAlpha'")),
+                entry(2, sql("r1", "select * from orders where code = 'sentinelBeta'")),
                 entry(3, http("r1", "/api/orders/{id}", 200))));
         return RunSummary.of(RunIdentity.start(), aggregates.snapshot(), 10);
     }

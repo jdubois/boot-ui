@@ -200,6 +200,79 @@ class SecurityHeadersFilterTests {
     }
 
     @Test
+    void repeatedHostWritesOfTheBaselineNeverDuplicateTheHeader() throws Exception {
+        MockHttpServletRequest request = request("GET", "/bootui/api/log-tail/stream");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (downstreamRequest, downstreamResponse) -> {
+            HttpServletResponse httpResponse = (HttpServletResponse) downstreamResponse;
+            for (int i = 0; i < 3; i++) {
+                httpResponse.addHeader(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS, BootUiSecurityHeaders.NOSNIFF);
+            }
+        });
+
+        assertThat(response.getHeaders(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS))
+                .containsExactly(BootUiSecurityHeaders.NOSNIFF);
+    }
+
+    @Test
+    void distinctHostContentSecurityPoliciesAreKeptWhileIdenticalOnesAreDeduplicated() throws Exception {
+        MockHttpServletRequest request = request("GET", "/bootui/api/overview");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (downstreamRequest, downstreamResponse) -> {
+            HttpServletResponse httpResponse = (HttpServletResponse) downstreamResponse;
+            httpResponse.addHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, "default-src 'none'");
+            httpResponse.addHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, "img-src 'self'");
+            httpResponse.addHeader(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY, "default-src 'none'");
+        });
+
+        assertThat(response.getHeaders(BootUiSecurityHeaders.CONTENT_SECURITY_POLICY))
+                .containsExactly("default-src 'none'", "img-src 'self'");
+    }
+
+    @Test
+    void concurrentHostWritesOfTheBaselineNeverDuplicateTheHeader() throws Exception {
+        for (int round = 0; round < 200; round++) {
+            MockHttpServletRequest request = request("GET", "/bootui/api/log-tail/stream");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            java.util.concurrent.CyclicBarrier observed = new java.util.concurrent.CyclicBarrier(2);
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+            try {
+                filter.doFilter(request, response, (downstreamRequest, downstreamResponse) -> {
+                    HttpServletResponse httpResponse = (HttpServletResponse) downstreamResponse;
+                    java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+                    java.util.List<java.util.concurrent.Future<?>> writes = new java.util.ArrayList<>();
+                    for (int i = 0; i < 2; i++) {
+                        writes.add(pool.submit(() -> {
+                            start.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                            boolean absent = !httpResponse.containsHeader(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS);
+                            observed.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                            if (absent) {
+                                httpResponse.addHeader(
+                                        BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS, BootUiSecurityHeaders.NOSNIFF);
+                            }
+                            return null;
+                        }));
+                    }
+                    start.countDown();
+                    for (java.util.concurrent.Future<?> write : writes) {
+                        try {
+                            write.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                        } catch (Exception exception) {
+                            throw new IllegalStateException(exception);
+                        }
+                    }
+                });
+            } finally {
+                pool.shutdownNow();
+            }
+            assertThat(response.getHeaders(BootUiSecurityHeaders.X_CONTENT_TYPE_OPTIONS))
+                    .containsExactly(BootUiSecurityHeaders.NOSNIFF);
+        }
+    }
+
+    @Test
     void thrownHashedAssetResponseIsNotCachedAsImmutable() {
         MockHttpServletRequest request = request("GET", "/bootui/assets/index-C2x2BcDS.js");
         MockHttpServletResponse response = new MockHttpServletResponse();
