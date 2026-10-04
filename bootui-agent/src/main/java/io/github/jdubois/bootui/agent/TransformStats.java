@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
@@ -28,6 +29,7 @@ final class TransformStats {
     private final AtomicInteger failed = new AtomicInteger();
     private final AtomicInteger skipped = new AtomicInteger();
     private final AtomicInteger fallbacks = new AtomicInteger();
+    private final AtomicLong retransformNanos = new AtomicLong();
     private final List<String> failures = Collections.synchronizedList(new ArrayList<String>());
     private final List<String> fallbackTypes = Collections.synchronizedList(new ArrayList<String>());
     private final Set<String> transformedTypes = ConcurrentHashMap.newKeySet();
@@ -62,6 +64,11 @@ final class TransformStats {
         }
     }
 
+    /** Adds a measured interval spent retransforming: installing, refining, or restoring the transformer. */
+    void retransformedFor(long nanos) {
+        retransformNanos.addAndGet(Math.max(0L, nanos));
+    }
+
     boolean transformed(String type) {
         return transformedTypes.contains(type);
     }
@@ -81,6 +88,7 @@ final class TransformStats {
         map.put("failed", Integer.valueOf(failed.get()));
         map.put("skipped", Integer.valueOf(skipped.get()));
         map.put("poolFallbacks", Integer.valueOf(fallbacks.get()));
+        map.put("retransformMillis", Long.valueOf(retransformNanos.get() / 1_000_000L));
         synchronized (failures) {
             map.put("failures", new ArrayList<String>(failures));
         }

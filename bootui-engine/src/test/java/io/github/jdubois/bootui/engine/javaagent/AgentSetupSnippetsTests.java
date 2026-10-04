@@ -1,12 +1,19 @@
 package io.github.jdubois.bootui.engine.javaagent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.jdubois.bootui.core.dto.JavaAgentSnippetDto;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,6 +45,49 @@ class AgentSetupSnippetsTests {
         assertThat(snippets.get("intellij").text()).isEqualTo("-javaagent:" + JAR);
         assertThat(snippets.get("java-tool-options").text())
                 .isEqualTo("JAVA_TOOL_OPTIONS=\"-javaagent:" + JAR + "\" ./mvnw spring-boot:run");
+    }
+
+    @Test
+    void javaToolOptionsQuotesThePathInsideTheValueAndTheValueForTheShell() {
+        assertThat(AgentSetupSnippets.javaToolOptions("/a b/agent.jar", "./mvnw spring-boot:run"))
+                .isEqualTo("JAVA_TOOL_OPTIONS='\"-javaagent:/a b/agent.jar\"' ./mvnw spring-boot:run");
+        assertThat(AgentSetupSnippets.jvmOption("-javaagent:/a\tb/agent.jar"))
+                .isEqualTo("\"-javaagent:/a\tb/agent.jar\"");
+        assertThat(AgentSetupSnippets.jvmOption("-javaagent:/it's/agent.jar"))
+                .isEqualTo("\"-javaagent:/it's/agent.jar\"");
+        assertThat(AgentSetupSnippets.jvmOption("-javaagent:/a\"b/agent.jar"))
+                .isEqualTo("\"-javaagent:/a\"'\"'\"b/agent.jar\"");
+        assertThat(AgentSetupSnippets.shellQuoted("\"-javaagent:/it's/agent.jar\""))
+                .isEqualTo("'\"-javaagent:/it'\\''s/agent.jar\"'");
+        assertThat(AgentSetupSnippets.javaToolOptions("C:\\Users\\me\\agent.jar", "./mvnw spring-boot:run"))
+                .isEqualTo("JAVA_TOOL_OPTIONS=\"-javaagent:C:\\Users\\me\\agent.jar\" ./mvnw spring-boot:run");
+    }
+
+    @Test
+    void theJavaToolOptionsSnippetStartsAJvmWithAnAgentWhosePathHasSpacesAndQuotes() throws Exception {
+        assumeTrue(Files.isExecutable(Path.of("/bin/sh")), "needs a POSIX shell");
+        Path folder = Files.createDirectories(directory.resolve("my agents/it's a \"quoted\" dir"));
+        Path jar = folder.resolve("probe agent.jar");
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("Premain-Class", SnippetProbeAgent.class.getName());
+        String entry = SnippetProbeAgent.class.getName().replace('.', '/') + ".class";
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar), manifest);
+                InputStream in = SnippetProbeAgent.class.getClassLoader().getResourceAsStream(entry)) {
+            out.putNextEntry(new JarEntry(entry));
+            in.transferTo(out);
+            out.closeEntry();
+        }
+        String java = ProcessHandle.current().info().command().orElseThrow();
+        String run = AgentSetupSnippets.shellQuoted(java) + " -version";
+
+        Process process = new ProcessBuilder("/bin/sh", "-c", AgentSetupSnippets.javaToolOptions(jar.toString(), run))
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+        assertThat(process.waitFor()).as(output).isZero();
+        assertThat(output).contains(SnippetProbeAgent.MARKER);
     }
 
     @Test

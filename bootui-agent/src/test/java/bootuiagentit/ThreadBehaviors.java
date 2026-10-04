@@ -130,7 +130,7 @@ public final class ThreadBehaviors {
                     Thread.sleep(10);
                 }
                 System.out.println("FALLBACK=" + LAST_HOOK.get() + " " + FAILURES);
-                return "CompletableFuture.Async".equals(LAST_HOOK.get())
+                return "CompletableFuture.AsyncRun".equals(LAST_HOOK.get())
                         && FAILURES.stream().anyMatch(failure -> failure.startsWith("request-7:"));
             });
         }

@@ -9,6 +9,8 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -67,6 +69,39 @@ class SensorLifecycleTests {
         verify(harness.instrumentation).retransformClasses(ApplicationThread.class);
         assertThat(harness.operations).isEmpty();
         assertThat(get(sensor, "transformer")).isSameAs(harness.installed);
+    }
+
+    @Test
+    void aCancelledReleaseKeepsTheVerifiedAsyncHooksButAReleaseForgetsThem() throws Exception {
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_SUPPLY, true);
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_RUN, true);
+        try {
+            Harness harness = new Harness(false);
+            Thread worker;
+            synchronized (harness.sensor) {
+                harness.release();
+                worker = harness.worker();
+                harness.claim(2);
+            }
+            join(worker);
+            assertThat(executors()).containsEntry("asyncSupplyApplies", true).containsEntry("asyncRunApplies", true);
+
+            synchronized (harness.sensor) {
+                harness.release();
+                worker = harness.worker();
+            }
+            join(worker);
+
+            assertThat(harness.operations).containsExactly("reset");
+            assertThat(executors()).containsEntry("asyncSupplyApplies", false).containsEntry("asyncRunApplies", false);
+        } finally {
+            ExecutorSensor.unverifyAsync();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Map<String, Object> executors() {
+        return (java.util.Map<String, Object>) AgentBridge.status().get("executors");
     }
 
     static final class ApplicationThread extends Thread {

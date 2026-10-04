@@ -25,6 +25,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
   evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
   parent result size was not recorded.
+- **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
+  `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
+  are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
+  sensor is active for this application's claim, and the `PROPAGATED` tier is withheld when the claim does not use
+  `executors`. Sensors report their install, self-test, and cumulative install-and-release times; the **Class transformation** card
+  sums them across every sensor. A request profile never attributes work at a tier it reports unavailable, and the
+  `JAVA_TOOL_OPTIONS` snippet quotes a jar path that contains spaces
+  ([Java Agent](docs/features/java-agent.md), PLAN-v2 §5.13).
+
 - **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
   header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
   security-headers response wrapper is now synchronized and drops identical repeated baseline values.

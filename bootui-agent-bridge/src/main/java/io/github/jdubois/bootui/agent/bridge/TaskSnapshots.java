@@ -62,6 +62,15 @@ final class TaskSnapshots {
         return take.result;
     }
 
+    /** The payload of the task's unambiguous pending entry, without taking it; {@code null} otherwise. */
+    Object[] peek(Object task) {
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+        Entry entry = snapshots.get(new Lookup(task));
+        return entry == null || entry.ambiguous ? null : entry.payload;
+    }
+
     /** A submission that will not run (the queue refused it, its worker did not start, it was removed). */
     void release(Object task) {
         if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
