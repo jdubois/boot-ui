@@ -95,23 +95,38 @@ public final class BootUiHttpProbe {
      * first. The stream is closed before returning, so an SSE endpoint's open-ended body never blocks the caller.
      */
     public String readStreamUntil(String path, Runnable afterOpen, String needle, Duration timeout) {
+        return readStreamUntil(path, null, afterOpen, needle, timeout);
+    }
+
+    /**
+     * Like {@link #readStreamUntil(String, Runnable, String, Duration)}, but runs {@code afterReady} only once the body
+     * holds the whole event containing {@code readyNeedle}, for example the last replayed backlog line. Headers alone
+     * do not prove the server has subscribed the client to live events, so an action that must be observed live waits
+     * for that proof. A {@code null} {@code readyNeedle} runs {@code afterReady} right after the headers. The body is
+     * read from the moment the headers arrive, and {@code timeout} bounds the wait for readiness and the needle together once the headers have arrived.
+     */
+    public String readStreamUntil(
+            String path, String readyNeedle, Runnable afterReady, String needle, Duration timeout) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Accept", "text/event-stream")
                 .GET()
                 .build();
-        StringBuilder received = new StringBuilder();
+        StreamBody received = new StreamBody();
         Thread reader = null;
         try {
             HttpResponse<java.io.InputStream> response =
                     client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            long deadline = System.nanoTime() + timeout.toNanos();
             try (java.io.InputStream body = response.body()) {
-                afterOpen.run();
-                reader = new Thread(() -> readUntil(body, received, needle), "bootui-conformance-stream-reader");
+                reader = new Thread(() -> received.readFrom(body), "bootui-conformance-stream-reader");
                 reader.setDaemon(true);
                 reader.start();
-                reader.join(timeout.toMillis());
+                if (readyNeedle == null || received.awaitEvent(readyNeedle, deadline)) {
+                    afterReady.run();
+                    received.awaitEvent(needle, deadline);
+                }
             }
         } catch (IOException ex) {
             throw new IllegalStateException("HTTP request failed: " + request.uri(), ex);
@@ -123,9 +138,7 @@ public final class BootUiHttpProbe {
                 reader.interrupt();
             }
         }
-        synchronized (received) {
-            return received.toString();
-        }
+        return received.text();
     }
 
     /** Whether {@code received} holds {@code needle} and the blank line that ends the event carrying it. */
@@ -135,20 +148,46 @@ public final class BootUiHttpProbe {
         return found >= 0 && text.indexOf("\n\n", found + needle.length()) >= 0;
     }
 
-    private static void readUntil(java.io.InputStream body, StringBuilder received, String needle) {
-        try (java.io.Reader reader = new java.io.InputStreamReader(body, java.nio.charset.StandardCharsets.UTF_8)) {
-            char[] chunk = new char[8192];
-            int read;
-            while ((read = reader.read(chunk)) != -1) {
-                synchronized (received) {
-                    received.append(chunk, 0, read);
-                    if (holdsCompleteEventWith(received, needle)) {
-                        return;
+    /** The body received so far from one stream, filled by a reader thread and awaited by the caller. */
+    private static final class StreamBody {
+
+        private final StringBuilder received = new StringBuilder();
+        private boolean ended;
+
+        void readFrom(java.io.InputStream body) {
+            try (java.io.Reader reader = new java.io.InputStreamReader(body, java.nio.charset.StandardCharsets.UTF_8)) {
+                char[] chunk = new char[8192];
+                int read;
+                while ((read = reader.read(chunk)) != -1) {
+                    synchronized (this) {
+                        received.append(chunk, 0, read);
+                        notifyAll();
                     }
                 }
+            } catch (IOException ex) {
+                // The caller closed the stream after its timeout; whatever arrived is returned.
+            } finally {
+                synchronized (this) {
+                    ended = true;
+                    notifyAll();
+                }
             }
-        } catch (IOException ex) {
-            // The caller closed the stream after its timeout; whatever arrived is returned.
+        }
+
+        /** Waits until the body holds the whole event carrying {@code needle}; false once the stream ends or time is up. */
+        synchronized boolean awaitEvent(String needle, long deadlineNanos) throws InterruptedException {
+            while (!holdsCompleteEventWith(received, needle)) {
+                long remainingMillis = (deadlineNanos - System.nanoTime()) / 1_000_000;
+                if (ended || remainingMillis <= 0) {
+                    return false;
+                }
+                wait(remainingMillis);
+            }
+            return true;
+        }
+
+        synchronized String text() {
+            return received.toString();
         }
     }
 
