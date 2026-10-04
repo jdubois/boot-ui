@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Carries a request's correlation into the tasks it hands to a framework-managed executor ({@code docs/PLAN-v2.md} D30,
@@ -43,14 +44,29 @@ public final class ManagedTasks {
         return context == null ? BootUiCorrelation.openCleared() : BootUiCorrelation.open(context);
     }
 
-    /** {@code task}, run with the context of the thread submitting it now, as an execution of its request. */
+    /**
+     * {@code task}, run with the context of the thread submitting it now, as an execution of its request. Only its first
+     * run is: a periodic task a scheduler decorates once and runs again and again belongs to the request that scheduled
+     * it once, not on every later run, which runs with no request. A task run on another thread is always its own
+     * execution, even when an application decorator composed around it already restored the request there; only a
+     * caller-runs task, on the submitting thread itself, keeps the request's context.
+     */
     public static Runnable propagate(Runnable task) {
         CorrelationContext context = taskContext(BootUiCorrelation.current());
         if (task == null || context == null) {
             return task;
         }
+        AtomicBoolean first = new AtomicBoolean(true);
+        Thread submitter = Thread.currentThread();
         return () -> {
-            BootUiCorrelation.Scope scope = open(context);
+            BootUiCorrelation.Scope scope;
+            if (!first.getAndSet(false)) {
+                scope = open(null);
+            } else if (Thread.currentThread() == submitter) {
+                scope = open(context);
+            } else {
+                scope = BootUiCorrelation.open(context);
+            }
             try {
                 task.run();
             } finally {

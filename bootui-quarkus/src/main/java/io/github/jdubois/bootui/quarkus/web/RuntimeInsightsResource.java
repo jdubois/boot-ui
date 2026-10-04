@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
+import io.github.jdubois.bootui.engine.insights.UnrecordedWork;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
@@ -110,6 +111,8 @@ public class RuntimeInsightsResource {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
         this.insights.setSqlCapture(() -> sqlCapture(sqlTraceRecorder));
+        this.insights.setUnrecordedWork(
+                UnrecordedWork.detect(Thread.currentThread().getContextClassLoader()));
         // A panel this application cannot serve is not a panel its developer switched off, and Runtime Insights must
         // say which it is: the authorization evidence of an application without Quarkus security events, say.
         this.insights.setPanelUnavailable(panel -> insightsUnavailableReason(panelAvailability, panel));

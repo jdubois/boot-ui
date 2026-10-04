@@ -53,4 +53,44 @@ class ManagedTasksTests {
                 .isEqualTo(CorrelationContext.forExecution("e1"));
         assertThat(ManagedTasks.taskContext(null)).isNull();
     }
+
+    @Test
+    void aPeriodicTaskBelongsToItsRequestOnItsFirstRunOnly() {
+        AtomicReference<CorrelationContext> seen = new AtomicReference<>();
+        Runnable task;
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+            task = ManagedTasks.propagate(() -> seen.set(BootUiCorrelation.current()));
+        }
+
+        task.run();
+        assertThat(seen.get().requestId()).isEqualTo("r1");
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r2"))) {
+            task.run();
+            assertThat(seen.get().requestId())
+                    .as("a scheduler runs a periodic task again and again; later runs belong to no request")
+                    .isNull();
+            assertThat(BootUiCorrelation.current().requestId()).isEqualTo("r2");
+        }
+    }
+
+    @Test
+    void aTaskOnAnotherThreadIsItsOwnExecutionEvenWhereADecoratorAlreadyRestoredItsRequest() throws Exception {
+        AtomicReference<CorrelationContext> seen = new AtomicReference<>();
+        CorrelationContext request = CorrelationContext.forRequest("r1").withExecutionId("e0");
+        Runnable task;
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
+            task = ManagedTasks.propagate(() -> seen.set(BootUiCorrelation.current()));
+        }
+        // An application decorator composed around BootUI's, such as Micrometer's, restores the request first.
+        Thread worker = new Thread(() -> {
+            try (BootUiCorrelation.Scope restored = BootUiCorrelation.open(request)) {
+                task.run();
+            }
+        });
+        worker.start();
+        worker.join();
+
+        assertThat(seen.get().requestId()).isEqualTo("r1");
+        assertThat(seen.get().executionId()).startsWith("task-");
+    }
 }

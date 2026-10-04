@@ -310,6 +310,17 @@ public class BootUiEngineConfiguration {
     }
 
     /**
+     * Carries the same correlation into the application's own {@code ThreadPoolTaskExecutor} and
+     * {@code ThreadPoolTaskScheduler} beans ({@code docs/PLAN-v2.md} M4-22), such as JHipster's {@code AsyncConfigurer}
+     * executor, which Spring Boot's auto-configuration never sees: decorated when they have no decorator, composed inside
+     * the application's when they have one, never replacing it. Static, as a post-processor must be.
+     */
+    @Bean
+    static io.github.jdubois.bootui.autoconfigure.activity.BootUiExecutorDecoration bootUiExecutorDecoration() {
+        return new io.github.jdubois.bootui.autoconfigure.activity.BootUiExecutorDecoration();
+    }
+
+    /**
      * Publishes the run's start to the runtime journal when the application is ready ({@code docs/PLAN-v2.md} §5.18):
      * its time to ready, its slowest bean instantiations, and its comparability facts, which the run summary keeps.
      */

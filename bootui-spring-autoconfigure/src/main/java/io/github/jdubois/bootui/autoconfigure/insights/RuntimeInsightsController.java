@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.insights.UnrecordedWork;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -94,6 +95,7 @@ public class RuntimeInsightsController {
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
         this.insights.setSqlCapture(new SpringSqlCapture(context));
+        this.insights.setUnrecordedWork(UnrecordedWork.detect(context.getClassLoader()));
         // The live policy, so a runtime change of bootui.expose-values applies to the next read (PLAN-v2 §8).
         BootUiExposure exposure = context.getBeanProvider(BootUiExposure.class).getIfAvailable();
         this.insights.setExposure(exposure != null ? exposure : new BootUiExposure(properties));

@@ -9,6 +9,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
+  `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
+  executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of
+  that request: BootUI's task decorator is set where there is none and composed inside the application's where there is
+  one, never replacing it. `errors-behind-2xx` reports a 2xx whose own task failed (an exception, an `ERROR` log, a
+  `WARN` log carrying an exception, or a task the BootUI agent saw fail), such as a swallowed activation-email failure
+  behind a `201`. A periodic task scheduled during a request belongs to it on its first run only. Runtime Insights names
+  first among its limitations what the journal cannot record: R2DBC statements on Spring (also stated up front in the
+  WebFlux documentation), and Kafka Streams processing when Kafka Streams is on the classpath, on Spring MVC, Spring
+  WebFlux, and Quarkus. No new observation kind ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2
+  M4-22).
 - **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
   any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
   and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth
