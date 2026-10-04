@@ -353,6 +353,16 @@ public final class BootUiApiContractCatalog {
                             "changes", JsonType.NULLABLE_OBJECT,
                             "dependencies", JsonType.NULLABLE_OBJECT,
                             "limitations", JsonType.ARRAY)),
+            read(
+                    "code-paths",
+                    "/code-paths",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "status", JsonType.NULLABLE_OBJECT,
+                            "routes", JsonType.ARRAY,
+                            "excludedMethods", JsonType.ARRAY,
+                            "limitations", JsonType.ARRAY)),
             capabilityList("email", "/email", "messages", "total", fields("devTrapEnabled", JsonType.BOOLEAN)),
             capture("kafka", "/kafka", "messages"),
             capture("rabbitmq", "/rabbitmq", "messages"),
@@ -488,6 +498,51 @@ public final class BootUiApiContractCatalog {
                             "counts", JsonType.NULLABLE_OBJECT,
                             "dependencies", JsonType.ARRAY,
                             "page", JsonType.OBJECT)));
+
+    /**
+     * Code Paths' tree reads ({@code docs/PLAN-v2.md} §5.14), reads of the {@code code-paths} panel kept out of
+     * {@link #reads()}: each answers the same shape with or without the BootUI agent, {@code available: false} and empty
+     * without it, and {@code found: false} for a route or request this run has no tree for.
+     */
+    private static final List<ReadContract> CODE_PATHS_TREES = List.of(
+            read(
+                    "code-paths",
+                    "/code-paths/route?route=GET%20%2Fnot-a-route",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "route", JsonType.NULLABLE_STRING,
+                            "found", JsonType.BOOLEAN,
+                            "assemblyOnly", JsonType.BOOLEAN,
+                            "warmRequests", JsonType.NUMBER,
+                            "firstRequestMillis", JsonType.NULLABLE_NUMBER,
+                            "firstRequestId", JsonType.NULLABLE_STRING,
+                            "ownMillis", JsonType.NUMBER,
+                            "handlerMillis", JsonType.NULLABLE_NUMBER,
+                            "shareOf", JsonType.STRING,
+                            "depth", JsonType.NUMBER,
+                            "nodes", JsonType.ARRAY,
+                            "methods", JsonType.ARRAY,
+                            "exemplarRequestIds", JsonType.ARRAY,
+                            "page", JsonType.OBJECT,
+                            "limitations", JsonType.ARRAY)),
+            read(
+                    "code-paths",
+                    "/code-paths/requests/0000000000000000",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "requestId", JsonType.NULLABLE_STRING,
+                            "found", JsonType.BOOLEAN,
+                            "route", JsonType.NULLABLE_STRING,
+                            "assemblyOnly", JsonType.BOOLEAN,
+                            "ownMillis", JsonType.NUMBER,
+                            "asyncMillis", JsonType.NUMBER,
+                            "cut", JsonType.BOOLEAN,
+                            "droppedCalls", JsonType.NUMBER,
+                            "nodes", JsonType.ARRAY,
+                            "topMethods", JsonType.ARRAY,
+                            "limitations", JsonType.ARRAY)));
 
     /**
      * One Runtime Insights observation with its evidence, a detail read of the {@code runtime-insights} panel
@@ -627,6 +682,11 @@ public final class BootUiApiContractCatalog {
     /** The journal request profile's read contract ({@code docs/PLAN-v2.md} §5.3, §5.11). */
     public static ReadContract requestJournalProfile() {
         return REQUEST_JOURNAL_PROFILE;
+    }
+
+    /** Code Paths' tree reads' contracts ({@code docs/PLAN-v2.md} §5.14). */
+    public static List<ReadContract> codePathsTrees() {
+        return CODE_PATHS_TREES;
     }
 
     /** Code Inventory's paged lists' read contracts ({@code docs/PLAN-v2.md} §5.15). */
@@ -956,7 +1016,8 @@ public final class BootUiApiContractCatalog {
         OBJECT,
         NULLABLE_STRING,
         NULLABLE_OBJECT,
-        NULLABLE_INTEGER
+        NULLABLE_INTEGER,
+        NULLABLE_NUMBER
     }
 
     public record ReadContract(

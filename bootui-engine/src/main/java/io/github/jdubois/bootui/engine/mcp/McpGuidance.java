@@ -44,7 +44,9 @@ public final class McpGuidance {
                                 + "get_live_activity for the relevant time window only when needed. For a "
                                 + "slow or failing request whose entry is profileable, call get_request_profile with "
                                 + "its id. If an exception appears, call get_exception_detail with its id or "
-                                + "exceptionGroupId. Correlate trace ids, "
+                                + "exceptionGroupId. For a slow route whose time is in its handler, call get_code_paths "
+                                + "with the route when it is advertised (it needs the BootUI agent): it names the "
+                                + "application methods the handler spends its time in. Correlate trace ids, "
                                 + "request paths, SQL timings, and log timestamps. Separate observed evidence from "
                                 + "hypotheses, note missing telemetry, and propose the smallest fix plus a verification "
                                 + "step. Do not expose sensitive runtime data."),

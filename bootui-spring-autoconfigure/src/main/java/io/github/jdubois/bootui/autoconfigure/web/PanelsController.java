@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.datasource.DataSourceDeclarations;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
@@ -84,6 +85,19 @@ public class PanelsController {
         }
     }
 
+    /** Available while the BootUI agent's code-paths sensor records this run, else with the agent's reason. */
+    private Availability codePathsAvailability() {
+        try {
+            CodePathsService service =
+                    applicationContext.getBeanProvider(CodePathsService.class).getIfUnique();
+            String reason =
+                    service == null ? JavaAgentService.CODE_PATHS_REQUIREMENT + "." : service.unavailableReason();
+            return availability(reason == null, reason);
+        } catch (RuntimeException ex) {
+            return availability(false, JavaAgentService.CODE_PATHS_REQUIREMENT + ".");
+        }
+    }
+
     private String platform() {
         return isReactive() ? PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE : PanelsReport.PLATFORM_SPRING_BOOT;
     }
@@ -138,6 +152,7 @@ public class PanelsController {
             case BootUiPanels.RUNTIME_INSIGHTS ->
                 availability(properties.getRuntimeJournal().isEnabled(), RuntimeInsightsService.DISABLED);
             case BootUiPanels.CODE_INVENTORY -> codeInventoryAvailability();
+            case BootUiPanels.CODE_PATHS -> codePathsAvailability();
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(

@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.sample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
+import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.scenario.CorrelationScenarioRoutes;
 import java.io.IOException;
@@ -346,6 +348,159 @@ class SpringAgentScenarioIT {
         assertThat(inventory.path("selfTestPassed").asBoolean())
                 .as(inventory.toString())
                 .isTrue();
+    }
+
+    /**
+     * Code Paths with the agent ({@code docs/PLAN-v2.md} §5.14, M5-4b): the seeded slow blocking route's tree names
+     * {@code SlowPricingService.quote} under the two bean layers that call it, {@code route-time-breakdown} names it in
+     * the handler split, and the tree's handler-phase time reconciles with the breakdown's handler phase within 5 %.
+     * Every read answers the available shape.
+     */
+    @Test
+    void codePathsNameTheSlowMethodOfTheSeededRouteAndReconcileWithItsHandlerPhase() throws Exception {
+        String route = "GET /api/quotes/{sku}";
+        String quote = "io.github.jdubois.bootui.sample.codepaths.SlowPricingService#quote(Ljava/lang/String;)I";
+        String controller = "io.github.jdubois.bootui.sample.codepaths.QuoteController#quote(Ljava/lang/String;)"
+                + "Lio/github/jdubois/bootui/sample/codepaths/QuoteService$Quote;";
+        // One cold request, then warm ones: route-time-breakdown needs five warm requests.
+        for (int i = 0; i < 8; i++) {
+            assertThat(probe.get("/api/quotes/sku-" + i).status()).isEqualTo(200);
+        }
+
+        // Each request's tree settles about two seconds after its last fragment: wait, bounded.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        JsonNode report;
+        JsonNode row = null;
+        do {
+            Thread.sleep(250);
+            report = probe.get("/bootui/api/code-paths").json();
+            for (JsonNode candidate : report.path("routes")) {
+                if (route.equals(candidate.path("route").asText())) {
+                    row = candidate;
+                }
+            }
+        } while ((row == null || row.path("warmRequests").asInt() < 7) && System.nanoTime() < deadline);
+        assertThat(report.path("available").asBoolean()).as(report.toString()).isTrue();
+        assertThat(report.path("unavailableReason").isNull()).isTrue();
+        assertThat(report.path("status").path("generation").asLong()).isPositive();
+        assertThat(report.path("excludedMethods").isArray()).isTrue();
+        assertThat(report.path("limitations").isArray()).isTrue();
+        assertThat(row).as(report.toString()).isNotNull();
+        assertThat(row.path("warmRequests").asInt()).as(row.toString()).isEqualTo(7);
+        assertThat(row.path("assemblyOnly").asBoolean()).isFalse();
+        assertThat(row.path("firstRequestMillis").isNumber()).isTrue();
+        // The available shapes, which only a run with the agent reaches, against the conformance catalog's contracts.
+        List<String> failures = new ArrayList<>();
+        AbstractBootUiApiConformanceTest.assertJsonContract("/code-paths", contract("/code-paths"), report, failures);
+        assertThat(row.path("topMethods").path(0).path("method").asText())
+                .as(row.toString())
+                .isEqualTo(quote);
+        JsonNode panel = panelFromManifest("code-paths");
+        assertThat(panel.path("available").asBoolean()).as(panel.toString()).isTrue();
+
+        JsonNode tree = probe.get("/bootui/api/code-paths/route?route="
+                        + java.net.URLEncoder.encode(route, java.nio.charset.StandardCharsets.UTF_8))
+                .json();
+        assertThat(tree.path("found").asBoolean()).as(tree.toString()).isTrue();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/code-paths/route", contract("/code-paths/route"), tree, failures);
+        assertThat(tree.path("firstRequestId").asText()).matches("[0-9a-f]{16}");
+        assertThat(tree.path("shareOf").asText()).isEqualTo("handler");
+        JsonNode slow = null;
+        JsonNode entry = null;
+        for (JsonNode node : tree.path("nodes")) {
+            if (quote.equals(node.path("method").asText())) {
+                slow = node;
+            } else if (controller.equals(node.path("method").asText())) {
+                entry = node;
+            }
+        }
+        assertThat(entry).as("the controller under the request: %s", tree).isNotNull();
+        assertThat(slow).as("the slow method two bean layers down: %s", tree).isNotNull();
+        assertThat(slow.path("depth").asInt()).isEqualTo(entry.path("depth").asInt() + 2);
+        assertThat(slow.path("phase").asText()).isEqualTo("HANDLER");
+        assertThat(slow.path("callsPerRequest").asDouble()).isEqualTo(1.0);
+        assertThat(slow.path("selfMillis").asDouble()).isGreaterThanOrEqualTo(49.0);
+        assertThat(slow.path("p50Millis").isNumber()).isTrue();
+        assertThat(tree.path("methods").toString()).contains(route);
+        double handlerMillis = tree.path("handlerMillis").asDouble();
+        assertThat(handlerMillis).as(tree.toString()).isGreaterThanOrEqualTo(49.0);
+        String exemplar = tree.path("exemplarRequestIds").path(0).asText();
+        JsonNode request =
+                probe.get("/bootui/api/code-paths/requests/" + exemplar).json();
+        assertThat(request.path("found").asBoolean()).as(request.toString()).isTrue();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/code-paths/requests/{id}", contract("/code-paths/requests/"), request, failures);
+        assertThat(failures).as("code paths contracts, available").isEmpty();
+        assertThat(request.path("route").asText()).isEqualTo(route);
+        assertThat(request.path("topMethods").path(0).path("method").asText()).isEqualTo(quote);
+
+        // route-time-breakdown names the slow method in its handler split, and the handler phase reconciles.
+        JsonNode observation = null;
+        deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        do {
+            for (JsonNode candidate :
+                    probe.get("/bootui/api/runtime-insights").json().path("observations")) {
+                if ("route-time-breakdown".equals(candidate.path("kind").asText())
+                        && route.equals(candidate.path("subject").asText())) {
+                    observation = candidate;
+                }
+            }
+            if (observation != null && observation.path("sentence").asText().contains("SlowPricingService.quote")) {
+                break;
+            }
+            Thread.sleep(250);
+        } while (System.nanoTime() < deadline);
+        assertThat(observation).isNotNull();
+        assertThat(observation.path("sentence").asText())
+                .as(observation.toString())
+                .contains("Handler: SlowPricingService.quote");
+        JsonNode detail = probe.get("/bootui/api/runtime-insights/insights/"
+                        + observation.path("id").asText())
+                .json();
+        double handlerPhase = 0;
+        double slowPart = 0;
+        for (JsonNode evidence : detail.path("rows")) {
+            String label = evidence.path("cells").path(0).asText();
+            if (label.startsWith("Handler: ") || label.equals("Other handler time") || label.startsWith("Handler,")) {
+                handlerPhase += evidence.path("cells").path(1).asDouble();
+            }
+            if (label.equals("Handler: SlowPricingService.quote")) {
+                slowPart = evidence.path("cells").path(1).asDouble();
+            }
+        }
+        // The route makes no recorded call, so its handler is split, and the slow method takes most of it.
+        assertThat(slowPart / handlerPhase)
+                .as("SlowPricingService.quote's part of the handler phase: %s", detail)
+                .isGreaterThanOrEqualTo(0.85);
+        double perRequest = handlerPhase / observation.path("eligible").asInt();
+        assertThat(handlerMillis)
+                .as(
+                        "the tree's handler time %s ms against the handler phase %s ms: %s",
+                        handlerMillis, perRequest, detail)
+                .isCloseTo(perRequest, org.assertj.core.data.Percentage.withPercentage(5));
+    }
+
+    /** The conformance catalog's contract of the Code Paths read whose path starts with {@code path}. */
+    private static BootUiApiContractCatalog.ReadContract contract(String path) {
+        List<BootUiApiContractCatalog.ReadContract> contracts = new ArrayList<>(BootUiApiContractCatalog.reads());
+        contracts.addAll(BootUiApiContractCatalog.codePathsTrees());
+        return contracts.stream()
+                .filter(contract -> contract.panelId().equals("code-paths"))
+                .filter(contract -> path.equals("/code-paths")
+                        ? contract.relativePath().equals(path)
+                        : contract.relativePath().startsWith(path))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no contract for " + path));
+    }
+
+    private static JsonNode panelFromManifest(String id) {
+        for (JsonNode panel : probe.get("/bootui/api/panels").json().path("panels")) {
+            if (id.equals(panel.path("id").asText())) {
+                return panel;
+            }
+        }
+        throw new AssertionError("no panel " + id);
     }
 
     /** The ids of the requests to {@code path} in the journal. */

@@ -60,6 +60,7 @@ import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
 import io.github.jdubois.bootui.quarkus.web.BootUiCliResource;
 import io.github.jdubois.bootui.quarkus.web.ClaudeCodeResource;
 import io.github.jdubois.bootui.quarkus.web.CodeInventoryResource;
+import io.github.jdubois.bootui.quarkus.web.CodePathsResource;
 import io.github.jdubois.bootui.quarkus.web.CopilotResource;
 import io.github.jdubois.bootui.quarkus.web.DevServicesResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
@@ -437,6 +438,7 @@ class BootUiQuarkusProcessor {
                         RuntimeInsightsResource.class,
                         JavaAgentResource.class,
                         CodeInventoryResource.class,
+                        CodePathsResource.class,
                         QuarkusAgentClaimLifecycle.class,
                         QuarkusActivityCapture.class,
                         SecurityLogsResource.class,

@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
@@ -203,6 +204,7 @@ import tools.jackson.databind.ObjectMapper;
     RuntimeInsightsController.class,
     JavaAgentController.class,
     CodeInventoryController.class,
+    CodePathsController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -248,6 +250,7 @@ public class BootUiAutoConfiguration {
             RuntimeInsightsController.class.getName(),
             JavaAgentController.class.getName(),
             CodeInventoryController.class.getName(),
+            CodePathsController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
@@ -556,7 +559,8 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
                 ObjectProvider<RuntimeInsightsController> runtimeInsights,
                 ObjectProvider<JavaAgentController> javaAgent,
-                ObjectProvider<CodeInventoryController> codeInventory) {
+                ObjectProvider<CodeInventoryController> codeInventory,
+                ObjectProvider<CodePathsController> codePaths) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -592,7 +596,8 @@ public class BootUiAutoConfiguration {
                     connectionPools,
                     runtimeInsights,
                     javaAgent,
-                    codeInventory);
+                    codeInventory,
+                    codePaths);
         }
 
         @Bean

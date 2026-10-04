@@ -100,6 +100,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<SqlCapture> sqlCapture;
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
+    private volatile LongSupplier codePathsFingerprint;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -217,6 +218,47 @@ public final class RuntimeInsightsService {
             }
         }
         this.cached = null;
+    }
+
+    /**
+     * Installs what Code Paths says about each route's handler ({@code docs/PLAN-v2.md} §5.14, M5-4b), such as
+     * {@code CodePathsService::handlerMethods}, which {@code route-time-breakdown} splits the handler's work by, and a
+     * cheap fingerprint of the route trees, such as {@code CodePathsService::routeTreesFingerprint}, since trees settle
+     * without a journal event. While the Code Paths panel is disabled, nothing is split.
+     */
+    public synchronized void setCodePaths(
+            java.util.function.Function<String, io.github.jdubois.bootui.engine.codepaths.HandlerMethods> handlers,
+            LongSupplier fingerprint) {
+        this.codePathsFingerprint = handlers == null || fingerprint == null
+                ? null
+                : () -> codePathsVisible() ? fingerprint.getAsLong() * 31 + 1 : 0L;
+        for (Observation observation : observations) {
+            if (observation instanceof RouteTimeBreakdown breakdown) {
+                breakdown.setCodePaths(
+                        handlers == null ? null : route -> codePathsVisible() ? handlers.apply(route) : null);
+            }
+        }
+        this.cached = null;
+    }
+
+    private boolean codePathsVisible() {
+        try {
+            return panelEnabled.test(BootUiPanels.CODE_PATHS);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private long codePathsFingerprint() {
+        LongSupplier cheap = codePathsFingerprint;
+        if (cheap == null) {
+            return 0L;
+        }
+        try {
+            return cheap.getAsLong();
+        } catch (RuntimeException ex) {
+            return 0L;
+        }
     }
 
     /**
@@ -376,7 +418,8 @@ public final class RuntimeInsightsService {
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
         // And so is what Code Inventory reports, which the agent's hit flags change without any journal event.
-        long inventory = codeInventoryFingerprint();
+        // And so are the Code Paths route trees, which settle a little after their requests' journal events.
+        long inventory = codeInventoryFingerprint() * 1_000_003L + codePathsFingerprint();
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted

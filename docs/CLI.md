@@ -404,6 +404,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui architecture violations` | `get_architecture_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui architecture scan` | `architecture_scan` | — | action | all |
 | `bootui code inventory` | `get_code_inventory` | `[--query Q] [--limit N]` | read | all |
+| `bootui code paths` | `get_code_paths` | `[--query Q] [--limit N]` | read | all |
 | `bootui beans` | `get_beans` | `--query`, `--limit` | read | all |
 | `bootui cache` | `get_cache_stats` | — | read | all |
 | `bootui conditions` | `get_conditions` | `--query`, `--limit` | read | Spring MVC, WebFlux |

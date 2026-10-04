@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.web.BootUiMounts;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -16,6 +17,7 @@ import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.reactivestreams.Publisher;
 import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.HttpHandlerDecoratorFactory;
@@ -87,8 +89,8 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 // the runtime journal (docs/PLAN-v2.md §5.2).
                 return correlated(CorrelationContext.BOOTUI, () -> handler.handle(request, response));
             }
-            return correlated(
-                    CorrelationContext.forRequest(RequestIds.next()), () -> handler.handle(request, response));
+            CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
+            return correlated(correlation, () -> assembled(correlation, () -> handler.handle(request, response)));
         };
     }
 
@@ -109,7 +111,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
             exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
-            return correlated(correlation, () -> tracked(exchange, correlation, chain));
+            return correlated(correlation, () -> assembled(correlation, () -> tracked(exchange, correlation, chain)));
         });
     }
 
@@ -226,6 +228,40 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
     public static CorrelationContext correlation(ServerWebExchange exchange) {
         Object attribute = exchange.getAttribute(CORRELATION_ATTRIBUTE);
         return attribute instanceof CorrelationContext context ? context : CorrelationContext.NONE;
+    }
+
+    /**
+     * The request's pipeline, whose subscription, where WebFlux runs its filters and invokes the handler up to its first
+     * asynchronous boundary, is the BootUI agent's code-paths fragment of this request on the subscribing thread
+     * ({@code docs/PLAN-v2.md} §5.14, M5-4b): the fragment opens inside the request's correlation scope, so it captures
+     * the request, and is flushed once that synchronous part returned. The scope covers only the fragment's opening and
+     * the pipeline's assembly, as {@link #correlated} does without the agent, so the subscription sees the thread's
+     * correlation exactly as it would without the agent. The work the handler's publisher does later runs elsewhere, so
+     * every WebFlux tree is assembly only: the reactive configuration tells Code Paths so once for the stack, and no
+     * request is marked here.
+     */
+    private static Mono<Void> assembled(CorrelationContext correlation, Supplier<Mono<Void>> work) {
+        if (!AgentCodePaths.bound()) {
+            // Without the agent, the pipeline is exactly what it was.
+            return work.get();
+        }
+        return Mono.fromDirect((Publisher<Void>) subscriber -> {
+            try {
+                Mono<Void> pipeline;
+                try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
+                    AgentCodePaths.begin();
+                    try {
+                        pipeline = work.get();
+                    } catch (RuntimeException ex) {
+                        // A pipeline that fails while it assembles still answers its subscriber.
+                        pipeline = Mono.error(ex);
+                    }
+                }
+                pipeline.subscribe(subscriber);
+            } finally {
+                AgentCodePaths.end();
+            }
+        });
     }
 
     private static Mono<Void> correlated(CorrelationContext correlation, Supplier<Mono<Void>> work) {

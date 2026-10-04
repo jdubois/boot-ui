@@ -362,8 +362,9 @@ shares its transformer with the [`code-paths` sensor](#the-code-paths-sensor).
 The `code-paths` sensor, on by default, times the application's bean methods per request: for each request, a call
 tree of the public and protected methods of its beans, merged by caller and method, with each node's calls, total time,
 time in its callees, and the request phase it entered in (filters, handler, or response). It is the evidence behind
-Code Paths (PLAN-v2 §5.14); in this release BootUI keeps the trees in memory, and the Java Agent panel shows the sensor's
-row, its hook, and its counters. The panel and tools that read the trees come next.
+the [Code Paths](diagnostics.md#code-paths) panel, `get_code_paths`, and `route-time-breakdown`'s handler split; the
+engine keeps the request and route trees in memory for the current run, and the Java Agent panel shows the sensor's row,
+its hook, and its counters.
 
 | Hook | Role | What it covers |
 | --- | --- | --- |

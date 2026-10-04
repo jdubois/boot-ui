@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.codepaths.HandlerMethods;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
@@ -107,6 +108,152 @@ class RouteTimeBreakdownTests {
         assertThat(customers.status()).isEqualTo("INSUFFICIENT");
         assertThat(customers.sentence())
                 .isEqualTo("`GET /api/customers`: 2 of 5 warm requests needed. First request 12 ms (cold).");
+    }
+
+    /**
+     * The handler split ({@code docs/PLAN-v2.md} §5.14, M5-4b): the handler's other work, what the recorded SQL left of
+     * it, is shared among the route tree's top methods by self time, never more than it, the rest as other handler
+     * time, and the slow method is named first, as long as the recorded calls take under 10 % of the handler.
+     */
+    @Test
+    void withCodePathsTheHandlersOtherWorkIsSplitIntoItsTopMethodsBySelfTime() {
+        quoteRequests(3 * MS);
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? quoteMethods() : null, () -> 1L);
+
+        RuntimeObservationDto quote = breakdown(service, "GET /api/quote");
+        assertThat(quote.sentence())
+                .isEqualTo(
+                        "`GET /api/quote`: warm median 55 ms over 5 requests; Handler: SlowPricingService.quote 68 %,"
+                                + " Other handler time 9 %, Handler: QuoteController.quote 9 %. First request 200 ms (cold).");
+        assertThat(quote.whatToCheck().get(0)).contains("SlowPricingService.quote", "Code Paths");
+        assertThat(quote.limitations())
+                .anyMatch(limitation -> limitation.contains("Recorded calls take only 6 % of the handler's time"));
+        // The handler window is 50 ms, the SQL takes 3 ms of it: 47 ms of other work, 80 % and 10 % of it named.
+        assertThat(service.insight(quote.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Other filters", "10", "4 %", "2.0"),
+                        List.of("SQL", "15", "5 %", "3.0"),
+                        List.of("Handler: SlowPricingService.quote", "188", "68 %", "38"),
+                        List.of("Handler: QuoteController.quote", "24", "9 %", "4.7"),
+                        List.of("Other handler time", "24", "9 %", "4.7"),
+                        List.of("Response write", "15", "5 %", "3.0"));
+    }
+
+    /**
+     * Until call sites are stamped (M5-4c), a method's self time includes the recorded calls it waited on: when they
+     * take 10 % of the handler or more, as a repository waiting on its SQL, the handler is not split, and a limitation
+     * says why.
+     */
+    @Test
+    void theHandlerIsNotSplitWhileRecordedCallsTakeTenPercentOfItOrMore() {
+        quoteRequests(10 * MS);
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        service.setCodePaths(route -> route.equals("GET /api/quote") ? quoteMethods() : null, () -> 1L);
+
+        RuntimeObservationDto quote = breakdown(service, "GET /api/quote");
+        assertThat(quote.sentence())
+                .contains("Handler, other work 73 %", "SQL 18 %")
+                .doesNotContain("SlowPricingService");
+        assertThat(quote.limitations())
+                .anyMatch(limitation -> limitation.contains("recorded calls take 20 % of its time")
+                        && limitation.contains("call-site stamps, M5-4c"));
+        assertThat(service.insight(quote.id()).rows())
+                .extracting(row -> row.cells().get(0))
+                .containsExactly("Other filters", "SQL", "Handler, other work", "Response write");
+    }
+
+    /** A cold request, then five warm ones whose 50 ms handler runs {@code sql} of SQL. */
+    private void quoteRequests(long sql) {
+        request("/api/quote", 200 * MS, new RequestTiming(0, -1, -1, -1));
+        for (int i = 0; i < 5; i++) {
+            long start = clock;
+            request(
+                    "/api/quote",
+                    55 * MS,
+                    new RequestTiming(start, -1, 2 * MS, 52 * MS),
+                    new Child(
+                            JournalSource.SQL,
+                            sql,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 40 * MS)));
+        }
+    }
+
+    private static HandlerMethods quoteMethods() {
+        return new HandlerMethods(
+                "GET /api/quote",
+                5,
+                5 * 50 * MS,
+                List.of(
+                        new HandlerMethods.Method(
+                                "shop.SlowPricingService#quote()I", "SlowPricingService.quote", 200 * MS),
+                        new HandlerMethods.Method("shop.QuoteController#quote()I", "QuoteController.quote", 25 * MS)),
+                false);
+    }
+
+    @Test
+    void theHandlerSplitNeverExceedsTheHandlersWorkAndSkipsAnAssemblyOnlyRoute() {
+        request("/api/quote", 200 * MS, new RequestTiming(0, -1, -1, -1));
+        for (int i = 0; i < 5; i++) {
+            request("/api/quote", 30 * MS, new RequestTiming(clock, -1, 0, 30 * MS));
+        }
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        // The tree's methods claim twice the handler's time, as when clocks disagree: the parts are clipped.
+        HandlerMethods methods = new HandlerMethods(
+                "GET /api/quote",
+                5,
+                5 * 60 * MS,
+                List.of(
+                        new HandlerMethods.Method("a.A#a()V", "A.a", 5 * 40 * MS),
+                        new HandlerMethods.Method("a.B#b()V", "B.b", 5 * 20 * MS)),
+                false);
+        service.setCodePaths(route -> methods, () -> 1L);
+        List<List<String>> rows = service
+                .insight(breakdown(service, "GET /api/quote").id())
+                .rows()
+                .stream()
+                .map(RuntimeObservationRowDto::cells)
+                .toList();
+        assertThat(rows)
+                .containsExactly(
+                        List.of("Handler: A.a", "100", "67 %", "20"), List.of("Handler: B.b", "50", "33 %", "10"));
+
+        HandlerMethods assembly = new HandlerMethods("GET /api/quote", 5, 5 * 30 * MS, methods.methods(), true);
+        service.setCodePaths(route -> assembly, () -> 2L);
+        RuntimeObservationDto quote = breakdown(service, "GET /api/quote");
+        assertThat(quote.sentence()).contains("Handler, other work 100 %").doesNotContain("A.a");
+        assertThat(quote.limitations()).anyMatch(limitation -> limitation.contains("assembly"));
+    }
+
+    @Test
+    void theHandlerIsNotSplitWhileTheCodePathsPanelIsDisabled() {
+        request("/api/quote", 200 * MS, new RequestTiming(0, -1, -1, -1));
+        for (int i = 0; i < 5; i++) {
+            request("/api/quote", 30 * MS, new RequestTiming(clock, -1, 0, 30 * MS));
+        }
+        RuntimeInsightsService service = new RuntimeInsightsService(
+                journal, null, panel -> !panel.equals("code-paths"), InsightsStack.SPRING_MVC, null);
+        service.setCodePaths(
+                route -> new HandlerMethods(
+                        route,
+                        5,
+                        5 * 30 * MS,
+                        List.of(new HandlerMethods.Method("a.A#a()V", "A.a", 5 * 30 * MS)),
+                        false),
+                () -> 1L);
+        assertThat(breakdown(service, "GET /api/quote").sentence()).doesNotContain("A.a");
+    }
+
+    private static RuntimeObservationDto breakdown(RuntimeInsightsService service, String route) {
+        return service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .filter(observation -> observation.subject().equals(route))
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test

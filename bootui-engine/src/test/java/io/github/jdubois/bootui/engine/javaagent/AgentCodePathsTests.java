@@ -23,6 +23,7 @@ class AgentCodePathsTests {
 
     @AfterEach
     void reset() {
+        AgentCodePaths.clearAssemblyOnly();
         AgentCodePaths.rebind();
         Bridges.reset();
     }
@@ -37,6 +38,63 @@ class AgentCodePathsTests {
         AgentCodePaths.end();
 
         assertThat(AgentCodePaths.bound()).isFalse();
+    }
+
+    @Test
+    void requestsAreRememberedAsAssemblyOnlyOnlyWithTheAgentAndWithinABound() {
+        AgentCodePaths.bind(null);
+        AgentCodePaths.assemblyOnly("0000000000000001");
+        assertThat(AgentCodePaths.isAssemblyOnly("0000000000000001"))
+                .as("nothing is kept without the agent")
+                .isFalse();
+
+        AgentCodePaths.bind(CodePaths.class);
+        AgentCodePaths.assemblyOnly(null);
+        for (int i = 0; i <= AgentCodePaths.ASSEMBLY_ONLY_REQUESTS; i++) {
+            AgentCodePaths.assemblyOnly(String.format("%016x", i));
+        }
+        assertThat(AgentCodePaths.isAssemblyOnly(String.format("%016x", 0)))
+                .as("the eldest is forgotten")
+                .isFalse();
+        assertThat(AgentCodePaths.isAssemblyOnly(String.format("%016x", AgentCodePaths.ASSEMBLY_ONLY_REQUESTS)))
+                .isTrue();
+        assertThat(AgentCodePaths.isAssemblyOnly(null)).isFalse();
+        assertThat(AgentCodePaths.assemblyOnlyCount()).isEqualTo(AgentCodePaths.ASSEMBLY_ONLY_REQUESTS);
+        AgentCodePaths.assemblyOnly(String.format("%016x", AgentCodePaths.ASSEMBLY_ONLY_REQUESTS));
+        assertThat(AgentCodePaths.assemblyOnlyCount())
+                .as("marking a request again keeps one entry")
+                .isEqualTo(AgentCodePaths.ASSEMBLY_ONLY_REQUESTS);
+    }
+
+    /** Requests marked from many threads at once, without a global lock, stay within the bound. */
+    @Test
+    void concurrentMarksStayWithinTheBound() throws Exception {
+        AgentCodePaths.bind(CodePaths.class);
+        int threads = 8;
+        int perThread = AgentCodePaths.ASSEMBLY_ONLY_REQUESTS;
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+            List<java.util.concurrent.Future<?>> done = new ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                int thread = t;
+                done.add(executor.submit(() -> {
+                    start.await();
+                    for (int i = 0; i < perThread; i++) {
+                        AgentCodePaths.assemblyOnly(String.format("%08x%08x", thread, i));
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (java.util.concurrent.Future<?> future : done) {
+                future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(AgentCodePaths.assemblyOnlyCount()).isLessThanOrEqualTo(AgentCodePaths.ASSEMBLY_ONLY_REQUESTS);
+        assertThat(AgentCodePaths.assemblyOnlyCount()).isPositive();
     }
 
     @Test

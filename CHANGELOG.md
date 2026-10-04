@@ -9,6 +9,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Code Paths panel, API, and tools.** With the BootUI agent's `code-paths` sensor, the new view-only Code Paths panel
+  (Diagnostics) ranks routes by their warm median and shows each route's call tree of application bean methods, merged
+  across its warm requests with the first recorded request kept apart: calls per request, total and self time, share of
+  the handler, and approximate (≈) percentiles per method from a compact log2 histogram, asynchronous work shown apart,
+  an Other node past each route's budget, callers and reaching routes per method, and the excluded methods. A handler
+  that ran on an event loop, returned a reactive or asynchronous result, or whose work BootUI could not place (Spring MVC
+  requests that start async processing, every Spring WebFlux request, Quarkus endpoints on the event loop or returning
+  `Uni`, `Multi`, or `CompletionStage`) is labelled **assembly only**. Runtime Insights' `route-time-breakdown` splits a
+  route's handler work into its top five methods by self time, with the rest as other handler time, while its recorded
+  calls take under 10 % of the handler phase. `GET {api}/code-paths`,
+  `/code-paths/route`, `/code-paths/requests/{id}`, `get_code_paths`, and `bootui code paths` on Spring MVC, Spring
+  WebFlux, and Quarkus; the samples gain a seeded slow route, `GET /api/quotes/{sku}`
+  ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14, M5-4b).
 - **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
   protected methods of the application's beans per request, as call trees built on the request's own threads, with
   executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
