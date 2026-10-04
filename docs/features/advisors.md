@@ -992,9 +992,10 @@ the agent keeps class-name evidence, its recorder started before walking the cla
 stopped since (a restarted recorder walks them again), no code source was past the agent's limit, the dependency's jar
 was found and holds classes, no class of one of its packages was defined without a code-source location (as Quarkus's
 generated beans are, in their library's package), and no loaded jar may be this dependency without saying so.
-A reason that applies to every row, such as the recorder not running, is said once above the table. Names mined from
+A reason that applies to every row, such as the recorder not running, is said once above the table. An application jar holding the claimed packages (an uber or shaded jar, a sibling module's jar) is matched like any
+jar, so a dependency it bundles is never read as not loaded. Names mined from
 an advisory's text are looked for only in the dependency's own jar, so their absence says nothing (the text often names
-other artifacts' classes); a structured name not found there is also looked for in every other jar.
+other artifacts' classes); a structured name not found there is also looked for in every other jar, and is unknown when one of them dropped names.
 OSV's Maven advisories carry no structured symbols today (none of 357 advisories sampled for 44 common packages did),
 and about one in five names a class in its text.
 :::

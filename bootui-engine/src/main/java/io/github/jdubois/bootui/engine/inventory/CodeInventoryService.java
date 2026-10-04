@@ -310,6 +310,14 @@ public final class CodeInventoryService implements AutoCloseable {
         }
     }
 
+    /** The roots the current run's scan read, for tests. */
+    List<String> scanResultForTests() {
+        synchronized (lock) {
+            ClassScanner.Result result = run == null ? null : run.scan.result();
+            return result == null ? List.of() : result.roots();
+        }
+    }
+
     /** Waits for the current run's scan, for tests. */
     void awaitScan() throws InterruptedException {
         Thread thread;
