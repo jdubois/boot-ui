@@ -66,11 +66,15 @@ class AnonymousAccessObservationsTests {
                     .asString()
                     .startsWith("Do not add authorization from this row alone");
             assertThat(finding.limitations()).first().asString().contains("statement text");
+            assertThat(finding.limitations()).noneMatch(limitation -> limitation.contains("orm source"));
         });
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(AnonymousDataReach.KIND))
                 .singleElement()
-                .satisfies(check -> assertThat(check.status()).isEqualTo("EVALUATED"));
+                .satisfies(check -> {
+                    assertThat(check.status()).isEqualTo("EVALUATED");
+                    assertThat(check.reason()).isNull();
+                });
     }
 
     @Test

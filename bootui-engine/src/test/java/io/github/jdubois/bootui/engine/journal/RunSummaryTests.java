@@ -116,7 +116,7 @@ class RunSummaryTests {
                         "worker",
                         null,
                         false,
-                        new SqlPayload("insert into audit_log select id from products", null, "db", false)));
+                        new SqlPayload("insert into products values (1)", null, "db", false)));
         publish(aggregates, http("legacy-request", "/audit", 200, 2_000_000));
         byte[] encoded = RunSummaryCodec.encode(
                 RunSummary.of(new RunIdentity("legacy-edges", 1, 1000), aggregates.snapshot(), 2000),
@@ -124,9 +124,29 @@ class RunSummaryTests {
         encoded[4] = 10;
         RunSummary legacy = RunSummaryCodec.decode(encoded);
 
+        JournalAggregates current = new JournalAggregates();
+        publish(current, sql("current-request", "select id from products", 1_000_000, "Products.find"));
+        publish(
+                current,
+                event(
+                        "current-request",
+                        JournalSource.EXCEPTION,
+                        -1,
+                        new ExceptionPayload("new-error", "java.lang.IllegalStateException", "s1")));
+        publish(current, http("current-request", "/audit", 200, 2_000_000));
+
         assertThat(legacy.aggregates().overflowed()).containsKey(JournalAggregates.LEGACY_TABLE_EDGES);
-        var diff = io.github.jdubois.bootui.engine.model.RunEdgeDiff.compare(legacy, aggregates.snapshot(), null);
-        assertThat(diff.added()).isEmpty();
+        assertThat(legacy.aggregates().edges())
+                .anyMatch(edge -> edge.edge().toKey().equals("products")
+                        && edge.edge().type() == io.github.jdubois.bootui.engine.model.EdgeType.WRITES);
+        assertThat(current.snapshot().edges())
+                .anyMatch(edge -> edge.edge().toKey().equals("products")
+                        && edge.edge().type() == io.github.jdubois.bootui.engine.model.EdgeType.READS);
+        var diff = io.github.jdubois.bootui.engine.model.RunEdgeDiff.compare(legacy, current.snapshot(), null);
+        assertThat(diff.added()).singleElement().satisfies(edge -> {
+            assertThat(edge.edge().type()).isEqualTo(io.github.jdubois.bootui.engine.model.EdgeType.RAISES);
+            assertThat(edge.edge().toKey()).isEqualTo("new-error");
+        });
         assertThat(diff.removed()).isEmpty();
         assertThat(diff.limitations()).anyMatch(reason -> reason.contains("table reads and writes cannot be compared"));
     }

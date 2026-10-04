@@ -32,6 +32,11 @@ public interface Observation {
         return Set.of();
     }
 
+    /** Optional sources applicable to this stack; by default every optional source applies. */
+    default Set<JournalSource> optionalReads(InsightsSnapshot snapshot) {
+        return optionalReads();
+    }
+
     /** The request and execution kinds it examines; none when it reads only unowned collection events. */
     default Set<ProjectedRequest.Kind> unitKinds() {
         return EnumSet.allOf(ProjectedRequest.Kind.class);

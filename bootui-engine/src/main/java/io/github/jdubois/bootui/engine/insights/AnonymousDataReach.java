@@ -43,8 +43,8 @@ public final class AnonymousDataReach implements Observation {
     }
 
     @Override
-    public Set<JournalSource> optionalReads() {
-        return Set.of(JournalSource.ORM);
+    public Set<JournalSource> optionalReads(InsightsSnapshot snapshot) {
+        return snapshot.stack() == InsightsStack.QUARKUS ? Set.of(JournalSource.ORM) : Set.of();
     }
 
     @Override
