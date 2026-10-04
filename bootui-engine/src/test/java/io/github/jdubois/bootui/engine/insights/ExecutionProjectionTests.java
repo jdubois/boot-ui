@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
@@ -75,6 +76,45 @@ class ExecutionProjectionTests {
                 .as("observations that read what only a request has ignore executions")
                 .noneMatch(observation -> observation.kind().equals(RouteTimeBreakdown.KIND)
                         || observation.kind().equals(SafeMethodDml.KIND));
+        assertThat(service.report().limitations())
+                .anyMatch(limitation -> limitation.startsWith(RuntimeInsightsService.NON_HTTP_PREFIX)
+                        && limitation.contains("3 scheduled runs and 1 consumed message"));
+    }
+
+    @Test
+    void aJobOnlyRunWithMeasuredRepeatsIsNotCalledIdle() {
+        for (int i = 0; i < 3; i++) {
+            execution(new ScheduledPayload("OrderJob.run", null), repeatedSelects(), 20 * MS);
+        }
+
+        RuntimeInsightsService service = service();
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(service.report(), null, null);
+
+        assertThat(service.report().window().requests()).isZero();
+        assertThat(list.observations())
+                .extracting(observation -> observation.kind())
+                .contains(RepeatedSelects.KIND);
+        assertThat(list.limitations().get(0))
+                .contains("requests counts completed HTTP exchanges only")
+                .doesNotContain("not exercised, not healthy")
+                .doesNotContain("nothing was exercised");
+        assertThat(service.report().limitations())
+                .anyMatch(limitation -> limitation.startsWith(RuntimeInsightsService.NON_HTTP_PREFIX));
+    }
+
+    @Test
+    void aScheduledRunWithNoObservationStillSaysRequestsDoesNotCountIt() {
+        execution(new ScheduledPayload("OrderJob.run", null), List.of());
+
+        RuntimeInsightsAgentReportDto list =
+                RuntimeInsightsAgentView.list(service().report(), null, null);
+
+        assertThat(list.observations()).isEmpty();
+        assertThat(list.limitations().get(0))
+                .contains(RuntimeInsightsService.NON_HTTP_PREFIX)
+                .doesNotContain("not exercised, not healthy");
+        assertThat(service().report().limitations())
+                .anyMatch(limitation -> limitation.contains("1 scheduled run and 0 consumed messages"));
     }
 
     @Test
@@ -138,9 +178,14 @@ class ExecutionProjectionTests {
     }
 
     private void execution(RuntimeEventPayload entry, List<RuntimeEventPayload> statements) {
+        execution(entry, statements, MS);
+    }
+
+    private void execution(RuntimeEventPayload entry, List<RuntimeEventPayload> statements, long sqlNanos) {
         CorrelationContext context = CorrelationContext.forExecution("x" + (++executions));
         for (RuntimeEventPayload statement : statements) {
-            journal.offer(RuntimeEvent.of(JournalSource.SQL, 1_000, MS, context, "job-1", null, false, statement));
+            journal.offer(
+                    RuntimeEvent.of(JournalSource.SQL, 1_000, sqlNanos, context, "job-1", null, false, statement));
         }
         journal.offer(RuntimeEvent.of(
                 entry instanceof ScheduledPayload
