@@ -23,6 +23,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
   tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
 
+- **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
+  messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
+  after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
+  source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
+  undetermined, and disabled-source limitations appear only when relevant evidence was recorded
+  ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
+
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
   examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
   Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
