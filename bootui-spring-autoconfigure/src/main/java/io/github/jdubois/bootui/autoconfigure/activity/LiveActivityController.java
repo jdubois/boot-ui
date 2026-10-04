@@ -39,6 +39,7 @@ import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorde
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
@@ -391,6 +392,19 @@ public class LiveActivityController implements InitializingBean {
     }
 
     private volatile RuntimeJournalService runtimeJournal = new RuntimeJournalService(null, null);
+    private volatile RuntimeJournal statusJournal;
+    private volatile JournalAggregates statusAggregates;
+    private volatile AgentEvidence agentEvidence;
+
+    /**
+     * Installs the BootUI agent's evidence kept outside the journal (M5-11), which the journal status reports beside its
+     * own bytes and which every clear of the journal clears.
+     */
+    @Autowired(required = false)
+    public void setAgentEvidence(AgentEvidence agentEvidence) {
+        this.agentEvidence = agentEvidence;
+        this.runtimeJournal = new RuntimeJournalService(statusJournal, statusAggregates, agentEvidence);
+    }
 
     /**
      * Installs the live exposure policy journal-rendered SQL, log text, and paths are shown under ({@code PLAN-v2} §8).
@@ -412,7 +426,9 @@ public class LiveActivityController implements InitializingBean {
     /** Installs the runtime journal whose status block and <b>Clear recording</b> this panel serves. */
     @Autowired(required = false)
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
-        this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
+        this.statusJournal = journal;
+        this.statusAggregates = aggregates;
+        this.runtimeJournal = new RuntimeJournalService(journal, aggregates, agentEvidence);
         this.captureJournal = journal;
         this.captureRoutes = aggregates == null ? null : aggregates.declaredRoutes();
         ActivityPersistenceSettings deferred = deferredCapture;

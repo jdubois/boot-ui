@@ -228,6 +228,56 @@ class RuntimeInsightsServiceTests {
     }
 
     /**
+     * M5-11: Code Paths and Code Inventory are read under one read of their panels per projection, resolved through the
+     * agent evidence contract, never once per call an observation makes.
+     */
+    @Test
+    void agentEvidenceIsReadUnderOneReadOfItsPanelsPerProjection() {
+        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
+        io.github.jdubois.bootui.engine.journal.AgentEvidence evidence =
+                new io.github.jdubois.bootui.engine.journal.AgentEvidence(
+                        panel -> {
+                            if (panel.equals(BootUiPanels.CODE_PATHS) || panel.equals(BootUiPanels.CODE_INVENTORY)) {
+                                asked.incrementAndGet();
+                            }
+                            return true;
+                        },
+                        null);
+        io.github.jdubois.bootui.engine.codepaths.CodePathsService codePaths =
+                new io.github.jdubois.bootui.engine.codepaths.CodePathsService(
+                        io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess.absent(),
+                        () -> null,
+                        () -> null,
+                        evidence);
+        CodeInventoryService inventory = new CodeInventoryService(
+                io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess.absent(),
+                () -> null,
+                () -> null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                evidence);
+        for (int i = 0; i < 3; i++) {
+            request("GET", "/api/a");
+        }
+        RuntimeInsightsService service = new RuntimeInsightsService(journal, null, panel -> true, null, null);
+        service.setCodePathsService(() -> codePaths);
+        service.setCodeInventoryService(() -> inventory);
+
+        service.report();
+
+        assertThat(asked.get()).as("one read of each store's panel").isEqualTo(2);
+        try {
+            codePaths.close();
+            inventory.close();
+        } catch (RuntimeException ignored) {
+            // nothing started
+        }
+    }
+
+    /**
      * I6: statements a repository or DAO method of the application's own ran, which the sensor instruments as a bean,
      * name the method that called the repository, through the repository method; without the route's tree, the finding
      * names the repository method and says the caller is unknown, never that repositories are not instrumented.

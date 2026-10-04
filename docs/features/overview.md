@@ -425,7 +425,10 @@ recording SQL statements, connections, transactions, REST client calls, AI calls
 **Recording** in the panel header opens the journal's status: the events and memory it retains against its bounds,
 when its oldest event happened, how many events each source recorded in this run, and how many were evicted or
 dropped. The status is read only when you open it. **Clear recording** drops the events and aggregates of this run,
-after a confirmation, and keeps the counts, so drops and evictions stay visible. When the application restarts in the
+after a confirmation, and keeps the counts, so drops and evictions stay visible. With the [BootUI agent](java-agent.md)
+attached, the status also reports, as **Agent evidence**, the memory its evidence kept outside the journal uses
+against `bootui.runtime-journal.agent-evidence-max-bytes`, and Clear recording, and **Free BootUI memory**, drop that
+evidence too: Code Paths' request and route trees and Code Inventory's first requests and routes. When the application restarts in the
 same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a summary of the run that ended, at most
 256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
 why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and

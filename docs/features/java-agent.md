@@ -484,6 +484,32 @@ Sharing is only supported for boot loader classes because bootstrap classpath ha
 That warning is expected. It means CDS, AppCDS, and AOT caches no longer apply outside boot-loader classes for that JVM.
 This is why the agent is a development-time tool and should not be placed on production or AOT-cached JVM launches.
 
+## Agent evidence outside the journal
+
+Code Paths' request and route trees and Code Inventory's first calls are kept in bounded stores of the run, not as
+runtime journal events. One engine contract, the agent evidence projection, applies to them what the journal applies
+to its own events:
+
+- **Panel visibility.** Each read resolves once whether the store's panel (Code Paths, Code Inventory) and
+  [HTTP Exchanges](diagnostics.md#http-exchanges), which owns requests and routes, are visible, and derives its answer,
+  its cache key, and its reason from that one read. While the store's panel is disabled, its panel, its MCP tool, its
+  CLI command, and the Runtime Insights observations that read it say so, and its evidence is neither shown nor counted.
+  Without the agent, the agent's own reason comes first.
+- **Clear recording.** The evidence is a listener of the runtime journal, so every clear of the journal, by **Clear
+  recording** after its confirmation or by **Free BootUI memory**, drops it in the same step, under the journal's lock:
+  every tree recorded before the clear, the fragments still queued in the agent's ring included, and Code Inventory's
+  first requests and routes. A request whose tree lost a fragment to the clear is left out whole, never shown partial.
+  Counts since the claim, the adaptive exclusions, and which methods executed are kept.
+- **Exports.** The panels, Runtime Insights' **Export JSON** and **Copy for AI**, the MCP tools, and the CLI carry only
+  what these reads return: method keys, route templates (or masked observed paths), request ids, times, and counts.
+  No surface serializes a store, and nothing of it is written to disk.
+- **Memory.** The journal status reports the stores' estimated bytes as **Agent evidence**, beside the journal's own,
+  against `bootui.runtime-journal.agent-evidence-max-bytes`: about 52 MB by default, the sum of the stores' fixed caps.
+  A smaller bound shrinks Code Paths' trees in proportion; Code Inventory's first calls, bounded by the agent's method
+  limit, are only counted. A disabled panel's store adds its bytes to the total without its own row's figures, and a
+  store that records nothing for the application, as without the agent, is left out. The method names each store keeps
+  beside its evidence are reported apart, and kept through a clear.
+
 ## Privacy and dependency inventory
 
 The agent is local-only. It does not export telemetry, open a network connection, or record anything until a running

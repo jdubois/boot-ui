@@ -49,6 +49,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
@@ -68,7 +69,6 @@ import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
-import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
 import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
@@ -261,7 +261,7 @@ public class BootUiEngineProducer {
             QuarkusDependencyProvider dependencies,
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
-            Instance<QuarkusPanelAvailability> panels,
+            AgentEvidence evidence,
             Config config) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -277,26 +277,48 @@ public class BootUiEngineProducer {
                                 .orElse(CodeInventorySettings.DEFAULT_MAX_CLASSES),
                         config.getOptionalValue("bootui.code-inventory.scan-timeout", Duration.class)
                                 .orElse(CodeInventorySettings.DEFAULT_SCAN_TIMEOUT)),
-                CodeInventoryHistory.shared());
+                CodeInventoryHistory.shared(),
+                // Its panel and HTTP Exchanges, which owns request routes, gate its reads (docs/PLAN-v2.md §8).
+                evidence);
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
-        service.setRoutesVisible(() -> httpExchangesVisible(panels));
         return service;
     }
 
     /**
-     * Whether HTTP Exchanges, which owns request routes and outcomes, is available and enabled, the journal's
-     * source-panel rule ({@code docs/PLAN-v2.md} §8); resolved on each read, never while the engine is produced.
+     * The agent evidence contract ({@code docs/PLAN-v2.md} §5.17, M5-11), from the same
+     * {@code bootui.runtime-journal.agent-evidence-max-bytes} key and default as the Spring adapter: Code Paths and Code
+     * Inventory read their evidence through it under the panels' live state, and, as a listener of the journal, every
+     * clear of the journal clears it too. A panel is visible when it is available and enabled; the services give the
+     * agent's own reason first, so a missing agent never reads as a disabled panel.
      */
-    private static boolean httpExchangesVisible(Instance<QuarkusPanelAvailability> panels) {
+    @Produces
+    @Singleton
+    public AgentEvidence agentEvidence(
+            Config config, RuntimeJournal journal, Instance<QuarkusPanelAvailability> panels) {
+        AgentEvidence evidence = new AgentEvidence(
+                panel -> panelVisible(panels, panel),
+                RuntimeJournalSettings.parseBytes(
+                        config.getOptionalValue("bootui.runtime-journal.agent-evidence-max-bytes", String.class)
+                                .orElse(null),
+                        "bootui.runtime-journal.agent-evidence-max-bytes"));
+        journal.addListener(evidence);
+        return evidence;
+    }
+
+    /** Stops clearing the agent evidence with the journal when the application stops. */
+    public void closeAgentEvidence(@Disposes AgentEvidence evidence, RuntimeJournal journal) {
+        journal.removeListener(evidence);
+    }
+
+    private static boolean panelVisible(Instance<QuarkusPanelAvailability> panels, String panel) {
         if (!panels.isResolvable()) {
             return false;
         }
         QuarkusPanelAvailability availability = panels.get();
-        return availability.isPanelAvailable(BootUiPanels.HTTP_EXCHANGES)
-                && availability.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES);
+        return availability.isPanelAvailable(panel) && availability.isPanelEnabled(panel);
     }
 
     /** Stops Code Inventory's drain and scan threads with the application. */
@@ -316,16 +338,17 @@ public class BootUiEngineProducer {
             JavaAgentService javaAgent,
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
-            Instance<QuarkusPanelAvailability> panels,
+            AgentEvidence evidence,
             Instance<QuarkusBeanProvider> beans) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
-        CodePathsService service =
-                new CodePathsService(AgentBridgeAccess.locate(), current::claim, javaAgent::codePathsUnavailableReason);
+        // Its panel and HTTP Exchanges, which owns route trees and request outcomes, gate its reads (docs/PLAN-v2.md
+        // §8).
+        CodePathsService service = new CodePathsService(
+                AgentBridgeAccess.locate(), current::claim, javaAgent::codePathsUnavailableReason, evidence);
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         service.setRequestOutcomes(JournalRequestOutcomes.of(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
-        service.setRoutesVisible(() -> httpExchangesVisible(panels));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.isResolvable() ? beans.get() : null, null));
         return service;

@@ -15,6 +15,8 @@ import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -26,6 +28,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -53,6 +57,8 @@ class CodeInventoryServiceTests {
 
     private final AtomicLong clock = new AtomicLong();
     private final List<CodeInventoryService> services = new ArrayList<>();
+    private final Set<String> hiddenPanels = ConcurrentHashMap.newKeySet();
+    private final AgentEvidence evidence = new AgentEvidence(panel -> !hiddenPanels.contains(panel), null);
     private final CodeInventoryHistory history = new CodeInventoryHistory(null, new ScanCache(1000));
 
     @BeforeEach
@@ -120,6 +126,7 @@ class CodeInventoryServiceTests {
                 () -> 1_000L,
                 CodeInventorySettings.defaults(),
                 history,
+                evidence,
                 clock::get);
         services.add(service);
         return service;
@@ -277,8 +284,6 @@ class CodeInventoryServiceTests {
                 lookups.incrementAndGet();
                 return Map.of("00000000000000cd", "GET /orders/{id}");
             });
-            boolean[] httpExchanges = {true};
-            service.setRoutesVisible(() -> httpExchanges[0]);
             service.start();
             service.awaitScan();
             CodeInventory.hit(ids[1]);
@@ -307,7 +312,7 @@ class CodeInventoryServiceTests {
             long fingerprint = service.changesFingerprint();
             int looked = lookups.get();
 
-            httpExchanges[0] = false;
+            hiddenPanels.add(BootUiPanels.HTTP_EXCHANGES);
 
             Map<String, CodeInventoryMethodDto> hidden = rows(service);
             assertThat(hidden.get(GREET).status()).isEqualTo(CodeInventoryService.EXECUTED);
@@ -324,10 +329,110 @@ class CodeInventoryServiceTests {
             assertThat(service.changesFingerprint()).isNotEqualTo(fingerprint);
             assertThat(lookups.get()).as("no journal lookup while hidden").isEqualTo(looked);
 
-            httpExchanges[0] = true;
+            hiddenPanels.remove(BootUiPanels.HTTP_EXCHANGES);
 
             assertThat(rows(service).get(TOTAL).firstRoute()).isEqualTo("GET /orders/{id}");
             assertThat(service.report().limitations()).doesNotContain(CodeInventoryService.ROUTES_HIDDEN);
+        }
+    }
+
+    @Test
+    void disablingCodeInventoryHidesEveryReadWithItsReasonAfterTheAgentsOwn() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            load(INIT, GREET, TOTAL, NEVER);
+            CodeInventoryService service = started(claim, loader);
+            assertThat(service.report().available()).isTrue();
+            long fingerprint = service.changesFingerprint();
+
+            hiddenPanels.add(BootUiPanels.CODE_INVENTORY);
+
+            assertThat(service.report().unavailableReason()).isEqualTo("The Code Inventory panel is disabled.");
+            assertThat(service.methods(null, null, null, 0, 10).available()).isFalse();
+            assertThat(service.changes(0, 10).available()).isFalse();
+            assertThat(service.dependencies(null, 0, 10).available()).isFalse();
+            assertThat(service.agentReport(null, 5).methods()).isEmpty();
+            assertThat(service.changedCode().unavailableReason()).isEqualTo("The Code Inventory panel is disabled.");
+            assertThat(service.changesFingerprint()).isNotEqualTo(fingerprint);
+            assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
+                assertThat(store.visible()).isFalse();
+                assertThat(store.retainedBytes()).isNull();
+                assertThat(store.counts()).isEmpty();
+            });
+
+            hiddenPanels.remove(BootUiPanels.CODE_INVENTORY);
+            assertThat(service.report().available()).isTrue();
+        }
+    }
+
+    @Test
+    void clearingTheRecordingDropsFirstRequestsAndRoutesButKeepsWhatExecuted() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            int[] ids = load(INIT, GREET, TOTAL, NEVER);
+            CodeInventoryService service = started(claim, loader);
+            CodeInventory.hit(ids[1]);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    5_000L,
+                    ids[1],
+                    Long.parseUnsignedLong("00000000000000ab", 16),
+                    AgentRing.intern("GET /orders"),
+                    0L);
+            assertThat(rows(service).get(GREET).firstRequestId()).isEqualTo("00000000000000ab");
+            assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
+                assertThat(store.visible()).isTrue();
+                assertThat(store.retainedBytes()).isPositive();
+                assertThat(store.counts()).containsEntry("firstCalls", 1L).containsEntry("firstCallsWithRequest", 1L);
+            });
+            long fingerprint = service.changesFingerprint();
+            // Recorded before the clear, still queued in the ring when it runs.
+            CodeInventory.hit(ids[2]);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    6_000L,
+                    ids[2],
+                    Long.parseUnsignedLong("00000000000000cd", 16),
+                    AgentRing.intern("GET /orders/{id}"),
+                    0L);
+
+            assertThat(evidence.clear()).isEqualTo("1 first request of Code Inventory");
+
+            Map<String, CodeInventoryMethodDto> cleared = rows(service);
+            assertThat(cleared.get(GREET).status()).isEqualTo(CodeInventoryService.EXECUTED);
+            assertThat(cleared.get(GREET).firstHitEpochMillis()).isEqualTo(5_000L);
+            assertThat(cleared.get(TOTAL).status()).isEqualTo(CodeInventoryService.EXECUTED);
+            assertThat(cleared.get(TOTAL).firstHitEpochMillis()).isEqualTo(6_000L);
+            assertThat(cleared.values()).allSatisfy(method -> {
+                assertThat(method.firstRequestId()).isNull();
+                assertThat(method.firstRoute()).isNull();
+            });
+            CodeInventoryReport report = service.report();
+            assertThat(report.recordingClearedAt()).isNotNull();
+            assertThat(report.limitations()).contains(CodeInventoryService.RECORDING_CLEARED);
+            assertThat(service.changesFingerprint()).isNotEqualTo(fingerprint);
+
+            // Recorded after the clear: kept whole.
+            CodeInventory.hit(ids[3]);
+            AgentRing.publish(
+                    AgentRing.SENSOR_INVENTORY,
+                    CodeInventory.FIRST_HIT,
+                    claim.generation(),
+                    System.currentTimeMillis() + 60_000L,
+                    ids[3],
+                    Long.parseUnsignedLong("00000000000000ef", 16),
+                    AgentRing.intern("GET /later"),
+                    0L);
+            tick();
+            CodeInventoryMethodDto later = rows(service).get(NEVER);
+            assertThat(later.firstRequestId()).isEqualTo("00000000000000ef");
+            assertThat(later.firstRoute()).isEqualTo("GET /later");
         }
     }
 
@@ -407,11 +512,11 @@ class CodeInventoryServiceTests {
                     .satisfies(entry -> assertThat(entry.className()).isEqualTo("shop.OrderService"));
             long before = changed.fingerprint();
             assertThat(changed.note()).isNull();
-            service.setRoutesVisible(() -> false);
+            hiddenPanels.add(BootUiPanels.HTTP_EXCHANGES);
             assertThat(service.changedCode().note())
                     .as("changed-code-not-executed names why its routes are left out")
                     .isEqualTo(CodeInventoryService.ROUTES_HIDDEN);
-            service.setRoutesVisible(() -> true);
+            hiddenPanels.remove(BootUiPanels.HTTP_EXCHANGES);
 
             CodeInventory.hit(ids[1]);
             tick();
@@ -923,7 +1028,8 @@ class CodeInventoryServiceTests {
                 null,
                 null,
                 null,
-                history);
+                history,
+                AgentEvidence.open());
         services.add(service);
 
         assertThat(service.report().available()).isFalse();
