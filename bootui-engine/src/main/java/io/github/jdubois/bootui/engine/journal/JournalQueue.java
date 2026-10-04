@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.IntConsumer;
 
 /**
  * The runtime journal's bounded FIFO queue for one recording generation ({@code docs/PLAN-v2.md} §5.2, §8): application
@@ -13,7 +14,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * routine events so the last share of the queue is reserved for failed or slow events, and inserts it, atomically.
  * <b>Clear recording</b> replaces the journal's queue and then detaches this one in constant time under the same lock,
  * so an offer either lands before the detach, and is cleared with the recording, or sees the queue detached and is
- * retried on the replacement.</p>
+ * retried on the replacement. An accepted event is counted under the same lock, before the dispatcher can take it, so
+ * the journal never counts an event processed before it counts it accepted.</p>
  */
 final class JournalQueue {
 
@@ -26,17 +28,13 @@ final class JournalQueue {
     /** {@link #offer} found the queue detached by a clear: the event belongs on the replacement. */
     static final int DETACHED = 2;
 
-    /**
-     * {@link #offer} took the event and the queue just reached half its routine share: a dispatcher pausing between
-     * batches should resume now rather than at the end of its pause.
-     */
-    static final int ACCEPTED_FILLING = 3;
-
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition notEmpty = lock.newCondition();
+    private final Condition filling = lock.newCondition();
     private final int routineLimit;
     private final int wakeAt;
     private final Runnable beforeOffer;
+    private final IntConsumer onAccepted;
     private final boolean refusing;
 
     private RuntimeEvent[] items;
@@ -49,16 +47,19 @@ final class JournalQueue {
      * @param capacity the most events queued at once
      * @param routineLimit the depth from which only failed or slow events are taken
      * @param beforeOffer a test hook run with the lock held, before the event is checked, or {@code null}
+     * @param onAccepted told the source ordinal of each event taken, with the lock held, or {@code null}
      */
-    JournalQueue(int capacity, int routineLimit, Runnable beforeOffer) {
-        this(capacity, routineLimit, beforeOffer, false);
+    JournalQueue(int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted) {
+        this(capacity, routineLimit, beforeOffer, onAccepted, false);
     }
 
-    private JournalQueue(int capacity, int routineLimit, Runnable beforeOffer, boolean refusing) {
+    private JournalQueue(
+            int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted, boolean refusing) {
         this.items = new RuntimeEvent[Math.max(1, capacity)];
         this.routineLimit = routineLimit;
         this.wakeAt = Math.max(1, routineLimit / 2);
         this.beforeOffer = beforeOffer;
+        this.onAccepted = onAccepted;
         this.refusing = refusing;
     }
 
@@ -67,7 +68,7 @@ final class JournalQueue {
      * counted as dropped rather than accepted and never processed, and it is never detached.
      */
     static JournalQueue closed() {
-        return new JournalQueue(1, 0, null, true);
+        return new JournalQueue(1, 0, null, null, true);
     }
 
     /** Whether this is a closed journal's queue, which a clear leaves in place. */
@@ -76,9 +77,9 @@ final class JournalQueue {
     }
 
     /**
-     * Offers {@code event} without waiting for room: {@link #ACCEPTED}, {@link #ACCEPTED_FILLING}, {@link #FULL}, or
-     * {@link #DETACHED}. The bound
-     * check and the insert happen under one lock acquisition, so routine events never overshoot their share.
+     * Offers {@code event} without waiting for room: {@link #ACCEPTED}, {@link #FULL}, or {@link #DETACHED}. The bound
+     * check, the insert, and the count of the accepted event happen under one lock acquisition, so routine events never
+     * overshoot their share.
      */
     int offer(RuntimeEvent event, boolean failedOrSlow) {
         ReentrantLock lock = this.lock;
@@ -93,11 +94,18 @@ final class JournalQueue {
             if (refusing || count >= (failedOrSlow ? items.length : routineLimit)) {
                 return FULL;
             }
+            // Counted first: a counter failing, as on a stack overflow, then leaves nothing queued uncounted.
+            if (onAccepted != null) {
+                onAccepted.accept(event.source().ordinal());
+            }
             items[putIndex] = event;
             putIndex = putIndex + 1 == items.length ? 0 : putIndex + 1;
             count++;
             notEmpty.signal();
-            return count == wakeAt ? ACCEPTED_FILLING : ACCEPTED;
+            if (count >= wakeAt) {
+                filling.signal();
+            }
+            return ACCEPTED;
         } finally {
             lock.unlock();
         }
@@ -119,6 +127,24 @@ final class JournalQueue {
                 nanos = notEmpty.awaitNanos(nanos);
             }
             return take();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Waits up to {@code nanos} while the queue holds less than half its routine share, so a dispatcher pausing between
+     * batches lets events gather but resumes as soon as a burst fills the queue. Returns at once when the queue already
+     * holds that many or is detached. Unlike a bare park, no other wait of the dispatcher can consume the offer's
+     * wake-up, since it is a condition of this queue's own lock.
+     */
+    void awaitFilling(long nanos) throws InterruptedException {
+        ReentrantLock lock = this.lock;
+        lock.lockInterruptibly();
+        try {
+            while (count < wakeAt && !detached && nanos > 0L) {
+                nanos = filling.awaitNanos(nanos);
+            }
         } finally {
             lock.unlock();
         }
@@ -157,6 +183,7 @@ final class JournalQueue {
             putIndex = 0;
             count = 0;
             notEmpty.signalAll();
+            filling.signalAll();
             return dropped;
         } finally {
             lock.unlock();
@@ -173,6 +200,7 @@ final class JournalQueue {
         try {
             detached = true;
             notEmpty.signalAll();
+            filling.signalAll();
         } finally {
             lock.unlock();
         }

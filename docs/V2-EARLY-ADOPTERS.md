@@ -16,6 +16,9 @@ application at that repository. Your regular `~/.m2` repository and the released
   and the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and `get_runtime_run_comparison` agent
   tools, also available as `bootui insights` CLI commands ([AI agents](AI-AGENTS.md#runtime-insights-for-agents)).
 
+What 2.0 does not do yet, per stack and for the BootUI Java agent, is listed in
+[Known limitations](KNOWN-LIMITATIONS.md).
+
 ## Build the `v2` branch
 
 You need JDK 17 or newer and Git. The Maven Wrapper downloads Maven, and the build downloads Node.js for the UI.
