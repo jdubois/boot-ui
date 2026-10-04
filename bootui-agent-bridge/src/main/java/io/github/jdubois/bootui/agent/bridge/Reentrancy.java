@@ -11,6 +11,10 @@ final class Reentrancy {
 
     private static final int GUARD = 0;
     private static final int BOOTUI_WORK = 1;
+    /** The dynamic-access recorder's own guard, apart from capture's: recording never captures. */
+    private static final int DYNAMIC = 2;
+    /** Set on the agent's self-test thread while it exercises the dynamic-access hooks. */
+    private static final int DYNAMIC_SELF_TEST = 3;
 
     private static final ThreadLocal<int[]> STATE = new ThreadLocal<int[]>();
 
@@ -19,7 +23,7 @@ final class Reentrancy {
     private static int[] state() {
         int[] state = STATE.get();
         if (state == null) {
-            state = new int[2];
+            state = new int[4];
             STATE.set(state);
         }
         return state;
@@ -47,6 +51,44 @@ final class Reentrancy {
     static boolean guarded() {
         int[] state = STATE.get();
         return state != null && state[GUARD] != 0;
+    }
+
+    /** Takes the dynamic-access recorder's guard: false when this thread is already recording one access. */
+    static boolean enterDynamic() {
+        int[] state = state();
+        if (state[DYNAMIC] != 0) {
+            return false;
+        }
+        state[DYNAMIC] = 1;
+        return true;
+    }
+
+    /** Whether this thread is recording one access: what the recorder's own work reaches is not the application's. */
+    static boolean inDynamic() {
+        int[] state = STATE.get();
+        return state != null && state[DYNAMIC] != 0;
+    }
+
+    /** Releases the guard taken by a successful {@link #enterDynamic}. */
+    static void exitDynamic() {
+        int[] state = STATE.get();
+        if (state != null) {
+            state[DYNAMIC] = 0;
+        }
+    }
+
+    /** Whether this thread is the agent's dynamic-access self-test. */
+    static boolean dynamicSelfTest() {
+        int[] state = STATE.get();
+        return state != null && state[DYNAMIC_SELF_TEST] != 0;
+    }
+
+    /** Marks or unmarks this thread as the agent's dynamic-access self-test. */
+    static void dynamicSelfTest(boolean on) {
+        int[] state = on ? state() : STATE.get();
+        if (state != null) {
+            state[DYNAMIC_SELF_TEST] = on ? 1 : 0;
+        }
     }
 
     /** Whether the engine marked this thread's current work as BootUI's own. */

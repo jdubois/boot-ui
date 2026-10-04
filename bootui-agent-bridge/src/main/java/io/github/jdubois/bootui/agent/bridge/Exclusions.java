@@ -58,6 +58,21 @@ public final class Exclusions {
         return false;
     }
 
+    /** Whether {@code binaryName} names a class a framework or the JDK generated: a proxy, a CGLIB or AOT subclass. */
+    static boolean generated(String binaryName) {
+        for (String part : CONTAINS) {
+            if (binaryName.indexOf(part) >= 0) {
+                return true;
+            }
+        }
+        for (String suffix : SUFFIXES) {
+            if (binaryName.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The excluded name prefixes: a copy. */
     public static String[] prefixes() {
         return PREFIXES.clone();

@@ -157,6 +157,7 @@ public final class AgentBridge {
                     new WeakReference<Supplier<Object>>(capture),
                     new WeakReference<Function<Object, AutoCloseable>>(reopen));
             if (CLAIM.compareAndSet(current, next)) {
+                DynamicAccess.claimed(next, request.get("dynamicAccess"));
                 CLAIMS.increment();
                 if (current != null && current.armed && !current.slot.equals(slot)) {
                     TAKEOVERS.increment();
@@ -220,6 +221,7 @@ public final class AgentBridge {
             }
             Claim next = current.disarmed();
             if (CLAIM.compareAndSet(current, next)) {
+                DynamicAccess.endAll("run ended");
                 CodePaths.refresh();
                 return transition(agent, "disarm", next, DISARMED);
             }
@@ -246,6 +248,7 @@ public final class AgentBridge {
             // A release takes its own generation, so the agent never applies it over a newer claim it saw first.
             long generation = GENERATIONS.incrementAndGet();
             if (CLAIM.compareAndSet(current, null)) {
+                DynamicAccess.claimed(null, null);
                 CodePaths.refresh();
                 Map<String, Object> request = new LinkedHashMap<String, Object>();
                 request.put("op", "release");
@@ -316,6 +319,7 @@ public final class AgentBridge {
                 map.put(CodePaths.SENSOR, CodePaths.status());
             }
             map.put("ring", AgentRing.status());
+            map.put(DynamicAccess.SENSOR, DynamicAccess.status());
         } catch (Throwable ex) {
             error(ex);
         }
@@ -475,6 +479,7 @@ public final class AgentBridge {
         CodeInventory.reset();
         CodePaths.reset();
         AgentRing.reset();
+        DynamicAccess.reset();
         inventoryClaimed = false;
     }
 }

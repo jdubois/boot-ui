@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
+import io.github.jdubois.bootui.agent.bridge.DynamicAccess;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
@@ -23,7 +24,9 @@ import java.util.function.Function;
  * it (PLAN-v2 M5-2, M5-3, M5-4a), and a release removes it; a claim without a sensor installs nothing, unless
  * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
  * transformer ({@link ApplicationMethodsSensor}): a claim asking for neither removes it, since its advice on every
- * application method would otherwise stay for a claim that never reads it.
+ * application method would otherwise stay for a claim that never reads it. The experimental {@code dynamic-access}
+ * sensor (M5-9b spike) installs only when the JVM opts in with {@value DynamicAccessSensor#FLAG}, and is removed by
+ * any claim not asking for it.
  */
 final class AgentHandler implements Function<Map<String, Object>, Map<String, Object>> {
 
@@ -37,6 +40,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private ExecutorSensor executors;
     private ThreadSensor threads;
     private ApplicationMethodsSensor applicationMethods;
+    private DynamicAccessSensor dynamicAccess;
     /** Whether the current claim asked for the inventory or code-paths sensor: refines reach them only then. */
     private boolean applicationMethodsClaimed;
 
@@ -94,6 +98,12 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                     // Its advice would otherwise stay on every method for a claim that never reads it.
                     applicationMethods.release();
                 }
+                if (claimedSensors.contains(DynamicAccess.SENSOR)) {
+                    dynamicAccess().claimed();
+                } else if (dynamicAccess != null) {
+                    // Advice on java.lang.Class and reflection stays only for a claim that may record.
+                    dynamicAccess.release();
+                }
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
@@ -131,6 +141,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (applicationMethods != null) {
                     applicationMethods.release();
                 }
+                if (dynamicAccess != null) {
+                    dynamicAccess.release();
+                }
                 return answer("ok", null);
             case "status":
                 return status();
@@ -151,6 +164,13 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             applicationMethods = new ApplicationMethodsSensor(instrumentation, hook.privilegedInstall());
         }
         return applicationMethods;
+    }
+
+    private DynamicAccessSensor dynamicAccess() {
+        if (dynamicAccess == null) {
+            dynamicAccess = new DynamicAccessSensor(instrumentation, hook.privilegedInstall());
+        }
+        return dynamicAccess;
     }
 
     private ExecutorSensor executors() {
@@ -187,6 +207,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         if (applicationMethods != null) {
             sensors.add(active(applicationMethods.inventoryStatus()));
             sensors.add(active(applicationMethods.codePathsStatus()));
+        }
+        if (dynamicAccess != null) {
+            sensors.add(active(dynamicAccess.status()));
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());

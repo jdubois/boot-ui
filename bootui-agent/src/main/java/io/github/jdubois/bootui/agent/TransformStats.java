@@ -65,6 +65,11 @@ final class TransformStats {
         failure(type + ": " + error);
     }
 
+    /** Classes a retransformation or a restore could not process, so far. */
+    int skippedCount() {
+        return skipped.get();
+    }
+
     void failure(String text) {
         synchronized (failures) {
             if (failures.size() < FAILURES) {
