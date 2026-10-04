@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Runtime reach in the Vulnerabilities panel.** With the BootUI agent's `inventory` sensor, the Vulnerabilities panel
+  gains a **Runtime reach** column and filter: per dependency, whether its jar's classes loaded in this JVM (with how
+  many in this run and the first route), whether a class its advisory names loaded (**Named class loaded**), **Not
+  loaded yet**, or **Unknown** with why, never not loaded when the evidence cannot show it. Advisories are normalized to
+  the classes or methods they name (`advisorySymbols`, from OSV's structured fields, else their text). Reach is an
+  additive `runtimeReach` field of `GET {api}/vulnerabilities`, the scan, `get_vulnerabilities_report`, and
+  `vulnerabilities_scan` on Spring MVC, Spring WebFlux, and Quarkus, read when answered and only while Code Inventory
+  is enabled; it never changes a severity, score, count, or Scorecard penalty. The agent keeps bounded class-name
+  evidence per jar for it ([Runtime reach](docs/features/advisors.md#runtime-reach), PLAN-v2 §5.15, M5-9a).
 - **The agent evidence contract (M5-11).** Code Paths' request and route trees and Code Inventory's first calls, which
   the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on Spring MVC, Spring
   WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible, so a disabled

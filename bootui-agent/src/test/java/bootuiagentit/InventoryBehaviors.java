@@ -145,6 +145,15 @@ public final class InventoryBehaviors {
                         && classLoads(((Integer) usedJar.get("id")).longValue()).stream()
                                 .anyMatch(record -> record[5] == REQUEST_BITS));
         check("a jar no class loads from is absent", codeSource("inventory-lib-unused.jar") == null);
+        Map<String, Object> evidence = classEvidence();
+        long[] usedLoad = loadOf(usedJar, "bootuiinventorylib.used.UsedLib");
+        check(
+                "the class-load recorder walked the loaded classes and keeps a jar's class names (" + evidence + ")",
+                "complete".equals(evidence.get("recorder"))
+                        && usedLoad != null
+                        && usedLoad[0] == generation
+                        && usedLoad[1] == 1L
+                        && loadOf(usedJar, "bootuiinventorylib.used.NeverLoaded")[0] == Long.MIN_VALUE);
 
         boolean previous =
                 (Boolean) bridge.getMethod("bootUiWork", boolean.class).invoke(null, true);
@@ -153,7 +162,17 @@ public final class InventoryBehaviors {
         } finally {
             bridge.getMethod("bootUiWork", boolean.class).invoke(null, previous);
         }
-        check("classes BootUI's own work loads are not counted", codeSource("inventory-lib-bootui.jar") == null);
+        Map<String, Object> bootUiJar = codeSource("inventory-lib-bootui.jar");
+        long[] bootUiLoad = loadOf(bootUiJar, "bootuiinventorylib.bootui.ScannedLib");
+        check(
+                "classes BootUI's own work loads are not counted, but their names are kept as BootUI's (" + bootUiJar
+                        + ")",
+                bootUiJar != null
+                        && ((Long) bootUiJar.get("total")) == 0L
+                        && ((Long) bootUiJar.get("loaded")) == 0L
+                        && ((Long) bootUiJar.get("bootUiLoads")) == 1L
+                        && bootUiLoad != null
+                        && bootUiLoad[1] == 2L);
 
         // Re-entrancy: a capture that loads a new class and runs an instrumented method.
         AtomicReference<Throwable> insideFailure = new AtomicReference<>();
@@ -404,8 +423,22 @@ public final class InventoryBehaviors {
         claim();
         awaitState("installed");
         boolean reinstalled = Boolean.TRUE.equals(sensor().get("selfTestPassed"));
+        Map<String, Object> restarted = classEvidence();
+        Map<String, Object> afterJar = codeSource("inventory-lib-after.jar");
+        long[] afterLoad = loadOf(afterJar, "bootuiinventorylib.after.AfterRelease");
+        check(
+                "a restarted recorder walks the loaded classes again, so a class loaded while it was off is known and counted ("
+                        + restarted + ", " + afterJar + ")",
+                "complete".equals(restarted.get("recorder"))
+                        && ((Long) restarted.get("recorderStarts")) >= 2L
+                        && afterLoad != null
+                        && afterLoad[0] == Long.MIN_VALUE + 1
+                        && ((Long) afterJar.get("beforeClaim")) == 1L);
         claim(List.of());
         Object state = awaitState("released");
+        check(
+                "a removed recorder says so, so no jar reads as not loaded",
+                "stopped".equals(classEvidence().get("recorder")));
         long slowPath = (Long) inventoryStatus().get("slowPathCalls");
         String answer = App.neverCalled();
         long after = (Long) inventoryStatus().get("slowPathCalls");
@@ -575,6 +608,21 @@ public final class InventoryBehaviors {
     static Map<String, Object> snapshot() throws Exception {
         long generation = (Long) inventory.getMethod("currentGeneration").invoke(null);
         return (Map<String, Object>) inventory.getMethod("snapshot", long.class).invoke(null, generation);
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> classEvidence() throws Exception {
+        return (Map<String, Object>) inventory.getMethod("classEvidence").invoke(null);
+    }
+
+    /** When the class {@code name} of the code source {@code source} last loaded, and by whom; null without it. */
+    static long[] loadOf(Map<String, Object> source, String name) throws Exception {
+        if (source == null) {
+            return null;
+        }
+        return (long[]) inventory
+                .getMethod("classLoads", int.class, String[].class)
+                .invoke(null, ((Integer) source.get("id")).intValue(), new String[] {name});
     }
 
     @SuppressWarnings("unchecked")

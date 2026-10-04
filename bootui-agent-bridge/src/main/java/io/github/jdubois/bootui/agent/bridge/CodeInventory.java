@@ -55,7 +55,16 @@ import java.util.function.Supplier;
  * <p><b>Class loads.</b> {@link #classLoaded} counts the classes each code source defines, per claim generation and in
  * total, with the first load's time; the first class of a code source in a generation publishes a {@link #CLASS_LOAD}
  * record with the route that loaded it, captured only when no capture is in progress on the thread. Loads the engine
- * marks as BootUI's own work ({@link AgentBridge#bootUiWork}) are skipped.
+ * marks as BootUI's own work ({@link AgentBridge#bootUiWork}) are not counted as the application's.
+ *
+ * <p><b>Class-name evidence</b> (PLAN-v2 §5.15, M5-9a). Each jar code source also keeps, bounded, which classes it
+ * defined: a 64-bit hash of each binary class name with the claim generation of its last load ({@link #classLoads}),
+ * {@value #MAX_NAMES_PER_SOURCE} names per code source and {@value #MAX_NAMES} in all, past which the source's dropped
+ * names are counted. BootUI's own loads are kept too, marked as such, since a class loaded once is not loaded again
+ * when the application uses it. The agent reports its class-load recorder's life ({@link #recorderStarted},
+ * {@link #recorderWalked}, {@link #recorderStopped}), and class definitions it saw without a code-source location
+ * ({@link #classLoadedWithoutLocation}), so the engine can tell complete evidence from incomplete:
+ * {@link #classEvidence}.
  */
 public final class CodeInventory {
 
@@ -154,6 +163,39 @@ public final class CodeInventory {
     private static final LongAdder TRANSFORM_FAILURES = new LongAdder();
     private static final LongAdder NAMED_CLASS_OVERFLOW = new LongAdder();
     private static final LongAdder SELF_TEST_HITS = new LongAdder();
+
+    /** The most class names kept per jar code source, and in all. */
+    public static final int MAX_NAMES_PER_SOURCE = 8192;
+
+    public static final int MAX_NAMES = 1 << 16;
+
+    /** {@link #classLoads} values: a name never seen, and one seen only by the walk of classes already loaded. */
+    public static final long NOT_SEEN = Long.MIN_VALUE;
+
+    public static final long BEFORE_RECORDING = Long.MIN_VALUE + 1;
+
+    /** {@link #classLoads} origin bits: loaded by the application, or by BootUI's own work. */
+    public static final long BY_APPLICATION = 1L;
+
+    public static final long BY_BOOTUI = 2L;
+
+    /** The class-load recorder's states, for {@link #classEvidence}. */
+    static final int RECORDER_OFF = 0;
+
+    static final int RECORDER_WALKING = 1;
+    static final int RECORDER_COMPLETE = 2;
+    static final int RECORDER_STOPPED = 3;
+
+    /** The most packages kept of classes defined without a code-source location. */
+    static final int MAX_UNLOCATED_PACKAGES = 256;
+
+    private static final AtomicInteger NAMES_KEPT = new AtomicInteger();
+    private static volatile int recorder = RECORDER_OFF;
+    private static final AtomicLong RECORDER_STARTS = new AtomicLong();
+    private static final LongAdder UNLOCATED_LOADS = new LongAdder();
+    private static final LongAdder UNLOCATED_PACKAGE_OVERFLOW = new LongAdder();
+    private static final ConcurrentHashMap<String, Boolean> UNLOCATED_PACKAGES =
+            new ConcurrentHashMap<String, Boolean>();
 
     private CodeInventory() {}
 
@@ -585,19 +627,27 @@ public final class CodeInventory {
      */
     public static void classLoaded(String location, String className) {
         try {
-            if (location == null || Reentrancy.bootUiWork()) {
-                if (location != null) {
+            if (location == null) {
+                return;
+            }
+            boolean bootUi = Reentrancy.bootUiWork();
+            CodeSource source = source(location);
+            if (source == null) {
+                if (bootUi) {
                     SKIPPED_BOOTUI_LOADS.increment();
                 }
                 return;
             }
-            CodeSource source = source(location);
-            if (source == null) {
+            Run run = RUN.get();
+            // Kept whatever the claim's state, before any early return: the class stays loaded for the JVM's life.
+            source.name(className, run.generation, bootUi ? BY_BOOTUI : BY_APPLICATION, false);
+            if (bootUi) {
+                SKIPPED_BOOTUI_LOADS.increment();
+                source.bootUiLoads.incrementAndGet();
                 return;
             }
             CLASS_LOADS.increment();
             source.total.incrementAndGet();
-            Run run = RUN.get();
             Claim claim = AgentBridge.current();
             if (run.epoch == 0
                     || claim == null
@@ -627,19 +677,156 @@ public final class CodeInventory {
         }
     }
 
-    /** A class already loaded when the sensor installed: counted once, apart, as loaded before the claim. */
+    /**
+     * A class already loaded when the recorder started, seen by the agent's first walk of the loaded classes: counted
+     * once, apart, as loaded before the claim, unless the recorder already counted it, and its name kept.
+     */
     public static void loadedBeforeClaim(String location, String className) {
         try {
             if (location == null) {
                 return;
             }
             CodeSource source = source(location);
-            if (source != null) {
+            if (source != null
+                    && source.name(className, BEFORE_RECORDING, BY_APPLICATION, true) != ClassNames.PRESENT) {
                 source.beforeClaim.incrementAndGet();
             }
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
+    }
+
+    /**
+     * A class already loaded, seen by a later walk of the loaded classes (after the recorder restarted, or the walk
+     * that closes the race with the recorder's start): its name is kept when it is not already, and then counted apart,
+     * as loaded before the claim, since the recorder did not see it load. A class of a code source keeping no names (a
+     * class directory) or past the name caps cannot be told from one already counted, so it is not. Never throws.
+     */
+    public static void loadedWhileUnrecorded(String location, String className) {
+        try {
+            if (location == null) {
+                return;
+            }
+            CodeSource source = source(location);
+            if (source != null && source.name(className, BEFORE_RECORDING, BY_APPLICATION, true) == ClassNames.ADDED) {
+                source.beforeClaim.incrementAndGet();
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /**
+     * A class {@code className} (internal or binary name) defined by a class loader without a code-source location,
+     * which no code source can account for. Generated classes (proxies, mocks, the default package) are ignored; the
+     * others are counted with their package, bounded. Never throws.
+     */
+    public static void classLoadedWithoutLocation(String className) {
+        try {
+            if (className == null || generated(className)) {
+                return;
+            }
+            UNLOCATED_LOADS.increment();
+            int slash = Math.max(className.lastIndexOf('/'), className.lastIndexOf('.'));
+            String packageName = className.substring(0, slash).replace('/', '.');
+            if (UNLOCATED_PACKAGES.containsKey(packageName)) {
+                return;
+            }
+            if (UNLOCATED_PACKAGES.size() < MAX_UNLOCATED_PACKAGES) {
+                UNLOCATED_PACKAGES.put(packageName, Boolean.TRUE);
+            } else {
+                UNLOCATED_PACKAGE_OVERFLOW.increment();
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /** Whether a class name is a generated proxy, mock, or a default-package class, never a library's own class. */
+    static boolean generated(String className) {
+        return className.indexOf('/') < 0 && className.indexOf('.') < 0
+                || className.contains("$$")
+                || className.contains("$Proxy")
+                || className.contains("$ByteBuddy$")
+                || className.contains("$Hibernate")
+                || className.contains("$MockitoMock$")
+                || className.startsWith("com/sun/proxy/")
+                || className.startsWith("com.sun.proxy.");
+    }
+
+    /** The agent added its class-load recorder and is about to walk the classes already loaded. */
+    public static void recorderStarted() {
+        RECORDER_STARTS.incrementAndGet();
+        recorder = RECORDER_WALKING;
+    }
+
+    /** The agent's walks of the classes already loaded ended: every class definition is seen from now on. */
+    public static void recorderWalked() {
+        if (recorder == RECORDER_WALKING) {
+            recorder = RECORDER_COMPLETE;
+        }
+    }
+
+    /** The agent removed its class-load recorder: loads are not seen until it starts and walks again. */
+    public static void recorderStopped() {
+        recorder = RECORDER_STOPPED;
+    }
+
+    /**
+     * When class {@code binaryNames} of code source {@code sourceId} last loaded, two values per name: the claim
+     * generation current at its last load, {@link #BEFORE_RECORDING} when only a walk of the loaded classes saw it, or
+     * {@link #NOT_SEEN}; then its origin bits ({@link #BY_APPLICATION}, {@link #BY_BOOTUI}). {@code null} for an
+     * unknown code source or on failure. A hash collision can only make a name read as loaded. Never throws.
+     */
+    public static long[] classLoads(int sourceId, String[] binaryNames) {
+        try {
+            if (binaryNames == null || sourceId < 1 || sourceId > MAX_CODE_SOURCES) {
+                return null;
+            }
+            CodeSource source = SOURCES_BY_ID.get(sourceId);
+            if (source == null) {
+                return null;
+            }
+            long[] loads = new long[binaryNames.length * 2];
+            for (int i = 0; i < binaryNames.length; i++) {
+                long[] entry = source.names.get(binaryNames[i] == null ? 0L : ClassNames.hash(binaryNames[i]));
+                loads[2 * i] = entry[0];
+                loads[2 * i + 1] = entry[1];
+            }
+            return loads;
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+            return null;
+        }
+    }
+
+    /**
+     * Whether the class-name evidence is complete: {@code recorder} ({@code off}, {@code walking}, {@code complete}, or
+     * {@code stopped}), {@code recorderStarts}, {@code namesKept} and {@code namesCap}, {@code namesPerSourceCap},
+     * {@code codeSourceOverflow} (code sources never created, past {@value #MAX_CODE_SOURCES}),
+     * {@code unlocatedLoads} and {@code unlocatedPackages} (sorted), and {@code unlocatedPackageOverflow}. JDK types.
+     */
+    public static Map<String, Object> classEvidence() {
+        Map<String, Object> map = new LinkedHashMap<String, Object>();
+        try {
+            int state = recorder;
+            map.put(
+                    "recorder",
+                    state == RECORDER_COMPLETE
+                            ? "complete"
+                            : state == RECORDER_WALKING ? "walking" : state == RECORDER_STOPPED ? "stopped" : "off");
+            map.put("recorderStarts", Long.valueOf(RECORDER_STARTS.get()));
+            map.put("namesKept", Integer.valueOf(NAMES_KEPT.get()));
+            map.put("namesCap", Integer.valueOf(MAX_NAMES));
+            map.put("namesPerSourceCap", Integer.valueOf(MAX_NAMES_PER_SOURCE));
+            map.put("codeSourceOverflow", Long.valueOf(SOURCE_OVERFLOW.sum()));
+            map.put("unlocatedLoads", Long.valueOf(UNLOCATED_LOADS.sum()));
+            map.put("unlocatedPackages", names(UNLOCATED_PACKAGES));
+            map.put("unlocatedPackageOverflow", Long.valueOf(UNLOCATED_PACKAGE_OVERFLOW.sum()));
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+        return map;
     }
 
     private static void publishClassLoad(Claim claim, Run run, int sourceId, long now) {
@@ -678,7 +865,9 @@ public final class CodeInventory {
      * Every code source seen: {@code id}, {@code location}, {@code beforeClaim} (classes already loaded when the sensor
      * installed), {@code total} (classes loaded since), {@code generation}, {@code loaded} (classes loaded in that
      * generation), and {@code firstLoadMillis} (its first class in that generation), or null generation values when it
-     * loaded nothing since the current claim. A copy of JDK types.
+     * loaded nothing since the current claim; {@code bootUiLoads} (classes BootUI's own work loaded, in no other count),
+     * {@code namesKept} and {@code namesDropped} (its class-name evidence, none for a class directory). A copy of JDK
+     * types.
      */
     public static List<Map<String, Object>> codeSources() {
         List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
@@ -699,6 +888,9 @@ public final class CodeInventory {
             map.put("generation", current ? Long.valueOf(generation) : null);
             map.put("loaded", Long.valueOf(current ? loads.count.get() : 0L));
             map.put("firstLoadMillis", current ? Long.valueOf(loads.firstMillis) : null);
+            map.put("bootUiLoads", Long.valueOf(source.bootUiLoads.get()));
+            map.put("namesKept", Integer.valueOf(source.names.size()));
+            map.put("namesDropped", Long.valueOf(source.names.dropped()));
             list.add(map);
         }
         return list;
@@ -808,6 +1000,15 @@ public final class CodeInventory {
             warmedDefinitions.poll();
             DEFINITION_LEASES.compareAndSet(0, 0, 0);
             DEFINITION_TRACKING.compareAndSet(0, 0L, 0L);
+            // The class-name table's insert, growth, and lookup paths, on a table nothing else sees.
+            ClassNames names = new ClassNames(true);
+            for (int i = 0; i < 40; i++) {
+                names.put("warm.Up" + i, 0L, BY_APPLICATION, false);
+            }
+            names.get(ClassNames.hash("warm/Up0"));
+            NAMES_KEPT.addAndGet(-names.size());
+            generated("warm/Up");
+            classEvidence();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -897,6 +1098,8 @@ public final class CodeInventory {
             map.put("classLoads", Long.valueOf(CLASS_LOADS.sum()));
             map.put("classLoadRecords", Long.valueOf(CLASS_LOAD_RECORDS.sum()));
             map.put("bootUiLoadsSkipped", Long.valueOf(SKIPPED_BOOTUI_LOADS.sum()));
+            map.put("classNamesKept", Integer.valueOf(NAMES_KEPT.get()));
+            map.put("unlocatedLoads", Long.valueOf(UNLOCATED_LOADS.sum()));
             map.put("ringDropped", Long.valueOf(AgentRing.dropped(AgentRing.SENSOR_INVENTORY)));
             map.put("ringLost", Long.valueOf(AgentRing.lost()));
             map.put("internOverflow", Long.valueOf(AgentRing.internOverflow()));
@@ -955,6 +1158,12 @@ public final class CodeInventory {
         SKIPPED_BOOTUI_LOADS.reset();
         TRANSFORM_FAILURES.reset();
         SELF_TEST_HITS.reset();
+        NAMES_KEPT.set(0);
+        recorder = RECORDER_OFF;
+        RECORDER_STARTS.set(0L);
+        UNLOCATED_LOADS.reset();
+        UNLOCATED_PACKAGE_OVERFLOW.reset();
+        UNLOCATED_PACKAGES.clear();
     }
 
     /** One run: its epoch, its claim generation, and which ids already recorded their first call in it. */
@@ -1013,11 +1222,256 @@ public final class CodeInventory {
         final String location;
         final AtomicLong beforeClaim = new AtomicLong();
         final AtomicLong total = new AtomicLong();
+        final AtomicLong bootUiLoads = new AtomicLong();
         final AtomicReference<Loads> loads = new AtomicReference<Loads>(new Loads(-1L, 0L));
+        final ClassNames names;
 
         CodeSource(int id, String location) {
             this.id = id;
             this.location = location;
+            // A class directory is the application's or one of its modules, never a jar a vulnerability names.
+            this.names = new ClassNames(!(location.endsWith("/") && !location.endsWith("!/")));
+        }
+
+        /** Keeps {@code className}'s last load; see {@link ClassNames#put}. */
+        int name(String className, long generation, long origin, boolean onlyIfAbsent) {
+            return className == null ? ClassNames.SKIPPED : names.put(className, generation, origin, onlyIfAbsent);
+        }
+    }
+
+    /**
+     * One code source's bounded class-name evidence: lock-free open-addressing tables of 64-bit binary-name hashes, each
+     * with the claim generation of its last load and its origin bits. The bridge holds no monitor, so the table grows by
+     * chaining a table twice as large once the newest is half full, and a lookup reads every table of the chain; a name
+     * two racing threads both add lands in one table each, and a lookup merges them. Only primitive atomic arrays are
+     * allocated, so it never loads a class while the recorder runs inside a class definition.
+     */
+    static final class ClassNames {
+
+        static final int ADDED = 0;
+        static final int PRESENT = 1;
+        static final int DROPPED = 2;
+        static final int SKIPPED = 3;
+
+        private static final int FIRST_CAPACITY = 64;
+
+        private final boolean kept;
+        private final AtomicReference<Table> newest = new AtomicReference<Table>();
+        private final AtomicInteger size = new AtomicInteger();
+        private final AtomicLong dropped = new AtomicLong();
+
+        ClassNames(boolean kept) {
+            this.kept = kept;
+        }
+
+        /** FNV-1a over the binary name ({@code '/'} read as {@code '.'}), then mixed; never 0, the empty slot. */
+        static long hash(String name) {
+            long hash = 0xcbf29ce484222325L;
+            for (int i = 0; i < name.length(); i++) {
+                char c = name.charAt(i);
+                hash ^= c == '/' ? '.' : c;
+                hash *= 0x100000001b3L;
+            }
+            hash ^= hash >>> 33;
+            hash *= 0xff51afd7ed558ccdL;
+            hash ^= hash >>> 33;
+            hash *= 0xc4ceb9fe1a85ec53L;
+            hash ^= hash >>> 33;
+            return hash == 0L ? 1L : hash;
+        }
+
+        /**
+         * Keeps that {@code className} loaded at {@code generation} with {@code origin}: a known name's generation moves
+         * forward and its origin bits accumulate, unless {@code onlyIfAbsent}. {@link #ADDED}, {@link #PRESENT},
+         * {@link #DROPPED} past a cap (counted), or {@link #SKIPPED} for a class directory.
+         */
+        int put(String className, long generation, long origin, boolean onlyIfAbsent) {
+            if (!kept) {
+                return SKIPPED;
+            }
+            long hash = hash(className);
+            for (Table table = newest.get(); table != null; table = table.previous) {
+                int slot = table.find(hash);
+                if (slot >= 0) {
+                    if (!onlyIfAbsent) {
+                        table.record(slot, generation, origin);
+                    }
+                    return PRESENT;
+                }
+            }
+            if (size.get() >= MAX_NAMES_PER_SOURCE || !reserve()) {
+                dropped.incrementAndGet();
+                return DROPPED;
+            }
+            while (true) {
+                Table table = writable();
+                int slot = table.insert(hash);
+                if (slot >= 0) {
+                    table.record(slot, generation, origin);
+                    size.incrementAndGet();
+                    return ADDED;
+                }
+                if (slot == Table.FOUND) {
+                    // Another thread added it to this table meanwhile: the budget taken goes back.
+                    NAMES_KEPT.decrementAndGet();
+                    int found = table.find(hash);
+                    if (!onlyIfAbsent && found >= 0) {
+                        table.record(found, generation, origin);
+                    }
+                    return PRESENT;
+                }
+            }
+        }
+
+        /**
+         * {@code {generation, origin}} of the name hashed {@code hash}, merged across the chain, or {@code {NOT_SEEN,
+         * 0}}. A name being added whose generation is not written yet reads as {@link #BEFORE_RECORDING}: seen.
+         */
+        long[] get(long hash) {
+            boolean found = false;
+            long generation = NOT_SEEN;
+            long origin = 0L;
+            for (Table table = hash == 0L ? null : newest.get(); table != null; table = table.previous) {
+                int slot = table.find(hash);
+                if (slot >= 0) {
+                    found = true;
+                    generation = Math.max(generation, table.generations.get(slot));
+                    origin |= table.origins.get(slot);
+                }
+            }
+            if (!found) {
+                return new long[] {NOT_SEEN, 0L};
+            }
+            return new long[] {generation == NOT_SEEN ? BEFORE_RECORDING : generation, origin};
+        }
+
+        int size() {
+            return size.get();
+        }
+
+        long dropped() {
+            return dropped.get();
+        }
+
+        /** The newest table if it has room, else a new one twice as large chained to it. */
+        private Table writable() {
+            while (true) {
+                Table table = newest.get();
+                if (table != null && !table.halfFull()) {
+                    return table;
+                }
+                Table next = new Table(table, table == null ? FIRST_CAPACITY : table.capacity * 2);
+                if (newest.compareAndSet(table, next)) {
+                    return next;
+                }
+            }
+        }
+
+        /** Takes one name from the global budget, or none past {@link #MAX_NAMES}. */
+        private static boolean reserve() {
+            while (true) {
+                int kept = NAMES_KEPT.get();
+                if (kept >= MAX_NAMES) {
+                    return false;
+                }
+                if (NAMES_KEPT.compareAndSet(kept, kept + 1)) {
+                    return true;
+                }
+            }
+        }
+
+        /** One fixed-size table of the chain: hashes claimed by compare-and-set, never removed. */
+        static final class Table {
+
+            /** {@link #insert}'s answers besides a slot: the hash is already there, or the table is half full. */
+            static final int FOUND = -1;
+
+            static final int FULL = -2;
+
+            final Table previous;
+            final int capacity;
+            final AtomicLongArray hashes;
+            final AtomicLongArray generations;
+            final AtomicLongArray origins;
+            final AtomicInteger count = new AtomicInteger();
+
+            Table(Table previous, int capacity) {
+                this.previous = previous;
+                this.capacity = capacity;
+                this.hashes = new AtomicLongArray(capacity);
+                this.generations = new AtomicLongArray(capacity);
+                this.origins = new AtomicLongArray(capacity);
+                for (int i = 0; i < capacity; i++) {
+                    generations.set(i, NOT_SEEN);
+                }
+            }
+
+            boolean halfFull() {
+                return count.get() * 2 >= capacity;
+            }
+
+            /** The slot holding {@code hash}, or -1. */
+            int find(long hash) {
+                int mask = capacity - 1;
+                int slot = start(hash, mask);
+                for (int probes = 0; probes < capacity; probes++) {
+                    long value = hashes.get(slot);
+                    if (value == hash) {
+                        return slot;
+                    }
+                    if (value == 0L) {
+                        return -1;
+                    }
+                    slot = (slot + 1) & mask;
+                }
+                return -1;
+            }
+
+            /** Claims an empty slot for {@code hash}: the slot, {@link #FOUND}, or {@link #FULL}. */
+            int insert(long hash) {
+                if (halfFull()) {
+                    return FULL;
+                }
+                int mask = capacity - 1;
+                int slot = start(hash, mask);
+                for (int probes = 0; probes < capacity; ) {
+                    long value = hashes.get(slot);
+                    if (value == hash) {
+                        return FOUND;
+                    }
+                    if (value == 0L) {
+                        if (hashes.compareAndSet(slot, 0L, hash)) {
+                            count.incrementAndGet();
+                            return slot;
+                        }
+                        // Lost the slot to another hash, or to the same one: read it again.
+                        continue;
+                    }
+                    slot = (slot + 1) & mask;
+                    probes++;
+                }
+                return FULL;
+            }
+
+            /** Moves the slot's generation forward to {@code generation} and adds {@code origin}'s bits. */
+            void record(int slot, long generation, long origin) {
+                while (true) {
+                    long current = generations.get(slot);
+                    if (current >= generation || generations.compareAndSet(slot, current, generation)) {
+                        break;
+                    }
+                }
+                while (true) {
+                    long current = origins.get(slot);
+                    if ((current | origin) == current || origins.compareAndSet(slot, current, current | origin)) {
+                        break;
+                    }
+                }
+            }
+
+            private static int start(long hash, int mask) {
+                return (int) (hash ^ (hash >>> 32)) & mask;
+            }
         }
     }
 

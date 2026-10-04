@@ -1271,6 +1271,29 @@ public abstract class AbstractBootUiApiConformanceTest {
                         + coverage.path("archivesFirstParty").asInt())
                 .as("$.coverage archive counts must add up to archivesFound")
                 .isEqualTo(coverage.path("archivesFound").asInt());
+        // Runtime reach (PLAN-v2 §5.15): every adapter says whether rows carry it and, without it, why; a row never
+        // reads NOT_LOADED without the agent's evidence.
+        JsonNode reach = report.path("runtimeReach");
+        assertThat(reach.isObject()).as("$.runtimeReach must be an object").isTrue();
+        assertThat(reach.path("available").isBoolean())
+                .as("$.runtimeReach.available must be a boolean")
+                .isTrue();
+        for (JsonNode dependency : report.path("dependencies")) {
+            if (reach.path("available").asBoolean()) {
+                assertThat(dependency.path("runtimeReach").path("status").asText())
+                        .as("$.dependencies[].runtimeReach.status")
+                        .isIn("NOT_LOADED", "LOADED", "AFFECTED_CLASS_LOADED", "UNKNOWN");
+            } else {
+                assertThat(dependency.path("runtimeReach").isNull())
+                        .as("$.dependencies[].runtimeReach without reach")
+                        .isTrue();
+            }
+        }
+        if (!reach.path("available").asBoolean()) {
+            assertThat(reach.path("unavailableReason").asText())
+                    .as("$.runtimeReach.unavailableReason")
+                    .isNotBlank();
+        }
     }
 
     @Test
