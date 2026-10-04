@@ -108,7 +108,7 @@ public final class InMemoryActivityStore implements ActivityStore {
         return true;
     }
 
-    private static boolean matchesText(ActivityEntryDto entry, String needle) {
+    static boolean matchesText(ActivityEntryDto entry, String needle) {
         String lowerNeedle = needle.toLowerCase(Locale.ROOT);
         return containsIgnoreCase(entry.summary(), lowerNeedle)
                 || containsIgnoreCase(entry.detail(), lowerNeedle)
