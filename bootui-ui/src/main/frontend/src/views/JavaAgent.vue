@@ -513,8 +513,12 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                   {{ sensor.inventory ? 'Recording' : 'Propagation' }} is disabled for this claim:
                   {{ sensorDisabledReason(sensor) }}
                 </p>
-                <h4 class="h6 small text-muted mt-4 mb-2">Counters</h4>
-                <dl class="row small mb-0 java-agent-counters">
+                <h4 :id="`java-agent-counters-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">Counters</h4>
+                <dl
+                  class="row small mb-0 java-agent-counters"
+                  :data-sensor="sensor.id"
+                  :aria-labelledby="`java-agent-counters-${sensor.id}`"
+                >
                   <template v-for="counter in sensorCounters(sensor)" :key="counter.key">
                     <dt class="col-sm-4 col-lg-3">
                       {{ counter.label }} <span class="fw-normal">{{ formatNumber(counter.value) }}</span>

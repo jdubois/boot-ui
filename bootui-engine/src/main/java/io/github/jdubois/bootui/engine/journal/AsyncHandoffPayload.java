@@ -20,6 +20,12 @@ package io.github.jdubois.bootui.engine.journal;
  * @param afterResponseMicros how long it ran after the response started, or {@code null}
  * @param capped whether it ended more than {@code bootui.agent.executors.max-handoff} after it started, after which
  *     its work is not attributed
+ * @param bodyAfterResponse whether a confirmed JDK task-body completion saw its response already started, or
+ *     {@code null} when no body marker or request timeline was available
+ * @param bodyAfterResponseMicros time the body ran after its response boundary, excluding result-publication tails
+ * @param responseAtMicros the actual response start (request end for an unphased request), or {@code null}
+ * @param failureAfterResponse whether the failure was after the response, distinguishing body outcomes from throws
+ *     in result-publication tails, or {@code null} when unconfirmed
  */
 public record AsyncHandoffPayload(
         String executionId,
@@ -33,8 +39,80 @@ public record AsyncHandoffPayload(
         String exceptionClass,
         Boolean afterResponse,
         Long afterResponseMicros,
-        boolean capped)
+        boolean capped,
+        Boolean bodyAfterResponse,
+        Long bodyAfterResponseMicros,
+        Long responseAtMicros,
+        Boolean failureAfterResponse)
         implements RuntimeEventPayload {
+
+    /** Compatibility for producers without the optional body-completion evidence. */
+    public AsyncHandoffPayload(
+            String executionId,
+            String parentExecutionId,
+            String taskClass,
+            String hook,
+            long submittedEpochMillis,
+            long queuedNanos,
+            Long allocatedBytes,
+            boolean failed,
+            String exceptionClass,
+            Boolean afterResponse,
+            Long afterResponseMicros,
+            boolean capped) {
+        this(
+                executionId,
+                parentExecutionId,
+                taskClass,
+                hook,
+                submittedEpochMillis,
+                queuedNanos,
+                allocatedBytes,
+                failed,
+                exceptionClass,
+                afterResponse,
+                afterResponseMicros,
+                capped,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    public AsyncHandoffPayload(
+            String executionId,
+            String parentExecutionId,
+            String taskClass,
+            String hook,
+            long submittedEpochMillis,
+            long queuedNanos,
+            Long allocatedBytes,
+            boolean failed,
+            String exceptionClass,
+            Boolean afterResponse,
+            Long afterResponseMicros,
+            boolean capped,
+            Boolean bodyAfterResponse,
+            Long bodyAfterResponseMicros,
+            Long responseAtMicros) {
+        this(
+                executionId,
+                parentExecutionId,
+                taskClass,
+                hook,
+                submittedEpochMillis,
+                queuedNanos,
+                allocatedBytes,
+                failed,
+                exceptionClass,
+                afterResponse,
+                afterResponseMicros,
+                capped,
+                bodyAfterResponse,
+                bodyAfterResponseMicros,
+                responseAtMicros,
+                null);
+    }
 
     /** This handoff with its task class, hook, and exception class replaced by the run's shared copies. */
     @Override
@@ -51,7 +129,11 @@ public record AsyncHandoffPayload(
                 dictionary.shared(exceptionClass),
                 afterResponse,
                 afterResponseMicros,
-                capped);
+                capped,
+                bodyAfterResponse,
+                bodyAfterResponseMicros,
+                responseAtMicros,
+                failureAfterResponse);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -63,7 +145,7 @@ public record AsyncHandoffPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 96
+        return 152
                 + RuntimeEvent.stringBytes(executionId)
                 + RuntimeEvent.stringBytes(parentExecutionId)
                 + JournalDictionary.retained(dictionary, taskClass)
