@@ -282,10 +282,15 @@ transactions, `@Transactional` methods called past their proxy, transactional li
 behind 2xx answers, anonymous writes — each as one sentence with an exemplar request and the source location to check.
 
 1. Run the application's integration or browser tests against it, so it serves realistic traffic.
-2. Read `bootui insights list --json` (`get_runtime_insights`). Check `requests` first: `0` means nothing was
-   exercised, so an empty list says nothing. Then read `checksNotRun` and `limitations`, then each observation's
-   sentence, `verify` line, and exemplar request. Past the limit, every kind appears once before any kind twice; list
-   one kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
+2. Read `bootui insights list --json` (`get_runtime_insights`). Check `requests` first: it counts completed HTTP
+   exchanges only. `0` means not exercised only when the limitations say so; an observation that names a request or
+   execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work ran that
+   `requests` does not count. A run-level observation with no exemplar does not. Then read `checksNotRun` and
+   `limitations`, then each observation's sentence, `verify` line, and exemplar request. The empty query includes
+   latency rows and omits only an insufficient repeated SELECT under 50 ms that ran fewer than 10 times in any request;
+   a limitation names how many, and `--query repeated-selects` returns them. Past the limit, every kind appears once
+   before any kind twice; list one kind with
+   `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
 3. Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
    `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
    resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included
@@ -298,10 +303,14 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    and the routes sharing its tables. `AMBIGUOUS` lists candidates; never guess one. The answer says what was and was
    not exercised, never that a change is safe.
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
-3. Read `bootui insights compare --json` (`get_runtime_run_comparison`, optional `id`). Omitted `id` or `previous` selects the newest kept run,
-   including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint or a higher statement count per
-   request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and `NOT_COMPARABLE` are not passes,
-   never edit from a latency row, and a missing observation is not proof that a behavior is gone.
+3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
+   (`get_runtime_run_comparison`, optional `id`), and stop. The default list keeps a sufficient repeated SELECT,
+   including a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times
+   in any request, so that query shows whether a weak cheap repeat is gone. Omitted `id` or `previous` selects the
+   newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint
+   or a higher statement count per request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and
+   `NOT_COMPARABLE` are not passes, never edit from a latency row, and a missing observation is not proof that a
+   behavior is gone.
 
 ### Investigate one slow or failing request
 

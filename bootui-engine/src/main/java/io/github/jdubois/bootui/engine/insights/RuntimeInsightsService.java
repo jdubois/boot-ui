@@ -68,6 +68,12 @@ public final class RuntimeInsightsService {
     public static final String ROUTE_INVENTORY_UNAVAILABLE = "The application's declared routes could not be read, so"
             + " the routes no request reached are not listed: that does not mean every route was exercised.";
 
+    /**
+     * Prefix of the limitation naming retained scheduled runs and consumed messages, which {@code requests} does not
+     * count. The agent view matches this prefix rather than the counted totals.
+     */
+    public static final String NON_HTTP_PREFIX = "Retained non-HTTP executions, which requests does not count:";
+
     private final RuntimeJournal journal;
     private final Supplier<RouteTemplateResolver> routes;
     private final Predicate<String> panelEnabled;
@@ -560,6 +566,10 @@ public final class RuntimeInsightsService {
             limitations.add("The journal evicted " + evicted + " older events, so requests before "
                     + "the oldest retained event are not projected.");
         }
+        String nonHttp = nonHttpExecutions(snapshot);
+        if (nonHttp != null) {
+            limitations.add(nonHttp);
+        }
         List<String> notExercised = notExercised(snapshot, limitations);
         RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
                 true,
@@ -579,6 +589,27 @@ public final class RuntimeInsightsService {
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
         return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears());
+    }
+
+    /**
+     * Scheduled runs and consumed messages the window's {@code requests} field does not count, or {@code null} when
+     * the retained events hold only HTTP exchanges. Present even when those executions produced no observation.
+     */
+    private static String nonHttpExecutions(InsightsSnapshot snapshot) {
+        long scheduled = 0;
+        long messages = 0;
+        for (ProjectedRequest request : snapshot.requests()) {
+            if (request.kind() == ProjectedRequest.Kind.SCHEDULED) {
+                scheduled++;
+            } else if (request.kind() == ProjectedRequest.Kind.MESSAGE) {
+                messages++;
+            }
+        }
+        if (scheduled == 0 && messages == 0) {
+            return null;
+        }
+        return NON_HTTP_PREFIX + " " + InsightText.counted(scheduled, "scheduled run") + " and "
+                + InsightText.counted(messages, "consumed message") + ".";
     }
 
     /**
