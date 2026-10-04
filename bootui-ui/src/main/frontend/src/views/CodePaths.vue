@@ -71,8 +71,7 @@ async function fetchSummary() {
 }
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary, {
-  enabled: manifestAvailable,
-  defaultEnabled: false
+  enabled: manifestAvailable
 })
 
 async function loadTree(name) {

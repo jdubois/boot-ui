@@ -111,8 +111,9 @@ async function fetchSummary() {
         activeTab.value = tabs.value[0].id
       }
       await loadTab(activeTab.value)
-      // While the scan runs, the counts and changes are not final: read again until it ends.
-      if (SCAN_IN_PROGRESS.includes(summary.value?.scan?.status) && !autoRefresh.value) {
+      // While the scan runs, the counts and changes are not final: read again soon, sooner than auto-refresh would,
+      // until it ends.
+      if (SCAN_IN_PROGRESS.includes(summary.value?.scan?.status)) {
         scanPoll = setTimeout(() => {
           scanPoll = null
           load()
@@ -127,8 +128,7 @@ async function fetchSummary() {
 onBeforeUnmount(stopScanPoll)
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary, {
-  enabled: manifestAvailable,
-  defaultEnabled: false
+  enabled: manifestAvailable
 })
 
 async function loadTab(id) {

@@ -231,8 +231,7 @@ async function fetchReport() {
 }
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport, {
-  enabled: manifestAvailable,
-  defaultEnabled: false
+  enabled: manifestAvailable
 })
 
 const snippets = computed(() => report.value?.setup?.snippets ?? [])
