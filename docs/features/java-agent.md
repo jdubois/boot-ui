@@ -304,14 +304,15 @@ sensor removes its instrumentation.
 
 Execution also checks a primitive defining-loader token. Each claim admits its calling thread's context class loader
 and ancestors, and loaders first seen defining new classes beneath them; retained sibling loaders from earlier runs
-and loaders first encountered during retransformation stay ineligible, even if
-another agent retransforms their classes. Classes the new context loader defined before claiming become eligible at
-the claim without retransformation. Old application objects and their tasks cannot mark a changed method executed
+stay ineligible, even if another agent retransforms their classes. Classes the new context loader defined before claiming
+become eligible at the claim without retransformation. Old application objects and their tasks cannot mark a changed method executed
 in the replacement run. Hit flags belong to the run, so a hit racing a restart or the byte epoch wrapping cannot
 write into the replacement run's flags. Applications claiming with an unrelated or null context loader must supply
 the application loader as their thread context loader to admit its already-defined classes.
 The claim enumerates the JVM's loaded classes to identify pre-existing loaders before admitting fresh definitions;
-an old loader defining a lazy class after an inventory-off run cannot become a new-run loader that way.
+an old loader defining a lazy class after an inventory-off run cannot become a new-run loader that way. A new loader
+appearing after that snapshot may be admitted even when installation first encounters its class already loaded.
+Known loader provenance never changes when an empty ancestor later defines its first class.
 
 Instrumented packages only grow while the sensor is installed: a package a refine added stays instrumented when a later
 claim asks only for its base packages, as after a DevTools restart, so its classes are instrumented in the new class
@@ -344,9 +345,13 @@ dropped and counted, and since the executed flags are kept apart, a dropped reco
 and time, never the fact that the method ran. Routes are interned per run, at most 16,384 of them; past that they are
 recorded as unknown. At most 262,144 methods and 4,096 code sources are tracked for the agent's lifetime; past that,
 methods are left uninstrumented and counted.
-Defining-loader tokens use weak identity keys in the isolated agent, never held by the bootstrap bridge, and are bounded at
-16,383 non-bootstrap loaders for the agent's lifetime. Further loaders cannot mark methods executed; the sensor's
-`definitionOverflow` counter reports this conservative limit.
+Defining-loader tokens use weak identity keys in the isolated agent, never held by the bootstrap bridge. Only loaders
+defining claimed types, the claim's context loader, and their ancestors receive tokens; observing ignored classes does
+not consume capacity. The 16,383 non-bootstrap slots are reusable after a phantom reference proves a loader has died
+and cannot be resurrected. At capacity, affected definitions cannot record execution and remain **not tracked** with a
+reason, even in subsequent runs, until instrumented with a valid token in a newer run. Within a run, an untracked copy
+keeps the method uncertain even if another copy was instrumented successfully. The sensor counts `definitionOverflow`
+and the inventory reports a limitation: missing tracking evidence is unknown, never confidently **never executed**.
 
 | Counter | What it counts |
 | --- | --- |

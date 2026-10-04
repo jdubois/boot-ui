@@ -424,6 +424,61 @@ class CodeInventoryServiceTests {
     }
 
     @Test
+    void definitionOverflowIsNotTrackedAcrossRunsEvenIfTheMethodWasTrackedEarlier() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim first = claim();
+            int[] ids = load(INIT, GREET, TOTAL, NEVER);
+            CodeInventory.hit(ids[1]);
+            CodeInventory.tracked("shop.OrderService", ids, false, -1);
+            CodeInventory.tracked("shop.OrderService", ids, false, 0);
+            CodeInventoryService service = started(first, loader);
+
+            assertThat(rows(service).get(GREET).status()).isEqualTo(CodeInventoryService.EXECUTED);
+            assertThat(rows(service).get(NEVER).status()).isEqualTo(CodeInventoryService.NOT_TRACKED);
+            assertThat(rows(service).get(NEVER).notTrackedReason()).isEqualTo(CodeInventoryService.DEFINITION_LIMIT);
+            assertThat(service.report().methods().neverExecuted()).isZero();
+            assertThat(service.report().limitations()).anyMatch(reason -> reason.contains("defining-loader capacity"));
+
+            first.disarm();
+            CodeInventoryService next = started(claim(), loader);
+            assertThat(rows(next).get(GREET).status()).isEqualTo(CodeInventoryService.NOT_TRACKED);
+            assertThat(rows(next).get(NEVER).notTrackedReason()).isEqualTo(CodeInventoryService.DEFINITION_LIMIT);
+
+            CodeInventory.tracked(ids);
+            tick();
+            assertThat(rows(next).get(NEVER).status()).isEqualTo(CodeInventoryService.NEVER_EXECUTED);
+        }
+    }
+
+    @Test
+    void aCurrentDefinitionLimitMakesUnprovenMethodsUnknownRatherThanNeverExecuted() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            CodeInventory.definitionLimitReached();
+            CodeInventoryService service = started(claim, loader);
+
+            assertThat(rows(service).get(NEVER).status()).isEqualTo(CodeInventoryService.NOT_TRACKED);
+            assertThat(rows(service).get(NEVER).notTrackedReason()).isEqualTo(CodeInventoryService.DEFINITION_LIMIT);
+        }
+    }
+
+    @Test
+    void aDefinitionLimitDoesNotInvalidateCurrentPositiveTrackingEvidenceAndRefreshesTheView() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            CodeInventoryService service = started(claim, loader);
+            assertThat(rows(service).get(NEVER).status()).isEqualTo(CodeInventoryService.NEVER_EXECUTED);
+            CodeInventory.definitionLimitReached();
+            assertThat(rows(service).get(NEVER).status()).isEqualTo(CodeInventoryService.NOT_TRACKED);
+            load(GREET);
+            assertThat(rows(service).get(GREET).status()).isEqualTo(CodeInventoryService.NEVER_EXECUTED);
+        }
+    }
+
+    @Test
     void aClassTrackedInAnEarlierRunWhoseTransformationFailsInThisOneIsNotTracked() throws Exception {
         Path root = classes();
         int[] ids;

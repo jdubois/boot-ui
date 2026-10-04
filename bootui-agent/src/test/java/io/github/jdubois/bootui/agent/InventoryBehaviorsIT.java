@@ -59,7 +59,7 @@ class InventoryBehaviorsIT {
             "a class that fails to transform is named as failed, and not tracked in its run",
             "a refine instruments the loaded classes of the package it adds, late",
             "the same class in a class loader created after a narrower claim keeps its method ids and flips them",
-            "after a narrower claim and its refine, a refined package's classes in every class loader are instrumented",
+            "after a narrower claim and its refine, both copies run but only the current loader marks execution",
             "release restores the classes",
             "release restores the classes of packages refined before a narrower claim, in every class loader",
             "a claim without the inventory sensor removes its advice");
@@ -89,6 +89,11 @@ class InventoryBehaviorsIT {
         assertReload("unseen-lazy");
     }
 
+    @Test
+    void seventeenThousandUnclaimedLoadersCannotPreventTheNextReloadFromTracking() throws Exception {
+        assertReload("churn");
+    }
+
     private static void assertReload(String mode) throws Exception {
         String buddy = System.getProperty("bytebuddy.agent.jar");
         String packageName = "unseen-lazy".equals(mode) ? "bootuiinventoryhidden" : "bootuiinventoryapp";
@@ -98,7 +103,11 @@ class InventoryBehaviorsIT {
                 "inventory-reload",
                 TestJars.inventoryReloadJar(1, packageName).toAbsolutePath().toString(),
                 TestJars.inventoryReloadJar(2, packageName).toAbsolutePath().toString(),
-                mode);
+                mode,
+                "churn".equals(mode)
+                        ? TestJars.inventoryReloadJar(1, "bootuiinventoryhidden")
+                                .toString()
+                        : "");
         assertThat(output.exitCode()).as(output.toString()).isZero();
         assertThat(output.value("RELOAD")).as(output.toString()).isEqualTo("ok");
         assertThat(output.value("STATUS")).as(output.toString()).contains("errors=0");

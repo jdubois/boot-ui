@@ -6,9 +6,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.LongAdder;
@@ -76,6 +78,8 @@ public final class CodeInventory {
     public static final byte TRACKED = 1;
     public static final byte TRANSFORM_FAILED = 2;
 
+    public static final byte DEFINITION_UNTRACKED = 3;
+
     private static final int PAGE_BITS = 12;
     private static final int PAGE_SIZE = 1 << PAGE_BITS;
 
@@ -86,7 +90,10 @@ public final class CodeInventory {
     public static final int MAX_DEFINITIONS = 1 << 14;
 
     private static final AtomicInteger NEXT_DEFINITION = new AtomicInteger(1);
+    private static final AtomicLongArray DEFINITION_TRACKING = new AtomicLongArray(MAX_METHODS);
     private static final LongAdder DEFINITION_OVERFLOW = new LongAdder();
+    private static final AtomicIntegerArray DEFINITION_LEASES = new AtomicIntegerArray(MAX_DEFINITIONS);
+    private static final ConcurrentLinkedQueue<Integer> FREE_DEFINITIONS = new ConcurrentLinkedQueue<Integer>();
 
     /** The current run's epoch, 1 to 255; 0 before any claim asked for the sensor. Read by inlined advice. */
     public static volatile byte epoch;
@@ -193,15 +200,35 @@ public final class CodeInventory {
 
     /** Assigns a defining-loader token without retaining the loader; -1 at the bound, counted. */
     public static int definitionToken() {
+        Integer recycled = FREE_DEFINITIONS.poll();
+        if (recycled != null && DEFINITION_LEASES.compareAndSet(recycled.intValue(), 0, 1)) {
+            return recycled.intValue();
+        }
         while (true) {
             int token = NEXT_DEFINITION.get();
             if (token >= MAX_DEFINITIONS) {
-                DEFINITION_OVERFLOW.increment();
+                definitionLimitReached();
                 return -1;
             }
             if (NEXT_DEFINITION.compareAndSet(token, token + 1)) {
+                DEFINITION_LEASES.set(token, 1);
                 return token;
             }
+        }
+    }
+
+    /** A loader had no slot: readers must not infer never-executed from missing evidence in this run. */
+    public static void definitionLimitReached() {
+        DEFINITION_OVERFLOW.increment();
+        RUN.get().definitionOverflow.incrementAndGet();
+        VERSION.incrementAndGet();
+    }
+
+    /** Returns a token only after the agent's phantom reference proves its defining loader cannot run again. */
+    public static void releaseDefinitionToken(int token) {
+        if (token > 0 && token < MAX_DEFINITIONS && DEFINITION_LEASES.compareAndSet(token, 1, 0)) {
+            RUN.get().definitions.set(token, 0);
+            FREE_DEFINITIONS.offer(Integer.valueOf(token));
         }
     }
 
@@ -258,11 +285,23 @@ public final class CodeInventory {
     /** Tracks only current-run definitions in this run, even when an old loader is retransformed. */
     public static void tracked(String className, int[] ids, boolean late, int definition) {
         try {
-            if (className != null) {
+            Run run = RUN.get();
+            if (className != null && run.eligible(definition)) {
                 FAILED_CLASSES.remove(className);
             }
-            mark(ids, TRACKED);
-            Run run = RUN.get();
+            if (definition < 0) {
+                markDefinitions(ids, run.generation, true);
+                run.definitionOverflow.incrementAndGet();
+            } else if (run.eligible(definition)) {
+                markDefinitions(ids, run.generation, false);
+            } else if (ids != null) {
+                for (int i = 0; i < ids.length; i++) {
+                    int id = ids[i];
+                    if (id >= 0 && id < MAX_METHODS && TRACKING[id] == UNKNOWN) {
+                        TRACKING[id] = TRACKED;
+                    }
+                }
+            }
             byte current = run.epoch;
             if (ids != null && current != 0 && run.eligible(definition)) {
                 for (int i = 0; i < ids.length; i++) {
@@ -278,6 +317,36 @@ public final class CodeInventory {
             VERSION.incrementAndGet();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
+        }
+    }
+
+    /** Negative generations are uncertain: failure wins within a run; only a newer valid transform clears it. */
+    private static void markDefinitions(int[] ids, long generation, boolean uncertain) {
+        if (ids == null) {
+            return;
+        }
+        for (int i = 0; i < ids.length; i++) {
+            int id = ids[i];
+            if (id < 0 || id >= MAX_METHODS) {
+                continue;
+            }
+            if (generation <= 0) {
+                TRACKING[id] = uncertain ? DEFINITION_UNTRACKED : TRACKED;
+                continue;
+            }
+            while (true) {
+                long previous = DEFINITION_TRACKING.get(id);
+                long latest = previous < 0 ? -previous : previous;
+                if (latest > generation || (latest == generation && previous < 0)) {
+                    TRACKING[id] = previous < 0 ? DEFINITION_UNTRACKED : TRACKED;
+                    break;
+                }
+                long next = uncertain ? -generation : generation;
+                if (DEFINITION_TRACKING.compareAndSet(id, previous, next)) {
+                    TRACKING[id] = uncertain ? DEFINITION_UNTRACKED : TRACKED;
+                    break;
+                }
+            }
         }
     }
 
@@ -421,9 +490,11 @@ public final class CodeInventory {
      * generation} and {@code epoch}; {@code methods}, how many ids exist; {@code executed}, the ids that ran in the run,
      * and {@code late}, the ids whose class was instrumented only after it loaded during the run, as bitsets (bit
      * {@code id % 64} of word {@code id / 64}); {@code trackedThisRun}, the ids whose class was instrumented in the
-     * run, as a bitset; {@code tracking}, per id {@link #UNKNOWN}, {@link #TRACKED}, or {@link #TRANSFORM_FAILED};
+     * run, as a bitset; {@code tracking}, per id {@link #UNKNOWN}, {@link #TRACKED}, {@link #TRANSFORM_FAILED},
+     * or {@link #DEFINITION_UNTRACKED};
      * {@code failedClasses} and {@code overLimitClasses}, the classes named as failed or over the limit, sorted;
-     * {@code methodOverflow}, {@code transformFailures}, and {@code namedClassOverflow}, the counters that say whether
+     * {@code definitionOverflow}, this run's defining-loader capacity failures; {@code methodOverflow},
+     * {@code transformFailures}, and {@code namedClassOverflow}, the counters that say whether
      * those names are complete; {@code version}, as {@link #version()}; and {@code disabled}, whether recording is
      * stopped for the run (its flags may still be set). {@code null} when the current run belongs to another
      * generation, before any claim asked for the sensor, or when a new run started while it was read. A copy of JDK
@@ -453,6 +524,14 @@ public final class CodeInventory {
                 }
             }
             byte[] tracking = Arrays.copyOf(TRACKING, count);
+            for (int id = 0; id < count; id++) {
+                long definitionState = DEFINITION_TRACKING.get(id);
+                if (definitionState < 0 && tracking[id] != TRANSFORM_FAILED) {
+                    tracking[id] = DEFINITION_UNTRACKED;
+                } else if (definitionState > 0 && tracking[id] == DEFINITION_UNTRACKED) {
+                    tracking[id] = TRACKED;
+                }
+            }
             String[] failedClasses = names(FAILED_CLASSES);
             String[] overLimitClasses = names(OVER_LIMIT_CLASSES);
             if (RUN.get() != run) {
@@ -470,6 +549,7 @@ public final class CodeInventory {
             map.put("failedClasses", failedClasses);
             map.put("overLimitClasses", overLimitClasses);
             map.put("methodOverflow", Long.valueOf(METHOD_OVERFLOW.sum()));
+            map.put("definitionOverflow", Long.valueOf(run.definitionOverflow.get()));
             map.put("transformFailures", Long.valueOf(TRANSFORM_FAILURES.sum()));
             map.put("namedClassOverflow", Long.valueOf(NAMED_CLASS_OVERFLOW.sum()));
             map.put("version", Long.valueOf(version));
@@ -723,6 +803,11 @@ public final class CodeInventory {
             AgentRing.status();
             status();
             codeSources();
+            ConcurrentLinkedQueue<Integer> warmedDefinitions = new ConcurrentLinkedQueue<Integer>();
+            warmedDefinitions.offer(Integer.valueOf(0));
+            warmedDefinitions.poll();
+            DEFINITION_LEASES.compareAndSet(0, 0, 0);
+            DEFINITION_TRACKING.compareAndSet(0, 0L, 0L);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -836,6 +921,13 @@ public final class CodeInventory {
         HITS = new byte[MAX_METHODS];
         NEXT_DEFINITION.set(1);
         DEFINITION_OVERFLOW.reset();
+        FREE_DEFINITIONS.clear();
+        for (int i = 0; i < DEFINITION_LEASES.length(); i++) {
+            DEFINITION_LEASES.set(i, 0);
+        }
+        for (int i = 0; i < MAX_METHODS; i++) {
+            DEFINITION_TRACKING.set(i, 0L);
+        }
         Arrays.fill(TRACKING, UNKNOWN);
         Arrays.fill(LATE, (byte) 0);
         Arrays.fill(TRACKED_EPOCH, (byte) 0);
@@ -872,6 +964,7 @@ public final class CodeInventory {
         final long generation;
         final byte[] hits = new byte[MAX_METHODS];
         final AtomicIntegerArray definitions = new AtomicIntegerArray(MAX_DEFINITIONS);
+        final AtomicLong definitionOverflow = new AtomicLong();
         private final AtomicIntegerArray firsts;
 
         Run(byte epoch, long generation) {

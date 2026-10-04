@@ -1095,7 +1095,8 @@ final class ApplicationMethodsSensor {
         @Override
         public void onDiscovery(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
             if (inventoryOn) {
-                inventoryDefinitions.observed(classLoader, loaded);
+                // Only the claim's snapshot proves a loader pre-existing; loaded can also mean the install gap.
+                inventoryDefinitions.observed(classLoader, false);
             }
         }
 

@@ -243,6 +243,75 @@ class CodeInventoryTests {
     }
 
     @Test
+    void recycledTokensLoseTheirOldEligibilityAndCanBeReturnedOnlyOnce() {
+        claim();
+        int token = CodeInventory.definitionToken();
+        CodeInventory.activateDefinition(token, CodeInventory.currentGeneration());
+        assertThat(CodeInventory.eligibleDefinition(token)).isTrue();
+        CodeInventory.releaseDefinitionToken(token);
+        CodeInventory.releaseDefinitionToken(token);
+
+        assertThat(CodeInventory.eligibleDefinition(token)).isFalse();
+        assertThat(CodeInventory.definitionToken()).isEqualTo(token);
+        assertThat(CodeInventory.definitionToken()).isEqualTo(token + 1);
+        assertThat(CodeInventory.eligibleDefinition(token)).isFalse();
+        CodeInventory.activateDefinition(token, CodeInventory.currentGeneration());
+        assertThat(CodeInventory.eligibleDefinition(token)).isTrue();
+    }
+
+    @Test
+    void anOverflowedDefinitionsTrackingStaysUnknownAcrossClaimsUntilItIsReallyInstrumentedAgain() {
+        int id = CodeInventory.methodId("com.example.Shop#greet()V");
+        claim();
+        CodeInventory.tracked("com.example.Shop", new int[] {id}, false, -1);
+        assertThat(tracking()).containsExactly(CodeInventory.DEFINITION_UNTRACKED);
+        CodeInventory.tracked(new int[] {id});
+        assertThat(tracking())
+                .as("a tracked copy does not prove another current copy was instrumented")
+                .containsExactly(CodeInventory.DEFINITION_UNTRACKED);
+        claim();
+        assertThat(tracking()).containsExactly(CodeInventory.DEFINITION_UNTRACKED);
+        assertThat(executed(id)).isFalse();
+        CodeInventory.tracked(new int[] {id});
+        assertThat(tracking()).containsExactly(CodeInventory.TRACKED);
+    }
+
+    @Test
+    void sameGenerationDefinitionUncertaintyWinsInBothCallbackOrdersAndSurvivesEpochWrap() {
+        int id = CodeInventory.methodId("com.example.Shop#greet()V");
+        claim();
+        int valid = CodeInventory.definitionToken();
+        CodeInventory.activateDefinition(valid, CodeInventory.currentGeneration());
+        CodeInventory.tracked("com.example.Shop", new int[] {id}, false, valid);
+        CodeInventory.tracked("com.example.Shop", new int[] {id}, false, -1);
+        assertThat(tracking()).containsExactly(CodeInventory.DEFINITION_UNTRACKED);
+        CodeInventory.tracked("com.example.Shop", new int[] {id}, false, valid);
+        assertThat(tracking()).containsExactly(CodeInventory.DEFINITION_UNTRACKED);
+
+        for (int i = 0; i < 255; i++) {
+            claim();
+        }
+        assertThat(tracking()).containsExactly(CodeInventory.DEFINITION_UNTRACKED);
+        CodeInventory.activateDefinition(valid, CodeInventory.currentGeneration());
+        CodeInventory.tracked("com.example.Shop", new int[] {id}, false, valid);
+        assertThat(tracking()).containsExactly(CodeInventory.TRACKED);
+    }
+
+    @Test
+    void aStaleTransformationCannotClearTheCurrentDefinitionsFailure() {
+        int id = CodeInventory.methodId("com.example.Shop#greet()V");
+        claim();
+        int stale = CodeInventory.definitionToken();
+        claim();
+        CodeInventory.transformFailed("com.example.Shop", new int[] {id});
+        CodeInventory.tracked("com.example.Shop", new int[] {id}, false, stale);
+        assertThat(tracking()).containsExactly(CodeInventory.TRANSFORM_FAILED);
+        assertThat((String[]) CodeInventory.snapshot(CodeInventory.currentGeneration())
+                        .get("failedClasses"))
+                .containsExactly("com.example.Shop");
+    }
+
+    @Test
     void theEpochWrapsAfter255RunsAndClearsEveryFlag() {
         int id = CodeInventory.methodId("com.example.Shop#greet()V");
         for (int run = 1; run <= 255; run++) {

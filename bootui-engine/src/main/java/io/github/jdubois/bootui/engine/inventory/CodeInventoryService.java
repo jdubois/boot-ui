@@ -90,6 +90,7 @@ public final class CodeInventoryService implements AutoCloseable {
     static final String SYNTHETIC_CLASS = "synthetic or generated proxy class: never instrumented";
     static final String TRANSFORM_FAILED = "transform failed";
     static final String OVER_THE_LIMIT = "over the agent's method limit";
+    static final String DEFINITION_LIMIT = "not tracked: the agent's defining-loader capacity was reached";
     static final String RAN_BEFORE_INSTRUMENTATION = "ran before instrumentation: its class loaded before the agent"
             + " instrumented it, so earlier calls were not seen";
     static final String NOT_INSTRUMENTED = "not instrumented in this run: its loaded class lacks it, as when the class"
@@ -703,6 +704,7 @@ public final class CodeInventoryService implements AutoCloseable {
             Set<String> overLimitClasses,
             Set<String> classesThisRun,
             long overflow,
+            long definitionOverflow,
             long failures) {
 
         /** Whether the agent may have left a class with no method id uninstrumented without naming it. */
@@ -761,6 +763,9 @@ public final class CodeInventoryService implements AutoCloseable {
         if (failed) {
             return Status.notTracked(TRANSFORM_FAILED);
         }
+        if (id != null && id < tracking.states().length && tracking.states()[id] == 3) {
+            return Status.notTracked(DEFINITION_LIMIT);
+        }
         if (id == null && tracking.overLimitClasses().contains(className)) {
             return Status.notTracked(OVER_THE_LIMIT);
         }
@@ -775,6 +780,9 @@ public final class CodeInventoryService implements AutoCloseable {
         if (!classesWithIds.contains(className) && tracking.unattributed()) {
             // No method of the class ever got an id, and the agent left some class uninstrumented without naming it.
             return Status.notTracked(UNKNOWN_TRACKING);
+        }
+        if (tracking.definitionOverflow() > 0) {
+            return Status.notTracked(DEFINITION_LIMIT);
         }
         // Its class did not load in this run: the agent instruments it as it loads, so none of its methods ran yet.
         return Status.of(NEVER_EXECUTED);
@@ -802,6 +810,7 @@ public final class CodeInventoryService implements AutoCloseable {
                 names(snapshot.get("overLimitClasses")),
                 classesThisRun,
                 longValue(snapshot.get("methodOverflow")),
+                longValue(snapshot.get("definitionOverflow")),
                 longValue(snapshot.get("transformFailures")));
         long overflow = tracking.overflow();
         long[] executed = tracking.executed();
@@ -948,6 +957,15 @@ public final class CodeInventoryService implements AutoCloseable {
         }
         if (tracking.failures() > 0) {
             limitations.add("The agent failed to instrument some classes: their methods are not tracked.");
+        }
+        boolean definitionUnknown = tracking.definitionOverflow() > 0;
+        for (byte state : tracking.states()) {
+            definitionUnknown |= state == 3;
+        }
+        if (definitionUnknown) {
+            limitations.add("The agent reached its defining-loader capacity: affected methods are not tracked,"
+                    + " not never executed. While capacity is unavailable, classes without current tracking evidence"
+                    + " are unknown too; collected loaders' slots are reusable by a later reload.");
         }
         if (disabled) {
             String disabledReason = Objects.toString(counters.get("disabledReason"), null);

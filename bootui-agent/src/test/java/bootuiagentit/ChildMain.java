@@ -41,7 +41,7 @@ public final class ChildMain {
             case "behaviors" -> Behaviors.main(new String[] {"agent"});
             case "thread-behaviors" -> ThreadBehaviors.main(new String[0]);
             case "inventory-behaviors" -> InventoryBehaviors.main(new String[0]);
-            case "inventory-reload" -> InventoryReload.main(new String[] {args[1], args[2], args[3]});
+            case "inventory-reload" -> InventoryReload.main(new String[] {args[1], args[2], args[3], args[4]});
             case "inventory-mockito" -> InventoryMockito.main(new String[] {args[1]});
             case "code-paths-behaviors" -> CodePathsBehaviors.main(new String[] {args[1]});
             case "code-paths-mockito" -> CodePathsMockito.main(new String[] {args[1]});

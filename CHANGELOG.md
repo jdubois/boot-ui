@@ -44,7 +44,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Code Inventory after reload.** Work retaining an old application object across a DevTools restart or Quarkus
   live reload no longer marks the changed method in the new run executed, or attributes its first hit to the new
   run. Defining-loader tokens stay stable across retransformation, and hit flags belong to one run, so old advice
-  cannot satisfy `changed-code-not-executed` or `verify_after_change` (M52-01; PLAN-v2 §5.15, §5.17).
+  cannot satisfy `changed-code-not-executed` or `verify_after_change`. Ignored reflection and serialization loaders no
+  longer consume the bounded token pool, and dead loaders' slots are safely recycled. Capacity failures stay
+  **not tracked**, rather than falsely **never executed** ([#1247](https://github.com/jdubois/boot-ui/pull/1247);
+  M52-01; PLAN-v2 §5.15, §5.17).
 - **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
   against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
   recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,

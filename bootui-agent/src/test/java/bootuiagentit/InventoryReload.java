@@ -1,10 +1,13 @@
 package bootuiagentit;
 
 import java.lang.instrument.Instrumentation;
+import java.lang.ref.Reference;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,6 +23,7 @@ public final class InventoryReload {
         InventoryBehaviors.ring = Class.forName(InventoryBehaviors.BRIDGE + "AgentRing", true, null);
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         boolean lazy = "unseen-lazy".equals(args[2]);
+        List<ClassLoader> churn = new ArrayList<>();
         String packageName = lazy ? "bootuiinventoryhidden" : "bootuiinventoryapp";
         String typeName = packageName + ".Reloaded";
         try (URLClassLoader oldLoader = loader(args[0], args[2]);
@@ -29,6 +33,14 @@ public final class InventoryReload {
             long oldToken = InventoryBehaviors.claim(previouslyTracked ? List.of("inventory") : List.of());
             if (previouslyTracked) {
                 InventoryBehaviors.awaitSelfTest();
+            }
+            if ("churn".equals(args[2])) {
+                for (int i = 0; i < 17_000; i++) {
+                    try (URLClassLoader ignored = loader(args[3], "churn")) {
+                        ignored.loadClass("bootuiinventoryhidden.Reloaded");
+                        churn.add(ignored);
+                    }
+                }
             }
             Class<?> oldType = oldLoader.loadClass(typeName);
             Object oldObject = oldType.getConstructor().newInstance();
@@ -100,9 +112,15 @@ public final class InventoryReload {
                             && InventoryBehaviors.firstHits(id).get(0)[2] == generation
                             && InventoryBehaviors.firstHits(id).get(0)[5] == 0xcdL,
                     "only the new definition records the new run and request");
+            Map<?, ?> inventoryStatus =
+                    (Map<?, ?>) InventoryBehaviors.inventory.getMethod("status").invoke(null);
+            require(
+                    Long.valueOf(0L).equals(inventoryStatus.get("definitionOverflow")),
+                    "unclaimed loaders never consume definition capacity");
             System.out.println("RELOAD=ok");
             System.out.println("STATUS=" + InventoryBehaviors.status());
         } finally {
+            Reference.reachabilityFence(churn);
             Thread.currentThread().setContextClassLoader(original);
             InventoryBehaviors.CONTEXT.remove();
         }
