@@ -86,6 +86,11 @@ public final class RouteTimeBreakdown implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
+    }
+
+    @Override
     public Set<JournalSource> optionalReads() {
         return Set.of(
                 JournalSource.SQL,
@@ -99,8 +104,7 @@ public final class RouteTimeBreakdown implements Observation {
 
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
-        boolean firstRetainedIsFirst =
-                snapshot.status().evictedByCount() + snapshot.status().evictedByBytes() == 0;
+        boolean firstRetainedIsFirst = snapshot.firstRequestIsCold();
         boolean marksPhases = marksPhases(snapshot.stack());
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;

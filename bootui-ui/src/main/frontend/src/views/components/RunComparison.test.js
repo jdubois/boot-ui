@@ -57,7 +57,9 @@ describe('RunComparison', () => {
     expect(wrapper.find('h2').text()).toBe('Compared with the previous run')
     expect(wrapper.find('[data-testid="comparison-status"]').text()).toBe('Compared')
     expect(wrapper.find('.insight-comparison-against').text()).toContain('Against Run 4 · 3 requests')
-    expect(wrapper.find('[data-section="behavior"] h3').text().replace(/\s+/g, ' ')).toBe('What the routes did · 1')
+    expect(wrapper.find('[data-section="behavior"] h3').text().replace(/\s+/g, ' ')).toBe(
+      'What the routes and executions did · 1'
+    )
     expect(wrapper.find('[data-section="behavior"] .visually-hidden').text()).toBe('Up:')
     expect(wrapper.find('[data-section="edges"] .insight-comparison-marker i').classes()).toContain('bi-plus-lg')
     expect(wrapper.emitted('loaded')[0][0].status).toBe('COMPARED')
@@ -67,7 +69,9 @@ describe('RunComparison', () => {
       'restart'
     ])
     expect(wrapper.find('[data-section="behavior"] code').text()).toBe('GET /api/orders')
-    expect(wrapper.text()).toContain('Ready in 2,000 ms after this restart, 4,000 ms after the previous one.')
+    expect(wrapper.text()).toContain(
+      'Ready in 2,000 ms after this restart, 4,000 ms after run 4 (the immediately preceding restart).'
+    )
     expect(wrapper.find('details').text()).toContain('Tracing was on before')
   })
 
@@ -94,6 +98,31 @@ describe('RunComparison', () => {
     await flushPromises()
 
     expect(String(fetchMock.mock.calls.at(-1)[0])).toContain('api/runtime-insights/comparison?run=run-1')
+  })
+
+  it('labels hidden request totals instead of presenting them as zero traffic', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...compared,
+          previous: {...compared.previous, requests: 0},
+          runs: compared.runs.map((run) => ({...run, requests: 0})),
+          limitations: ['Facts are not compared because http-exchanges is disabled.']
+        })
+      )
+    )
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.find('.insight-comparison-against').text()).toContain('request count hidden')
+    expect(
+      wrapper
+        .findAll('option')
+        .slice(1)
+        .every((option) => option.text().includes('request count hidden'))
+    ).toBe(true)
+    expect(wrapper.text()).not.toContain('0 requests')
+    expect(wrapper.find('details').text()).toContain('not compared because http-exchanges is disabled')
   })
 
   it('says why a run could not be compared, never that nothing changed', async () => {
@@ -136,7 +165,23 @@ describe('RunComparison', () => {
     wrapper = mount(RunComparison)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('No route changed what it ran, called, or raised.')
+    expect(wrapper.text()).toContain('No eligible route or execution changed what it ran, called, or raised.')
+  })
+
+  it('shows why restart timing is unavailable for a selected non-adjacent run', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...compared,
+          restartCost: {status: 'UNAVAILABLE', reason: 'Restart cost compares adjacent restarts only.', beans: []}
+        })
+      )
+    )
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="restart-unavailable"]').text()).toContain('adjacent restarts only')
+    expect(wrapper.find('[data-section="restart"]').exists()).toBe(false)
   })
 })
 

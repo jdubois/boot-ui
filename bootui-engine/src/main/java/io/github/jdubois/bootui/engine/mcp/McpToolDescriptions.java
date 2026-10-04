@@ -60,8 +60,8 @@ public final class McpToolDescriptions {
                             + "a verdict that a change is safe."),
             Map.entry(
                     "get_runtime_run_comparison",
-                    "Compare this run with a kept one: id is previous or a run id. previous is the newest kept run "
-                            + "that served requests; runs lists the others. Comparability first, then at most "
+                    "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run "
+                            + "including runs without HTTP traffic; runs lists the others. Comparability first, then at most "
                             + "8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
                             + "mean no change. Call after tests to verify a change."),
             Map.entry(

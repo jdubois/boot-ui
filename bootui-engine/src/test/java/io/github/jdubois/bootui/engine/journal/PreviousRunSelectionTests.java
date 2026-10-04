@@ -7,13 +7,15 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 /**
- * §5.8's {@code previous}: DevTools may restart twice for one change, so the newest kept run can be one that served
- * nothing. Comparing with it would answer {@code INSUFFICIENT} and report every route as new, so {@code previous} skips
- * it and says so. The service lives in {@code insights}; this test sits here for {@link RunHistory}'s constructor.
+ * §5.8's {@code previous} always selects the newest kept run, including a listener-only or idle run.
+ * The service lives in {@code insights}; this test sits here for {@link RunHistory}'s constructor.
  */
 class PreviousRunSelectionTests {
 
@@ -21,7 +23,7 @@ class PreviousRunSelectionTests {
             new RuntimeJournalSettings(true, 100, 1_000_000, 100, 10, 10, JournalSource.all());
 
     @Test
-    void previousSkipsNewerKeptRunsThatServedNoRequestAndSaysSo() {
+    void previousSelectsTheImmediatelyPreviousRunEvenWhenItServedNoRequests() {
         RunHistory history = new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null);
         RunIdentity busy = RunIdentity.start();
         history.record(RunSummary.of(busy, served(3), 1));
@@ -32,16 +34,42 @@ class PreviousRunSelectionTests {
             RunComparisonService service = new RunComparisonService(journal, new JournalAggregates(), history);
 
             RuntimeRunComparisonDto previous = service.compare(null);
-            assertThat(previous.previous().runId()).isEqualTo(busy.id());
-            assertThat(previous.limitations().get(0))
-                    .contains(busy.id())
-                    .contains(idle.id())
-                    .contains("served none");
+            assertThat(previous.previous().runId()).isEqualTo(idle.id());
+            assertThat(previous.status()).isEqualTo("INSUFFICIENT");
+            assertThat(service.compare("previous").previous().runId()).isEqualTo(idle.id());
             assertThat(previous.runs()).extracting(run -> run.runId()).containsExactly(idle.id(), busy.id());
 
             RuntimeRunComparisonDto chosen = service.compare(idle.id());
             assertThat(chosen.previous().runId()).isEqualTo(idle.id());
             assertThat(chosen.limitations()).noneMatch(limitation -> limitation.contains("served none"));
+        } finally {
+            journal.close();
+        }
+    }
+
+    @Test
+    void aReloadableHolderIsUnavailableInsteadOfSuggestingAnotherRestartWillKeepHistory() {
+        RuntimeJournal journal = new RuntimeJournal(SETTINGS, RunIdentity.start());
+        try {
+            RunHistory reloadable =
+                    new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, "BootUI reloads with the application.");
+            RuntimeRunComparisonDto comparison =
+                    new RunComparisonService(journal, new JournalAggregates(), reloadable).compare(null);
+            assertThat(comparison.status()).isEqualTo("UNAVAILABLE");
+            assertThat(comparison.reason()).contains("baseline-file");
+            assertThat(new RunComparisonService(
+                                    journal,
+                                    new JournalAggregates(),
+                                    new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null))
+                            .compare(null)
+                            .status())
+                    .isEqualTo("NO_PREVIOUS_RUN");
+            RunIdentity previous = RunIdentity.start();
+            reloadable.record(RunSummary.of(previous, served(3), 1));
+            assertThat(new RunComparisonService(journal, new JournalAggregates(), reloadable)
+                            .compare(null)
+                            .status())
+                    .isNotEqualTo("UNAVAILABLE");
         } finally {
             journal.close();
         }
@@ -60,6 +88,48 @@ class PreviousRunSelectionTests {
 
             assertThat(comparison.previous().runId()).isEqualTo(newest.id());
             assertThat(comparison.limitations()).noneMatch(limitation -> limitation.contains("served none"));
+        } finally {
+            journal.close();
+        }
+    }
+
+    @Test
+    void sourcePanelPolicyIsReadOncePerComparisonAndFailsClosed() {
+        RunHistory history = new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null);
+        history.record(RunSummary.of(RunIdentity.start(), served(3), 1));
+        RuntimeJournal journal = new RuntimeJournal(SETTINGS, RunIdentity.start());
+        try {
+            AtomicBoolean enabled = new AtomicBoolean(true);
+            Map<String, Integer> reads = new HashMap<>();
+            RunComparisonService service =
+                    new RunComparisonService(journal, new JournalAggregates(), history, panel -> {
+                        reads.merge(panel, 1, Integer::sum);
+                        return enabled.get();
+                    });
+            assertThat(service.compare(null).previous().requests()).isEqualTo(3);
+            assertThat(reads).hasSize(JournalSourcePanels.owningPanels().size());
+            assertThat(reads.values()).allMatch(count -> count == 1);
+            enabled.set(false);
+            RuntimeRunComparisonDto hidden = service.compare(null);
+            assertThat(hidden.previous().requests()).isZero();
+            assertThat(hidden.limitations()).contains("Facts are not compared because http-exchanges is disabled.");
+            assertThat(reads.values()).allMatch(count -> count == 2);
+
+            RuntimeRunComparisonDto failed = new RunComparisonService(
+                            journal, new JournalAggregates(), history, panel -> {
+                                throw new IllegalStateException("Unreadable policy");
+                            })
+                    .compare(null);
+            assertThat(failed.previous().requests()).isZero();
+            assertThat(failed.limitations()).contains("Facts are not compared because http-exchanges is unavailable.");
+            assertThat(failed.behavior()).isEmpty();
+            assertThat(failed.edges()).isEmpty();
+            RuntimeRunComparisonDto disabled = new RunComparisonService(
+                            journal, new JournalAggregates(), history, panel -> false, panel -> {
+                                throw new IllegalStateException("Unavailable capability");
+                            })
+                    .compare(null);
+            assertThat(disabled.limitations()).contains("Facts are not compared because http-exchanges is disabled.");
         } finally {
             journal.close();
         }
