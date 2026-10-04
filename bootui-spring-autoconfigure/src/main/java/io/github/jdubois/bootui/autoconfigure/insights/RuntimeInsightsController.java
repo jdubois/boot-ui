@@ -59,7 +59,8 @@ public class RuntimeInsightsController {
             ObjectProvider<MappingProvider> mappings,
             ObjectProvider<BeanProvider> beans) {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
-        this.comparison = new RunComparisonService(journal.getIfAvailable(), journalAggregates, RunHistory.shared());
+        this.comparison = new RunComparisonService(
+                journal.getIfAvailable(), journalAggregates, RunHistory.shared(), properties::isPanelEnabled);
         RuntimeModelService models = new RuntimeModelService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -68,7 +69,8 @@ public class RuntimeInsightsController {
                 journal.getIfAvailable(),
                 journalAggregates,
                 models,
-                journalAggregates == null ? null : journalAggregates.declaredRoutes());
+                journalAggregates == null ? null : journalAggregates.declaredRoutes(),
+                properties::isPanelEnabled);
         this.impact.setStack(
                 context instanceof ReactiveWebApplicationContext
                         ? InsightsStack.SPRING_WEBFLUX

@@ -511,6 +511,9 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(impact.path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
 
             JsonNode comparison = callTool("get_runtime_run_comparison", "{\"id\":\"previous\"}");
+            JsonNode defaultComparison = callTool("get_runtime_run_comparison", "{}");
+            assertThat(defaultComparison.path("status")).isEqualTo(comparison.path("status"));
+            assertThat(defaultComparison.path("previousRunId")).isEqualTo(comparison.path("previousRunId"));
             assertThat(comparison.path("status").asText())
                     .isIn("COMPARED", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN", "UNAVAILABLE");
             assertThat(comparison.path("behavior").size()).isLessThanOrEqualTo(8);

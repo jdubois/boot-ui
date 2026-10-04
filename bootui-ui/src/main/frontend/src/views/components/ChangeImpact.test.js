@@ -38,6 +38,7 @@ const resolved = {
     }
   ],
   notExercisedTotal: 1,
+  notExercisedUndetermined: false,
   sharedResources: [],
   sharedResourcesTotal: 0,
   limitations: [
@@ -81,6 +82,24 @@ describe('ChangeImpact', () => {
     expect(wrapper.find('[data-list="shared"]').text()).toContain(
       'No other route uses what the routes through it touched.'
     )
+  })
+
+  it('does not claim all mapped routes ran when route counts overflowed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({...resolved, notExercised: [], notExercisedTotal: 0, notExercisedUndetermined: true})
+        )
+    )
+    wrapper = mountImpact({initialSymbol: 'ProductRepository'})
+    await flushPromises()
+
+    const list = wrapper.find('[data-list="not-exercised"]')
+    expect(list.text()).toContain('Not exercised (incomplete)')
+    expect(list.text()).toContain('Cannot determine whether every mapped route ran')
+    expect(list.text()).not.toContain('Every mapped route that reaches it ran.')
   })
 
   it('shows a failed read as its message, never as an object', async () => {

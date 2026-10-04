@@ -192,6 +192,41 @@ describe('Runtime Insights panel', () => {
     expect(unrun.text()).toContain('it uses R2DBC')
   })
 
+  it('counts a collection-based check as run at zero requests and explains a check with no eligible work', async () => {
+    const heap = {
+      kind: 'heap-growth-after-gc',
+      title: 'Heap growth after GC',
+      status: 'EVALUATED',
+      eligibleRequests: 0,
+      findings: 0,
+      reason: 'Examined 4 collections that reclaimed old-generation space; none met the growth threshold.'
+    }
+    const insufficient = {
+      kind: 'gc-inflated-latency',
+      title: 'GC-inflated latency',
+      status: 'INSUFFICIENT',
+      eligibleRequests: 0,
+      findings: 0,
+      reason: 'No eligible work was recorded for this check.'
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({...report, observations: [], checks: [...report.checks, heap, insufficient]}))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2 of 4 checks ran and found nothing')
+    const checks = wrapper.find('.insight-unrun')
+    expect(checks.text()).toContain('Checks and their limits')
+    expect(checks.text()).toContain('Heap growth after GC · Ran')
+    expect(checks.text()).toContain('GC-inflated latency · Not enough evidence')
+    expect(checks.text()).not.toContain('INSUFFICIENT')
+    expect(checks.text()).toContain('No eligible work was recorded')
+  })
+
   it('states a disabled journal and an empty run', async () => {
     vi.stubGlobal(
       'fetch',
@@ -208,11 +243,85 @@ describe('Runtime Insights panel', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(jsonResponse({...report, window: {...report.window, requests: 0}, observations: []}))
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({...report, window: {...report.window, requests: 0, retainedEvents: 0}, observations: []})
+        )
     )
     wrapper = mountPanel()
     await flushPromises()
-    expect(wrapper.text()).toContain('No requests recorded in this run yet.')
+    expect(wrapper.text()).toContain('No HTTP requests recorded in this run yet.')
+  })
+
+  it('shows job and listener observations when no HTTP requests were recorded', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? detail
+              : {
+                  ...report,
+                  window: {...report.window, requests: 0, retainedEvents: 5},
+                  observations: [{...report.observations[0], subject: '@Scheduled OrderJob.run'}]
+                }
+          )
+        )
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('@Scheduled OrderJob.run')
+    expect(wrapper.find('.insight-item').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('No HTTP requests recorded in this run yet.')
+  })
+
+  it('shows a heap-growth finding even when the run recorded no HTTP requests', async () => {
+    const heap = {
+      ...report.observations[0],
+      id: 'heap-growth-after-gc:heap',
+      kind: 'heap-growth-after-gc',
+      subject: 'Heap',
+      sentence: 'Old-generation occupancy rose after garbage collection.',
+      eligible: 0,
+      affected: 0,
+      exemplarRequestIds: []
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? {...detail, observation: heap}
+              : {
+                  ...report,
+                  window: {...report.window, requests: 0, retainedEvents: 4},
+                  checks: [
+                    ...report.checks,
+                    {
+                      kind: 'heap-growth-after-gc',
+                      title: 'Heap growth after GC',
+                      status: 'EVALUATED',
+                      eligibleRequests: 0,
+                      findings: 1,
+                      reason: null
+                    }
+                  ],
+                  observations: [heap]
+                }
+          )
+        )
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.insight-item').text()).toContain('Heap')
+    expect(wrapper.text()).toContain('Old-generation occupancy rose after garbage collection.')
+    expect(wrapper.text()).not.toContain('No HTTP requests recorded in this run yet.')
   })
 
   it('filters observations by search', async () => {

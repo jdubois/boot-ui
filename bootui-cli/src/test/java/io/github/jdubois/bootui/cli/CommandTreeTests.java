@@ -99,6 +99,15 @@ class CommandTreeTests {
     }
 
     @Test
+    void comparisonDefaultsToPreviousAndStillAcceptsAnExplicitRunId() {
+        assertThat(run(List.of("insights", "compare"))).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(bodies).containsExactly("{}");
+        bodies.clear();
+        assertThat(run(List.of("insights", "compare", "run-4"))).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(bodies).containsExactly("{\"id\":\"run-4\"}");
+    }
+
+    @Test
     void aQueryCommandSendsTheFilterItWasGiven() {
         bodies.clear();
 

@@ -153,7 +153,7 @@ export function isMachineColumn(column) {
   return MACHINE_COLUMNS.has(column)
 }
 
-/** The checks that did not fully run, which an empty or short list must never hide. */
+/** Checks that did not fully run and evaluated checks with explanations an empty or short list must never hide. */
 export function checksWithReasons(report) {
   return (report?.checks ?? []).filter((check) => check.status !== 'EVALUATED' || check.reason)
 }
@@ -162,6 +162,7 @@ export function checksWithReasons(report) {
 export function emptyState(report) {
   if (!report) return null
   if (!report.available) return 'disabled'
+  if ((report.observations ?? []).length > 0) return null
   if ((report.window?.requests ?? 0) === 0) return 'no-requests'
   if ((report.observations ?? []).length === 0) return 'nothing-observed'
   return null

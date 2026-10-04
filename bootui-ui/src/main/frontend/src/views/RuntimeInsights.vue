@@ -170,8 +170,13 @@ function statusClass(status) {
 
 function checkStatusLabel(status) {
   return (
-    {NOT_APPLICABLE: 'Not applicable', UNAVAILABLE: 'Unavailable', PARTIAL: 'Partial', EVALUATED: 'Ran'}[status] ??
-    status
+    {
+      NOT_APPLICABLE: 'Not applicable',
+      UNAVAILABLE: 'Unavailable',
+      INSUFFICIENT: 'Not enough evidence',
+      PARTIAL: 'Partial',
+      EVALUATED: 'Ran'
+    }[status] ?? status
   )
 }
 
@@ -328,15 +333,20 @@ const windowText = computed(() => {
         </div>
 
         <div v-if="empty === 'no-requests'" class="alert alert-secondary insight-empty">
-          <strong>No requests recorded in this run yet.</strong>
+          <strong>No HTTP requests recorded in this run yet.</strong>
           <span class="d-block small">
-            Exercise your application, then refresh. Observations are projected from the requests the runtime journal
-            retains.
+            Exercise your application, then refresh. Scheduled jobs and consumed messages are also checked when their
+            sources are enabled; see which checks ran below.
           </span>
         </div>
 
         <div v-else-if="empty === 'nothing-observed'" class="alert alert-secondary insight-empty">
-          <strong>Nothing to report across {{ formatNumber(report.window.requests) }} requests.</strong>
+          <strong v-if="report.window.requests > 0">
+            Nothing to report across {{ formatNumber(report.window.requests) }} requests.
+          </strong>
+          <strong v-else>
+            Nothing to report across {{ formatNumber(report.window.retainedEvents) }} retained events.
+          </strong>
           <span class="d-block small">
             {{ evaluated.length }} of {{ report.checks.length }} checks ran and found nothing; the others are listed
             below with why they did not run.
@@ -560,7 +570,7 @@ const windowText = computed(() => {
           <div v-if="unrun.length" :class="report.notExercised?.length ? 'col-xl-5' : 'col-12'">
             <section v-if="unrun.length" class="card h-100 insight-unrun" aria-labelledby="insight-unrun-title">
               <div class="card-body">
-                <h2 id="insight-unrun-title" class="h6 mb-2">Checks that could not fully run</h2>
+                <h2 id="insight-unrun-title" class="h6 mb-2">Checks and their limits</h2>
                 <ul class="list-unstyled small mb-0">
                   <li v-for="check in unrun" :key="check.kind" class="mb-1">
                     <span class="fw-semibold">{{ check.title }}</span>

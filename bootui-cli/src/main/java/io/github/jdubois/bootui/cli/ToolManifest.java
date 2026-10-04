@@ -117,7 +117,11 @@ public final class ToolManifest {
 
         /** Whether this tool requires an {@code id} positional. */
         public boolean takesId() {
-            return "ID".equals(schema) || takesScanId();
+            return "ID".equals(schema) || optionalId() || takesScanId();
+        }
+
+        public boolean optionalId() {
+            return "OPTIONAL_ID".equals(schema);
         }
 
         /** Whether this tool requires a completed advisor snapshot identifier. */

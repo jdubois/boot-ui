@@ -7,8 +7,8 @@ import java.util.Objects;
 /**
  * The summary of one application run's aggregates, kept after the run ends so a later run can be compared with it
  * ({@code docs/PLAN-v2.md} §5.2, §5.8). It holds route templates, statement fingerprints, exception-group ids, thread
- * families, the observed edges of the runtime model, counts, and histograms, all of which the aggregates already hold without principals, values, or SQL
- * literals.
+ * families, the observed edges of the runtime model, counts, and histograms. The codec removes SQL literals before
+ * keeping or writing a summary; an in-memory aggregate's grouping fingerprint is not itself a safe display form.
  *
  * @param header the run and its totals
  * @param aggregates the run's aggregates, possibly without their least-used entries, which {@code header} counts
