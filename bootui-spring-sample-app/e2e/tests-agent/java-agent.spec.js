@@ -20,6 +20,6 @@ test.describe('Java Agent, attached', () => {
     await expect(page.getByRole('heading', {name: 'Armed'})).toBeVisible()
     await expect(page.locator('#java-agent-hooks-executors')).toBeVisible()
     await expect(page.getByRole('table', {name: /executors\s+hooks/})).toContainText('ThreadPoolExecutor.runWorker')
-    await expect(page.locator('.java-agent-counters')).toContainText('Never applied')
+    await expect(page.locator('.java-agent-counters[data-sensor="executors"]')).toContainText('Never applied')
   })
 })
