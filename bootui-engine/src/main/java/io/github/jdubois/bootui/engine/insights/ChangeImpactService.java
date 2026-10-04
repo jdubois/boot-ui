@@ -8,8 +8,11 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.VisibleJournalEntries;
 import io.github.jdubois.bootui.engine.model.AppEventPublications;
 import io.github.jdubois.bootui.engine.model.EdgeType;
 import io.github.jdubois.bootui.engine.model.ModelEdge;
@@ -19,6 +22,7 @@ import io.github.jdubois.bootui.engine.model.ReverseClosure;
 import io.github.jdubois.bootui.engine.model.RuntimeModel;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshot;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.ArrayDeque;
@@ -27,11 +31,14 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -65,11 +72,21 @@ public final class ChangeImpactService {
     private static final Set<EdgeType> CODE = EnumSet.of(EdgeType.DEPENDS_ON, EdgeType.HANDLED_BY);
     private static final Set<EdgeType> ACCESS =
             EnumSet.of(EdgeType.READS, EdgeType.WRITES, EdgeType.CALLS, EdgeType.PUBLISHES, EdgeType.CONSUMES);
+    private static final Set<JournalSource> IMPACT_SOURCES = EnumSet.of(
+            JournalSource.SQL,
+            JournalSource.CACHE,
+            JournalSource.REST_CLIENT,
+            JournalSource.AI,
+            JournalSource.MESSAGING,
+            JournalSource.SCHEDULED,
+            JournalSource.WEBSOCKET,
+            JournalSource.AUTHORIZATION);
 
     private final RuntimeJournal journal;
     private final JournalAggregates aggregates;
     private final RuntimeModelService models;
     private final Supplier<RouteTemplateResolver> routes;
+    private final Predicate<String> panelEnabled;
 
     private volatile InsightsStack stack;
 
@@ -78,16 +95,19 @@ public final class ChangeImpactService {
      * @param aggregates its aggregates, or {@code null}
      * @param models the run's model, read with the application's structure
      * @param routes the application's declared routes, or {@code null}
+     * @param panelEnabled the live panel policy by panel id
      */
     public ChangeImpactService(
             RuntimeJournal journal,
             JournalAggregates aggregates,
             RuntimeModelService models,
-            Supplier<RouteTemplateResolver> routes) {
+            Supplier<RouteTemplateResolver> routes,
+            Predicate<String> panelEnabled) {
         this.journal = journal;
         this.aggregates = aggregates;
         this.models = models;
         this.routes = routes == null ? RouteTemplateResolver::empty : routes;
+        this.panelEnabled = Objects.requireNonNull(panelEnabled, "panelEnabled");
     }
 
     /**
@@ -123,8 +143,20 @@ public final class ChangeImpactService {
                     0,
                     List.of());
         }
-        RuntimeModel model = models.model();
+        Map<String, Boolean> visible = visibility();
+        if (!visible.getOrDefault(BootUiPanels.HTTP_EXCHANGES, false)) {
+            return unavailable(
+                    asked, "The HTTP Exchanges panel is disabled, so this run's route traffic is unavailable.");
+        }
+        RuntimeModel model = models.model(visible);
+        List<JournalEntry> recorded = journal.entries();
+        Set<String> omitted = omittedEvidence(recorded, visible);
+        List<JournalEntry> entries = visibleEntries(recorded, visible);
         StructureSnapshot structure = models.structure();
+        HandlerMethod method = HandlerMethod.parse(asked);
+        if (method != null) {
+            return method(asked, model, structure, method, entries, visible, omitted);
+        }
         List<ModelNode> candidates = candidates(model, structure, asked);
         if (candidates.isEmpty()) {
             if (structure.beansUnavailable() != null) {
@@ -143,7 +175,7 @@ public final class ChangeImpactService {
                     0,
                     List.of(),
                     0,
-                    model.limitations());
+                    limitations(model, omitted));
         }
         if (candidates.size() > 1) {
             return new RuntimeChangeImpactDto(
@@ -164,22 +196,49 @@ public final class ChangeImpactService {
                     0,
                     List.of());
         }
-        return resolved(asked, model, structure, candidates.get(0));
+        return resolved(asked, model, structure, candidates.get(0), entries, visible, omitted);
     }
 
     private RuntimeChangeImpactDto resolved(
-            String asked, RuntimeModel model, StructureSnapshot structure, ModelNode start) {
-        boolean resource = RESOURCES.contains(start.type());
-        Map<Integer, Integer> closure =
-                ReverseClosure.of(model, start.id(), resource ? ACCESS : CODE, ReverseClosure.MAX_DEPTH);
+            String asked,
+            RuntimeModel model,
+            StructureSnapshot structure,
+            ModelNode start,
+            List<JournalEntry> entries,
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
+        return resolved(asked, model, structure, start, null, entries, visible, omitted);
+    }
+
+    /**
+     * What reaches {@code start}, or, for a handler method, which has no node of its own, only the routes mapped to it,
+     * with {@code start} {@code null}.
+     */
+    private RuntimeChangeImpactDto resolved(
+            String asked,
+            RuntimeModel model,
+            StructureSnapshot structure,
+            ModelNode start,
+            MappedMethod mapped,
+            List<JournalEntry> entries,
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
+        boolean resource = start != null && RESOURCES.contains(start.type());
+        boolean routeStart = start != null && ROUTES.contains(start.type());
+        Map<Integer, Integer> closure = mapped != null
+                ? mapped.reach(model)
+                : ReverseClosure.of(model, start.id(), resource ? ACCESS : CODE, ReverseClosure.MAX_DEPTH);
         Map<String, RouteStats> stats = new HashMap<>();
-        aggregates.snapshot().routes().forEach(route -> stats.put(route.route(), route));
-        Map<String, List<String>> exemplars = exemplars();
+        var aggregate = aggregates.snapshot();
+        aggregate.routes().forEach(route -> stats.put(route.route(), route));
+        boolean routeOverflow = aggregate.overflowed().getOrDefault("routes", 0L) > 0;
+        Map<String, List<String>> exemplars = exemplars(entries);
         List<RuntimeImpactRouteDto> observed = new ArrayList<>();
         List<RuntimeImpactRouteDto> notExercised = new ArrayList<>();
+        boolean undetermined = false;
         Set<Integer> observedRoutes = new LinkedHashSet<>();
         List<Integer> reached = new ArrayList<>();
-        if (ROUTES.contains(start.type())) {
+        if (routeStart) {
             reached.add(start.id());
         }
         reached.addAll(closure.keySet());
@@ -188,10 +247,11 @@ public final class ChangeImpactService {
             if (node.type() != NodeType.ROUTE && node.type() != NodeType.GRAPHQL_OPERATION) {
                 continue;
             }
-            if (model.executions(id) > 0) {
+            RouteStats routeStats = stats.get(node.key());
+            if ((routeStats != null && routeStats.requests() > 0) || model.executions(id) > 0) {
                 observedRoutes.add(id);
-                observed.add(row(model, node, stats, exemplars, List.of(), null));
-            } else {
+                observed.add(row(model, node, stats, exemplars, List.of(), null, visible));
+            } else if (!routeOverflow) {
                 notExercised.add(row(
                         model,
                         node,
@@ -199,7 +259,10 @@ public final class ChangeImpactService {
                         exemplars,
                         List.of(),
                         "Exercise `" + node.key() + "` before relying on this change: no request reached it in this"
-                                + " run."));
+                                + " run.",
+                        visible));
+            } else {
+                undetermined = true;
             }
         }
         Set<Integer> touched = new LinkedHashSet<>();
@@ -223,30 +286,39 @@ public final class ChangeImpactService {
                 if (ACCESS.contains(edge.type())
                         && (from.type() == NodeType.ROUTE || from.type() == NodeType.GRAPHQL_OPERATION)
                         && !closure.containsKey(edge.from())
-                        && edge.from() != start.id()) {
+                        && (start == null || edge.from() != start.id())) {
                     sharedBy.computeIfAbsent(edge.from(), ignored -> new LinkedHashSet<>())
                             .add(label(model.node(resourceId)));
                 }
             }
         }
         sharedBy.forEach((id, resources) ->
-                shared.add(row(model, model.node(id), stats, exemplars, List.copyOf(resources), null)));
+                shared.add(row(model, model.node(id), stats, exemplars, List.copyOf(resources), null, visible)));
         Comparator<RuntimeImpactRouteDto> busiest = Comparator.comparingLong(RuntimeImpactRouteDto::requests)
                 .reversed()
                 .thenComparing(RuntimeImpactRouteDto::route);
         observed.sort(busiest);
         shared.sort(busiest);
         notExercised.sort(Comparator.comparing(RuntimeImpactRouteDto::route));
-        List<String> limitations = new ArrayList<>(model.limitations());
+        List<String> limitations = new ArrayList<>(limitations(model, omitted));
+        if (undetermined) {
+            limitations.add("The route aggregate reached its cardinality limit: routes absent from its counts and"
+                    + " the retained journal cannot be classified as not exercised.");
+        }
         limitations.add("A route listed as observed ran in this run and reaches the changed code in the structure; its"
                 + " traffic does not prove that a request went through it.");
         if (!resource) {
             limitations.add("Shared resources are those the observed routes touched, which may include what other code"
                     + " on those routes touched. Tables are read from the statement text.");
         }
-        if (ROUTES.contains(start.type())) {
+        if (routeStart) {
             limitations.add("A route reaches no other route through code: name a bean its handler calls to see the"
                     + " routes that share that code.");
+        }
+        if (mapped != null) {
+            limitations.add("A method is checked through the routes mapped to it as their handler: other code calling"
+                    + " it is not counted, and its overloads count as one method. Name its class to check the whole"
+                    + " bean.");
         }
         if (structure.beansUnavailable() != null) {
             limitations.add(structure.beansUnavailable());
@@ -259,7 +331,7 @@ public final class ChangeImpactService {
                 RESOLVED,
                 null,
                 asked,
-                label(start),
+                mapped != null ? mapped.label() : label(start),
                 List.of(),
                 closure.size(),
                 capped(observed),
@@ -268,7 +340,160 @@ public final class ChangeImpactService {
                 notExercised.size(),
                 capped(shared),
                 shared.size(),
-                limitations);
+                limitations,
+                undetermined);
+    }
+
+    /**
+     * A handler method's impact: the routes mapped to exactly one handler class's method of that name, ambiguous when
+     * classes in several packages share the simple name asked for, and never guessed when no route is mapped to it.
+     */
+    private RuntimeChangeImpactDto method(
+            String asked,
+            RuntimeModel model,
+            StructureSnapshot structure,
+            HandlerMethod method,
+            List<JournalEntry> entries,
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
+        Map<String, List<String>> routesByHandler = new HashMap<>();
+        for (StructureSnapshot.RouteHandler route : structure.routes()) {
+            if (method.handles(route)) {
+                routesByHandler
+                        .computeIfAbsent(route.handlerClass(), ignored -> new ArrayList<>())
+                        .add(route.route());
+            }
+        }
+        if (routesByHandler.isEmpty()) {
+            return new RuntimeChangeImpactDto(
+                    NOT_FOUND,
+                    "No route in this run is mapped to a handler method `" + method.name() + "` of `" + method.type()
+                            + "`: name its class to check the whole bean.",
+                    asked,
+                    null,
+                    List.of(),
+                    0,
+                    List.of(),
+                    0,
+                    List.of(),
+                    0,
+                    List.of(),
+                    0,
+                    limitations(model, omitted));
+        }
+        List<String> handlers = routesByHandler.keySet().stream().sorted().toList();
+        if (handlers.size() > 1) {
+            return new RuntimeChangeImpactDto(
+                    AMBIGUOUS,
+                    "`" + asked + "` names " + handlers.size() + " handler methods: name one of them.",
+                    asked,
+                    null,
+                    handlers.stream()
+                            .limit(RuntimeChangeImpactDto.MAX_ROWS)
+                            .map(handler -> new MappedMethod(handler + "#" + method.name(), List.of()).label())
+                            .toList(),
+                    0,
+                    List.of(),
+                    0,
+                    List.of(),
+                    0,
+                    List.of(),
+                    0,
+                    List.of());
+        }
+        String handler = handlers.get(0);
+        return resolved(
+                asked,
+                model,
+                structure,
+                null,
+                new MappedMethod(handler + "#" + method.name(), routesByHandler.get(handler)),
+                entries,
+                visible,
+                omitted);
+    }
+
+    /**
+     * A method symbol, such as {@code ProductController#list}, {@code com.example.ProductController#list(Pageable)}, or
+     * a candidate's {@code METHOD com.example.ProductController#list}.
+     *
+     * @param type the class as asked, fully qualified or simple
+     * @param name the method's name; parameter types are not compared
+     */
+    private record HandlerMethod(String type, String name) {
+
+        static final String KIND = "METHOD";
+
+        /** The method {@code symbol} names, or {@code null} when it does not name one. */
+        static HandlerMethod parse(String symbol) {
+            String text = symbol.startsWith(KIND + " ")
+                    ? symbol.substring(KIND.length() + 1).strip()
+                    : symbol;
+            int hash = text.indexOf('#');
+            if (hash <= 0 || text.indexOf('#', hash + 1) >= 0) {
+                return null;
+            }
+            String type = text.substring(0, hash);
+            String name = text.substring(hash + 1);
+            int parenthesis = name.indexOf('(');
+            if (parenthesis >= 0) {
+                if (!name.endsWith(")")) {
+                    return null;
+                }
+                name = name.substring(0, parenthesis);
+            }
+            return javaName(type) && javaName(name) && !name.contains(".") ? new HandlerMethod(type, name) : null;
+        }
+
+        boolean handles(StructureSnapshot.RouteHandler route) {
+            String handler = route.handlerClass();
+            return handler != null
+                    && name.equals(route.handlerMethod())
+                    && (handler.equals(type)
+                            || handler.replace('$', '.').equals(type)
+                            || simpleName(handler).equals(type));
+        }
+
+        private static boolean javaName(String text) {
+            if (text.isEmpty()) {
+                return false;
+            }
+            for (String part : text.split("\\.", -1)) {
+                if (part.isEmpty() || !Character.isJavaIdentifierStart(part.charAt(0))) {
+                    return false;
+                }
+                for (int i = 1; i < part.length(); i++) {
+                    if (!Character.isJavaIdentifierPart(part.charAt(i))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    /**
+     * A handler method resolved to its class and the routes mapped to it.
+     *
+     * @param handler its fully qualified class and name, such as {@code com.example.ProductController#list}
+     * @param routes the labels of the routes mapped to it
+     */
+    private record MappedMethod(String handler, List<String> routes) {
+
+        String label() {
+            return HandlerMethod.KIND + " " + handler;
+        }
+
+        /** The model's nodes for its routes, each one step from the method, as a closure would give them. */
+        Map<Integer, Integer> reach(RuntimeModel model) {
+            Map<Integer, Integer> reach = new HashMap<>();
+            for (String route : routes) {
+                model.node(NodeType.ROUTE, route)
+                        .or(() -> model.node(NodeType.GRAPHQL_OPERATION, route))
+                        .ifPresent(node -> reach.put(node.id(), 1));
+            }
+            return reach;
+        }
     }
 
     private static List<ModelNode> candidates(RuntimeModel model, StructureSnapshot structure, String symbol) {
@@ -319,7 +544,16 @@ public final class ChangeImpactService {
                     List.of(),
                     0);
         }
-        RuntimeModel model = models.model();
+        Map<String, Boolean> visible = visibility();
+        if (!visible.getOrDefault(BootUiPanels.HTTP_EXCHANGES, false)) {
+            return new RuntimeImpactSymbolsDto(
+                    false,
+                    "The HTTP Exchanges panel is disabled, so route traffic is unavailable.",
+                    asked,
+                    List.of(),
+                    0);
+        }
+        RuntimeModel model = models.model(visible);
         Map<String, String> types = beanTypes(models.structure());
         String wanted = asked.toLowerCase(Locale.ROOT);
         record Match(ModelNode node, String type, int rank) {}
@@ -402,7 +636,8 @@ public final class ChangeImpactService {
             Map<String, RouteStats> stats,
             Map<String, List<String>> exemplars,
             List<String> shared,
-            String check) {
+            String check,
+            Map<String, Boolean> visible) {
         RouteStats route = stats.get(node.key());
         List<String> reads = new ArrayList<>();
         List<String> writes = new ArrayList<>();
@@ -417,7 +652,9 @@ public final class ChangeImpactService {
         return new RuntimeImpactRouteDto(
                 node.key(),
                 route == null ? model.executions(node.id()) : route.requests(),
-                route == null ? 0 : route.authorization().anonymous(),
+                route == null || !visible.getOrDefault(BootUiPanels.SECURITY_LOGS, false)
+                        ? 0
+                        : route.authorization().anonymous(),
                 route == null ? 0 : route.statusClasses().get(4),
                 exemplars.getOrDefault(node.key(), List.of()),
                 reads,
@@ -427,7 +664,7 @@ public final class ChangeImpactService {
     }
 
     /** Up to three of each route's most recent retained requests. */
-    private Map<String, List<String>> exemplars() {
+    private Map<String, List<String>> exemplars(List<JournalEntry> visibleEntries) {
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -435,7 +672,7 @@ public final class ChangeImpactService {
             resolver = RouteTemplateResolver.empty();
         }
         Map<String, Deque<String>> recent = new HashMap<>();
-        List<JournalEntry> entries = new ArrayList<>(journal.entries());
+        List<JournalEntry> entries = new ArrayList<>(visibleEntries);
         entries.sort(Comparator.comparingLong(JournalEntry::sequence));
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
@@ -453,6 +690,57 @@ public final class ChangeImpactService {
         Map<String, List<String>> exemplars = new HashMap<>();
         recent.forEach((route, ids) -> exemplars.put(route, List.copyOf(ids)));
         return exemplars;
+    }
+
+    private Map<String, Boolean> visibility() {
+        Map<String, Boolean> visible = new LinkedHashMap<>();
+        for (String panel : JournalSourcePanels.owningPanels()) {
+            boolean enabled;
+            try {
+                enabled = panelEnabled.test(panel);
+            } catch (RuntimeException ex) {
+                enabled = false;
+            }
+            visible.put(panel, enabled);
+        }
+        return visible;
+    }
+
+    private static List<JournalEntry> visibleEntries(List<JournalEntry> entries, Map<String, Boolean> visible) {
+        return VisibleJournalEntries.of(entries, event -> {
+            String panel = JournalSourcePanels.panelOf(event);
+            return panel == null || visible.getOrDefault(panel, false);
+        });
+    }
+
+    private Set<String> omittedEvidence(List<JournalEntry> entries, Map<String, Boolean> visible) {
+        Set<String> omitted = new LinkedHashSet<>();
+        for (JournalEntry entry : entries) {
+            if (!IMPACT_SOURCES.contains(entry.event().source())) {
+                continue;
+            }
+            String panel = JournalSourcePanels.panelOf(entry.event());
+            if (panel != null && !visible.getOrDefault(panel, false)) {
+                omitted.add(panel);
+            }
+        }
+        if (!visible.getOrDefault(BootUiPanels.SECURITY_LOGS, false)
+                && aggregates.snapshot().routes().stream()
+                        .anyMatch(route -> route.authorization().decided() > 0)) {
+            omitted.add(BootUiPanels.SECURITY_LOGS);
+        }
+        return omitted;
+    }
+
+    private static List<String> limitations(RuntimeModel model, Set<String> omitted) {
+        List<String> limits = new ArrayList<>(model.limitations());
+        for (String panel : JournalSourcePanels.owningPanels()) {
+            if (omitted.contains(panel)) {
+                limits.add(
+                        "The " + panel + " panel is disabled, so its journal evidence is left out of change impact.");
+            }
+        }
+        return limits;
     }
 
     private static List<RuntimeImpactRouteDto> capped(List<RuntimeImpactRouteDto> rows) {

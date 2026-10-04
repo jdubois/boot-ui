@@ -22,6 +22,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
   top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
 
+- **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
+  messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
+  after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
+  source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
+  undetermined, and disabled-source limitations appear only when relevant evidence was recorded
+  ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
+
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
   examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
   Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
@@ -39,6 +46,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Insights by "what changed", "impact", and "compare", Live Activity's runtime-journal feed gains a **Run id** filter,
   and the request drawer no longer shows or copies the previous row's profile when a second row is opened while the
   first is still loading.
+
 - **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
   this application cannot serve, such as Security Logs on a Quarkus application without
   `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled
