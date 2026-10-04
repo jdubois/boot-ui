@@ -333,7 +333,16 @@ they never ran. From the next run on, they are tracked from the start.
 **Class loads.** A second transformer, which never changes a class, counts the classes each code source (a jar or a
 class directory, keyed by its location) defines in this run, with the time of its first class and, for that first
 class, the route that loaded it. Classes already loaded when the sensor installs are counted once, as loaded before the
-claim; redefinitions are ignored; and classes BootUI loads for its own scans and checks are not counted.
+claim; redefinitions are ignored; and classes BootUI loads for its own scans and checks are not counted. The recorder is
+added before it walks the classes already loaded, and walks them twice, so no class defined meanwhile goes unseen; a
+recorder removed and added again walks them again.
+
+**Class names.** For the Vulnerabilities panel's [runtime reach](advisors.md#runtime-reach), each jar also keeps a
+bounded set of 64-bit hashes of the class names it defined, with the run of each class's last load and whether BootUI's
+own work loaded it: 8,192 names per jar and 65,536 in all, past which the jar's dropped names are counted. Lock-free and
+of JDK types only, it pins no class loader. The bridge also reports the recorder's state and the packages of classes
+defined without a code-source location (generated proxies and mocks aside), which keep reach from saying a dependency
+did not load.
 
 **Self-test.** The sensor installs once, off the claiming thread, then calls a bundled probe class whose advice must
 reach the bridge. A failure stops only this sensor at once, then removes its transformers; if the JVM refuses that, it

@@ -326,7 +326,8 @@ public final class DependencyReports {
                 updatedScan,
                 report.coverage(),
                 marked,
-                report.evidence());
+                report.evidence(),
+                report.runtimeReach());
     }
 
     private static DependencyDto markDismissals(DependencyDto dependency, Set<String> dismissedIds) {
@@ -346,7 +347,8 @@ public final class DependencyReports {
                 (int) activeCount,
                 highestSeverity(markedVulnerabilities),
                 markedVulnerabilities,
-                dependency.assessment());
+                dependency.assessment(),
+                dependency.runtimeReach());
     }
 
     /**
@@ -517,7 +519,8 @@ public final class DependencyReports {
                 dependency.vulnerabilityCount(),
                 dependency.highestSeverity(),
                 updated,
-                dependency.assessment());
+                dependency.assessment(),
+                dependency.runtimeReach());
     }
 
     private static DependencyVulnerabilityDto applyEpssScore(

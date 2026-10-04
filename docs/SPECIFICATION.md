@@ -1065,6 +1065,22 @@ Features:
 - Preserve DTO fields and `advisoryId::packageName` dismissal keys, independent of installed version. Count advisory
   occurrences per dependency, not unique CVEs; alias-cluster merging is deferred. REST, MCP, and CLI use the same
   interpretation and unchanged names/arguments. Shared local-only/Host/cross-site-write/read-only policy is unchanged.
+- Normalize each advisory to the classes or methods it names (`advisorySymbols`, Java binary names, at most 20) with
+  their provenance (`advisorySymbolSource`): `OSV` from the matching `affected[]` entries' `ecosystem_specific` or
+  `database_specific` `imports[].symbols`, `affected_functions`, or `symbols`; else `ADVISORY_TEXT` from fully qualified
+  class names in the summary and details; else an explicit `NONE`.
+- Runtime reach (PLAN-v2 §5.15, M5-9a): with the BootUI agent's `inventory` sensor recording this run, both
+  `GET {api}/vulnerabilities` and `POST {api}/vulnerabilities/scan`, and so `get_vulnerabilities_report` and
+  `vulnerabilities_scan`, carry `runtimeReach` on the report (`available`, `unavailableReason`, `generation`, `note`,
+  and `incompleteReason`, said once when no dependency can be shown as not loaded),
+  on each dependency, and on each advisory (`status`, `reason`, `classesLoaded` in this run, `classesLoadedTotal` in this
+  JVM, `loadedThisRun`, `firstRoute`, `loadedClasses`). Reach is read when answered, from the agent's in-memory
+  class-load evidence and never with the cached scan, and only while the Code Inventory panel, whose evidence it is, is
+  enabled; otherwise `available` is false with the reason and rows carry `null`. Statuses: `AFFECTED_CLASS_LOADED` (a
+  class the advisory names loaded from the dependency's own jar), `LOADED`, `NOT_LOADED` (no class of the jar loaded in
+  this JVM, said only when the evidence could have shown a load), and `UNKNOWN` with its reason. `firstRoute` is HTTP
+  Exchanges evidence, omitted while that panel is not visible. The UI adds a **Runtime reach** column and filter only
+  when `available` is true.
 
 Acceptance criteria:
 
@@ -1082,6 +1098,14 @@ Acceptance criteria:
 - An unreadable Spring `pom.properties` resource, a malformed or unreadable SBOM, and an unreadable classpath archive
   are each logged and skipped without discarding entries that did resolve; Quarkus continues to use its build-time
   resolved runtime dependency model and fails soft on malformed entries.
+- The panel's and the Scorecard's scores, severities, counts, evidence, and penalties are identical with the BootUI
+  agent on and off: runtime reach only adds `runtimeReach` fields.
+- An unknown runtime reach never reads as `NOT_LOADED`: without the agent's class-name evidence, with its class-load
+  recorder not running or not done walking the loaded classes, with code sources past its limit, when the dependency's
+  jar was not found or holds no classes, when a class of one of its jar's packages was defined without a code-source
+  location, or with a loaded jar that may be the dependency (no Maven metadata and the artifact in its file name, or
+  shaded coordinates naming it), reach is `UNKNOWN`, as it is for web-resource jars and artifacts whose classes the agent
+  never records.
 
 Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous

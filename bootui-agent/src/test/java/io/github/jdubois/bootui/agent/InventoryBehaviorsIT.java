@@ -50,7 +50,8 @@ class InventoryBehaviorsIT {
             "a jar whose class loads is counted",
             "a jar's first class load carries its request",
             "a jar no class loads from is absent",
-            "classes BootUI's own work loads are not counted",
+            "the class-load recorder walked the loaded classes and keeps a jar's class names",
+            "classes BootUI's own work loads are not counted, but their names are kept as BootUI's",
             "a capture that loads a class and runs an instrumented method never recurses",
             "a new claim generation resets executed",
             "a class instrumented before its run started is not late in it",
@@ -62,6 +63,8 @@ class InventoryBehaviorsIT {
             "after a narrower claim and its refine, both copies run but only the current loader marks execution",
             "release restores the classes",
             "release restores the classes of packages refined before a narrower claim, in every class loader",
+            "a restarted recorder walks the loaded classes again, so a class loaded while it was off is known and counted",
+            "a removed recorder says so, so no jar reads as not loaded",
             "a claim without the inventory sensor removes its advice");
 
     @Test

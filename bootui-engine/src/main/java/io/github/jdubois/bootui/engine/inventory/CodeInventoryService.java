@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.core.dto.CodeInventoryPackageDto;
 import io.github.jdubois.bootui.core.dto.CodeInventoryReport;
 import io.github.jdubois.bootui.core.dto.CodeInventoryRunDto;
 import io.github.jdubois.bootui.core.dto.CodeInventoryScanDto;
+import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.engine.inventory.ClassFileHasher.MethodHash;
@@ -309,6 +310,14 @@ public final class CodeInventoryService implements AutoCloseable {
         }
     }
 
+    /** The roots the current run's scan read, for tests. */
+    List<String> scanResultForTests() {
+        synchronized (lock) {
+            ClassScanner.Result result = run == null ? null : run.scan.result();
+            return result == null ? List.of() : result.roots();
+        }
+    }
+
     /** Waits for the current run's scan, for tests. */
     void awaitScan() throws InterruptedException {
         Thread thread;
@@ -571,6 +580,65 @@ public final class CodeInventoryService implements AutoCloseable {
         List<CodeInventoryMethodDto> page = rows.subList(0, Math.min(max, rows.size()));
         return new CodeInventoryAgentReport(
                 summary, viewName, query, page, List.of(), rows.size(), rows.size() - page.size());
+    }
+
+    /**
+     * {@code report} with each dependency's and advisory's runtime reach ({@link VulnerabilityReach}), read from this
+     * run's code sources and the bridge's class-name evidence without building the method view; with the reason, and no
+     * reach, when the inventory sensor does not record this run. Every other field is unchanged. Never throws.
+     */
+    public DependenciesReport withRuntimeReach(DependenciesReport report) {
+        if (report == null) {
+            return null;
+        }
+        try {
+            // The Code Inventory panel owns this evidence, and HTTP Exchanges the first routes (PLAN-v2 §8, M5-11).
+            AgentEvidence.Read read = read();
+            String reason = readReason(read);
+            if (reason != null) {
+                return VulnerabilityReach.unavailable(report, reason);
+            }
+            start();
+            Run current;
+            synchronized (lock) {
+                current = run;
+            }
+            if (current == null) {
+                return VulnerabilityReach.unavailable(report, unavailableNow());
+            }
+            if (current.drainer != null) {
+                current.drainer.drainNow();
+            }
+            Set<String> roots = new HashSet<>();
+            ClassScanner.Result scanned = current.scan.result();
+            if (scanned != null) {
+                for (String root : scanned.roots()) {
+                    roots.add(canonical(root));
+                }
+            }
+            boolean routes = read.requests();
+            // Reading jars may load classes (a nested jar's URL handler): BootUI's own work, not the application's.
+            boolean previous = access.bootUiWork(true);
+            try {
+                return new VulnerabilityReach(
+                                access,
+                                current.generation,
+                                current.records,
+                                routes,
+                                ids -> routesOf(current, ids),
+                                access.codeSources(),
+                                access.classEvidence(),
+                                roots,
+                                current.claim.claimedPackages(),
+                                Archives.of(loader.get()))
+                        .annotate(report);
+            } finally {
+                access.bootUiWork(previous);
+            }
+        } catch (RuntimeException ex) {
+            return VulnerabilityReach.unavailable(
+                    report, "Runtime reach could not be read: " + ex.getClass().getSimpleName() + ".");
+        }
     }
 
     /**
@@ -1384,7 +1452,12 @@ public final class CodeInventoryService implements AutoCloseable {
             rows.add(row(current, dependency, source, ready));
         }
         for (Source source : seen) {
-            if (!matched.contains(source) && !source.identity().directory()) {
+            // A jar only BootUI's own work loaded classes from is no dependency the application used.
+            if (!matched.contains(source)
+                    && !source.identity().directory()
+                    && longValue(source.counters().get("total"))
+                                    + longValue(source.counters().get("beforeClaim"))
+                            > 0) {
                 rows.add(row(current, null, source, ready));
             }
         }

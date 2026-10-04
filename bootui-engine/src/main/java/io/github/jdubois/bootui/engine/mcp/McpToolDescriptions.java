@@ -252,7 +252,10 @@ public final class McpToolDescriptions {
                             + "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
                             + "`coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results "
                             + "retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the "
-                            + "inventory provider's accounting, not shaded-library discovery or exploitability."),
+                            + "inventory provider's accounting, not shaded-library discovery or exploitability. With the "
+                            + "BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory "
+                            + "names, loaded in this JVM: a prioritization hint that never changes severity, and "
+                            + "NOT_LOADED means not loaded yet, not unreachable."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "

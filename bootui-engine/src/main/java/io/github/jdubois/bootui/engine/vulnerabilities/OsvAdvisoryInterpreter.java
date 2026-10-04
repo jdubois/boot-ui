@@ -40,12 +40,27 @@ public final class OsvAdvisoryInterpreter {
         }
     }
 
+    /**
+     * One {@code affected[]} entry; {@code symbols} are the raw class or method symbols its {@code ecosystem_specific}
+     * or {@code database_specific} fields name, normalized by {@link AdvisorySymbols}.
+     */
     public record Affected(
-            String ecosystem, String name, List<String> versions, List<Range> ranges, List<Severity> severity) {
+            String ecosystem,
+            String name,
+            List<String> versions,
+            List<Range> ranges,
+            List<Severity> severity,
+            List<String> symbols) {
         public Affected {
             versions = snapshot(versions);
             ranges = snapshot(ranges);
             severity = snapshot(severity);
+            symbols = snapshot(symbols);
+        }
+
+        public Affected(
+                String ecosystem, String name, List<String> versions, List<Range> ranges, List<Severity> severity) {
+            this(ecosystem, name, versions, ranges, severity, List.of());
         }
     }
 
@@ -56,9 +71,20 @@ public final class OsvAdvisoryInterpreter {
      * marks a known malicious-package advisory, which removing the package, not upgrading it, remediates.
      */
     public record Result(
-            String severity, Double cvssScore, List<String> fixedVersions, boolean unresolved, boolean malicious) {
+            String severity,
+            Double cvssScore,
+            List<String> fixedVersions,
+            boolean unresolved,
+            boolean malicious,
+            List<String> symbols) {
         public Result {
             fixedVersions = List.copyOf(fixedVersions);
+            symbols = snapshot(symbols);
+        }
+
+        public Result(
+                String severity, Double cvssScore, List<String> fixedVersions, boolean unresolved, boolean malicious) {
+            this(severity, cvssScore, fixedVersions, unresolved, malicious, List.of());
         }
     }
 
@@ -109,6 +135,14 @@ public final class OsvAdvisoryInterpreter {
             }
         }
 
+        List<String> symbols = new ArrayList<>();
+        for (Entry entry : matching) {
+            for (String symbol : entry.affected.symbols()) {
+                if (symbol != null) {
+                    symbols.add(symbol);
+                }
+            }
+        }
         boolean applicable = false;
         boolean unresolved = unknownIdentity;
         boolean packageSeveritySupplied = false;
@@ -153,7 +187,7 @@ public final class OsvAdvisoryInterpreter {
         List<String> fixedVersions = DependencyReports.orderFixedVersions(verified, 10);
         if (maliciousPackage(advisoryId)) {
             // A synthesized CRITICAL must not sit beside a contradictory computed score.
-            return new Result("CRITICAL", null, fixedVersions, unresolved, true);
+            return new Result("CRITICAL", null, fixedVersions, unresolved, true, symbols);
         }
         return new Result(
                 score == null
@@ -162,7 +196,8 @@ public final class OsvAdvisoryInterpreter {
                 score,
                 fixedVersions,
                 unresolved,
-                false);
+                false,
+                symbols);
     }
 
     private enum Applicability {
