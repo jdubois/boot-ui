@@ -39,12 +39,13 @@ class RuntimeModelProjectionTests {
                 "/api/orders",
                 child(JournalSource.SQL, sql("insert into orders values (?)")),
                 child(JournalSource.MESSAGING, new MessagingPayload("kafka", true, "orders.created", false, null)));
-        journal.request("POST", "/graphql", "query Products", "trace-1");
-        journal.event(
+        journal.requestAt("POST", "/graphql", "query Products", "trace-1", 3_000, 50_000_000);
+        journal.eventAt(
                 JournalSource.AI,
                 null,
                 null,
                 "trace-1",
+                3_020,
                 new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false));
         journal.job("ReportJob.run", child(JournalSource.SQL, sql("select count(*) from orders")));
         journal.event(

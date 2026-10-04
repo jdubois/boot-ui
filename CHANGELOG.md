@@ -23,6 +23,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
   tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
 
+- **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
+  when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
+  say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
+  default agent list includes latency rows and omits only an insufficient repeated SELECT under 50 ms of summed
+  measured time that ran fewer than 10 times in any one request; a limitation names how many were left out, and
+  `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
+  evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
+  parent result size was not recorded.
 - **Runtime journal and persisted Live Activity bounds.** Oversized evidence no longer exceeds the configured
   byte budget; SQL events identify their named data source even with connection recording
   off; per-request SELECT tracking is capped and uses the same literal-free fingerprints for live and persisted N+1
@@ -43,20 +51,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
   header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
   security-headers response wrapper is now synchronized and drops identical repeated baseline values.
-
 - **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
   messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
   after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
   source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
   undetermined, and disabled-source limitations appear only when relevant evidence was recorded
   ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
-
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
   examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
   Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
   unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
   requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
-
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
@@ -455,6 +460,16 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Late runtime-journal events keep their request attribution.** AI exports, managed-executor work, SQL, exceptions,
+  connection releases, authorization decisions, and ORM sessions that finish after the HTTP response now update the
+  completed request's route aggregates without counting the request twice. The completed-request attribution ledger is
+  bounded and reports expiry explicitly. The application's own GenAI spans imported through the OTLP receiver now
+  reach the journal even though the receiver runs as BootUI work, while BootUI's own traces and other services' spans
+  in the aggregator topology stay out. Trace-only AI edges now use the same unique request-window rule as Live Activity
+  and request profiles, including events received before their HTTP anchor and ambiguous traces shared by overlapping
+  requests; a call that no request of its trace spans is counted apart and is not reported as a comparison limitation
+  ([#1235](https://github.com/jdubois/boot-ui/pull/1235);
+  PLAN-v2 M2-2, M3-3c, M3-9, M4-1).
 - **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
   stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
   removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim

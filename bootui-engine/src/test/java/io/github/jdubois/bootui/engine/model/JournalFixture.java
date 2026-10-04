@@ -22,6 +22,17 @@ final class JournalFixture {
     }
 
     String request(String method, String template, String operation, String traceId, Child... children) {
+        return requestAt(method, template, operation, traceId, 1_000L * (requests + 1), 1, children);
+    }
+
+    String requestAt(
+            String method,
+            String template,
+            String operation,
+            String traceId,
+            long epochMillis,
+            long durationNanos,
+            Child... children) {
         String requestId = "r" + (++requests);
         for (Child child : children) {
             add(new RuntimeEvent(
@@ -29,8 +40,8 @@ final class JournalFixture {
         }
         add(new RuntimeEvent(
                 JournalSource.HTTP,
-                1_000L * requests,
-                1,
+                epochMillis,
+                durationNanos,
                 requestId,
                 null,
                 traceId,
@@ -64,7 +75,17 @@ final class JournalFixture {
     /** An event of {@code source} owned by no request or execution, or by the given ids. */
     void event(
             JournalSource source, String requestId, String executionId, String traceId, RuntimeEventPayload payload) {
-        add(new RuntimeEvent(source, 5_000, 1, requestId, executionId, traceId, "t", null, false, payload));
+        eventAt(source, requestId, executionId, traceId, 5_000, payload);
+    }
+
+    void eventAt(
+            JournalSource source,
+            String requestId,
+            String executionId,
+            String traceId,
+            long epochMillis,
+            RuntimeEventPayload payload) {
+        add(new RuntimeEvent(source, epochMillis, 1, requestId, executionId, traceId, "t", null, false, payload));
     }
 
     List<JournalEntry> entries() {
