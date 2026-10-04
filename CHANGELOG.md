@@ -17,6 +17,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
+  against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
+  recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,
+  ambiguity-aware request attribution for route child counts, time, and tokens as for runtime-model edges, including
+  late-request reclaim without double counting (PLAN-v2 §5.2, M3-3c, M4-11).
+
 - **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
   pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
   `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own

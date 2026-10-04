@@ -18,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -411,6 +412,84 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void stampingAndOfferingAreAtomicWithClearingTheQueue() throws Exception {
+        CountDownLatch stamped = new CountDownLatch(1);
+        CountDownLatch releaseOffer = new CountDownLatch(1);
+        AtomicReference<Boolean> offered = new AtomicReference<>();
+        AtomicLong cleared = new AtomicLong(-1);
+        RuntimeJournal journal = new RuntimeJournal(
+                settings(100, 1_000_000, 100, 10, JournalSource.all()), RunIdentity.start(), false, () -> {
+                    stamped.countDown();
+                    try {
+                        releaseOffer.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+        journals.add(journal);
+
+        Thread offering = new Thread(() -> offered.set(journal.offer(sql(1, false))));
+        offering.start();
+        assertThat(stamped.await(5, TimeUnit.SECONDS)).isTrue();
+
+        Thread clearing = new Thread(() -> cleared.set(journal.offloadRetainedData()));
+        clearing.start();
+        while (clearing.getState() != Thread.State.WAITING && clearing.isAlive()) {
+            Thread.onSpinWait();
+        }
+        assertThat(clearing.isAlive())
+                .as("the clear waits for the offer's admission")
+                .isTrue();
+
+        releaseOffer.countDown();
+        offering.join(5_000);
+        clearing.join(5_000);
+
+        assertThat(offered.get()).isTrue();
+        assertThat(cleared.get()).isEqualTo(1);
+        assertThat(journal.status().queueDepth()).isZero();
+        assertThat(journal.status().dropped()).isEmpty();
+        journal.dispatchPending();
+        assertThat(journal.entries()).isEmpty();
+    }
+
+    @Test
+    void anOfferDuringListenerClearingUsesTheNewRecordingWithoutWaitingForTheListener() throws Exception {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        CountDownLatch clearingListener = new CountDownLatch(1);
+        CountDownLatch releaseListener = new CountDownLatch(1);
+        journal.addListener(new JournalListener() {
+            @Override
+            public void onEntries(List<JournalEntry> entries) {}
+
+            @Override
+            public void onClear() {
+                clearingListener.countDown();
+                try {
+                    releaseListener.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+
+        Thread clearing = new Thread(journal::clear);
+        clearing.start();
+        assertThat(clearingListener.await(5, TimeUnit.SECONDS)).isTrue();
+
+        CompletableFuture<Boolean> offered = CompletableFuture.supplyAsync(() -> journal.offer(sql(1, false)));
+        assertThat(offered.get(1, TimeUnit.SECONDS)).isTrue();
+        releaseListener.countDown();
+        clearing.join(5_000);
+        journal.dispatchPending();
+
+        assertThat(journal.entries())
+                .singleElement()
+                .extracting(entry -> entry.event().epochMillis())
+                .isEqualTo(1_001L);
+    }
+
+    @Test
     void anEventTheDispatcherTookAsTheRecordingWasClearedIsNotRecorded() throws Exception {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), true);
         CountDownLatch blocked = new CountDownLatch(1);
@@ -440,6 +519,9 @@ class RuntimeJournalTests {
         assertThat(journal.awaitDrained(java.time.Duration.ofSeconds(5))).isTrue();
         assertThat(journal.entries())
                 .as("offered before the clear, so cleared with it")
+                .isEmpty();
+        assertThat(journal.status().dropped())
+                .as("a user clear is not queue-pressure loss")
                 .isEmpty();
     }
 

@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.StampedLock;
 
 /**
  * The runtime journal of one application run ({@code docs/PLAN-v2.md} §5.2): every runtime event recorded once, in a
@@ -80,12 +81,16 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final Runnable beforeQueueOffer;
 
     /**
      * Serializes processing a batch with clearing the recording, so a batch is either processed before the clear, and
      * cleared with everything else, or not at all.
      */
     private final Object processing = new Object();
+
+    /** Makes stamping and offering atomic with the clear's generation change and queue drain. */
+    private final StampedLock admission = new StampedLock();
 
     /** How many times the recording was cleared, so the dispatcher drops an event it took before a clear. */
     private volatile long clears;
@@ -98,12 +103,18 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** A journal whose dispatcher starts now, when {@code settings} enable it. */
     public RuntimeJournal(RuntimeJournalSettings settings, RunIdentity run) {
-        this(settings, run, true);
+        this(settings, run, true, null);
     }
 
     RuntimeJournal(RuntimeJournalSettings settings, RunIdentity run, boolean startDispatcher) {
+        this(settings, run, startDispatcher, null);
+    }
+
+    RuntimeJournal(
+            RuntimeJournalSettings settings, RunIdentity run, boolean startDispatcher, Runnable beforeQueueOffer) {
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
         this.run = Objects.requireNonNull(run, "run must not be null");
+        this.beforeQueueOffer = beforeQueueOffer;
         this.queue = new ArrayBlockingQueue<>(settings.enabled() ? settings.queueCapacity() : 1);
         this.routineQueueLimit = settings.routineQueueLimit();
         this.dictionary =
@@ -161,10 +172,20 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         int source = event.source().ordinal();
         try {
             event = withThreadKind(event);
-            if ((event.failedOrSlow() || queue.size() < routineQueueLimit) && queue.offer(new Queued(event, clears))) {
-                accepted[source].increment();
-                acceptedTotal.increment();
-                return true;
+            long stamp = admission.readLock();
+            try {
+                long generation = clears;
+                if (beforeQueueOffer != null) {
+                    beforeQueueOffer.run();
+                }
+                if ((event.failedOrSlow() || queue.size() < routineQueueLimit)
+                        && queue.offer(new Queued(event, generation))) {
+                    accepted[source].increment();
+                    acceptedTotal.increment();
+                    return true;
+                }
+            } finally {
+                admission.unlockRead(stamp);
             }
         } catch (RuntimeException ex) {
             // Fall through: the event is dropped and counted, never propagated to the application.
@@ -466,9 +487,14 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
     private long clearAndCount() {
         synchronized (processing) {
-            clears++;
             List<Queued> queued = new ArrayList<>();
-            queue.drainTo(queued);
+            long stamp = admission.writeLock();
+            try {
+                clears++;
+                queue.drainTo(queued);
+            } finally {
+                admission.unlockWrite(stamp);
+            }
             processed.addAndGet(queued.size());
             long dropped = ring.counts().retained() + queued.size();
             ring.clear();
