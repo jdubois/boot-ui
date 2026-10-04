@@ -340,10 +340,13 @@ public final class CodePathsBehaviors {
         Class<?> type = Class.forName(tight);
         Object instance = type.getConstructor().newInstance();
         String key = tight + "#tight()I";
+        // Tracked is set while the retry retransforms the class, before the JVM installs its new code: wait for the
+        // retry job to finish too.
         boolean tracked = false;
         for (int i = 0; i < 400 && !tracked; i++) {
             Thread.sleep(25);
-            tracked = tracking(key) == CodeInventory.TRACKED;
+            tracked = tracking(key) == CodeInventory.TRACKED
+                    && Boolean.TRUE.equals(sensor("inventory").get("idle"));
         }
         drain();
         CONTEXT.set(new String[] {REQUEST, null});
