@@ -93,10 +93,13 @@ jobs:
           CURRENT_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
 
           # Versions advance within the source branch's major, so a maintained older major can
-          # still ship patches after a newer major exists. The policy script owns the arithmetic
+          # still ship patches after a newer major exists, and only within the branch's release
+          # line: `main` after `v2` merges still carries a 1.x project version but releases 2.x only,
+          # and a 1.x maintenance branch never opens 2.0.0. The policy script owns the arithmetic
           # and is unit-tested by .github/scripts/test_release_version_policy.py.
+          RELEASE_LINE="$(bash .github/scripts/release-version-policy.sh line-major "$CURRENT_VERSION" .github/release-line)"
           git tag --list 'v*' |
-            bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION"
+            bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"
 
           if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
             echo "::error::Preparing a release requires running this workflow from a branch, not $GITHUB_REF_TYPE"
@@ -353,6 +356,14 @@ jobs:
 
          if [[ "$(git rev-parse "refs/tags/$RELEASE_TAG^{}")" != "$RELEASE_SHA" ]]; then
            echo "::error::Release tag $RELEASE_TAG no longer resolves to $RELEASE_SHA"
+           exit 1
+         fi
+
+         # Whatever triggered this run, a tag push included, the tagged contents must belong to the
+         # version's own release line, so 2.x contents never publish under a 1.x coordinate.
+         TAGGED_RELEASE_LINE="$(bash .github/scripts/release-version-policy.sh line-major "$VERSION" .github/release-line)"
+         if [[ "$TAGGED_RELEASE_LINE" != "${VERSION%%.*}" ]]; then
+           echo "::error::$RELEASE_TAG's contents declare release line $TAGGED_RELEASE_LINE in .github/release-line, not ${VERSION%%.*}"
            exit 1
          fi
 
