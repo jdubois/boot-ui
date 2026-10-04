@@ -36,6 +36,7 @@ public final class ChildMain {
             case "status" -> status();
             case "probe" -> probe();
             case "claim-only" -> claimOnly();
+            case "self-test" -> selfTest(args[1]);
             case "mockito" -> mockito();
             case "behaviors" -> Behaviors.main(new String[] {"agent"});
             case "thread-behaviors" -> ThreadBehaviors.main(new String[0]);
@@ -55,6 +56,79 @@ public final class ChildMain {
     }
 
     /** Claims, waits, and prints the status: the published jar must install nothing. */
+    /**
+     * Claims with {@code sensors} (comma-separated), waits for each sensor's self-test, and prints each sensor's
+     * status, the bridge's executor counters, and which apply hook ran a {@code supplyAsync} and a {@code runAsync}
+     * task on a pool.
+     */
+    @SuppressWarnings("unchecked")
+    static void selfTest(String sensors) throws Exception {
+        Class<?> bridge = bridge();
+        ThreadLocal<String> context = new ThreadLocal<>();
+        java.util.List<String> applied = new java.util.concurrent.CopyOnWriteArrayList<>();
+        Supplier<Object> capture = () -> context.get() == null
+                ? null
+                : new Object[] {
+                    context.get(), null, null, null, null, null, null, System.currentTimeMillis(), System.nanoTime()
+                };
+        Function<Object, AutoCloseable> reopen = argument -> {
+            Object[] call = (Object[]) argument;
+            applied.add(((Object[]) call[0])[0] + " " + call[2]);
+            return () -> {};
+        };
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("application", "self-test");
+        request.put("mode", "dev");
+        request.put("packages", List.of("bootuiagentit"));
+        request.put("sensors", List.of(sensors.split(",")));
+        bridge.getMethod("claim", Map.class, Supplier.class, Function.class).invoke(null, request, capture, reopen);
+        List<Object> reported = List.of();
+        for (int i = 0; i < 400; i++) {
+            Map<String, Object> agent = (Map<String, Object>)
+                    ((Map<String, Object>) bridge.getMethod("status").invoke(null)).get("agent");
+            reported = agent == null ? List.of() : (List<Object>) agent.get("sensors");
+            boolean done = reported.size() == request.get("sensors").toString().split(",").length;
+            for (Object sensor : reported) {
+                done &= selfTested((Map<String, Object>) sensor);
+            }
+            if (done) {
+                break;
+            }
+            Thread.sleep(25);
+        }
+        // The verdicts are published just before the flags they set.
+        Thread.sleep(200);
+        for (Object sensor : reported) {
+            Map<String, Object> map = (Map<String, Object>) sensor;
+            System.out.println("SENSOR_" + map.get("id") + "=" + map);
+        }
+        // Started after the claim: a worker already looping keeps running the runWorker it entered before it.
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(1);
+        pool.submit(() -> {}).get();
+        context.set("request-1");
+        java.util.concurrent.CompletableFuture.supplyAsync(() -> "value", pool).get();
+        java.util.concurrent.CompletableFuture.runAsync(() -> {}, pool).get();
+        context.remove();
+        pool.shutdown();
+        System.out.println("APPLIED=" + applied);
+        Map<String, Object> status =
+                (Map<String, Object>) bridge.getMethod("status").invoke(null);
+        System.out.println("EXECUTORS=" + status.get("executors"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean selfTested(Map<String, Object> sensor) {
+        if (String.valueOf(sensor.get("state")).contains("failed")) {
+            return true;
+        }
+        for (Object hook : (List<Object>) sensor.get("hooks")) {
+            if (!"not-run".equals(((Map<String, Object>) hook).get("selfTest"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void claimOnly() throws Exception {
         Class<?> bridge = bridge();
         Object marker = new Object();

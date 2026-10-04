@@ -21,6 +21,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
   top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
+- **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
+  `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
+  are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
+  sensor is active for this application's claim, and the `PROPAGATED` tier is withheld when the claim does not use
+  `executors`. Sensors report their install, self-test, and cumulative install-and-release times; the **Class transformation** card
+  sums them across every sensor. A request profile never attributes work at a tier it reports unavailable, and the
+  `JAVA_TOOL_OPTIONS` snippet quotes a jar path that contains spaces
+  ([Java Agent](docs/features/java-agent.md), PLAN-v2 §5.13).
 
 - **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
   header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The

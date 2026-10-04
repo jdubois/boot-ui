@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableScheduledFuture;
@@ -364,7 +365,7 @@ class TaskPropagationTests {
 
         Map<String, Object> result = TaskPropagation.endSelfTest();
 
-        assertThat(keyedOnly.get("keyed").toString()).contains("ThreadPoolExecutor=1");
+        assertThat(keyedOnly.get("keyed").toString()).contains("ThreadPoolExecutor.addWorker=1");
         assertThat(result.get("applied").toString()).contains("ThreadPoolExecutor.runWorker=1");
         assertThat(reopened).isEmpty();
     }
@@ -385,8 +386,116 @@ class TaskPropagationTests {
     }
 
     @Test
-    void asyncTasksAreLeftToTheirOwnAdvice() {
-        assertThat(TaskPropagation.isAsyncTask(new Object())).isFalse();
+    void eachCompletableFutureTaskClassHasItsOwnApplyHook() {
+        assertThat(TaskPropagation.asyncHook(new Object())).isEqualTo(-1);
+        assertThat(TaskPropagation.asyncHook(asyncSupply())).isEqualTo(TaskPropagation.APPLY_ASYNC_SUPPLY);
+        assertThat(TaskPropagation.asyncHook(asyncRun())).isEqualTo(TaskPropagation.APPLY_ASYNC_RUN);
+    }
+
+    @Test
+    void aSelfTestAsyncTaskIsLeftByThePoolForItsOwnHookToCount() {
+        Runnable task = asyncSupply();
+        TaskPropagation.beginSelfTest();
+        TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL);
+
+        Object deferred = TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER);
+        Object own = TaskPropagation.enter(task, TaskPropagation.APPLY_ASYNC_SUPPLY);
+        TaskPropagation.exit(own, null);
+        TaskPropagation.exit(deferred, null);
+        Map<String, Object> result = TaskPropagation.endSelfTest();
+
+        assertThat(deferred).isNotNull();
+        assertThat(result.get("applied").toString())
+                .contains("ThreadPoolExecutor.runWorker=0")
+                .contains("CompletableFuture.AsyncSupply=1")
+                .contains("CompletableFuture.AsyncRun=0");
+        assertThat(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER))
+                .isNull();
+    }
+
+    @Test
+    void aSelfTestAsyncTaskWhoseOwnHookIsMissingIsCountedByNoHookAndReleased() {
+        Runnable task = asyncRun();
+        TaskPropagation.beginSelfTest();
+        TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL);
+
+        TaskPropagation.exit(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER), null);
+        Map<String, Object> result = TaskPropagation.endSelfTest();
+
+        assertThat(result.get("applied").toString())
+                .contains("ThreadPoolExecutor.runWorker=0")
+                .contains("CompletableFuture.AsyncRun=0");
+        assertThat(TaskPropagation.enter(task, TaskPropagation.APPLY_ASYNC_RUN)).isNull();
+        assertThat(counter("pending")).isZero();
+    }
+
+    @Test
+    void thePoolAppliesAnAsyncTaskUntilItsOwnClassHookIsVerified() {
+        Runnable supply = asyncSupply();
+        Runnable run = asyncRun();
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_SUPPLY, true);
+        owner.set(snapshot("r1"));
+        TaskPropagation.submitted(supply, TaskPropagation.KEY_THREAD_POOL);
+        TaskPropagation.submitted(run, TaskPropagation.KEY_THREAD_POOL);
+        owner.remove();
+
+        assertThat(TaskPropagation.enter(supply, TaskPropagation.APPLY_RUN_WORKER))
+                .isNull();
+        TaskPropagation.exit(TaskPropagation.enter(supply, TaskPropagation.APPLY_ASYNC_SUPPLY), null);
+        TaskPropagation.exit(TaskPropagation.enter(run, TaskPropagation.APPLY_RUN_WORKER), null);
+        assertThat(TaskPropagation.enter(run, TaskPropagation.APPLY_ASYNC_RUN)).isNull();
+
+        assertThat(reopened)
+                .containsExactly(
+                        "r1 " + supply.getClass().getName() + " CompletableFuture.AsyncSupply",
+                        "r1 " + run.getClass().getName() + " ThreadPoolExecutor.runWorker");
+        Map<String, Object> executors = executors();
+        assertThat(executors)
+                .containsEntry("asyncSupplyApplies", true)
+                .containsEntry("asyncRunApplies", false)
+                .containsEntry("asyncApplies", false);
+    }
+
+    @Test
+    void resettingTheBridgeForgetsWhichAsyncHooksWereVerified() {
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_SUPPLY, true);
+        TaskPropagation.asyncApplies(TaskPropagation.APPLY_ASYNC_RUN, true);
+        assertThat(executors()).containsEntry("asyncApplies", true);
+
+        TaskPropagation.reset();
+
+        assertThat(executors()).containsEntry("asyncSupplyApplies", false).containsEntry("asyncRunApplies", false);
+    }
+
+    @Test
+    void theQueueAndTheNewWorkerAreSeparateKeys() {
+        TaskPropagation.beginSelfTest();
+        TaskPropagation.submitted(new Object(), TaskPropagation.KEY_THREAD_POOL);
+        TaskPropagation.submitted(new Object(), TaskPropagation.KEY_THREAD_POOL_QUEUE);
+        TaskPropagation.submitted(new Object(), TaskPropagation.KEY_THREAD_POOL_QUEUE);
+
+        assertThat(TaskPropagation.endSelfTest().get("keyed").toString())
+                .contains("ThreadPoolExecutor.addWorker=1")
+                .contains("ThreadPoolExecutor.queue=2");
+    }
+
+    /** A real {@code CompletableFuture$AsyncSupply}, captured before any thread runs it. */
+    private static Runnable asyncSupply() {
+        List<Runnable> captured = new ArrayList<>();
+        CompletableFuture.supplyAsync(() -> "value", captured::add);
+        return captured.get(0);
+    }
+
+    /** A real {@code CompletableFuture$AsyncRun}, captured before any thread runs it. */
+    private static Runnable asyncRun() {
+        List<Runnable> captured = new ArrayList<>();
+        CompletableFuture.runAsync(() -> {}, captured::add);
+        return captured.get(0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> executors() {
+        return (Map<String, Object>) AgentBridge.status().get("executors");
     }
 
     private long claimWith(List<String> skipTasks) {

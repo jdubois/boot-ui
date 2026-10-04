@@ -34,7 +34,7 @@ public final class TaskPropagation {
 
     public static final String SENSOR = "executors";
 
-    /** Key points: where an executor receives a task. */
+    /** Key points: where an executor receives a task. {@code ThreadPoolExecutor.addWorker}'s first task. */
     public static final int KEY_THREAD_POOL = 0;
 
     public static final int KEY_SCHEDULED = 1;
@@ -43,24 +43,31 @@ public final class TaskPropagation {
     public static final int KEY_FORK = 4;
     public static final int KEY_DELAYED = 5;
     public static final int KEY_THREAD_PER_TASK = 6;
+    /** {@code ThreadPoolExecutor.execute}'s {@code workQueue.offer}: a separate path from {@code addWorker}. */
+    public static final int KEY_THREAD_POOL_QUEUE = 7;
 
     /** Apply points: where an executor runs a task. */
     public static final int APPLY_RUN_WORKER = 0;
 
     public static final int APPLY_DO_EXEC = 1;
-    public static final int APPLY_ASYNC = 2;
+    public static final int APPLY_ASYNC_SUPPLY = 2;
+    public static final int APPLY_ASYNC_RUN = 3;
 
     static final String[] KEY_HOOKS = {
-        "ThreadPoolExecutor",
+        "ThreadPoolExecutor.addWorker",
         "ScheduledThreadPoolExecutor",
         "ForkJoinPool",
         "ForkJoinTask adapters",
         "ForkJoinTask.fork",
         "DelayScheduler",
-        "CompletableFuture.ThreadPerTaskExecutor"
+        "CompletableFuture.ThreadPerTaskExecutor",
+        "ThreadPoolExecutor.queue"
     };
     static final String[] APPLY_HOOKS = {
-        "ThreadPoolExecutor.runWorker", "ForkJoinTask.doExec", "CompletableFuture.Async"
+        "ThreadPoolExecutor.runWorker",
+        "ForkJoinTask.doExec",
+        "CompletableFuture.AsyncSupply",
+        "CompletableFuture.AsyncRun"
     };
 
     /** The self-test's snapshot: recognized by identity, never reachable through the engine's capture. */
@@ -71,8 +78,14 @@ public final class TaskPropagation {
     private static volatile long disabledGeneration = -1L;
 
     private static volatile String disabledReason;
-    /** Whether {@code CompletableFuture}'s own advice applies its async tasks: set once that hook passed its self-test. */
-    private static volatile boolean asyncApplies;
+    /**
+     * Whether {@code CompletableFuture$AsyncSupply}'s own advice applies it: set only once that class's hook passed the
+     * self-test of the installed transformer, cleared before any reinstall or retest. Until then the pool's hook applies
+     * it, so a missing or unverified hook never loses its snapshot.
+     */
+    private static volatile boolean asyncSupplyApplies;
+    /** The same, for {@code CompletableFuture$AsyncRun}. */
+    private static volatile boolean asyncRunApplies;
 
     private static final LongAdder[] KEYED = adders(KEY_HOOKS.length);
     private static final LongAdder[] APPLIED = adders(APPLY_HOOKS.length);
@@ -179,7 +192,7 @@ public final class TaskPropagation {
     /** Substituted for {@code workQueue.offer(command)} in {@code ThreadPoolExecutor.execute}: keys what is queued. */
     @SuppressWarnings({"rawtypes", "unchecked"})
     public static boolean offer(BlockingQueue queue, Object task) {
-        int outcome = submit(task, KEY_THREAD_POOL, false);
+        int outcome = submit(task, KEY_THREAD_POOL_QUEUE, false);
         boolean queued = false;
         try {
             queued = queue.offer(task);
@@ -187,7 +200,7 @@ public final class TaskPropagation {
         } finally {
             if (outcome != NONE) {
                 if (queued) {
-                    confirm(outcome, KEY_THREAD_POOL);
+                    confirm(outcome, KEY_THREAD_POOL_QUEUE);
                 } else {
                     release(task);
                 }
@@ -301,9 +314,16 @@ public final class TaskPropagation {
             if (task == null || TaskSnapshots.TASKS.isEmpty()) {
                 return null;
             }
-            if (hook != APPLY_ASYNC && asyncApplies && isAsyncTask(task)) {
-                // CompletableFuture's own advice applies it, where the stage's outcome is readable.
-                return null;
+            int async = asyncHook(task);
+            if (async >= 0 && hook != async) {
+                if (async == APPLY_ASYNC_SUPPLY ? asyncSupplyApplies : asyncRunApplies) {
+                    // CompletableFuture's own verified advice applies it, where the stage's outcome is readable.
+                    return null;
+                }
+                if (TaskSnapshots.TASKS.peek(task) == SELF_TEST) {
+                    // Left for the class's own hook to prove itself; released after the run if that hook is absent.
+                    return new Deferred(task);
+                }
             }
             Object entry = TaskSnapshots.TASKS.take(task);
             if (entry == null || entry == TaskSnapshots.AMBIGUOUS) {
@@ -454,10 +474,31 @@ public final class TaskPropagation {
         return null;
     }
 
-    static boolean isAsyncTask(Object task) {
+    /** {@link #APPLY_ASYNC_SUPPLY} or {@link #APPLY_ASYNC_RUN} for {@code CompletableFuture}'s async tasks, else -1. */
+    static int asyncHook(Object task) {
         String name = task.getClass().getName();
-        return name.equals("java.util.concurrent.CompletableFuture$AsyncSupply")
-                || name.equals("java.util.concurrent.CompletableFuture$AsyncRun");
+        if (name.equals("java.util.concurrent.CompletableFuture$AsyncSupply")) {
+            return APPLY_ASYNC_SUPPLY;
+        }
+        if (name.equals("java.util.concurrent.CompletableFuture$AsyncRun")) {
+            return APPLY_ASYNC_RUN;
+        }
+        return -1;
+    }
+
+    /** A self-test async task a pool hook left to its own hook: releases its marker entry once the task ran. */
+    static final class Deferred implements AutoCloseable {
+
+        private final Object task;
+
+        Deferred(Object task) {
+            this.task = task;
+        }
+
+        @Override
+        public void close() {
+            release(task);
+        }
     }
 
     /** A flat array of {@code String}, {@code Long}, {@code Integer}, {@code Boolean}, or {@code null} only. */
@@ -507,9 +548,17 @@ public final class TaskPropagation {
         AgentBridge.message("executor propagation disabled: " + reason);
     }
 
-    /** Whether {@code CompletableFuture$AsyncSupply/AsyncRun} are applied by their own hook rather than by the pool's. */
-    public static void asyncApplies(boolean applies) {
-        asyncApplies = applies;
+    /**
+     * Whether {@code CompletableFuture$AsyncSupply} ({@link #APPLY_ASYNC_SUPPLY}) or {@code AsyncRun}
+     * ({@link #APPLY_ASYNC_RUN}) is applied by its own hook rather than by the pool's: true only once that class's own
+     * hook passed its self-test.
+     */
+    public static void asyncApplies(int hook, boolean applies) {
+        if (hook == APPLY_ASYNC_SUPPLY) {
+            asyncSupplyApplies = applies;
+        } else if (hook == APPLY_ASYNC_RUN) {
+            asyncRunApplies = applies;
+        }
     }
 
     /** Re-enables propagation, after a later self-test passed. */
@@ -533,7 +582,9 @@ public final class TaskPropagation {
         map.put("skippedThreads", Long.valueOf(SKIPPED_THREADS.sum()));
         map.put("failures", Long.valueOf(FAILURES.sum()));
         map.put("disabledReason", disabledReason);
-        map.put("asyncApplies", Boolean.valueOf(asyncApplies));
+        map.put("asyncApplies", Boolean.valueOf(asyncSupplyApplies && asyncRunApplies));
+        map.put("asyncSupplyApplies", Boolean.valueOf(asyncSupplyApplies));
+        map.put("asyncRunApplies", Boolean.valueOf(asyncRunApplies));
         return map;
     }
 
@@ -556,7 +607,8 @@ public final class TaskPropagation {
         SKIPPED_THREADS.reset();
         FAILURES.reset();
         selfTestThread = null;
-        asyncApplies = false;
+        asyncSupplyApplies = false;
+        asyncRunApplies = false;
         enable();
     }
 
