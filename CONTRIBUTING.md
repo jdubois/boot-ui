@@ -310,6 +310,25 @@ three minutes and writes its report to `target/capture-overhead/`:
 ./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true
 ```
 
+The agent overhead benchmark (`AgentOverheadBenchmarkIT`) measures the BootUI agent's cumulative cost against
+[PLAN-v2.md](docs/PLAN-v2.md) §8's budget: the Spring sample's executable jar, BootUI on in both configurations, without
+the agent and with every default sensor claimed (`executors`, `inventory`, `code-paths`), on the same route and load as
+the capture overhead benchmark. It runs the configurations in pairs whose order alternates and reports each pair's
+throughput ratio and their median to `target/agent-overhead/`. The budget is 10 %. `bootui.benchmark.passes` sets the
+number of pairs (3 by default), `bootui.benchmark.agent.sensors` claims other sensors than the defaults (for example
+`executors` alone, to measure one sensor's share or a new sensor's cost), and
+`bootui.benchmark.agent.fail-above-percent` makes it fail when the median paired overhead exceeds that value; without it
+the benchmark only reports:
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dit.test=AgentOverheadBenchmarkIT \
+  -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+CI runs it in `build.yml`'s `agent-overhead` job with five pairs. A shared runner's run-to-run noise on this scenario
+reaches several percent, so that job records the report in its summary, warns above the 10 % budget, and fails only above
+20 %, twice the budget: a clear regression, not noise.
+
 The journal capture budget benchmark (`JournalCaptureBudgetBenchmarkTest`) times the application thread's path into
 the runtime journal, with one and eight producers, the stack walk that keeps a statement's application frames, and the
 dispatcher's sustained rate, against [PLAN-v2.md](docs/PLAN-v2.md) §8's budgets. It is opt-in too, takes about a
@@ -317,6 +336,18 @@ minute, and writes its report to `target/capture-budgets/`:
 
 ```bash
 ./mvnw -B -ntp -pl bootui-engine test -Dtest=JournalCaptureBudgetBenchmarkTest -Dbootui.benchmark=true
+```
+
+The Spring sample's agent integration tests start the sample in a JVM of its own with the BootUI agent attached:
+`SpringAgentScenarioIT` on the test class path, and `SpringAgentExecutableJarIT` on the repackaged executable jar, run
+with `java -javaagent:... -jar`, whose classes and libraries load from `jar:nested:` URLs. The latter asserts the claim
+arms with the default sensors, Code Inventory scans `BOOT-INF/classes` and maps `BOOT-INF/lib` to its artifacts, and
+Code Paths times the seeded slow route. Both run at `verify` in the Java 17 build and on the Java 21, 25, and 27 lanes of
+`jdk-compatibility.yml`:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app -am verify -Dit.test='SpringAgent*IT' \
+  -Dfailsafe.failIfNoSpecifiedTests=false -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
@@ -436,15 +467,26 @@ UI, browser-facing API responses, or sample-app behavior:
 (cd bootui-spring-sample-app/e2e && npm run test:webflux)
 # The MVC sample with the BootUI agent attached, after ./mvnw install -pl bootui-agent -am
 (cd bootui-spring-sample-app/e2e && npm run test:agent)
+# The whole WebFlux suite with the BootUI agent attached
+(cd bootui-spring-sample-app/e2e && npm run test:webflux:agent)
 
 # Quarkus (requires JDK 17 to 27 and Docker/Podman for Dev Services)
 (cd bootui-quarkus-sample-app/e2e && npm ci && npx playwright install chromium)
 (cd bootui-quarkus-sample-app/e2e && npm test)
+# The whole Quarkus suite with the BootUI agent attached, after ./mvnw install -pl bootui-agent -am
+(cd bootui-quarkus-sample-app/e2e && npm run test:agent)
 ```
 
 Playwright starts the relevant sample app automatically and reuses an existing
 server on port `8080` (Spring MVC), `8081` (Spring WebFlux), or `8082`
 (Quarkus).
+
+The agent suites start their sample with `-javaagent:` and the jar `./mvnw install` built in `bootui-agent/target`, or
+`BOOTUI_AGENT_JAR`, and set the `agentAttached` fixture option, so the Java Agent, Code Inventory, and Code Paths specs
+assert the armed claim and the recorded run instead of the not-attached state. The Quarkus agent suite passes the jar to
+`quarkus:dev` as `-Djvm.args`. To run one beside another sample, set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT`
+(Spring MVC), `BOOTUI_WEBFLUX_AGENT_PORT` (WebFlux), or `BOOTUI_SAMPLE_PORT` with `BOOTUI_OSV_FIXTURE_PORT` (Quarkus).
+CI runs each as its own leg of `build.yml`'s `spring-e2e` and `quarkus-e2e` jobs, on Java 17.
 
 ## Formatting
 

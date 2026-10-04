@@ -104,6 +104,16 @@ To explore the sample with the agent attached by hand, against PostgreSQL, run
 
 Set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT` to run it beside another sample.
 
+`playwright.webflux-agent.config.js` runs the whole WebFlux suite (`tests-webflux/`) against the reactive sample with the
+agent attached, plus `tests-webflux-agent/` (work after the response on a raw pool). Its Java Agent, Code Inventory, and
+Code Paths specs read the same `agentAttached` option and assert the armed claim with the three default sensors, the
+run's inventory, and the assembly-only route trees. Set `BOOTUI_WEBFLUX_AGENT_PORT` to run it beside another sample; it
+passes the port to the application too:
+
+```bash
+npm run test:webflux:agent
+```
+
 ## Prerequisites
 
 - Node.js 20+

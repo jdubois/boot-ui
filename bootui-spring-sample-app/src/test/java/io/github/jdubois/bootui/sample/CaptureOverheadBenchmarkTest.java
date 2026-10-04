@@ -37,14 +37,15 @@ import org.springframework.context.ConfigurableApplicationContext;
  *
  * <pre>./mvnw -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true</pre>
  *
- * <p>Milestone M2 adds a journal-on and journal-off pair to the same report.</p>
+ * <p>Milestone M2 adds a journal-on and journal-off pair to the same report. {@link AgentOverheadBenchmarkIT} drives the
+ * same route and load against the executable jar with and without the BootUI agent.</p>
  */
 @EnabledIfSystemProperty(named = "bootui.benchmark", matches = "true")
 class CaptureOverheadBenchmarkTest {
 
-    private static final String ROUTE = "/api/sample/product-search?term=console";
+    static final String ROUTE = "/api/sample/product-search?term=console";
 
-    private static final int CONCURRENCY = 16;
+    static final int CONCURRENCY = 16;
 
     private static final Duration WARM_UP = Duration.ofSeconds(5);
 
@@ -125,7 +126,7 @@ class CaptureOverheadBenchmarkTest {
         assertThat(results).allSatisfy(result -> assertThat(result.requests()).isPositive());
     }
 
-    private static double median(List<Result> results, ToDoubleFunction<Result> metric) {
+    static double median(List<Result> results, ToDoubleFunction<Result> metric) {
         double[] values = results.stream().mapToDouble(metric).sorted().toArray();
         int middle = values.length / 2;
         return values.length % 2 == 1 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
@@ -159,7 +160,7 @@ class CaptureOverheadBenchmarkTest {
         }
     }
 
-    private static List<long[]> load(HttpClient client, URI uri, Duration duration) throws Exception {
+    static List<long[]> load(HttpClient client, URI uri, Duration duration) throws Exception {
         long deadline = System.nanoTime() + duration.toNanos();
         HttpRequest request = HttpRequest.newBuilder(uri).GET().build();
         ExecutorService executor = Executors.newFixedThreadPool(CONCURRENCY);

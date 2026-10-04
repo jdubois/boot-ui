@@ -1,13 +1,14 @@
 name: JDK compatibility (21/25/27)
 
 # Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml),
-# while adding focused compatibility checks on newer supported JDKs for every PR/push and
-# a weekly scheduled run.
+# while adding focused compatibility checks on newer supported JDKs for every PR/push to main
+# and to the long-lived v2 branch (PLAN-v2 M5-12: the BootUI agent's acceptance matrix covers
+# Java 21 and 25 there too), and a weekly scheduled run.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, v2 ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, v2 ]
   schedule:
     # Every Monday at 07:05 UTC.
     - cron: '5 7 * * 1'
@@ -68,6 +69,17 @@ jobs:
         # forked-JVM integration tests (layout, dormancy, coexistence, leak walk) on each lane.
         # Java 17 runs them in build.yml's full reactor.
         run: ./mvnw -B -ntp -pl bootui-agent-bridge,bootui-agent -am verify
+
+      - name: Spring sample with the agent attached
+        # The sample in a JVM of its own with -javaagent (PLAN-v2 M5-12): the correlation scenario's
+        # propagated executor work, work after the response, Code Inventory, and Code Paths
+        # (SpringAgentScenarioIT), and the same agent on the repackaged executable jar, whose classes
+        # load from jar:nested: URLs (SpringAgentExecutableJarIT). Java 17 runs them in build.yml's
+        # full reactor.
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app -am verify
+          -Dit.test='SpringAgent*IT' -Dfailsafe.failIfNoSpecifiedTests=false
+          -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Exercise Quarkus sample app augmentation
         # Ensures Quarkus build-time augmentation runs on JDK 17 to 27 and catches
