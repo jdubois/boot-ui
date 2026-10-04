@@ -333,15 +333,20 @@ const windowText = computed(() => {
         </div>
 
         <div v-if="empty === 'no-requests'" class="alert alert-secondary insight-empty">
-          <strong>No requests recorded in this run yet.</strong>
+          <strong>No HTTP requests recorded in this run yet.</strong>
           <span class="d-block small">
-            Exercise your application, then refresh. Observations are projected from the requests the runtime journal
-            retains.
+            Exercise your application, then refresh. Scheduled jobs and consumed messages are also checked when their
+            sources are enabled; see which checks ran below.
           </span>
         </div>
 
         <div v-else-if="empty === 'nothing-observed'" class="alert alert-secondary insight-empty">
-          <strong>Nothing to report across {{ formatNumber(report.window.requests) }} requests.</strong>
+          <strong v-if="report.window.requests > 0">
+            Nothing to report across {{ formatNumber(report.window.requests) }} requests.
+          </strong>
+          <strong v-else>
+            Nothing to report across {{ formatNumber(report.window.retainedEvents) }} retained events.
+          </strong>
           <span class="d-block small">
             {{ evaluated.length }} of {{ report.checks.length }} checks ran and found nothing; the others are listed
             below with why they did not run.

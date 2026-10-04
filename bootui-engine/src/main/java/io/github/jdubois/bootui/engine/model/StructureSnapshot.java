@@ -35,8 +35,15 @@ public record StructureSnapshot(String runId, List<RouteHandler> routes, List<Be
      *
      * @param route its label, such as {@code GET /api/orders/{id}}
      * @param handlerClass the fully qualified class of its handler, or {@code null}
+     * @param handlerMethod the name of its handler method, without parameter types, or {@code null} when unknown
      */
-    public record RouteHandler(String route, String handlerClass) {}
+    public record RouteHandler(String route, String handlerClass, String handlerMethod) {
+
+        /** A route whose handler method is unknown. */
+        public RouteHandler(String route, String handlerClass) {
+            this(route, handlerClass, null);
+        }
+    }
 
     /**
      * A bean.
