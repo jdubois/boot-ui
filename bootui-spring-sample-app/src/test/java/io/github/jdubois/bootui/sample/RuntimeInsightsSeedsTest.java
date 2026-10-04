@@ -297,15 +297,18 @@ class RuntimeInsightsSeedsTest {
      * it out, and every row it leaves out says why.
      */
     @Test
-    void theDefaultListLeavesOutNoiseDuplicatesAndNotYetValidatedChecksWithTheirReason() {
+    void theDefaultListLeavesOutNoiseAndDuplicatesWithTheirReasonAndListsD29sKinds() {
         assertThat(listed("repeated-selects")).contains("GET /api/insights/orders", "GET /api/insights/orders/report");
         assertThat(unlisted("lazy-sql-after-handler"))
                 .as("Repeated SELECTs already reports the report's statement from the same call site")
                 .contains("GET /api/insights/orders/report");
         assertThat(listed("lazy-sql-after-handler")).isEmpty();
+        // D29's kinds are listed once their counterexample fixtures pass the cross-observation harness (M4-18e).
+        assertThat(listed("transactional-listener-skipped")).contains("POST /api/insights/orders/{id}/notify");
+        assertThat(listed("after-commit-writes")).contains("POST /api/insights/orders/{id}/archive");
+        assertThat(listed("orm-auto-flush")).contains("POST /api/insights/tags/auto-flush");
         for (String kind : List.of("transactional-listener-skipped", "after-commit-writes", "orm-auto-flush")) {
-            assertThat(listed(kind)).as(kind).isEmpty();
-            assertThat(unlisted(kind)).as(kind).isNotEmpty();
+            assertThat(unlisted(kind)).as(kind).isEmpty();
         }
         assertThat(unlisted("exception-hotspots"))
                 .as("the unreadable body answered 400")

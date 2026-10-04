@@ -10,17 +10,20 @@ import io.github.jdubois.bootui.engine.insights.ObservationFixtures.Role;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SynchronousJournals;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -49,7 +52,7 @@ import org.junit.jupiter.api.TestFactory;
  */
 class ObservationHonestyHarnessTests {
 
-    /** D29's kinds, kept out of the default list until their counterexample fixtures pass this harness. */
+    /** D29's kinds, which the default list shows because their counterexample fixtures pass this harness. */
     static final Set<String> D29_KINDS = Set.of(
             TransactionalListenerSkipped.KIND, AfterCommitWrites.KIND, OrmAutoFlush.KIND, LargePersistenceContext.KIND);
 
@@ -269,10 +272,36 @@ class ObservationHonestyHarnessTests {
                 }
             }
         }
+        // Each thread's retained requests, by start: an ERROR logged without an id after a left-out request ended
+        // belongs to it while the thread served no other (framework-warnings-by-route's rule).
+        Map<String, TreeMap<Long, RuntimeEvent>> byThread = new HashMap<>();
+        for (int index = 0; index < events.size(); index++) {
+            RuntimeEvent event = events.get(index);
+            if (!missing.contains(index) && event.source() == JournalSource.HTTP && event.thread() != null) {
+                byThread.computeIfAbsent(event.thread(), thread -> new TreeMap<>())
+                        .put(event.epochMillis(), event);
+            }
+        }
+        long lostRequestEnd = missing.stream()
+                .map(events::get)
+                .filter(event -> event.source() == JournalSource.HTTP && event.requestId() != null)
+                .mapToLong(event -> event.epochMillis() + event.durationNanos() / 1_000_000)
+                .max()
+                .orElse(Long.MIN_VALUE);
         List<RuntimeEvent> kept = IntStream.range(0, events.size())
                 .filter(index -> !missing.contains(index))
                 .mapToObj(events::get)
                 .filter(event -> !incomplete.contains(unitOf(event)))
+                .filter(event -> !(unitOf(event) == null
+                        && event.traceId() == null
+                        && event.payload() instanceof LogPayload log
+                        && "ERROR".equals(log.level())
+                        && reach != Long.MIN_VALUE
+                        && (event.epochMillis() <= reach
+                                || (lostRequestEnd != Long.MIN_VALUE
+                                        && event.epochMillis()
+                                                <= lostRequestEnd + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS)
+                                || afterLeftOutRequest(event, byThread, incomplete))))
                 .filter(event -> unitOf(event) != null
                         || event.traceId() == null
                         || (event.epochMillis() > reach && !incompleteTraces.contains(event.traceId())))
@@ -305,6 +334,17 @@ class ObservationHonestyHarnessTests {
                 .allSatisfy(row -> assertThat(whole.get(row.id()))
                         .as("%s is observed only where the whole fixture observes it: %s", row.id(), row.sentence())
                         .isEqualTo("OBSERVED"));
+    }
+
+    private static boolean afterLeftOutRequest(
+            RuntimeEvent log, Map<String, TreeMap<Long, RuntimeEvent>> byThread, Set<String> incomplete) {
+        TreeMap<Long, RuntimeEvent> requests = byThread.get(log.thread());
+        Map.Entry<Long, RuntimeEvent> last = requests == null ? null : requests.floorEntry(log.epochMillis());
+        if (last == null || !incomplete.contains(unitOf(last.getValue()))) {
+            return false;
+        }
+        long end = last.getKey() + last.getValue().durationNanos() / 1_000_000;
+        return log.epochMillis() <= end + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS;
     }
 
     /** A request's HTTP event, or the event that opens a scheduled run, a consumed message, or a WebSocket handler. */

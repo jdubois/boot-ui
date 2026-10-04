@@ -1039,6 +1039,23 @@ final class ObservationFixtures {
                                     log("org.hibernate.orm.deprecation", "WARN", "HHH90000025: dialect is deprecated"));
                             recording.get("/api/orders/{id}");
                         }));
+        fixtures.add(counterexample(
+                        FrameworkWarningsByRoute.KIND,
+                        "a container's ERROR on a failed request's thread, logged once its filters returned")
+                .alsoFires(ExceptionHotspots.KIND)
+                .seed(recording -> {
+                    recording
+                            .get("/api/orders/{id}")
+                            .status(500)
+                            .children(exception("boom", "java.lang.IllegalStateException"));
+                    // Its filters, and so its id, are gone: Tomcat logs the failure it answered 500 for 10 ms later.
+                    recording.unowned(log(
+                                    "org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/].[dispatcherServlet]",
+                                    "ERROR",
+                                    "Servlet.service() threw exception")
+                            .at(40)
+                            .onThread("http-1"));
+                }));
     }
 
     private static Ev log(String logger, String level, String template) {

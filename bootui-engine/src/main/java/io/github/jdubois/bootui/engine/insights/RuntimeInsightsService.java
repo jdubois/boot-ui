@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -34,12 +35,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -684,16 +687,29 @@ public final class RuntimeInsightsService {
      * the disabled panel's evidence, and keeping the opening event to carry its children would publish exactly that.
      * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
      */
-    private VisibleEntries visibleEntries(List<JournalEntry> entries, PanelVisibility visibility, Long lossHorizon) {
+    private VisibleEntries visibleEntries(
+            List<JournalEntry> entries, PanelVisibility visibility, Long lossHorizon, Long lostRequestEnd) {
         Set<String> hidden = new HashSet<>();
         Set<String> incomplete = new HashSet<>();
         Map<ProjectedRequest.Kind, Integer> incompleteByKind = new EnumMap<>(ProjectedRequest.Kind.class);
         int aiCallsLeftOut = 0;
+        int errorLogsLeftOut = 0;
+        // Each thread's requests, by start, so an error logged after a request's id was gone finds the request it ran
+        // on last, as framework-warnings-by-route does.
+        Map<String, TreeMap<Long, RuntimeEvent>> requestsByThread = new HashMap<>();
         Map<ProjectedRequest.Kind, Set<String>> hiddenPanels = new EnumMap<>(ProjectedRequest.Kind.class);
         AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
+            if (event.source() == JournalSource.HTTP
+                    && event.requestId() != null
+                    && event.thread() != null
+                    && !event.thread().isBlank()) {
+                requestsByThread
+                        .computeIfAbsent(event.thread(), thread -> new TreeMap<>())
+                        .put(event.epochMillis(), event);
+            }
             if (anchorsAUnitOfWork(event) && visibility.visible(event) && beforeLoss(event, lossHorizon)) {
                 // It started before an event the journal lost, which may have been its own: judging it would read a
                 // missing transaction, cache access, or decision as one that never happened.
@@ -719,6 +735,14 @@ public final class RuntimeInsightsService {
             if (unit != null && (hidden.contains(unit) || incomplete.contains(unit))) {
                 continue;
             }
+            if (unit == null
+                    && isErrorLog(event)
+                    && ownedByLostWork(event, lossHorizon, lostRequestEnd, requestsByThread, incomplete)) {
+                // A container logs a request's failure once its id is gone; when the request was left out, the error
+                // would otherwise read as one that no request owned.
+                errorLogsLeftOut++;
+                continue;
+            }
             if (AiCallOwners.linksByTrace(event)) {
                 if (beforeLoss(event, lossHorizon)) {
                     // Its request may be the one whose events were lost, so it is attributed to none.
@@ -734,7 +758,44 @@ public final class RuntimeInsightsService {
         }
         Map<ProjectedRequest.Kind, List<String>> panelsByKind = new EnumMap<>(ProjectedRequest.Kind.class);
         hiddenPanels.forEach((kind, panels) -> panelsByKind.put(kind, List.copyOf(panels)));
-        return new VisibleEntries(visible, Map.copyOf(panelsByKind), Map.copyOf(incompleteByKind), aiCallsLeftOut);
+        return new VisibleEntries(
+                visible, Map.copyOf(panelsByKind), Map.copyOf(incompleteByKind), aiCallsLeftOut, errorLogsLeftOut);
+    }
+
+    private static boolean isErrorLog(RuntimeEvent event) {
+        return event.traceId() == null
+                && event.payload() instanceof LogPayload log
+                && InsightsSnapshot.isError(log.level());
+    }
+
+    /**
+     * Whether an {@code ERROR} log that carried no request id may belong to work the journal lost events of: written at
+     * or before the loss horizon, within {@link FrameworkWarningsByRoute#AFTER_REQUEST_MILLIS} after a request whose HTTP
+     * event was lost ended, or on the thread of a request left out, before that thread served another and within that
+     * time after it ended.
+     */
+    private static boolean ownedByLostWork(
+            RuntimeEvent log,
+            Long lossHorizon,
+            Long lostRequestEnd,
+            Map<String, TreeMap<Long, RuntimeEvent>> requestsByThread,
+            Set<String> incomplete) {
+        if (lossHorizon == null) {
+            return false;
+        }
+        if (beforeLoss(log, lossHorizon)
+                || (lostRequestEnd != null
+                        && log.epochMillis() <= lostRequestEnd + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS)) {
+            return true;
+        }
+        TreeMap<Long, RuntimeEvent> requests = log.thread() == null ? null : requestsByThread.get(log.thread());
+        Map.Entry<Long, RuntimeEvent> last = requests == null ? null : requests.floorEntry(log.epochMillis());
+        if (last == null || !incomplete.contains(unitOf(last.getValue()))) {
+            return false;
+        }
+        RuntimeEvent request = last.getValue();
+        long end = request.epochMillis() + Math.max(0, request.durationNanos()) / 1_000_000;
+        return log.epochMillis() <= end + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS;
     }
 
     /** The kind of unit of work an anchoring event opens. */
@@ -751,7 +812,15 @@ public final class RuntimeInsightsService {
      * none was.
      */
     static String leftOutBeforeLoss(int units, int aiCalls) {
-        if (units + aiCalls == 0) {
+        return leftOutBeforeLoss(units, aiCalls, 0);
+    }
+
+    /**
+     * The sentence naming the work left out because it started before an event the journal lost, with the {@code ERROR}
+     * logs without a request id that may have been that work's, or {@code null} when none was.
+     */
+    static String leftOutBeforeLoss(int units, int aiCalls, int errorLogs) {
+        if (units + aiCalls + errorLogs == 0) {
             return null;
         }
         List<String> parts = new ArrayList<>();
@@ -761,7 +830,13 @@ public final class RuntimeInsightsService {
         if (aiCalls > 0) {
             parts.add(aiCalls == 1 ? "1 AI call linked only by a trace" : aiCalls + " AI calls linked only by a trace");
         }
-        boolean one = units + aiCalls == 1;
+        if (errorLogs > 0) {
+            parts.add(
+                    errorLogs == 1
+                            ? "1 ERROR log without a request id"
+                            : errorLogs + " ERROR logs without a request id");
+        }
+        boolean one = units + aiCalls + errorLogs == 1;
         return String.join(" and ", parts) + " " + LEFT_OUT_BEFORE_LOSS + ", so "
                 + (one ? "it is left out: some of its" : "they are left out: some of their")
                 + " events may be missing.";
@@ -799,7 +874,8 @@ public final class RuntimeInsightsService {
         } catch (RuntimeException ex) {
             resolver = RouteTemplateResolver.empty();
         }
-        VisibleEntries projected = visibleEntries(entries, visibility, journal.lossHorizonMillis());
+        VisibleEntries projected =
+                visibleEntries(entries, visibility, journal.lossHorizonMillis(), journal.lostRequestEndMillis());
         InsightsSnapshot snapshot = InsightsSnapshot.of(
                         projected.entries(),
                         status,
@@ -928,7 +1004,8 @@ public final class RuntimeInsightsService {
             limitations.add("The journal evicted " + evicted + " older events, so requests before "
                     + "the oldest retained event are not projected.");
         }
-        String leftOut = leftOutBeforeLoss(projected.incomplete(), projected.aiCallsLeftOut());
+        String leftOut =
+                leftOutBeforeLoss(projected.incomplete(), projected.aiCallsLeftOut(), projected.errorLogsLeftOut());
         if (leftOut != null) {
             limitations.add(leftOut);
         }
@@ -1223,12 +1300,14 @@ public final class RuntimeInsightsService {
      * @param incompleteByKind the requests and executions left out, by kind, because they started before an event the
      *     journal lost
      * @param aiCallsLeftOut the AI calls linked only by a trace left out for the same reason
+     * @param errorLogsLeftOut the {@code ERROR} logs without a request id that may have been that work's, left out
      */
     private record VisibleEntries(
             List<JournalEntry> entries,
             Map<ProjectedRequest.Kind, List<String>> panelsByKind,
             Map<ProjectedRequest.Kind, Integer> incompleteByKind,
-            int aiCallsLeftOut) {
+            int aiCallsLeftOut,
+            int errorLogsLeftOut) {
 
         int incomplete() {
             return incompleteByKind.values().stream()
@@ -1244,7 +1323,8 @@ public final class RuntimeInsightsService {
             }
             boolean readsAi = observation.reads().contains(JournalSource.AI)
                     || observation.optionalReads(snapshot).contains(JournalSource.AI);
-            return leftOutBeforeLoss(units, readsAi ? aiCallsLeftOut : 0);
+            boolean readsLogs = observation.reads().contains(JournalSource.LOG);
+            return leftOutBeforeLoss(units, readsAi ? aiCallsLeftOut : 0, readsLogs ? errorLogsLeftOut : 0);
         }
 
         List<String> hiddenPanels(Observation observation) {

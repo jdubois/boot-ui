@@ -692,9 +692,10 @@ in view when a refresh leaves it out, marks such a row **Not listed by default**
   every request it was written in answered 4xx;
 - every `gc-inflated-latency` and `heap-growth-after-gc` row: garbage collection and heap rows are reached from the
   Memory panel, which counts them beside its link, read from this panel's report each time it loads its own, and whose
-  link opens this panel on the **Memory** theme with every row shown;
-- every `transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` row,
-  until their counterexample fixtures pass across observations.
+  link opens this panel on the **Memory** theme with every row shown.
+
+`transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` are listed
+by default: their counterexample fixtures pass the cross-observation counterexample harness (D29, M4-18e).
 
 Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
 but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented

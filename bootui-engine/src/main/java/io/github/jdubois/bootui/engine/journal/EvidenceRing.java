@@ -56,6 +56,13 @@ final class EvidenceRing {
      */
     private long lossHorizonMillis = Long.MIN_VALUE;
 
+    /**
+     * When the latest request whose HTTP event the ring lost ended, by the wall clock; {@link Long#MIN_VALUE} while it
+     * lost none. A container logs a request's failure once its id is gone, so an error without an id written shortly
+     * after may have been that lost request's.
+     */
+    private long lostRequestEndMillis = Long.MIN_VALUE;
+
     EvidenceRing(int maxEvents, long maxBytes, int reservedSharePercent, LongSupplier externalBytes) {
         this.maxEvents = Math.max(1, maxEvents);
         this.maxBytes = Math.max(1, maxBytes);
@@ -138,6 +145,18 @@ final class EvidenceRing {
         if (started > lossHorizonMillis) {
             lossHorizonMillis = started;
         }
+        if (event.source() == JournalSource.HTTP && event.requestId() != null) {
+            long ended = Math.min(
+                    event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000, System.currentTimeMillis());
+            if (ended > lostRequestEndMillis) {
+                lostRequestEndMillis = ended;
+            }
+        }
+    }
+
+    /** When the latest request whose HTTP event the ring lost ended, or {@code null} while it lost none. */
+    synchronized Long lostRequestEndMillis() {
+        return lostRequestEndMillis == Long.MIN_VALUE ? null : lostRequestEndMillis;
     }
 
     /**

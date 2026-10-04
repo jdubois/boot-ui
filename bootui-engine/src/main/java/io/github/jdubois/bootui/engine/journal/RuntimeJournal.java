@@ -531,6 +531,15 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return ring.lossHorizonMillis();
     }
 
+    /**
+     * When the latest request whose HTTP event the journal evicted, could not fit, or cleared ended, by the wall clock,
+     * or {@code null} while it lost none: an {@code ERROR} logged without a request id shortly after, as a container
+     * logs a failure once the request's id is gone, may have been that request's.
+     */
+    public Long lostRequestEndMillis() {
+        return ring.lostRequestEndMillis();
+    }
+
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);

@@ -391,6 +391,24 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void clearingARequestsHttpEventRemembersWhenThatRequestEnded() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.dispatchPending();
+        assertThat(journal.lostRequestEndMillis())
+                .as("a statement is not a request's end")
+                .isNull();
+        journal.offer(new RuntimeEvent(
+                JournalSource.HTTP, 2_000, 30_000_000, "r1", null, null, "http-1", null, true, () -> 64));
+        journal.dispatchPending();
+
+        journal.clear();
+
+        assertThat(journal.lostRequestEndMillis()).isEqualTo(2_030L);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(2_000L);
+    }
+
+    @Test
     void theLossHorizonNeverMovesPastNow() {
         RuntimeJournal journal = journal(settings(1, 10_000_000, 100, 0, JournalSource.all()), false);
         long future = System.currentTimeMillis() + java.time.Duration.ofDays(1).toMillis();
