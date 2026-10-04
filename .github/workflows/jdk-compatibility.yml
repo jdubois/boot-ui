@@ -25,7 +25,8 @@ jobs:
   compatibility:
     name: Focused compatibility (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The agent integration tests start the Spring sample three times on top of the focused build.
+    timeout-minutes: 45
     # Java 27 is ahead of the frameworks' documented support (Spring Boot 4.1 covers 17-26,
     # Quarkus 3.33 LTS covers 17/21/25), so it runs as an informational early-warning lane
     # rather than a gate. Promote it to blocking once both frameworks support it.
@@ -77,7 +78,7 @@ jobs:
         # load from jar:nested: URLs (SpringAgentExecutableJarIT). Java 17 runs them in build.yml's
         # full reactor.
         run: >
-          ./mvnw -B -ntp -pl bootui-spring-sample-app -am verify
+          ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am verify
           -Dit.test='SpringAgent*IT' -Dfailsafe.failIfNoSpecifiedTests=false
           -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 

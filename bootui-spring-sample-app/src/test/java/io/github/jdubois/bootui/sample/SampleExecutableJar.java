@@ -38,41 +38,48 @@ final class SampleExecutableJar implements AutoCloseable {
         if (jar == null || !Files.isRegularFile(Path.of(jar))) {
             throw new IllegalStateException("sample.jar names no repackaged jar: " + jar);
         }
-        int port;
-        try (ServerSocket socket = new ServerSocket(0)) {
-            port = socket.getLocalPort();
-        }
         Path directory = Path.of("target", "executable-jar", name).toAbsolutePath();
         Files.createDirectories(directory);
         Path log = directory.resolve("sample.log");
-        List<String> command = new ArrayList<>();
-        command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
-        command.addAll(jvmOptions);
-        command.addAll(List.of(
-                "-jar",
-                jar,
-                "--server.port=" + port,
-                // The default profile does not count as active for BootUI's activation, so name it.
-                "--spring.profiles.active=dev",
-                "--spring.datasource.url=jdbc:h2:mem:bootui_" + name.replace('-', '_')
-                        + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
-                "--bootui.show-banner=false",
-                "--bootui.overrides-file=" + directory.resolve("overrides.properties"),
-                "--management.tracing.export.enabled=false"));
-        command.addAll(applicationArguments);
-        Process process = new ProcessBuilder(command)
-                .directory(directory.toFile())
-                .redirectErrorStream(true)
-                .redirectOutput(log.toFile())
-                .start();
-        SampleExecutableJar sample = new SampleExecutableJar(process, log, port);
-        try {
-            sample.awaitReady();
-        } catch (Exception | AssertionError ex) {
-            sample.close();
-            throw ex;
+        // The free port is chosen before the sample binds it, so another process may take it first: start again, on
+        // another port, when the sample says so.
+        for (int attempt = 1; ; attempt++) {
+            int port;
+            try (ServerSocket socket = new ServerSocket(0)) {
+                port = socket.getLocalPort();
+            }
+            List<String> command = new ArrayList<>();
+            command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+            command.addAll(jvmOptions);
+            command.addAll(List.of(
+                    "-jar",
+                    jar,
+                    "--server.port=" + port,
+                    // The default profile does not count as active for BootUI's activation, so name it.
+                    "--spring.profiles.active=dev",
+                    "--spring.datasource.url=jdbc:h2:mem:bootui_" + name.replace('-', '_')
+                            + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
+                    "--bootui.show-banner=false",
+                    "--bootui.overrides-file=" + directory.resolve("overrides.properties"),
+                    "--management.tracing.export.enabled=false"));
+            command.addAll(applicationArguments);
+            Process process = new ProcessBuilder(command)
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true)
+                    .redirectOutput(log.toFile())
+                    .start();
+            SampleExecutableJar sample = new SampleExecutableJar(process, log, port);
+            try {
+                sample.awaitReady();
+                return sample;
+            } catch (Exception | AssertionError ex) {
+                sample.close();
+                if (attempt < 3 && sample.tail().contains("already in use")) {
+                    continue;
+                }
+                throw ex;
+            }
         }
-        return sample;
     }
 
     private void awaitReady() throws InterruptedException {

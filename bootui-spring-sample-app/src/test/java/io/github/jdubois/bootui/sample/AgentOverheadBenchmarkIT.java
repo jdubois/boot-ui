@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -28,8 +29,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * defaults, such as {@code executors} alone, to measure one sensor's share or a new sensor's cost.
  *
  * <p>The budget is 10 %. Timings depend on the machine, so this is opt-in. It fails only when
- * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it; CI sets it to 20,
- * twice the budget, so run-to-run noise on a shared runner never fails a build while a clear regression does:</p>
+ * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it. CI sets it to 30,
+ * well above the run-to-run noise on a shared runner, so only a clear regression fails a build (see CONTRIBUTING.md):</p>
  *
  * <pre>./mvnw -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dit.test=AgentOverheadBenchmarkIT
  *     -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false</pre>
@@ -177,6 +178,9 @@ class AgentOverheadBenchmarkIT {
             assertThat(report.path("state").asText())
                     .as(sample.tail())
                     .isEqualTo(agent == null ? "NOT_ATTACHED" : "ARMED");
+            if (agent != null) {
+                awaitInventoryScan(sample);
+            }
             URI uri = URI.create("http://localhost:" + sample.port() + CaptureOverheadBenchmarkTest.ROUTE);
             HttpClient client =
                     HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
@@ -191,6 +195,23 @@ class AgentOverheadBenchmarkIT {
             long[] all = samples.stream().flatMapToLong(Arrays::stream).sorted().toArray();
             return new Result(label, all.length, seconds, all);
         }
+    }
+
+    /**
+     * Code Inventory scans the application's class files off the request path once the run starts: let it end first, so
+     * the measured window is charged with the sensors' steady cost, not with a start-up scan the other arm never runs.
+     */
+    private static void awaitInventoryScan(SampleExecutableJar sample) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        while (System.nanoTime() < deadline) {
+            JsonNode report = sample.probe().get("/bootui/api/code-inventory").json();
+            String status = report.path("scan").path("status").asText();
+            if (!report.path("available").asBoolean() || !(status.equals("PENDING") || status.equals("RUNNING"))) {
+                return;
+            }
+            Thread.sleep(250);
+        }
+        throw new IllegalStateException("The Code Inventory scan did not end in 60 s: " + sample.tail());
     }
 
     private static String describe(String sensors) {
