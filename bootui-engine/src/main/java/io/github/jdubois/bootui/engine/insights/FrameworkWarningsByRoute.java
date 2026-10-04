@@ -144,7 +144,8 @@ public final class FrameworkWarningsByRoute implements Observation {
         }
         List<String> limitations = new ArrayList<>(List.of(
                 "Counts framework ERROR events written while no request or execution id was current, including at"
-                        + " startup; WARN events without one are not counted.",
+                        + " startup; WARN events without one are not counted. Its affected count is those events,"
+                        + " not requests.",
                 "Not yet compared with the previous run, whose summary does not keep log messages."));
         if (afterRequest > 0) {
             limitations.add(InsightText.counted(afterRequest, "more event") + " written on the thread of a request that"
@@ -184,7 +185,8 @@ public final class FrameworkWarningsByRoute implements Observation {
                 true,
                 sentence,
                 0,
-                0,
+                // No request is eligible, so affected counts the errors, which ranks the row among its kind's.
+                total,
                 checks,
                 List.of(),
                 List.of("Logger", "Message", "Events"),

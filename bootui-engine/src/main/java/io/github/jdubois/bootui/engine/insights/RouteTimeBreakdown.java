@@ -70,9 +70,16 @@ public final class RouteTimeBreakdown implements Observation {
     static final String NOT_PROMINENT = "Its warm median is under 20 ms, and authorization takes under 20 % of its time"
             + " and under 50 decisions a request, so it is not prominent.";
 
+    /** The fewest warm requests from which a route too few to split is still listed when slow (M4-19). */
+    static final int SLOW_FEW_WARM_REQUESTS = 2;
+
+    /** The warm median from which a route with too few warm requests to split is listed anyway (M4-19). */
+    static final long SLOW_FEW_WARM_MEDIAN_NANOS = 100_000_000;
+
     /** Why an insufficient breakdown is left out of the default list. */
-    static final String TOO_FEW_WARM =
-            "It has fewer than " + MIN_WARM_REQUESTS + " warm requests, so where its time goes is not known yet.";
+    static final String TOO_FEW_WARM = "It has fewer than " + MIN_WARM_REQUESTS
+            + " warm requests, so where its time goes is not known yet, and fewer than 2 of them or a warm median"
+            + " under 100 ms.";
 
     /**
      * Why a breakdown of requests that reached no marked handler, or named nothing at all, is left out of the default
@@ -372,6 +379,27 @@ public final class RouteTimeBreakdown implements Observation {
     private Finding finding(
             String route, List<Breakdown> warm, ProjectedRequest cold, InsightsStack stack, List<String> limitations) {
         String coldText = coldText(cold);
+        if (warm.size() < MIN_WARM_REQUESTS && slowFew(warm)) {
+            // Too few to split, but slow enough that a developer exercising it a few times must not miss it.
+            return new Finding(
+                    route,
+                    route,
+                    false,
+                    "`" + route + "`: warm median "
+                            + InsightText.millis(median(
+                                    warm.stream().mapToLong(Breakdown::duration).toArray()))
+                            + " ms over " + InsightText.counted(warm.size(), "request") + "; phases need "
+                            + MIN_WARM_REQUESTS + " warm requests." + coldText,
+                    warm.size(),
+                    warm.size(),
+                    List.of(
+                            "Open the slowest exemplar request in Live Activity to see its timeline.",
+                            "Exercise the route a few more times to read where its time goes."),
+                    slowest(warm),
+                    List.of(),
+                    List.of(),
+                    limitations);
+        }
         if (warm.size() < MIN_WARM_REQUESTS) {
             return new Finding(
                             route,
@@ -533,7 +561,19 @@ public final class RouteTimeBreakdown implements Observation {
                         COLUMNS,
                         totals.rows(),
                         limitations)
-                .unlisted(prominent(median(durations), warm) ? null : NOT_SPLIT);
+                .unlisted(
+                        warm.size() < MIN_WARM_REQUESTS
+                                ? slowFew(warm) ? null : TOO_FEW_WARM
+                                : prominent(median(durations), warm) ? null : NOT_SPLIT);
+    }
+
+    /**
+     * Whether warm requests too few to split are still worth listing: at least {@value #SLOW_FEW_WARM_REQUESTS} of them,
+     * with a warm median of 100 ms or more. A single slow request may be warm-up, so it is not.
+     */
+    private static boolean slowFew(List<Breakdown> warm) {
+        return warm.size() >= SLOW_FEW_WARM_REQUESTS
+                && median(warm.stream().mapToLong(Breakdown::duration).toArray()) >= SLOW_FEW_WARM_MEDIAN_NANOS;
     }
 
     /**

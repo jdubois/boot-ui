@@ -642,6 +642,14 @@ class JournalFactObservationsTests {
         assertThat(bySubject.get("@Scheduled Jobs.sync").listed()).isTrue();
         assertThat(bySubject.get("@Scheduled Jobs.retry").unlistedReason())
                 .isEqualTo(ExceptionHotspots.CAUGHT_IN_EXECUTION);
+        RuntimeObservationDto caught = bySubject.get(ExceptionHotspots.CAUGHT_IN_RUNS);
+        assertThat(caught.listed())
+                .as("caught exceptions stay counted where the default list shows them")
+                .isTrue();
+        assertThat(caught.sentence())
+                .isEqualTo("1 exception group was recorded in 1 scheduled job or listener whose runs or messages"
+                        + " completed: 1 occurrence in 1 run or message.");
+        assertThat(caught.affected()).isZero();
     }
 
     /**
@@ -692,6 +700,7 @@ class JournalFactObservationsTests {
                 .isEqualTo("Framework loggers wrote 4 `ERROR` events that carried no request or execution id, from 2"
                         + " messages; the most frequent from `ContainerBase`, 3 times.");
         assertThat(unowned.eligible()).isZero();
+        assertThat(unowned.affected()).as("ranked by its ERROR events").isEqualTo(4);
         assertThat(unowned.exemplarRequestIds()).isEmpty();
         assertThat(service.insight(unowned.id()).rows())
                 .extracting(row -> row.cells().get(2))

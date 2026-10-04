@@ -13,7 +13,8 @@ import java.util.List;
  *     when a source it reads dropped events
  * @param sentence one sentence naming what was counted
  * @param eligible the requests that could have shown it
- * @param affected the requests that did
+ * @param affected the requests that did, or, for a row no request is eligible for, such as framework errors without
+ *     a request, the events it counted
  * @param minimumTier the weakest correlation tier its evidence was linked by, such as {@code REQUEST_ID}: the
  *     observation's minimum, or a stronger tier when every signal behind it was joined more exactly
  * @param whatToCheck one to three conditional checks

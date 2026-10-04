@@ -94,10 +94,20 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport,
 
 const themes = computed(() => availableThemes(report.value))
 const groups = computed(() =>
-  groupObservations(report.value, {query: query.value, theme: theme.value, all: showAll.value})
+  groupObservations(report.value, {
+    query: query.value,
+    theme: theme.value,
+    all: showAll.value,
+    selectedId: selectedId.value
+  })
 )
 const unlisted = computed(() =>
-  unlistedSummary(report.value, {query: query.value, theme: theme.value, all: showAll.value})
+  unlistedSummary(report.value, {
+    query: query.value,
+    theme: theme.value,
+    all: showAll.value,
+    selectedId: selectedId.value
+  })
 )
 const anyUnlisted = computed(() => (report.value?.observations ?? []).some((observation) => !isListed(observation)))
 const unlistedText = computed(() =>

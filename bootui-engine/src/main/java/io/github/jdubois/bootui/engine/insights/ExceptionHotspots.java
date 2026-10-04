@@ -26,8 +26,9 @@ import java.util.TreeSet;
  * <p>The default list ({@code docs/PLAN-v2.md} M4-19) shows a group when one of its requests failed, answering 5xx or,
  * for a scheduled run or consumed message, ending with an exception nothing caught; when it was not observed in the
  * previous run; or when one of its responses was neither 2xx nor 4xx, such as a redirect, which no other check reports.
- * Groups seen only behind 4xx responses are collapsed into one counted row, listed last; groups behind 2xx responses are
- * reported by Errors behind 2xx responses. Every group stays in the report.</p>
+ * Groups seen only behind 4xx responses are collapsed into one counted row, and groups caught in scheduled runs or
+ * messages that completed into another, both listed last; groups behind 2xx responses are reported by Errors behind 2xx
+ * responses. Every group stays in the report.</p>
  */
 public final class ExceptionHotspots implements Observation {
 
@@ -46,9 +47,13 @@ public final class ExceptionHotspots implements Observation {
     static final String ONLY_2XX_OR_4XX =
             "It was recorded only behind 2xx and 4xx responses: Errors behind 2xx" + " responses reports the 2xx ones.";
 
+    /** The key and subject of the row counting the groups caught in scheduled runs or messages that completed. */
+    static final String CAUGHT_IN_RUNS = "Caught in completed runs or messages";
+
     /** Why a group recorded in runs or messages that all completed is left out of the default list. */
     static final String CAUGHT_IN_EXECUTION = "Every scheduled run or message that recorded it completed, so the"
-            + " exception was caught; it is listed when it is new since the previous run.";
+            + " exception was caught; it is counted in the row Caught in completed runs or messages, and listed when it is"
+            + " new since the previous run.";
 
     /** Specific checks, by fully qualified class name. */
     static final Map<String, String> CHECKS = checks();
@@ -102,32 +107,37 @@ public final class ExceptionHotspots implements Observation {
             groups.forEach((key, group) ->
                     findings.add(finding(route.getKey(), key, group, requests.size(), previous, snapshot)));
         }
-        Finding behind4xx = behind4xx(findings);
+        Finding behind4xx = counted(findings, ONLY_4XX);
+        Finding caught = counted(findings, CAUGHT_IN_EXECUTION);
         if (behind4xx != null) {
             findings.add(behind4xx);
+        }
+        if (caught != null) {
+            findings.add(caught);
         }
         return new Evaluation(eligible, findings);
     }
 
     /**
-     * One row counting the groups recorded only behind 4xx responses, which the default list leaves out, or {@code
-     * null} when there are none. It names no requests as eligible or affected, so it sorts after the groups it does
-     * not collapse, and its counts are in its sentence.
+     * One row counting the groups the default list leaves out for {@code reason}, {@link #ONLY_4XX} or {@link
+     * #CAUGHT_IN_EXECUTION}, or {@code null} when there are none. It names no requests as eligible or affected, so it
+     * sorts after the groups it does not collapse, and its counts are in its sentence.
      */
-    private static Finding behind4xx(List<Finding> findings) {
+    private static Finding counted(List<Finding> findings, String reason) {
+        boolean http = ONLY_4XX.equals(reason);
         List<Finding> collapsed = findings.stream()
-                .filter(finding -> ONLY_4XX.equals(finding.unlisted()))
+                .filter(finding -> reason.equals(finding.unlisted()))
                 .toList();
         if (collapsed.isEmpty()) {
             return null;
         }
-        Set<String> routes = new LinkedHashSet<>();
+        Set<String> units = new LinkedHashSet<>();
         Set<String> requests = new LinkedHashSet<>();
         long occurrences = 0;
         List<List<String>> rows = new ArrayList<>();
         List<String> exemplars = new ArrayList<>();
         for (Finding finding : collapsed) {
-            routes.add(finding.subject());
+            units.add(finding.subject());
             Set<String> statuses = new TreeSet<>();
             long groupOccurrences = 0;
             for (List<String> row : finding.rows()) {
@@ -139,36 +149,63 @@ public final class ExceptionHotspots implements Observation {
             if (exemplars.size() < 3 && !finding.exemplarRequestIds().isEmpty()) {
                 exemplars.add(finding.exemplarRequestIds().get(0));
             }
-            rows.add(List.of(
+            List<String> row = new ArrayList<>(List.of(
                     finding.subject(),
                     exceptionOf(finding),
                     String.valueOf(finding.affected()),
-                    String.valueOf(groupOccurrences),
-                    String.join(", ", statuses)));
+                    String.valueOf(groupOccurrences)));
+            if (http) {
+                row.add(String.join(", ", statuses));
+            }
+            rows.add(List.copyOf(row));
         }
         rows.sort(Comparator.comparingLong((List<String> row) -> Long.parseLong(row.get(3)))
                 .reversed());
-        String sentence = InsightText.counted(collapsed.size(), "exception group") + " on "
-                + InsightText.counted(routes.size(), "route") + " "
-                + (collapsed.size() == 1 ? "was" : "were") + " recorded only behind 4xx responses: "
-                + InsightText.counted(occurrences, "occurrence") + " in "
-                + InsightText.counted(requests.size(), "request") + ".";
+        String groups = InsightText.counted(collapsed.size(), "exception group") + " "
+                + (collapsed.size() == 1 ? "was" : "were");
+        if (http) {
+            return new Finding(
+                    BEHIND_4XX,
+                    BEHIND_4XX,
+                    true,
+                    InsightText.counted(collapsed.size(), "exception group") + " on "
+                            + InsightText.counted(units.size(), "route") + " "
+                            + (collapsed.size() == 1 ? "was" : "were") + " recorded only behind 4xx responses: "
+                            + InsightText.counted(occurrences, "occurrence") + " in "
+                            + InsightText.counted(requests.size(), "request") + ".",
+                    0,
+                    0,
+                    List.of(
+                            "Check that each of these 4xx responses is the one the caller should get, such as 400 for"
+                                    + " invalid input; Show all routes lists each group with its requests.",
+                            GENERIC_CHECK),
+                    exemplars,
+                    List.of("Route", "Exception", "Requests", "Occurrences", "Statuses"),
+                    rows,
+                    List.of("A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed"
+                            + " in the previous run, is not counted here."));
+        }
         return new Finding(
-                BEHIND_4XX,
-                BEHIND_4XX,
+                CAUGHT_IN_RUNS,
+                CAUGHT_IN_RUNS,
                 true,
-                sentence,
+                groups + " recorded in "
+                        + InsightText.counted(units.size(), "scheduled job or listener", "scheduled jobs or listeners")
+                        + " whose runs or messages completed: "
+                        + InsightText.counted(occurrences, "occurrence") + " in "
+                        + InsightText.counted(requests.size(), "run or message", "runs or messages") + ".",
                 0,
                 0,
                 List.of(
-                        "Check that each of these 4xx responses is the one the caller should get, such as 400 for"
-                                + " invalid input; Show all routes lists each group with its requests.",
+                        "Check that each job or listener meant to catch these exceptions, and that it logs or"
+                                + " retries what it caught; Show all routes lists each group with its runs.",
                         GENERIC_CHECK),
                 exemplars,
-                List.of("Route", "Exception", "Requests", "Occurrences", "Statuses"),
+                List.of("Job or listener", "Exception", "Runs or messages", "Occurrences"),
                 rows,
-                List.of("A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed in"
-                        + " the previous run, is not counted here."));
+                List.of("A group also seen in a run or message that failed, or not observed in the previous run, is"
+                        + " not counted here. Errors behind 2xx responses reads HTTP requests only, so this row is"
+                        + " where these exceptions are counted."));
     }
 
     private Finding finding(

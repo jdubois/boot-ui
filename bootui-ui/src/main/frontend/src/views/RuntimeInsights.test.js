@@ -378,6 +378,42 @@ describe('Runtime Insights panel', () => {
     )
   })
 
+  it('keeps the open observation when a refresh leaves it out of the default list', async () => {
+    const slow = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:slow',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/slow',
+      listed: true,
+      unlistedReason: null
+    }
+    const first = {...report, observations: [{...report.observations[0], listed: true}, slow]}
+    const refreshed = {
+      ...first,
+      observations: [first.observations[0], {...slow, listed: false, unlistedReason: 'Its warm median is under 20 ms.'}]
+    }
+    let current = first
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).includes('/insights/') ? {...detail, observation: slow} : current))
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    const item = wrapper.findAll('.insight-item').find((candidate) => candidate.text().includes('GET /api/slow'))
+    await item.trigger('click')
+    await flushPromises()
+
+    current = refreshed
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+
+    expect(wrapper.get('.insight-item.active').text()).toContain('GET /api/slow')
+    expect(wrapper.get('.insight-item.active').text()).toContain('Not listed by default')
+    expect(wrapper.find('.insight-unlisted').exists()).toBe(false)
+  })
+
   it('shows every row when a deep link names one the default list leaves out', async () => {
     const fast = {
       ...report.observations[0],
