@@ -185,6 +185,9 @@ final class ThreadSensor {
                         retransformSubclasses();
                     }
                 } catch (Throwable ex) {
+                    selfTestPassed = false;
+                    selfTestError = "threads sensor error: " + ex;
+                    ThreadPropagation.disable(jobGeneration, stuck);
                     state = "failed";
                     stats.failure("threads: " + ex);
                     AgentBridge.message("the BootUI agent could not install its threads sensor: " + ex);
@@ -213,7 +216,7 @@ final class ThreadSensor {
             stats.retransformedFor(elapsed);
             installMillis = elapsed / 1_000_000L;
         }
-        state = "installed";
+        state = "testing";
     }
 
     /** {@code Thread} subclasses in the claimed packages loaded before they were claimed. */
@@ -400,6 +403,7 @@ final class ThreadSensor {
     // ---- self-test -----------------------------------------------------------------------------------------------
 
     void selfTest(long claimGeneration) {
+        beginSelfTest();
         long started = System.nanoTime();
         Map<String, String> steps = new LinkedHashMap<String, String>();
         Map<String, Object> seen;
@@ -414,17 +418,32 @@ final class ThreadSensor {
         }
         Map<String, String> results = evaluate(seen, steps);
         selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
+        recordSelfTest(claimGeneration, results, steps);
+    }
+
+    void beginSelfTest() {
+        selfTestPassed = false;
+        selfTestError = null;
+        selfTestMillis = -1L;
+        state = "testing";
+    }
+
+    void recordSelfTest(long claimGeneration, Map<String, String> results, Map<String, String> steps) {
         selfTest = results;
         selfTestSteps = steps;
         List<String> failed = new ArrayList<String>();
-        for (Map.Entry<String, String> result : results.entrySet()) {
-            if ("failed".equals(result.getValue())) {
-                failed.add(result.getKey());
+        for (String[] hook : HOOKS) {
+            if (!hook[1].startsWith("(")
+                    && ExecutorSensor.present(hook[1])
+                    && !(VIRTUAL_THREAD.equals(hook[1]) && "unsupported".equals(results.get(hook[0])))
+                    && !"passed".equals(results.get(hook[0]))) {
+                failed.add(hook[0]);
             }
         }
         if (failed.isEmpty()) {
-            selfTestPassed = true;
             selfTestError = null;
+            selfTestPassed = true;
+            state = "installed";
         } else {
             selfTestPassed = false;
             selfTestError = "self-test failed for " + failed + " " + steps;
@@ -441,14 +460,13 @@ final class ThreadSensor {
         Map<String, Object> keyed = (Map<String, Object>) seen.get("keyed");
         Map<String, Object> applied = (Map<String, Object>) seen.get("applied");
         Map<String, String> results = new LinkedHashMap<String, String>();
+        boolean virtualSupported =
+                ExecutorSensor.present(VIRTUAL_THREAD) && !"unsupported".equals(steps.get("virtual"));
         results.put("Thread.start", result(keyed, "Thread.start", true, steps.get("platform")));
         results.put(
-                "VirtualThread.start",
-                result(keyed, "VirtualThread.start", ExecutorSensor.present(VIRTUAL_THREAD), steps.get("virtual")));
+                "VirtualThread.start", result(keyed, "VirtualThread.start", virtualSupported, steps.get("virtual")));
         results.put("Thread.run", result(applied, "Thread.run", true, steps.get("platform")));
-        results.put(
-                "VirtualThread.run",
-                result(applied, "VirtualThread.run", ExecutorSensor.present(VIRTUAL_THREAD), steps.get("virtual")));
+        results.put("VirtualThread.run", result(applied, "VirtualThread.run", virtualSupported, steps.get("virtual")));
         results.put("Thread subclass run", "not-exercised");
         return results;
     }
@@ -485,7 +503,15 @@ final class ThreadSensor {
 
         @Override
         public void run(int seconds) throws Exception {
-            Object builder = Thread.class.getMethod("ofVirtual").invoke(null);
+            Object builder;
+            try {
+                builder = Thread.class.getMethod("ofVirtual").invoke(null);
+            } catch (java.lang.reflect.InvocationTargetException ex) {
+                if (ex.getCause() instanceof UnsupportedOperationException unsupported) {
+                    throw unsupported;
+                }
+                throw ex;
+            }
             Thread thread = (Thread) Class.forName("java.lang.Thread$Builder")
                     .getMethod("start", Runnable.class)
                     .invoke(builder, new ExecutorSensor.Noop());

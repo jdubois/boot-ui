@@ -132,7 +132,7 @@ public final class JavaAgentService {
 
     /**
      * Whether the agent propagates the work a request hands to a JDK executor for this application: it is attached and
-     * armed for it ({@link #recording()}), its {@code executors} sensor is installed, the bridge has not disabled
+     * armed for it ({@link #recording()}), its {@code executors} sensor is installed and self-tested, the bridge has not disabled
      * propagation, and this application attached its handoffs to its claim. Reads only the bridge's status. Never
      * throws.
      */
@@ -215,10 +215,21 @@ public final class JavaAgentService {
             return requirement + ": the agent reports it inactive for this application's claim.";
         }
         String state = AgentBridgeAccess.text(sensor, "state");
+        String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, countersKey), "disabledReason");
+        if (AgentSensorSettings.EXECUTORS.equals(id)) {
+            if ("testing".equals(state)) {
+                return requirement + ": the executors sensor's core hooks have not passed their self-test yet.";
+            }
+            if (disabled != null) {
+                return requirement + ": the agent disabled " + disabledWhat + ": " + disabled;
+            }
+            if (INSTALLED.equals(state) && !Boolean.TRUE.equals(sensor.get("selfTestPassed"))) {
+                return requirement + ": the executors sensor's core hooks have not passed their self-test yet.";
+            }
+        }
         if (!INSTALLED.equals(state)) {
             return requirement + ": the sensor is " + (state == null ? "not installed" : state) + ".";
         }
-        String disabled = AgentBridgeAccess.text(AgentBridgeAccess.map(status, countersKey), "disabledReason");
         if (disabled != null) {
             return requirement + ": the agent disabled " + disabledWhat + ": " + disabled;
         }
@@ -496,7 +507,7 @@ public final class JavaAgentService {
                 String state = AgentBridgeAccess.text(sensor, "state");
                 running |= "installing".equals(state);
                 failure |= state != null && state.contains("failed");
-                installed |= INSTALLED.equals(state);
+                installed |= INSTALLED.equals(state) || "testing".equals(state);
             }
         }
         if (!any) {

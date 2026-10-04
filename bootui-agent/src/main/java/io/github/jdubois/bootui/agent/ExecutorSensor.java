@@ -187,6 +187,12 @@ final class ExecutorSensor {
                         selfTest(job);
                     }
                 } catch (Throwable ex) {
+                    selfTestPassed = false;
+                    unverifyAsync();
+                    if (job >= 0L) {
+                        selfTestError = "executor sensor error: " + ex;
+                        TaskPropagation.disable(job, selfTestError);
+                    }
                     state = "failed";
                     stats.failure("executors: " + ex);
                     AgentBridge.message("the BootUI agent could not install its executors sensor: " + ex);
@@ -214,7 +220,7 @@ final class ExecutorSensor {
             stats.retransformedFor(elapsed);
             installMillis = elapsed / 1_000_000L;
         }
-        state = "installed";
+        state = "testing";
     }
 
     void reset() {
@@ -453,13 +459,13 @@ final class ExecutorSensor {
     /**
      * Runs marker tasks through private pools on this agent thread, one step at a time: the bridge recognizes them by
      * identity and counts, per hook, the marker tasks it keyed and applied, without ever calling the engine. Each step
-     * has its own outcome; only a core hook that ran and saw nothing disables propagation. The common-pool step runs
+     * has its own outcome; every core hook must see a task to verify propagation. The common-pool step runs
      * last, with a short wait.
      */
     void selfTest(long generation) {
+        beginSelfTest();
         long started = System.nanoTime();
         Map<String, String> steps = new LinkedHashMap<String, String>();
-        unverifyAsync();
         ThreadPoolExecutor pool = new ThreadPoolExecutor(
                 1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<Runnable>(), new SelfTestThreads());
         ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, new SelfTestThreads());
@@ -485,6 +491,18 @@ final class ExecutorSensor {
         }
         Map<String, String> results = evaluate(seen, steps);
         selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
+        recordSelfTest(generation, results, steps);
+    }
+
+    void beginSelfTest() {
+        selfTestPassed = false;
+        selfTestError = null;
+        selfTestMillis = -1L;
+        unverifyAsync();
+        state = "testing";
+    }
+
+    void recordSelfTest(long generation, Map<String, String> results, Map<String, String> steps) {
         selfTest = results;
         selfTestSteps = steps;
         TaskPropagation.asyncApplies(
@@ -493,17 +511,20 @@ final class ExecutorSensor {
                 TaskPropagation.APPLY_ASYNC_RUN, "passed".equals(results.get("CompletableFuture.AsyncRun")));
         List<String> failed = new ArrayList<String>();
         for (String core : CORE) {
-            if ("failed".equals(results.get(core))) {
+            if (!"passed".equals(results.get(core))) {
                 failed.add(core);
             }
         }
-        selfTestError = failed.isEmpty() ? null : "core hooks saw no task: " + failed;
         if (failed.isEmpty()) {
-            selfTestPassed = true;
             TaskPropagation.enable();
+            selfTestError = null;
+            selfTestPassed = true;
+            state = "installed";
         } else {
             selfTestPassed = false;
-            TaskPropagation.disable(generation, "self-test failed for " + failed + " " + steps);
+            selfTestError = "self-test failed for " + failed + " " + steps;
+            TaskPropagation.disable(generation, selfTestError);
+            state = "self-test-failed";
         }
     }
 
@@ -522,6 +543,8 @@ final class ExecutorSensor {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             return "interrupted";
+        } catch (UnsupportedOperationException ex) {
+            return "unsupported";
         } catch (Throwable ex) {
             return "error: " + ex;
         }
