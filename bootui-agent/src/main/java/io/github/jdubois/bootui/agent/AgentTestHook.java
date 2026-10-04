@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * For BootUI's own tests only: a service the published jar never contains. The test variant of the agent jar adds an
@@ -25,6 +26,14 @@ public interface AgentTestHook {
     /** Whether agent threads are created and the transformer installed inside a privileged block (JDK 17 to 23). */
     default boolean privilegedInstall() {
         return true;
+    }
+
+    /**
+     * Sensor hooks to leave out of the transformer, by the hook ids the sensors report, so the mutation tests can prove
+     * each hook's own self-test fails while its siblings still pass.
+     */
+    default Set<String> omittedHooks() {
+        return Collections.emptySet();
     }
 
     /** Called with each claim's description, on the claiming thread. */
