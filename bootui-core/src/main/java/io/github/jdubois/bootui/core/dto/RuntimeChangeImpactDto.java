@@ -21,6 +21,7 @@ import java.util.List;
  * @param sharedResources the routes outside its reach that use a table, cache, or host it writes or calls
  * @param sharedResourcesTotal how many there are
  * @param limitations what the impact cannot see
+ * @param notExercisedUndetermined whether some reached routes cannot be classified after aggregate overflow
  */
 public record RuntimeChangeImpactDto(
         String status,
@@ -35,7 +36,8 @@ public record RuntimeChangeImpactDto(
         int notExercisedTotal,
         List<RuntimeImpactRouteDto> sharedResources,
         int sharedResourcesTotal,
-        List<String> limitations) {
+        List<String> limitations,
+        boolean notExercisedUndetermined) {
 
     /** The rows each list holds at most. */
     public static final int MAX_ROWS = 8;
@@ -46,5 +48,36 @@ public record RuntimeChangeImpactDto(
         notExercised = DtoCollections.immutableCopy(notExercised);
         sharedResources = DtoCollections.immutableCopy(sharedResources);
         limitations = DtoCollections.immutableCopy(limitations);
+    }
+
+    public RuntimeChangeImpactDto(
+            String status,
+            String reason,
+            String symbol,
+            String node,
+            List<String> candidates,
+            long structuralReach,
+            List<RuntimeImpactRouteDto> observed,
+            int observedTotal,
+            List<RuntimeImpactRouteDto> notExercised,
+            int notExercisedTotal,
+            List<RuntimeImpactRouteDto> sharedResources,
+            int sharedResourcesTotal,
+            List<String> limitations) {
+        this(
+                status,
+                reason,
+                symbol,
+                node,
+                candidates,
+                structuralReach,
+                observed,
+                observedTotal,
+                notExercised,
+                notExercisedTotal,
+                sharedResources,
+                sharedResourcesTotal,
+                limitations,
+                false);
     }
 }

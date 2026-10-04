@@ -714,10 +714,19 @@ names several, and then lists, eight rows each with totals: the routes that reac
 ran in this run, with their requests, anonymous and failed requests, the tables and caches they read and wrote, and
 requests to open; the mapped routes that reach it and did not run, each with a reminder to exercise it; and the routes
 outside its reach that use a table, cache, or host the routes through it touched. A route is its own impact, listed with
-the routes that share what it touched. The structural reach is a count, kept apart from what ran, since a route's
+the routes that share what it touched. A handler method, such as `ProductController#list` or
+`com.example.ProductController#list`, narrows the impact to the routes mapped to it, so the class's other routes appear
+only when they share what it touched; a method no route is mapped to is reported not found rather than widened to its class, and the
+class name alone still checks the whole bean. The structural reach is a count, kept apart from what ran, since a route's
 traffic does not prove that a request went through the changed code. Spring MVC and WebFlux read the bean graph and
 Quarkus its ArC injection edges; when the beans cannot be read, the impact says so rather than listing nothing.
 `?impact=<symbol>` opens the panel on a symbol.
+Route traffic is counted over the whole run even when its request has left the journal's retained evidence; shared
+resources and example request ids still depend on retained events. When the route-count limit is exceeded, a route
+without retained evidence is not claimed to be unexercised: `notExercisedUndetermined` marks the list incomplete
+instead of claiming every mapped route ran. Disabled source panels leave their facts out and are named in the
+limitations only when relevant evidence was recorded; when HTTP Exchanges is disabled, change impact cannot classify
+traffic at all. Symbol suggestions reuse a policy-filtered projection until the journal or panel policy changes.
 
 **Profile resources** measures what scope readings cannot, such as CPU on virtual threads. Only when you click it, it
 records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by default; **Stop now** ends

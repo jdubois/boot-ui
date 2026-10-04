@@ -69,7 +69,8 @@ public class RuntimeInsightsController {
                 journal.getIfAvailable(),
                 journalAggregates,
                 models,
-                journalAggregates == null ? null : journalAggregates.declaredRoutes());
+                journalAggregates == null ? null : journalAggregates.declaredRoutes(),
+                properties::isPanelEnabled);
         this.impact.setStack(
                 context instanceof ReactiveWebApplicationContext
                         ? InsightsStack.SPRING_WEBFLUX
