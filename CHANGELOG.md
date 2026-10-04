@@ -26,6 +26,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
   [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
 
+- **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
+  in a successful request. Connections held together now use the known pool maximum and the corrected first possible
+  hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
+  top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
+
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
@@ -34,6 +39,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
   evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
   parent result size was not recorded.
+
 - **Runtime journal and persisted Live Activity bounds.** Oversized evidence no longer exceeds the configured
   byte budget; SQL events identify their named data source even with connection recording
   off; per-request SELECT tracking is capped and uses the same literal-free fingerprints for live and persisted N+1
