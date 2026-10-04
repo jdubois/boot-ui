@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.core.dto.CodeInventoryReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import java.lang.reflect.Method;
 import java.net.URL;

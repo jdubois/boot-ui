@@ -90,6 +90,11 @@ class StackFramePrefixesTests {
                 .isTrue();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.agent.bridge.AgentBridge"))
                 .isTrue();
+        // The code-paths sensor's bridge and engine side sit on application stacks too (PLAN-v2 M5-4a).
+        assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.agent.bridge.CodePaths"))
+                .isTrue();
+        assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.engine.codepaths.CodePathsService"))
+                .isTrue();
     }
 
     @Test

@@ -6,7 +6,9 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -137,7 +139,15 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             SegmentMeter.shared().begin(correlation.requestId());
         }
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-            recordAround(request, response, chain, correlation);
+            // The BootUI agent's code-paths fragment of this request on this thread (docs/PLAN-v2.md M5-4a): opened
+            // inside the scope, so it captures the request, and flushed before the scope closes.
+            AgentCodePaths.begin();
+            AgentCodePaths.phase(RequestPhase.FILTERS);
+            try {
+                recordAround(request, response, chain, correlation);
+            } finally {
+                AgentCodePaths.end();
+            }
         }
     }
 

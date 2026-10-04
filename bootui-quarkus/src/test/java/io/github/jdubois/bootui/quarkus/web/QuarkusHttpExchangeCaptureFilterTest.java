@@ -7,15 +7,18 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
@@ -46,6 +49,7 @@ import java.util.logging.Logger;
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 /**
  * White-box binding tests for {@link QuarkusHttpExchangeCaptureFilter}'s self-traffic exclusion: BootUI's
@@ -208,6 +212,27 @@ class QuarkusHttpExchangeCaptureFilterTest {
                 .singleElement()
                 .satisfies(
                         exchange -> assertThat(exchange.responseHeaders()).containsEntry("X-Villain", List.of("42")));
+    }
+
+    /**
+     * The BootUI agent's code-paths hooks (docs/PLAN-v2.md M5-4a): the request's scope on the event loop, and, on the
+     * thread that ends the response, as a worker that no end() closes, the phase its response filter marked cleared.
+     */
+    @Test
+    void scopesTheCodePathsFragmentAndClearsThePhaseWhenTheResponseEnds() {
+        RoutingContext rc = mockRequest("/orders/42");
+        try (MockedStatic<AgentCodePaths> codePaths = mockStatic(AgentCodePaths.class)) {
+            filter(new HttpExchangeBuffer(10), Map.of()).handle(rc);
+            codePaths.verify(AgentCodePaths::begin);
+            codePaths.verify(() -> AgentCodePaths.phase(RequestPhase.FILTERS));
+            codePaths.verify(AgentCodePaths::end);
+            verify(rc).next();
+            codePaths.verify(AgentCodePaths::clearPhase, never());
+
+            bodyEndHandler(rc).handle(null);
+
+            codePaths.verify(AgentCodePaths::clearPhase);
+        }
     }
 
     @Test

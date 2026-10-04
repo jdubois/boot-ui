@@ -359,6 +359,106 @@ describe('Java Agent panel', () => {
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-inventory"]').exists()).toBe(true)
   })
 
+  it('shows the code-paths sensor with its record hook and explained counters', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'code-paths',
+          state: 'installed',
+          active: true,
+          instrumentedTypes: 14,
+          failures: [],
+          durationMillis: 230,
+          selfTestPassed: true,
+          selfTestError: null,
+          selfTestSteps: {probe: 'ok'},
+          hooks: [
+            {
+              id: 'bean methods',
+              kind: 'record',
+              type: '(bean classes)',
+              present: true,
+              transformed: true,
+              selfTest: 'passed',
+              fired: 52
+            }
+          ],
+          failedTypes: 0,
+          skippedTypes: 0,
+          executors: null,
+          inventory: null,
+          codePaths: {
+            fragmentsFlushed: 52,
+            fragmentsDropped: 0,
+            queueDropped: 1,
+            callsDropped: 7,
+            queueBytes: 2048,
+            excludedMethods: 2,
+            errors: 0,
+            disabledReason: null
+          }
+        }
+      ]
+    })
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('times bean methods per request')
+    expect(text).toContain('Fragments recorded 52')
+    expect(text).toContain('Queue full 1')
+    expect(text).toContain('Calls in no node 7')
+    expect(text).toContain('Methods excluded 2')
+    expect(text).not.toContain('Methods tracked')
+    expect(text).not.toContain('is disabled for this claim')
+    expect(wrapper.find('[aria-labelledby="java-agent-counters-code-paths"]').exists()).toBe(true)
+  })
+
+  it('says when the code-paths sensor switched itself off', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'code-paths',
+          state: 'installed',
+          instrumentedTypes: 3,
+          failures: [],
+          selfTestPassed: true,
+          selfTestSteps: {},
+          hooks: [
+            {
+              id: 'bean methods',
+              kind: 'record',
+              type: '(bean classes)',
+              present: true,
+              transformed: true,
+              selfTest: 'passed',
+              fired: 0
+            }
+          ],
+          executors: null,
+          inventory: null,
+          codePaths: {
+            fragmentsFlushed: 0,
+            fragmentsDropped: 0,
+            queueDropped: 0,
+            callsDropped: 0,
+            queueBytes: 0,
+            excludedMethods: 0,
+            errors: 100,
+            disabledReason: 'switched off after 100 internal errors'
+          }
+        }
+      ]
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Recording is disabled for this claim: switched off after 100 internal errors')
+    expect(wrapper.text()).toContain('Internal errors 100')
+  })
+
   it('says when the inventory sensor stopped recording', async () => {
     wrapper = mountPanel({
       ...baseReport,

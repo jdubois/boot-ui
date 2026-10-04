@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
+  protected methods of the application's beans per request, as call trees built on the request's own threads, with
+  executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
+  bounded memory that drops and counts rather than blocks. It shares one transformer with the `inventory` sensor; the
+  Java Agent panel shows its row and counters on Spring MVC, Spring WebFlux, and Quarkus. Spring sends its bean classes
+  when the context refreshes and Quarkus at build time. A debugger stepping into a timed method steps over the agent's
+  calls, whose bridge carries no line numbers. The Code Paths panel and tools that read the trees follow
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
+
 ### Changed
 
 - **Durable Live Activity history is journal-rendered.** With

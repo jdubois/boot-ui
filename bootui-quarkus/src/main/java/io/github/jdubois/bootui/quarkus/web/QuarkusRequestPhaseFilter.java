@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.vertx.core.Context;
@@ -59,6 +60,9 @@ public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, Contai
     }
 
     private void mark(RequestPhase phase) {
+        // Where the BootUI agent's code-paths nodes record the phase they entered in (docs/PLAN-v2.md M5-4a), on the
+        // thread that runs the resource method.
+        AgentCodePaths.phase(phase);
         try {
             phases.mark(QuarkusRequestCorrelation.current().requestId(), phase);
         } catch (RuntimeException ex) {

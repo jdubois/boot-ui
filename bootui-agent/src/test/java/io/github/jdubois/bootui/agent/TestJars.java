@@ -61,11 +61,58 @@ final class TestJars {
         return classPath.toString();
     }
 
+    /** The code-paths tests' class path: the application jar of bean classes. */
+    static String codePathsClassPath() throws IOException {
+        return jar("codepaths-app.jar", "bootuicodepathsapp", List.of()).toString();
+    }
+
     /** A claimed class whose method {@code big()} is so close to the JVM's 64 KB limit that no advice fits in it. */
     static final String HUGE = "bootuiinventoryapp/Huge";
 
     /** Bytes of {@code nop} in {@code Huge.big()}: with its {@code iconst_1; ireturn}, 65,530 of 65,535. */
     static final int HUGE_NOPS = 65_528;
+
+    /** A code-paths bean class whose method {@code tight()} fits the inventory's advice but not the code paths' too. */
+    static final String TIGHT = "bootuicodepathsapp/Tight";
+
+    /**
+     * Bytes left under the JVM's 64 KB code limit in {@code Tight.tight()}: the inventory's advice takes about 24 of
+     * them, both sensors' advice about 64.
+     */
+    static final int TIGHT_MARGIN = 40;
+
+    /** A jar holding {@link #TIGHT}: a public constructor and {@code public int tight()} answering 1. */
+    static Path tightJar() throws IOException {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC | Opcodes.ACC_SUPER, TIGHT, null, "java/lang/Object", null);
+        MethodVisitor constructor = writer.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        constructor.visitMaxs(0, 0);
+        constructor.visitEnd();
+        MethodVisitor tight = writer.visitMethod(Opcodes.ACC_PUBLIC, "tight", "()I", null, null);
+        tight.visitCode();
+        // With its iconst_1 and ireturn, TIGHT_MARGIN bytes short of 65,535.
+        for (int i = 0; i < 65_535 - 2 - TIGHT_MARGIN; i++) {
+            tight.visitInsn(Opcodes.NOP);
+        }
+        tight.visitInsn(Opcodes.ICONST_1);
+        tight.visitInsn(Opcodes.IRETURN);
+        tight.visitMaxs(0, 0);
+        tight.visitEnd();
+        writer.visitEnd();
+        Files.createDirectories(ChildJvm.WORK);
+        Path jar = ChildJvm.WORK.resolve("codepaths-tight.jar");
+        try (OutputStream file = Files.newOutputStream(jar);
+                JarOutputStream out = new JarOutputStream(file)) {
+            out.putNextEntry(new JarEntry(TIGHT + ".class"));
+            out.write(writer.toByteArray());
+            out.closeEntry();
+        }
+        return jar;
+    }
 
     /** A jar holding {@link #HUGE}: {@code static int big()} answering 1 and {@code static int small()} answering 2. */
     static Path hugeJar() throws IOException {

@@ -32,10 +32,11 @@ public final class RunApp {
         request.put("owner", "it run " + SENTINEL.run);
         request.put("mode", "dev");
         request.put("packages", List.of("bootuiagentit.run"));
-        request.put("sensors", List.of("executors", "threads", "inventory"));
+        request.put("sensors", List.of("executors", "threads", "inventory", "code-paths"));
+        request.put("beanClasses", List.of(RunBean.class.getName()));
         Object marker = new Object();
         capture = () -> marker != null && CURRENT.get() != null
-                ? new Object[] {"run-" + SENTINEL.run, null, null, null, null, null, null, 1L, 1L}
+                ? new Object[] {String.format("%016x", SENTINEL.run), null, null, null, null, null, null, 1L, 1L}
                 : null;
         reopen = snapshot -> {
             Object previous = CURRENT.get();
@@ -68,6 +69,8 @@ public final class RunApp {
     public static void propagate() throws Exception {
         CURRENT.set(new RunContext());
         try {
+            // A bean call under the run's request: a code-paths fragment.
+            new RunBean().work(SENTINEL.run);
             // execute and a latch, not submit().get(): a joining caller may run the task itself.
             java.util.concurrent.CountDownLatch ran = new java.util.concurrent.CountDownLatch(1);
             java.util.concurrent.ForkJoinPool.commonPool().execute(() -> {
