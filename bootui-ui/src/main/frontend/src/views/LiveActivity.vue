@@ -1346,11 +1346,17 @@ function toggleFlow() {
                 </tr>
               </template>
               <tr v-if="!visibleEntries.length">
-                <td v-if="hasActiveFilters || hasJournalFilters" colspan="6" class="text-center text-muted py-4">
+                <td
+                  v-if="hasActiveFilters || (hasJournalFilters && !persistent)"
+                  colspan="6"
+                  class="text-center text-muted py-4"
+                >
                   No activity matches the current filters.
                 </td>
-                <td v-else-if="canLoadOlder" colspan="6" class="text-center text-muted py-4">
-                  No visible rows on this page. Older history is available below; rows from a disabled panel are hidden.
+                <td v-else-if="persistent" colspan="6" class="text-center text-muted py-4">
+                  No visible rows on this page. Rows from a disabled panel are hidden<template v-if="canLoadOlder"
+                    >; older history is available below</template
+                  >.
                 </td>
                 <td v-else colspan="6" class="text-center text-muted py-4">
                   No activity recorded yet. Send a request to the application, and its requests, SQL, exceptions, and
