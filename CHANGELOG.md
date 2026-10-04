@@ -441,7 +441,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 - **Code Paths overhead under load.** With more than 512 request trees open, as under sustained load, the engine settled
   the eldest one tree at a time, reading the whole runtime journal once per request on BootUI's drain thread: 15 % of
   the process's CPU in a profile of the sample under the agent overhead benchmark's load. The eldest 128 now settle
-  together, in one journal read, and the `code-paths` sensor stays on by default ([Java agent](docs/features/java-agent.md#the-code-paths-sensor),
+  together, in one journal read: the agent overhead benchmark's median went from 16.0 % to 4.1 % with the default
+  sensors on a four-processor CI runner, and the `code-paths` sensor stays on by default ([Java agent](docs/features/java-agent.md#the-code-paths-sensor),
   PLAN-v2 §5.13, M5-13).
 - **Runtime Insights write evidence and plan accuracy.** On Quarkus, `safe-method-dml` labels Hibernate statements as
   preparations, separate from timed JDBC executions of the same SQL shape; the evidence and limitations no longer claim

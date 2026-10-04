@@ -462,7 +462,9 @@ request tree, which settles about two seconds after its last fragment, when the 
 and stamped calls in the runtime journal. Under sustained load, once 512 younger request trees are open, the eldest 128
 settle together, with one journal read for all of them. Settling them one at a time read the whole journal once per
 request: in a profile of the sample under the agent overhead benchmark's load, that was 15 % of the process's CPU,
-against about 0.25 % for the advice on the application threads.
+against about 0.25 % for the advice on the application threads. On a four-processor CI runner, the benchmark's median
+overhead went from 16.0 % to 4.1 % with the default sensors, and from 15.2 % to 5.5 % with `code-paths` alone, within
+the 10 % budget, so the sensor stays on by default.
 
 **Debuggers.** The agent's bridge, which the advice calls, carries no line numbers or local variable tables, only its
 source file names, so stepping into an instrumented method in IntelliJ IDEA, Eclipse, or any JDI debugger steps over
