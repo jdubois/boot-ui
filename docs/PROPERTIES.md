@@ -214,11 +214,11 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
-| Diagnostics     | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
-| Diagnostics     | Code Paths                | `code-paths`                | `bootui.panels.code-paths.enabled`                | `bootui.panels.code-paths.read-only`      |
+| Java agent      | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | Not applicable; view-only.                |
+| Java agent      | Code Paths                | `code-paths`                | `bootui.panels.code-paths.enabled`                | `bootui.panels.code-paths.read-only`      |
+| Java agent      | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | Command Line              | `cli`                       | `bootui.panels.cli.enabled`                       | Not applicable; view-only.                |
-| Developer tools | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | Not applicable; view-only.                |
 | Developer tools | Spring DevTools           | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                |

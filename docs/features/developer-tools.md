@@ -85,14 +85,14 @@ each exception's `exceptionGroupId`. `source` is `none` when neither retention w
 
 **Code Inventory read** — `get_code_inventory`: with the BootUI agent, whether the methods changed since the previous run
 executed in this run, then the never-executed, not-tracked, executed, or dependency rows a query asks for (see
-[Code Inventory](diagnostics.md#code-inventory)).
+[Code Inventory](java-agent.md#code-inventory)).
 
 **Code Paths read** — `get_code_paths`: with the BootUI agent, the routes ranked by warm median with the application
-methods they spend their time in, or one route's hottest method nodes (see [Code Paths](diagnostics.md#code-paths)).
+methods they spend their time in, or one route's hottest method nodes (see [Code Paths](java-agent.md#code-paths)).
 
 **Method probes** — `start_method_probe`, an action needing the user's separate approval that read-only policy refuses,
 records one application method's next 20 invocations for at most 60 seconds, metadata only, and `get_method_probe`
-reads them (see [Method probes](diagnostics.md#method-probes)).
+reads them (see [Method probes](java-agent.md#method-probes)).
 
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
@@ -183,18 +183,6 @@ panel shows what *this* instance answers to even when the CLI on your path was b
 Call counters — calls, mean latency, capacity refusals, and timeouts — are tracked separately from the MCP server's, so
 this panel reports what terminals and CI jobs did. There is no response-limit counter, because the command-line facade
 applies no response byte budget.
-
-## Java Agent
-
-The Java Agent panel is the setup and status page for the optional BootUI development-time `-javaagent`. It reports
-`GET /bootui/api/java-agent`, the `get_agent_status` MCP tool, and `bootui agent status` from the same `JavaAgentReport`:
-whether the bridge is absent, dormant, armed for this application, held by another application, disabled, unavailable,
-failed, or disarmed; the BootUI and agent versions; the JDK; the load mode; the claim; counters; messages; warnings;
-and setup snippets with **Copy** buttons.
-
-The panel is view-only on Spring MVC, Spring WebFlux, and Quarkus. It stays local-only, makes no external calls, and the
-agent remains dormant until BootUI claims it. See [Java Agent](java-agent.md) for attach snippets, claim lifecycle,
-OpenTelemetry/JaCoCo coexistence, and the expected class-data-sharing warning.
 
 ## Spring DevTools
 

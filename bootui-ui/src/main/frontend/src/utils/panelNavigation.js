@@ -60,8 +60,19 @@ export function routeAvailabilityLabel(route, panelLookup, platform) {
   return state ? `${title} - ${state.kind}: ${state.reason}` : title
 }
 
+/**
+ * Whether the sidebar files a route under "Disabled / unavailable" instead of its own group. A panel disabled by
+ * configuration always moves there. A panel that only needs the BootUI Java agent (`meta.requiresAgent`) stays in its
+ * Java agent group while unavailable, so it remains discoverable before the agent is attached.
+ */
+export function routeMovesToUnavailableGroup(route, panelLookup) {
+  const kind = routePanelState(route, panelLookup)?.kind
+  if (kind === 'disabled') return true
+  return kind === 'unavailable' && route?.meta?.requiresAgent !== true
+}
+
 export function routeNavigationGroup(route, panelLookup) {
-  return routeUnavailable(route, panelLookup) ? UNAVAILABLE_GROUP_LABEL : route.meta?.group
+  return routeMovesToUnavailableGroup(route, panelLookup) ? UNAVAILABLE_GROUP_LABEL : route.meta?.group
 }
 
 export function buildDocumentTitle(route, platform, applicationName) {

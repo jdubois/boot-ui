@@ -56,8 +56,9 @@ const PANEL_HEADINGS = {
   exceptions: /^Exceptions/,
   'http-exchanges': /HTTP Exchanges/,
   'http-probe': /HTTP Probe/,
-  'code-inventory': /^Code Inventory/,
+  'java-agent': /Java Agent/,
   'code-paths': /^Code Paths/,
+  'code-inventory': /^Code Inventory/,
   'rest-client-trace': /^REST Client/,
   websockets: /^WebSockets/,
   email: /^Email/,
@@ -68,7 +69,6 @@ const PANEL_HEADINGS = {
   spring: /^Quarkus/,
   'mcp-server': /^MCP Server/,
   cli: /^Command Line/,
-  'java-agent': /Java Agent/,
   devtools: /^Spring DevTools/,
   'dev-services': /^Dev Services/,
   copilot: /^Copilot/,
@@ -190,6 +190,22 @@ test.describe('BootUI app shell (Quarkus)', () => {
     await page.goto('/bootui/#/overview')
     await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
     await expect(page.locator('main h2').filter({hasText: /^Scorecard/})).toBeVisible()
+  })
+
+  test('the Java agent group lists the agent panels whether or not the agent is attached', async ({page}) => {
+    await page.goto('/bootui/')
+
+    // Code Paths and Code Inventory need the BootUI agent. Without it they are unavailable, but they stay in the
+    // Java agent group, dimmed with their reason, instead of moving into "Disabled / unavailable".
+    await page.getByRole('button', {name: /Java agent\s+3/}).click()
+    await expect(page.getByRole('group', {name: 'Java agent panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Java Agent',
+      'Code Paths',
+      'Code Inventory'
+    ])
+    await expect(
+      page.getByRole('group', {name: 'Disabled / unavailable panels'}).locator('.nav-link', {hasText: /^Code /})
+    ).toHaveCount(0)
   })
 
   test('pins Home at the top of the sidebar and lists GitHub under Developer tools', async ({page}) => {

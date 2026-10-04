@@ -364,7 +364,7 @@ observation renders the same evidence as one Markdown document, previewed before
 
 ### Did my change run?
 
-With the [BootUI agent](features/java-agent.md) attached, [Code Inventory](features/diagnostics.md#code-inventory)
+With the [BootUI agent](features/java-agent.md) attached, [Code Inventory](features/java-agent.md#code-inventory)
 answers the question an agent most needs after an edit: did the method it changed execute, and on which route?
 
 | Tool | CLI | Returns |
@@ -380,7 +380,7 @@ same gap as `changed-code-not-executed`.
 
 ### Where does the handler's time go?
 
-With the [BootUI agent](features/java-agent.md) attached, [Code Paths](features/diagnostics.md#code-paths) names the
+With the [BootUI agent](features/java-agent.md) attached, [Code Paths](features/java-agent.md#code-paths) names the
 application methods a route spends its time in, from the agent's `code-paths` sensor.
 
 | Tool | CLI | Returns |
@@ -402,7 +402,7 @@ approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue
 
 ### Did this method run, and how?
 
-A [method probe](features/diagnostics.md#method-probes) records one application method's next invocations: metadata
+A [method probe](features/java-agent.md#method-probes) records one application method's next invocations: metadata
 only, in every exposure mode (D24).
 
 | Tool | CLI | Returns |
