@@ -677,16 +677,10 @@ class JournalFactObservationsTests {
         unownedLog(new LogPayload("com.example.Orders", "ERROR", "Application failure {}", null));
         // Tomcat logs the exception a servlet threw after the request's filters, and so its id, are gone: the last
         // request on loop-1 answered 500.
-        journal.offer(RuntimeEvent.of(
-                JournalSource.LOG,
+        unownedLog(
                 1_020,
-                0,
-                null,
                 "loop-1",
-                null,
-                true,
-                new LogPayload(
-                        "org.apache.catalina.core.StandardWrapperValve", "ERROR", "Servlet.service() {}", null)));
+                new LogPayload("org.apache.catalina.core.StandardWrapperValve", "ERROR", "Servlet.service() {}", null));
 
         RuntimeInsightsService service = service(null, null);
         RuntimeObservationDto unowned = byKind(service.report(), FrameworkWarningsByRoute.KIND).stream()
@@ -727,7 +721,12 @@ class JournalFactObservationsTests {
     }
 
     private void unownedLog(LogPayload log) {
-        journal.offer(RuntimeEvent.of(JournalSource.LOG, 1_000, 0, null, "http-nio-1", null, true, log));
+        unownedLog(1_000, "http-nio-1", log);
+    }
+
+    /** An event without a request or execution id, drained before the projection reads it. */
+    private void unownedLog(long epochMillis, String thread, LogPayload log) {
+        journal.offer(RuntimeEvent.of(JournalSource.LOG, epochMillis, 0, null, thread, null, true, log));
         try {
             assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
         } catch (InterruptedException ex) {
