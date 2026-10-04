@@ -146,8 +146,29 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             try {
                 recordAround(request, response, chain, correlation);
             } finally {
-                AgentCodePaths.end();
+                try {
+                    markAssemblyOnlyIfAsync(request, correlation);
+                } finally {
+                    AgentCodePaths.end();
+                }
             }
+        }
+    }
+
+    /**
+     * Marks the request's code-paths tree assembly only when its handler only started async processing (a
+     * {@code Callable}, {@code DeferredResult}, {@code CompletableFuture}, or reactive type): its tree times that, not
+     * the work, which finishes on another thread ({@code docs/PLAN-v2.md} §5.14, M5-4b). Never throws, so neither the
+     * fragment's end nor the chain's own exception is lost: a request the container already recycled answers
+     * {@code isAsyncStarted()} with an exception.
+     */
+    static void markAssemblyOnlyIfAsync(HttpServletRequest request, CorrelationContext correlation) {
+        try {
+            if (AgentCodePaths.bound() && request.isAsyncStarted()) {
+                AgentCodePaths.assemblyOnly(correlation.requestId());
+            }
+        } catch (RuntimeException ex) {
+            // Code paths are diagnostics only; the request's outcome stays its own.
         }
     }
 

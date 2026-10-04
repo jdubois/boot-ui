@@ -277,6 +277,17 @@ public final class McpToolDescriptions {
                             + "NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is "
                             + "unused."),
             Map.entry(
+                    "get_code_paths",
+                    "Return Code Paths: which application bean methods each route spends its time in, from the BootUI "
+                            + "agent's code-paths sensor. Advertised only while that sensor records this run (see "
+                            + "get_agent_status). Without query, the routes slowest warm median first, at most limit "
+                            + "(10), each with its top methods by self time; with query, the routes whose label or top "
+                            + "methods contain it, and for a single route its method nodes with the most self time. "
+                            + "Times are per warm request; a method's self time still includes the SQL and REST calls "
+                            + "it waited on. An assemblyOnly route's handler ran on an event loop, returned a reactive or "
+                            + "asynchronous result, or BootUI could not tell where its work ran, so its tree times "
+                            + "assembly, not the work. Node percentiles are approximate, from log2 buckets."),
+            Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
                             + "This is a passive calculation and does not change JVM or container settings."),

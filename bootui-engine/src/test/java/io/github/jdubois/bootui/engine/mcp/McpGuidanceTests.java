@@ -42,6 +42,17 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void diagnosisNamesTheHandlersMethodsOfASlowRouteThroughCodePaths(String framework) {
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains("For a slow route whose time is in its handler, call get_code_paths")
+                        .contains("it needs the BootUI agent"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void diagnosisFollowsAProfileableRequestToItsProfile(String framework) {
         assertThat(McpGuidance.instructions(framework)).contains("get_live_activity", "get_request_profile");
         assertThat(McpGuidance.prompts(framework))

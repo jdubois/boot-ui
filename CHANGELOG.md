@@ -9,6 +9,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Code Paths panel, API, and tools.** With the BootUI agent's `code-paths` sensor, the new view-only Code Paths panel
+  (Diagnostics) ranks routes by their warm median and shows each route's call tree of application bean methods, merged
+  across its warm requests with the first recorded request kept apart: calls per request, total and self time, share of
+  the handler, and approximate (≈) percentiles per method from a compact log2 histogram, asynchronous work shown apart,
+  an Other node past each route's budget, callers and reaching routes per method, and the excluded methods. A handler
+  that ran on an event loop, returned a reactive or asynchronous result, or whose work BootUI could not place (Spring MVC
+  requests that start async processing, every Spring WebFlux request, Quarkus endpoints on the event loop or returning
+  `Uni`, `Multi`, or `CompletionStage`) is labelled **assembly only**. Runtime Insights' `route-time-breakdown` splits a
+  route's handler work into its top five methods by self time, with the rest as other handler time, while its recorded
+  calls take under 10 % of the handler phase. `GET {api}/code-paths`,
+  `/code-paths/route`, `/code-paths/requests/{id}`, `get_code_paths`, and `bootui code paths` on Spring MVC, Spring
+  WebFlux, and Quarkus; the samples gain a seeded slow route, `GET /api/quotes/{sku}`
+  ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14, M5-4b).
 - **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
   protected methods of the application's beans per request, as call trees built on the request's own threads, with
   executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
@@ -33,6 +46,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,
   ambiguity-aware request attribution for route child counts, time, and tokens as for runtime-model edges, including
   late-request reclaim without double counting (PLAN-v2 §5.2, M3-3c, M4-11).
+
+- **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
+  chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
+  the request as soon as Quarkus completes that request on it, instead of staying charged to it for the whole
+  transfer. Whatever the thread did back in its pool in between — unrelated work, or a task an agent propagated for
+  another request — is no longer added to the finished request's CPU time and allocation, and its
+  `bootui.ExecutionSegment` interval no longer covers that window, so **Profile resources** stops joining those JFR
+  samples and hot frames to the wrong route. An ordinary response was already attributed correctly, because the
+  worker writes it itself and the request is taken inline on that thread. A suspended chain — a blocking method
+  returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
+  hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
+  [Runtime Insights](docs/features/overview.md#runtime-insights)).
 
 - **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
   completion events now mark observations that examine those executions partial, while disabled optional evidence
@@ -68,7 +93,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
   top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
-
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The

@@ -87,6 +87,9 @@ each exception's `exceptionGroupId`. `source` is `none` when neither retention w
 executed in this run, then the never-executed, not-tracked, executed, or dependency rows a query asks for (see
 [Code Inventory](diagnostics.md#code-inventory)).
 
+**Code Paths read** — `get_code_paths`: with the BootUI agent, the routes ranked by warm median with the application
+methods they spend their time in, or one route's hottest method nodes (see [Code Paths](diagnostics.md#code-paths)).
+
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
 `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`, `postgresql_read`,
@@ -137,7 +140,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 80 tools against Spring MVC's 96, because the tools behind
+keys from MicroProfile Config. Its catalog declares 82 tools against Spring MVC's 98, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.

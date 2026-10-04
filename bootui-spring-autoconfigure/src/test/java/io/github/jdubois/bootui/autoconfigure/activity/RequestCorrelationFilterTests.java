@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
@@ -52,6 +53,52 @@ class RequestCorrelationFilterTests {
         assertThat(record.endMillis()).isGreaterThanOrEqualTo(record.startMillis());
         assertThat(traceRegistry.match(record.method(), record.path(), record.startMillis(), record.endMillis()))
                 .isEqualTo("server-created-trace");
+    }
+
+    /**
+     * With the BootUI agent ({@code docs/PLAN-v2.md} §5.14, M5-4b), an async request is marked assembly only, and a
+     * request whose {@code isAsyncStarted()} throws, as a recycled one does, still ends its code-paths fragment and
+     * keeps the chain's own exception.
+     */
+    @Test
+    void theCodePathsFragmentEndsAndTheChainsExceptionStandsWhenIsAsyncStartedThrows() {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+        try (org.mockito.MockedStatic<io.github.jdubois.bootui.engine.javaagent.AgentCodePaths> codePaths =
+                org.mockito.Mockito.mockStatic(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths.class)) {
+            codePaths
+                    .when(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths::bound)
+                    .thenReturn(true);
+            MockHttpServletRequest recycled = new MockHttpServletRequest("GET", "/api/boom") {
+                @Override
+                public boolean isAsyncStarted() {
+                    throw new IllegalStateException("recycled");
+                }
+            };
+            assertThatThrownBy(() -> filter.doFilter(recycled, new MockHttpServletResponse(), (req, res) -> {
+                        throw new ServletException("boom");
+                    }))
+                    .isInstanceOf(ServletException.class)
+                    .hasMessage("boom");
+            codePaths.verify(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths::end);
+            codePaths.verify(
+                    () -> io.github.jdubois.bootui.engine.javaagent.AgentCodePaths.assemblyOnly(
+                            org.mockito.ArgumentMatchers.any()),
+                    org.mockito.Mockito.never());
+
+            MockHttpServletRequest async = new MockHttpServletRequest("GET", "/api/later");
+            async.setAsyncSupported(true);
+            List<String> requestIds = new ArrayList<>();
+            assertThatCode(() -> filter.doFilter(async, new MockHttpServletResponse(), (req, res) -> {
+                        requestIds.add(BootUiCorrelation.current().requestId());
+                        req.startAsync();
+                    }))
+                    .doesNotThrowAnyException();
+            codePaths.verify(
+                    () -> io.github.jdubois.bootui.engine.javaagent.AgentCodePaths.assemblyOnly(requestIds.get(0)));
+            codePaths.verify(
+                    io.github.jdubois.bootui.engine.javaagent.AgentCodePaths::end, org.mockito.Mockito.times(2));
+        }
     }
 
     @Test

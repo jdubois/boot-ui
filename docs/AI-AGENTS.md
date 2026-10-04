@@ -270,6 +270,8 @@ the classpath) are simply not advertised.
   unavailable capabilities are omitted.
 - **Code Inventory read:** `get_code_inventory`, whether the code changed since the previous run executed in this run;
   see [Did my change run?](#did-my-change-run).
+- **Code Paths read:** `get_code_paths`, which application methods each route spends its time in; see
+  [Where does the handler's time go?](#where-does-the-handlers-time-go).
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
@@ -326,7 +328,8 @@ say HTTP Exchanges is disabled or unavailable, that comparison's run references 
 count, not evidence of zero traffic. Source-panel policy also hides disabled sources' counters, fingerprints,
 exception classes, execution names, and edges, with a “not compared because &lt;panel&gt; is disabled” limitation;
 configuration comparability and restart timings are independent facts. The `diagnose_runtime_issue` prompt starts
-with `get_runtime_insights`, then one `get_request_profile`; the
+with `get_runtime_insights`, then one `get_request_profile`, and for a slow route whose time is in its handler,
+`get_code_paths` when the agent is attached; the
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
 calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
 `get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
@@ -365,6 +368,22 @@ that stopped recording since, carries the reason too. `NEVER_EXECUTED` on a chan
 run the test or send the request that reaches it, then call the tool again before reading any latency. `NOT_TRACKED`
 is not evidence either way, and a jar `NOT_LOADED` in this run is not proof it is unused. Runtime Insights reports the
 same gap as `changed-code-not-executed`.
+
+### Where does the handler's time go?
+
+With the [BootUI agent](features/java-agent.md) attached, [Code Paths](features/diagnostics.md#code-paths) names the
+application methods a route spends its time in, from the agent's `code-paths` sensor.
+
+| Tool | CLI | Returns |
+| --- | --- | --- |
+| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or method), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time; then the excluded methods and limitations |
+
+Like `get_code_inventory`, it is advertised only while the sensor records this run. Times are per warm request, each
+route's first recorded request kept apart. A method's self time still includes the SQL, REST client, and other recorded
+calls it waited on, so read it beside `get_runtime_insights`: `route-time-breakdown` splits only the handler's other
+work by these methods. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or asynchronous
+result, or BootUI could not tell where its work ran, so its tree times assembly, not the work. Node percentiles are
+approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue` prompt calls it for a slow route whose time is in its handler.
 
 ### MySQL operational evidence
 

@@ -215,6 +215,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
 | Diagnostics     | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
+| Diagnostics     | Code Paths                | `code-paths`                | `bootui.panels.code-paths.enabled`                | Not applicable; view-only.                |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | Command Line              | `cli`                       | `bootui.panels.cli.enabled`                       | Not applicable; view-only.                |
 | Developer tools | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | Not applicable; view-only.                |
@@ -900,6 +901,13 @@ that scan. On Spring they are read when the context starts, on Quarkus at runtim
 | ------------------------------------- | -------- | ----------- |
 | `bootui.code-inventory.max-classes`   | `20000`  | The most application classes the scan hashes. Past it the scan is partial and says so, and classes it did not reach are neither counted nor compared with the previous run. Must be positive. |
 | `bootui.code-inventory.scan-timeout`  | `30s`    | The scan's deadline. Past it the scan is partial and says so. Must be positive. |
+
+### Code Paths
+
+The Code Paths panel is view-only, needs the BootUI agent's `code-paths` sensor (`bootui.agent.sensors`), and has no
+property of its own: its route trees are bounded in code, at 2,000 nodes a route, 100,000 nodes and 500 routes a run.
+Disabling it with `bootui.panels.code-paths.enabled=false` also stops `route-time-breakdown` from splitting the handler
+by method.
 
 ### Spring DevTools
 

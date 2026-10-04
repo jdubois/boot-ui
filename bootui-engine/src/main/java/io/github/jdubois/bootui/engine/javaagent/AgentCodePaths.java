@@ -4,6 +4,11 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The adapters' hooks into the BootUI agent's {@code code-paths} sensor ({@code docs/PLAN-v2.md} §5.14, M5-4a): where an
@@ -17,6 +22,19 @@ import java.lang.invoke.MethodType;
 public final class AgentCodePaths {
 
     private static volatile Handles handles = Handles.locate();
+
+    /** The most recent requests remembered as assembly only. */
+    static final int ASSEMBLY_ONLY_REQUESTS = 4_096;
+
+    /**
+     * The requests marked assembly only, looked up by id without a global lock; {@link #ASSEMBLY_ORDER} evicts the
+     * oldest past {@value #ASSEMBLY_ONLY_REQUESTS}.
+     */
+    private static final Map<String, Boolean> ASSEMBLY_ONLY = new ConcurrentHashMap<>();
+
+    private static final Queue<String> ASSEMBLY_ORDER = new ConcurrentLinkedQueue<>();
+
+    private static final AtomicInteger ASSEMBLY_SIZE = new AtomicInteger();
 
     private AgentCodePaths() {}
 
@@ -69,6 +87,49 @@ public final class AgentCodePaths {
                 // The agent never fails a request.
             }
         }
+    }
+
+    /**
+     * The request {@code requestId}'s handler only assembled its result, which runs later or elsewhere: a Spring MVC
+     * handler that started async processing, or a Quarkus endpoint on the event loop, returning {@code Uni},
+     * {@code Multi}, or {@code CompletionStage}, or whose resource method BootUI could not tell ({@code docs/PLAN-v2.md}
+     * §5.14, M5-4b). Its tree times the assembly, not the work, and is kept out of {@code route-time-breakdown}'s handler
+     * split. Spring WebFlux, where every handler only assembles, marks no request: its configuration tells Code Paths
+     * once for the whole stack. Remembered for about the {@value #ASSEMBLY_ONLY_REQUESTS} most recent such requests,
+     * only while the hooks reach a bridge; lock-free, so it never serializes requests.
+     */
+    public static void assemblyOnly(String requestId) {
+        if (requestId == null || !bound()) {
+            return;
+        }
+        if (ASSEMBLY_ONLY.putIfAbsent(requestId, Boolean.TRUE) != null) {
+            return;
+        }
+        ASSEMBLY_ORDER.offer(requestId);
+        if (ASSEMBLY_SIZE.incrementAndGet() > ASSEMBLY_ONLY_REQUESTS) {
+            String eldest = ASSEMBLY_ORDER.poll();
+            if (eldest != null) {
+                ASSEMBLY_ONLY.remove(eldest);
+                ASSEMBLY_SIZE.decrementAndGet();
+            }
+        }
+    }
+
+    /** Whether the request {@code requestId} was marked {@linkplain #assemblyOnly(String) assembly only}. */
+    public static boolean isAssemblyOnly(String requestId) {
+        return requestId != null && ASSEMBLY_ONLY.containsKey(requestId);
+    }
+
+    /** Tests only: forgets every request marked assembly only. */
+    static void clearAssemblyOnly() {
+        ASSEMBLY_ONLY.clear();
+        ASSEMBLY_ORDER.clear();
+        ASSEMBLY_SIZE.set(0);
+    }
+
+    /** Tests only: the requests remembered as assembly only. */
+    static int assemblyOnlyCount() {
+        return ASSEMBLY_ONLY.size();
     }
 
     /** The bridge's code for {@code phase}: {@code CodePaths.PHASE_FILTERS}, {@code PHASE_HANDLER}, or {@code PHASE_RESPONSE}. */

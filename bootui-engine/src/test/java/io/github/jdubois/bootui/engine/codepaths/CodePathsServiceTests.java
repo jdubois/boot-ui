@@ -5,6 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
+import io.github.jdubois.bootui.core.dto.CodePathsAgentReport;
+import io.github.jdubois.bootui.core.dto.CodePathsNodeDto;
+import io.github.jdubois.bootui.core.dto.CodePathsReport;
+import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
+import io.github.jdubois.bootui.core.dto.CodePathsRouteDto;
+import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
@@ -119,6 +125,152 @@ class CodePathsServiceTests {
         route.accept(new long[] {42L});
 
         assertThat(service.status()).containsEntry("staleFragments", 1L).containsEntry("malformedFragments", 1L);
+    }
+
+    /**
+     * M5-4b: settled trees merge into their route's tree, the first recorded apart, and every read answers from it: the
+     * summary, the route's tree with callers and reach, a request's tree, the agent view, and the handler's methods.
+     */
+    @Test
+    void settledTreesBuildRouteTreesThatEveryReadAnswersFrom() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome(id.endsWith("9") ? "GET /api/other" : "GET /api/quote", 200, false));
+            }
+            return named;
+        });
+        service.setAssemblyOnly(id -> id.endsWith("9"));
+        int controller = CodeInventory.methodId("shop.QuoteController#quote()I");
+        int pricing = CodeInventory.methodId("shop.SlowPricingService#quote()I");
+        for (int i = 1; i <= 4; i++) {
+            request(
+                    String.format("%016x", i),
+                    () -> call(controller, () -> call(pricing, CodePathsServiceTests::spin)));
+        }
+        request("0000000000000009", () -> call(pricing, null));
+        request("0000000000000019", () -> call(pricing, null));
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        CodePathsReport report = service.report();
+        assertThat(report.available()).isTrue();
+        assertThat(report.status().settledTrees()).isEqualTo(6);
+        assertThat(report.status().routes()).isEqualTo(2);
+        CodePathsRouteDto quote = report.routes().stream()
+                .filter(route -> route.route().equals("GET /api/quote"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(quote.warmRequests()).as("the first recorded is apart").isEqualTo(3);
+        assertThat(quote.firstRequestMillis()).isNotNull();
+        assertThat(quote.assemblyOnly()).isFalse();
+        assertThat(quote.topMethods().get(0).method()).isEqualTo("shop.SlowPricingService#quote()I");
+        assertThat(quote.topMethods().get(0).methodName()).isEqualTo("quote");
+        assertThat(report.routes())
+                .filteredOn(route -> route.route().equals("GET /api/other"))
+                .singleElement()
+                .satisfies(route -> assertThat(route.assemblyOnly()).isTrue());
+        assertThat(report.limitations()).anyMatch(limitation -> limitation.contains("assembly only"));
+
+        CodePathsRouteTreeReport tree = service.routeTree("GET /api/quote", null, null, null);
+        assertThat(tree.found()).isTrue();
+        assertThat(tree.shareOf()).isEqualTo("handler");
+        assertThat(tree.firstRequestId()).isEqualTo("0000000000000001");
+        assertThat(tree.firstRequestMillis()).isNotNull();
+        assertThat(tree.limitations()).contains(CodePathsService.LIMITATION_PERCENTILES);
+        assertThat(tree.nodes()).extracting(CodePathsNodeDto::kind).containsExactly("REQUEST", "METHOD", "METHOD");
+        CodePathsNodeDto slow = tree.nodes().get(2);
+        assertThat(slow.method()).isEqualTo("shop.SlowPricingService#quote()I");
+        assertThat(slow.phase()).isEqualTo("HANDLER");
+        assertThat(slow.requests()).isEqualTo(3);
+        assertThat(slow.callsPerRequest()).isEqualTo(1.0);
+        assertThat(slow.p50Millis()).isNotNull();
+        assertThat(tree.methods())
+                .filteredOn(method -> method.method().equals("shop.SlowPricingService#quote()I"))
+                .singleElement()
+                .satisfies(method -> {
+                    assertThat(method.callers()).containsExactly("shop.QuoteController#quote()I");
+                    assertThat(method.routes()).containsExactlyInAnyOrder("GET /api/quote", "GET /api/other");
+                });
+        assertThat(tree.page().matched()).isEqualTo(3);
+        CodePathsRouteTreeReport shallow = service.routeTree("GET /api/quote", 1, 0, 1);
+        assertThat(shallow.nodes()).hasSize(1);
+        assertThat(shallow.page().hasMore()).isTrue();
+        assertThat(service.routeTree("GET /nothing", null, null, null).found()).isFalse();
+
+        CodePathsRequestTreeReport request = service.requestTree("0000000000000002");
+        assertThat(request.found()).isTrue();
+        assertThat(request.route()).isEqualTo("GET /api/quote");
+        assertThat(request.topMethods()).extracting(top -> top.method()).startsWith("shop.SlowPricingService#quote()I");
+        assertThat(service.requestTree("00000000000000ff").found()).isFalse();
+
+        CodePathsAgentReport agent = service.agentReport("quote", null);
+        assertThat(agent.matched()).as("both routes name the method").isEqualTo(2);
+        CodePathsAgentReport exact = service.agentReport("GET /api/quote", 1);
+        assertThat(exact.routes()).hasSize(1);
+        assertThat(exact.hottestNodes())
+                .singleElement()
+                .satisfies(node -> assertThat(node.method()).isEqualTo("shop.SlowPricingService#quote()I"));
+        assertThat(exact.limitations()).contains(CodePathsService.LIMITATION_PERCENTILES);
+
+        HandlerMethods handler = service.handlerMethods("GET /api/quote");
+        assertThat(handler.requests()).isEqualTo(3);
+        assertThat(handler.assemblyOnly()).isFalse();
+        assertThat(handler.methods().get(0).label()).isEqualTo("SlowPricingService.quote");
+        assertThat(handler.handlerNanos()).isPositive();
+        assertThat(service.handlerMethods("GET /api/other").assemblyOnly()).isTrue();
+        long fingerprint = service.routeTreesFingerprint();
+        request("0000000000000005", () -> call(controller, null));
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+        assertThat(service.routeTreesFingerprint()).isNotEqualTo(fingerprint);
+    }
+
+    /** Spring WebFlux installs {@link CodePathsService#EVERY_REQUEST} once: every request's tree is assembly only. */
+    @Test
+    void aStackWhoseHandlersAllAssembleMarksEveryRequestOnce() {
+        start(AgentSensorSettings.defaults());
+        assertThat(service.isAssemblyOnly("0000000000000001")).isFalse();
+        service.setAssemblyOnly(CodePathsService.EVERY_REQUEST);
+        assertThat(service.isAssemblyOnly("0000000000000001")).isTrue();
+        assertThat(service.isAssemblyOnly("00000000000000ff")).isTrue();
+        service.setAssemblyOnly(id -> {
+            throw new IllegalStateException("boom");
+        });
+        assertThat(service.isAssemblyOnly("0000000000000001"))
+                .as("never throws")
+                .isFalse();
+    }
+
+    @Test
+    void withoutTheSensorEveryReadAnswersItsUnavailableShape() {
+        service = new CodePathsService(
+                AgentBridgeAccess.absent(), () -> null, () -> "Requires the BootUI agent's code-paths sensor.");
+        assertThat(service.report().available()).isFalse();
+        assertThat(service.report().unavailableReason()).startsWith("Requires the BootUI agent's code-paths sensor");
+        assertThat(service.routeTree("GET /", null, null, null).available()).isFalse();
+        assertThat(service.requestTree("0000000000000001").available()).isFalse();
+        assertThat(service.agentReport(null, null).available()).isFalse();
+        assertThat(service.handlerMethods("GET /")).isNull();
+        assertThat(service.routeTreesFingerprint()).isZero();
+    }
+
+    private void request(String requestId, Runnable body) {
+        context.set(CorrelationContext.forRequest(requestId));
+        CodePaths.phase(2);
+        try {
+            body.run();
+        } finally {
+            CodePaths.phase(0);
+            context.set(CorrelationContext.NONE);
+        }
+        service.tree(requestId);
+    }
+
+    private static void spin() {
+        long until = System.nanoTime() + 200_000L;
+        while (System.nanoTime() < until) {
+            Thread.onSpinWait();
+        }
     }
 
     @Test

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
@@ -50,6 +51,9 @@ class RuntimeInsightsResourceComparisonTests {
 
     @Mock
     Instance<CodeInventoryService> inventory;
+
+    @Mock
+    Instance<CodePathsService> codePaths;
 
     @Mock
     Instance<SqlTraceRecorder> sql;
@@ -101,6 +105,7 @@ class RuntimeInsightsResourceComparisonTests {
                     beans,
                     agents,
                     inventory,
+                    codePaths,
                     sql,
                     exposure,
                     new SmallRyeConfigBuilder().build());

@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -32,6 +33,7 @@ public final class RequestTreeStore {
     public static final int MAX_KEPT_NODES = 131_072;
 
     private final Function<Set<String>, Map<String, RequestOutcome>> outcomes;
+    private BiConsumer<RequestTree, RequestOutcome> settledListener = (tree, outcome) -> {};
     private final LinkedHashMap<String, Open> open = new LinkedHashMap<>();
     private final LinkedHashMap<String, Kept> recent = new LinkedHashMap<>();
     private final LinkedHashMap<String, Exemplars> routes = new LinkedHashMap<>(16, 0.75f, true);
@@ -44,6 +46,14 @@ public final class RequestTreeStore {
     /** @param outcomes names the route and outcome of settling requests by request id, such as {@link JournalRequestOutcomes#of} */
     public RequestTreeStore(Function<Set<String>, Map<String, RequestOutcome>> outcomes) {
         this.outcomes = outcomes == null ? ids -> Map.of() : outcomes;
+    }
+
+    /**
+     * Installs what each tree is handed to once it settles, with its outcome, such as the run's route trees
+     * ({@code M5-4b}). A fragment merged after its tree settled is not handed over again.
+     */
+    public void onSettled(BiConsumer<RequestTree, RequestOutcome> listener) {
+        this.settledListener = listener == null ? (tree, outcome) -> {} : listener;
     }
 
     /** Merges {@code fragment} into its request's tree. */
@@ -122,8 +132,14 @@ public final class RequestTreeStore {
             RequestTree tree = entry.builder.build();
             RequestOutcome outcome = tree.requestId() == null ? null : named.get(tree.requestId());
             // The builder is released here: only the tree and its spans are kept.
-            keep(new Kept(tree, entry.builder.spans(), outcome == null ? RequestOutcome.UNKNOWN : outcome));
+            RequestOutcome resolved = outcome == null ? RequestOutcome.UNKNOWN : outcome;
+            keep(new Kept(tree, entry.builder.spans(), resolved));
             settled++;
+            try {
+                settledListener.accept(tree, resolved);
+            } catch (RuntimeException ex) {
+                // A listener never loses the tree the store keeps.
+            }
         }
         trim();
     }
@@ -194,6 +210,20 @@ public final class RequestTreeStore {
             RequestTree tree = exemplars.find(key);
             if (tree != null) {
                 return tree;
+            }
+        }
+        return null;
+    }
+
+    /** What the journal said about the settled request with key {@code key}, or {@code null} when none is kept. */
+    public RequestOutcome outcome(String key) {
+        Kept kept = recent.get(key);
+        if (kept != null) {
+            return kept.outcome;
+        }
+        for (Map.Entry<String, Exemplars> route : routes.entrySet()) {
+            if (route.getValue().find(key) != null) {
+                return new RequestOutcome(route.getKey(), 0, false);
             }
         }
         return null;

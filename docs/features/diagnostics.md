@@ -471,3 +471,64 @@ API, all `GET`, paged with `offset` and `limit` where they list:
 `changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
 `verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
 `changed-code-not-executed`.
+
+## Code Paths
+
+The Code Paths panel names the application methods a route spends its time in: it turns "handler 80 ms" into
+"`SlowPricingService.quote` 55 ms", across the route's warm requests, without tracing, spans, or a profiler session. It
+needs the [BootUI agent](java-agent.md)'s `code-paths` sensor, on by default once the agent is attached; without it the
+panel is unavailable with the Java Agent panel's reason and a link to it, and every read and `get_code_paths` answer
+`available: false` with that reason. It is view-only on Spring MVC, Spring WebFlux, and Quarkus.
+
+- **Routes**, ranked by their warm median: each route's warm requests, first recorded request, median and 95th
+  percentile, and its top methods by self time. A route marked **assembly only** has a handler that ran on an event
+  loop, returned a reactive or asynchronous result, or BootUI could not tell where its work ran, so its tree times the
+  handler's assembly, not the work that ran later or elsewhere.
+- **The selected route's tree** as an indented table: method, calls per request, total and self time per request, an
+  approximate median (≈) per request that reached it, and its share of the handler's time in application methods (of the request's own time when no handler phase is known,
+  as on WebFlux), with a share bar. Work an executor ran for the request is marked **async** and shown apart, never
+  subtracted from its parent; a parent's methods past the tree's node budget are one **Other** node.
+- **Selecting a method** shows its callers within the tree and every route whose tree reaches it.
+- **Excluded methods**: the methods the sensor stopped timing in this run, called more than 50,000 times a second under
+  2 µs each, whose time stays in their callers.
+
+How it works:
+
+- The agent times the public and protected methods of the application's bean classes (Spring beans, ArC beans) and
+  builds a per-thread fragment of each request's call tree; the engine merges a request's fragments into its request
+  tree, then, about two seconds after its last fragment, merges the settled tree into its **route tree**: per node, the
+  requests that reached it, its calls, total and self time, and a log2 histogram of the time each request spent in it
+  with its least and most, from which an approximate (≈) median and 95th percentile are read: interpolated within a
+  bucket and clamped to that least and most. Each route's first recorded request, the first whose tree settled, is kept
+  apart, as its time and request id only.
+- Route trees are bounded: 2,000 nodes a route with one **Other** node per parent past the budget, 100,000 nodes and
+  500 routes across the run. A call that finds no node left keeps its time in its caller's self time. Route trees cover
+  the current run only: a DevTools restart or Quarkus live reload starts new ones.
+- A method's self time is its time outside its recorded child methods, so a JDK, framework, or library method shows
+  only as its caller's self time, and so do the SQL, REST client, cache, and AI calls it waited on: their call sites are
+  not stamped yet.
+- **Assembly only**: a handler that ran on an event loop, returned a reactive or asynchronous result, or whose work
+  BootUI could not place. That is a Spring MVC handler that started async processing, every Spring WebFlux handler (the
+  fragment covers the request's subscription on the assembling thread, up to its first asynchronous boundary; the
+  WebFlux configuration marks every tree once, not each request), and a Quarkus resource method that runs on the event
+  loop or returns `Uni`, `Multi`, `CompletionStage`, or a publisher. When Quarkus cannot tell which method ran, the
+  request is marked assembly only rather than guessed.
+- **Handler split.** With the sensor active, Runtime Insights' `route-time-breakdown` splits a route's **Handler, other
+  work** into its top five handler-phase methods by self time, the rest as **Other handler time**, for every route whose
+  tree is not assembly only and whose recorded calls take under 10 % of the handler phase. Each method takes the share
+  its self time per request has of the handler phase (or of the handler's methods, when they add up to more), so the
+  parts never exceed the handler's work and the SQL and REST time already named is never subtracted twice. Until call
+  sites are stamped on recorded calls, a method's self time includes the calls it waited on, so a route whose recorded
+  calls take 10 % of its handler or more is not split, and the observation says so.
+
+API, all `GET`:
+
+| Path | Returns |
+| --- | --- |
+| `/bootui/api/code-paths` | The sensor's status, the routes with a tree ranked by warm median with their top methods, the excluded methods, and the limitations |
+| `/bootui/api/code-paths/route?route=` | One route's tree, paged by `depth` (8 by default, at most 33), `offset`, and `limit` (200, at most 500), with each listed method's callers and the routes that reach it, and the route's exemplar request ids |
+| `/bootui/api/code-paths/requests/{requestId}` | One request's tree while the run keeps it: its recent requests and each route's slowest and latest failed |
+
+`get_code_paths` and `bootui code paths` return at most `limit` (10) routes matching `query` (a route, or part of a
+route or of a method), slowest warm median first, each with its top methods; for a single route, its method nodes with
+the most self time. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.

@@ -188,6 +188,20 @@ class BootUiReactiveAutoConfigurationTests {
         });
     }
 
+    /**
+     * Code Paths on WebFlux ({@code docs/PLAN-v2.md} §5.14, M5-4b): every handler only assembles its publisher, so the
+     * configuration marks every request's tree assembly only once, rather than per request on the event loop.
+     */
+    @Test
+    void everyWebFluxRequestsCodePathsTreeIsAssemblyOnly() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            io.github.jdubois.bootui.engine.codepaths.CodePathsService codePaths =
+                    context.getBean(io.github.jdubois.bootui.engine.codepaths.CodePathsService.class);
+            assertThat(codePaths.isAssemblyOnly("0000000000000001")).isTrue();
+            assertThat(codePaths.isAssemblyOnly("00000000000000ff")).isTrue();
+        });
+    }
+
     @Test
     void registersSharedRestClientTraceBeansOnReactiveAdapter() {
         runner.withPropertyValues("bootui.enabled=ON")

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
@@ -109,7 +110,8 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
             ObjectProvider<RuntimeInsightsController> runtimeInsights,
             ObjectProvider<JavaAgentController> javaAgent,
-            ObjectProvider<CodeInventoryController> codeInventory) {
+            ObjectProvider<CodeInventoryController> codeInventory,
+            ObjectProvider<CodePathsController> codePaths) {
         OverviewController overviewBean = overview.getIfAvailable();
         HealthController healthBean = health.getIfAvailable();
         ConfigController configBean = config.getIfAvailable();
@@ -145,6 +147,7 @@ public class ReactiveBootUiMcpTools {
         RuntimeInsightsController runtimeInsightsBean = runtimeInsights.getIfAvailable();
         JavaAgentController javaAgentBean = javaAgent.getIfAvailable();
         CodeInventoryController codeInventoryBean = codeInventory.getIfAvailable();
+        CodePathsController codePathsBean = codePaths.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -293,6 +296,12 @@ public class ReactiveBootUiMcpTools {
                     "get_code_inventory",
                     McpToolDescriptions.spring("get_code_inventory"),
                     args -> codeInventoryBean.agentReport(args.query(), args.limit())));
+        }
+        if (codePathsBean != null) {
+            registry.add(tool(
+                    "get_code_paths",
+                    McpToolDescriptions.spring("get_code_paths"),
+                    args -> codePathsBean.agentReport(args.query(), args.limit())));
         }
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         if (runtimeInsightsBean != null) {

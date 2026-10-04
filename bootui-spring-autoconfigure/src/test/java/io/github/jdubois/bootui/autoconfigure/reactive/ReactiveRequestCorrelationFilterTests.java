@@ -178,6 +178,70 @@ class ReactiveRequestCorrelationFilterTests {
         return new HttpPayload(http.method(), http.path(), http.routeTemplate(), http.operation(), http.status());
     }
 
+    /**
+     * With the BootUI agent ({@code docs/PLAN-v2.md} §5.14, M5-4b), the code-paths fragment opens inside the request's
+     * scope, so it captures the request, and closes once the synchronous subscription returned; the subscription sees
+     * the thread's correlation exactly as without the agent, and no request is marked assembly only per request: the
+     * reactive configuration marks every WebFlux tree once.
+     */
+    @Test
+    void withTheAgentTheFragmentSpansTheSubscriptionWithoutChangingTheThreadsCorrelation() {
+        List<String> calls = new ArrayList<>();
+        List<CorrelationContext> inSubscription = new ArrayList<>();
+        List<CorrelationContext> withoutAgent = new ArrayList<>();
+        HttpHandler handler = (request, response) -> Mono.defer(() -> {
+            inSubscription.add(BootUiCorrelation.current());
+            calls.add("subscribe");
+            return Mono.empty();
+        });
+        MockServerWebExchange plain = exchange("/api/orders");
+        HttpHandler decorated = filter.apply(handler);
+        decorated.handle(plain.getRequest(), plain.getResponse()).block(Duration.ofSeconds(5));
+        withoutAgent.addAll(inSubscription);
+        inSubscription.clear();
+        calls.clear();
+
+        try (org.mockito.MockedStatic<io.github.jdubois.bootui.engine.javaagent.AgentCodePaths> codePaths =
+                org.mockito.Mockito.mockStatic(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths.class)) {
+            List<CorrelationContext> atBegin = new ArrayList<>();
+            codePaths
+                    .when(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths::bound)
+                    .thenReturn(true);
+            codePaths
+                    .when(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths::begin)
+                    .then(invocation -> {
+                        atBegin.add(BootUiCorrelation.current());
+                        calls.add("begin");
+                        return null;
+                    });
+            codePaths
+                    .when(io.github.jdubois.bootui.engine.javaagent.AgentCodePaths::end)
+                    .then(invocation -> {
+                        calls.add("end");
+                        return null;
+                    });
+            MockServerWebExchange exchange = exchange("/api/orders");
+            filter.apply(handler)
+                    .handle(exchange.getRequest(), exchange.getResponse())
+                    .block(Duration.ofSeconds(5));
+
+            assertThat(calls).containsExactly("begin", "subscribe", "end");
+            assertThat(atBegin)
+                    .singleElement()
+                    .extracting(CorrelationContext::requestId)
+                    .asString()
+                    .matches("[0-9a-f]{16}");
+            assertThat(inSubscription)
+                    .as("the subscription sees what it sees without the agent")
+                    .containsExactlyElementsOf(withoutAgent);
+            codePaths.verify(
+                    () -> io.github.jdubois.bootui.engine.javaagent.AgentCodePaths.assemblyOnly(
+                            org.mockito.ArgumentMatchers.any()),
+                    org.mockito.Mockito.never());
+        }
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
     @Test
     void theHandlerDecoratorCoversErrorRenderingAndTheFilterReusesItsId() {
         List<CorrelationContext> inHandler = new ArrayList<>();
