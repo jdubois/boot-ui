@@ -107,6 +107,147 @@ class AnonymousAccessObservationsTests {
     }
 
     @Test
+    void anonymousWritesNameOnlyTheDmlTargetNeverSelectSubqueryOrFromSources() {
+        request(
+                "POST",
+                "/api/write",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("insert into audit_log select id from products"),
+                sql("delete from cart_items where cart_id in (select id from carts)"),
+                sql("update orders set customer_name = c.name from customers c where orders.customer_id = c.id"),
+                sql(
+                        "merge into stock using deliveries on stock.id = deliveries.id when matched then update set qty = ?"));
+
+        assertThat(byKind(report(), AnonymousDataReach.KIND))
+                .extracting(RuntimeObservationDto::sentence)
+                .containsExactlyInAnyOrder(
+                        "`POST /api/write` wrote table `audit_log` in 1 of 1 successful anonymous request.",
+                        "`POST /api/write` wrote table `cart_items` in 1 of 1 successful anonymous request.",
+                        "`POST /api/write` wrote table `orders` in 1 of 1 successful anonymous request.",
+                        "`POST /api/write` wrote table `stock` in 1 of 1 successful anonymous request.");
+    }
+
+    @Test
+    void intendedSignupWritesAreFactsWithAnExplicitVerificationNotAnExclusion() {
+        request("POST", "/signup", 201, decision("ANONYMOUS", true, null), sql("insert into users values (?)"));
+
+        assertThat(byKind(report(), AnonymousDataReach.KIND)).singleElement().satisfies(finding -> {
+            assertThat(finding.sentence()).contains("wrote table `users`");
+            assertThat(finding.whatToCheck()).contains(AnonymousAccess.VERIFY);
+        });
+    }
+
+    @Test
+    void aJdbcBatchReportsEachWrittenTableRatherThanJustTheFirstStatement() {
+        request(
+                "POST",
+                "/batch",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("insert into audit_log select id from products;\n delete from payroll where id = ?"));
+
+        assertThat(byKind(report(), AnonymousDataReach.KIND))
+                .extracting(RuntimeObservationDto::sentence)
+                .containsExactlyInAnyOrder(
+                        "`POST /batch` wrote table `audit_log` in 1 of 1 successful anonymous request.",
+                        "`POST /batch` wrote table `payroll` in 1 of 1 successful anonymous request.");
+    }
+
+    @Test
+    void ambiguousMultiTableWritesStayVisibleAsCandidatesNeverAssertReadTablesWereWritten() {
+        request(
+                "POST",
+                "/multi-write",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("delete from audit_log, payroll using audit_log join payroll on true join products on true"),
+                sql("delete a, b from audit_log a join payroll b on true"),
+                sql("update audit_log a join payroll p on true set p.amount = ?"));
+
+        var findings = byKind(report(), AnonymousDataReach.KIND);
+        assertThat(findings).anyMatch(finding -> finding.sentence().contains("lexical candidate `payroll`"));
+        assertThat(findings).allSatisfy(finding -> {
+            assertThat(finding.sentence()).contains("lexical candidate").doesNotContain("wrote table");
+            assertThat(finding.whatToCheck().get(0)).contains("Resolve the statement's write targets");
+            assertThat(finding.limitations()).anyMatch(limit -> limit.contains("not proven writes"));
+        });
+    }
+
+    @Test
+    void provenWritesAreNotDowngradedWhenOtherStatementsOnlyNameACandidate() {
+        request(
+                "POST",
+                "/mixed",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("insert into payroll values (?)"),
+                sql("update audit_log a join payroll p on true set a.note = ?"));
+
+        assertThat(byKind(report(), AnonymousDataReach.KIND))
+                .extracting(RuntimeObservationDto::sentence)
+                .contains(
+                        "`POST /mixed` wrote table `payroll` in 1 of 1 successful anonymous request.",
+                        "`POST /mixed` executed write statements naming lexical candidate `payroll` in 1 of 1 successful anonymous request.");
+    }
+
+    @Test
+    void truncatedOrOmittedBatchPreviewCoverageIsExplicitEvenWhenLaterTargetsAreUnknown() {
+        request(
+                "POST",
+                "/truncated",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("insert into audit_log values ('" + "x".repeat(230) + "…;\n delete from payroll"));
+        request(
+                "POST",
+                "/omitted",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("insert into audit_log values (?);\n -- … (+2 more statements)"));
+
+        var report = report();
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(AnonymousDataReach.KIND))
+                .singleElement()
+                .satisfies(check -> assertThat(check.reason())
+                        .contains(
+                                "2 successful anonymous requests",
+                                "possibly truncated SQL previews",
+                                "not every write target"));
+        assertThat(byKind(report, AnonymousDataReach.KIND))
+                .anySatisfy(finding ->
+                        assertThat(finding.sentence()).contains("`POST /truncated`", "lexical candidate `payroll`"))
+                .allSatisfy(finding -> assertThat(finding.sentence())
+                        .contains("lexical candidate")
+                        .doesNotContain("wrote table"))
+                .allSatisfy(finding -> assertThat(finding.limitations())
+                        .anyMatch(limit ->
+                                limit.contains("at most five statements") && limit.contains("256 characters")));
+    }
+
+    @Test
+    void unprovenAnonymityIsExcludedAndMakesTheCheckInsufficientOnEveryStackWithoutInventingFindings() {
+        request("POST", "/unchecked", 200, null, sql("insert into users values (?)"));
+        request("POST", "/unknown", 200, decision("UNKNOWN", true, null), sql("insert into users values (?)"));
+        request("POST", "/none", 200, decision("NONE", true, null), sql("insert into users values (?)"));
+
+        for (InsightsStack stack : InsightsStack.values()) {
+            var report = new RuntimeInsightsService(journal, null, null, stack, null).report();
+            assertThat(report.observations())
+                    .noneMatch(observation -> observation.kind().startsWith("anonymous-"));
+            assertThat(report.checks())
+                    .filteredOn(check -> check.kind().startsWith("anonymous-"))
+                    .hasSize(2)
+                    .allSatisfy(check -> {
+                        assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                        assertThat(check.eligibleRequests()).isZero();
+                        assertThat(check.reason()).contains("No eligible work was recorded");
+                    });
+        }
+    }
+
+    @Test
     void withoutTheAuthorizationSourceBothChecksSayWhyTheyCannotRun() {
         RuntimeJournal withoutAuthorization = new RuntimeJournal(
                 new RuntimeJournalSettings(

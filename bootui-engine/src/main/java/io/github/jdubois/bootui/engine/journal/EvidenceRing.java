@@ -15,7 +15,8 @@ import java.util.function.LongSupplier;
  *
  * <p>It evicts as {@link TieredCaptureBuffer} does: the oldest routine event first, while failed and slow events keep a
  * reserved share of the count and only compete by age beyond it. It evicts until both bounds hold, counting which bound
- * forced each eviction, and never evicts the newest event, so one oversized event is still retained. Bytes that other
+ * forced each eviction. An event too large to fit is counted as byte-evicted; newly interned dictionary strings may
+ * still require evicting older evidence. Bytes that other
  * structures of the journal retain, such as the dictionary, count against the byte bound.</p>
  *
  * <p>Only the dispatcher adds; any thread may read. Every operation takes the ring's monitor.</p>
@@ -56,28 +57,41 @@ final class EvidenceRing {
     }
 
     synchronized void add(JournalEntry entry) {
+        if (entry.estimatedBytes() + externalBytes.getAsLong() > maxBytes) {
+            rememberEvictedRequest(entry.event());
+            lastBound = Bound.BYTES;
+            evictedByBytes++;
+            while (size() > 0 && retainedBytes + externalBytes.getAsLong() > maxBytes) {
+                evict(Bound.BYTES);
+            }
+            return;
+        }
         if (entry.event().failedOrSlow()) {
             reserved.addLast(entry);
         } else {
             routine.addLast(entry);
         }
         retainedBytes += entry.estimatedBytes();
-        while (size() > 1) {
+        while (size() > 0) {
             Bound bound = size() > maxEvents
                     ? Bound.COUNT
                     : retainedBytes + externalBytes.getAsLong() > maxBytes ? Bound.BYTES : null;
             if (bound == null) {
                 break;
             }
-            JournalEntry evicted = evictOne();
-            retainedBytes -= evicted.estimatedBytes();
-            rememberEvictedRequest(evicted.event());
-            lastBound = bound;
-            if (bound == Bound.COUNT) {
-                evictedByCount++;
-            } else {
-                evictedByBytes++;
-            }
+            evict(bound);
+        }
+    }
+
+    private void evict(Bound bound) {
+        JournalEntry evicted = evictOne();
+        retainedBytes -= evicted.estimatedBytes();
+        rememberEvictedRequest(evicted.event());
+        lastBound = bound;
+        if (bound == Bound.COUNT) {
+            evictedByCount++;
+        } else {
+            evictedByBytes++;
         }
     }
 

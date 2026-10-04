@@ -25,6 +25,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
   evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
   parent result size was not recorded.
+- **Runtime journal and persisted Live Activity bounds.** Oversized evidence no longer exceeds the configured
+  byte budget; SQL events identify their named data source even with connection recording
+  off; per-request SELECT tracking is capped and uses the same literal-free fingerprints for live and persisted N+1
+  badges, replacing the least frequent shape when full so a later repeated SELECT remains detectable; and persisted
+  activity pages scan past rows hidden by a disabled panel
+  while keeping a continuation cursor (PLAN-v2 §5.2, §8; [Live Activity](docs/features/overview.md#durable-history);
+  follow-up to #1216).
+
 - **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
   `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
   are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
@@ -84,6 +92,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
   HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
+
+- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
+  or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
+  Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
+  subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
+  writes. Truncated batch literals no longer hide later previews; truncation, uncertain comments, and DELETE … USING
+  never produce exact write claims. Possible batch truncation is explicit. The anonymous-access documentation now describes intended public
+  writes and unproven anonymity honestly
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
 
 ### Added
 

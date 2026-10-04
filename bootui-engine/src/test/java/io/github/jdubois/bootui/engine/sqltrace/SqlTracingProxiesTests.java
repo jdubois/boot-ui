@@ -11,6 +11,8 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.CapturedStatement;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
@@ -93,6 +95,7 @@ class SqlTracingProxiesTests {
             connection.prepareStatement("select 1").executeQuery();
             connection.prepareStatement("select 1").executeQuery();
         }
+
         connection.close();
         connection.close();
 
@@ -112,6 +115,40 @@ class SqlTracingProxiesTests {
                     .isGreaterThanOrEqualTo(before + payload.waitNanos());
         });
         verify(conn, times(2)).close();
+    }
+
+    @Test
+    void namedSqlEventsKeepTheirPoolEvenWhenConnectionsAreNotRecorded() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                published.add(event);
+                return true;
+            }
+
+            @Override
+            public boolean records(JournalSource source) {
+                return source == JournalSource.SQL;
+            }
+        });
+        DataSource ds = mock(DataSource.class);
+        Connection connection = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(ds.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement("select 1")).thenReturn(statement);
+        when(statement.executeQuery()).thenReturn(mock(ResultSet.class));
+
+        SqlTracingProxies.wrapNamed(ds, recorder, "ordersDataSource")
+                .getConnection()
+                .prepareStatement("select 1")
+                .executeQuery();
+
+        assertThat(published).singleElement().satisfies(event -> {
+            assertThat(event.source()).isEqualTo(JournalSource.SQL);
+            assertThat(((SqlPayload) event.payload()).dataSource()).isEqualTo("ordersDataSource");
+        });
     }
 
     @Test
