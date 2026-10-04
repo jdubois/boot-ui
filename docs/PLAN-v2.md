@@ -1041,7 +1041,7 @@ Architecture:
   capture, and exposure policy, so a drop before the next dispatched event refreshes completeness and a live exposure
   change never serves a stale, less-masked result. Completeness counts recorded, visible anchors for the kinds of
   work an observation examines (HTTP, scheduled runs, messaging, and WebSocket handlers), deduplicated with its
-  required and available optional sources; run-level collection checks count no execution anchors.
+  required and available optional sources; collection and Code Inventory checks count no execution anchors.
 - Sentences name what was counted, never a cause, a severity, or a patch. **What to check** stays conditional ("if
   these writes must succeed together…").
 - Human text and agent text differ. The panel's **What to check** may suggest a design alternative. The agent

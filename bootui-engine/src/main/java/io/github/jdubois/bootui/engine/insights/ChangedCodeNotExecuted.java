@@ -59,6 +59,11 @@ public final class ChangedCodeNotExecuted implements Observation {
         return Set.of();
     }
 
+    @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of();
+    }
+
     /** Installs what Code Inventory reports about this run's changes; without it, this does not apply. */
     void setChanges(Supplier<ChangedCode> changes) {
         this.changes = changes == null ? () -> null : changes;

@@ -701,6 +701,8 @@ application's SQL checks say so instead of finding nothing; an observation that 
 and WebSocket handlers that an observation examines, but not optional evidence hidden by a disabled panel.
 Messaging drops are counted per source, not per broker or message direction: when any broker is visible,
 they conservatively mark checks that examine consumed messages partial.
+Collection checks and `changed-code-not-executed`, which reads Code Inventory rather than the journal,
+do not read execution completion events and are not made partial by their drops.
 A new drop refreshes the report, coverage, and observation details even before another event is dispatched.
 Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
 three exemplar request ids to open in Live Activity, and at most 20 evidence rows. When BootUI changed something during the

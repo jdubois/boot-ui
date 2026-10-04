@@ -19,7 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
   completion events now mark observations that examine those executions partial, while disabled optional evidence
-  does not. A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
+  does not. Collection and Code Inventory checks do not count unrelated execution drops.
+  A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
   includes Hibernate flush counts changing to or from zero when both runs recorded the ORM source,
   with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
   event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),

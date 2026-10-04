@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CodeInventoryMethodDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
@@ -11,6 +12,8 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.inventory.CodeChanges;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
@@ -1182,6 +1185,51 @@ class RuntimeInsightsServiceTests {
         journal = new RuntimeJournal(
                 new RuntimeJournalSettings(true, 10_000, 50_000_000, 1, 10, 10, JournalSource.all()),
                 RunIdentity.start());
+    }
+
+    @Test
+    void aScheduledDropDoesNotMakeCodeInventoryEvidencePartial() throws InterruptedException {
+        useSingleSlotQueue();
+        CodeInventoryMethodDto method = new CodeInventoryMethodDto(
+                "shop.OrderService#pay()V",
+                "shop",
+                "shop.OrderService",
+                "pay",
+                "()V",
+                CodeInventoryService.NEVER_EXECUTED,
+                null,
+                CodeChanges.CHANGED,
+                null,
+                null,
+                null);
+        RuntimeInsightsService service = service();
+        service.setCodeInventory(() -> new CodeInventoryService.ChangedCode(
+                null,
+                true,
+                null,
+                List.of(new CodeInventoryService.ChangedClass("shop.OrderService", List.of(method), List.of())),
+                1,
+                "COMPLETE",
+                null));
+        withUndispatchedDrop(
+                RuntimeEvent.of(
+                        JournalSource.SCHEDULED,
+                        2_000,
+                        1_000,
+                        CorrelationContext.forExecution("lost"),
+                        "worker",
+                        null,
+                        false,
+                        new ScheduledPayload("Job.run", null)),
+                () -> {
+                    RuntimeInsightsReportDto report = service.report();
+                    assertThat(report.window().droppedEvents()).isEqualTo(1);
+                    assertThat(checks(report).get(ChangedCodeNotExecuted.KIND).status())
+                            .isEqualTo("EVALUATED");
+                    assertThat(observations(report, ChangedCodeNotExecuted.KIND).values())
+                            .singleElement()
+                            .satisfies(row -> assertThat(row.status()).isEqualTo("OBSERVED"));
+                });
     }
 
     private static RuntimeEvent sqlDrop() {
