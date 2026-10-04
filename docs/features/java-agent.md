@@ -93,14 +93,20 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors` and [`inventory`](#the-inventory-sensor), the
-defaults, and the opt-in [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
-shows its state (`installing`, `installed`, `failed`, or `off`), how long the last install (including its
+defaults, and the opt-in [`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then
+self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
+an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
+does not advertise propagation as available then. The sensor row
+shows its state (`installing`, `testing`, `installed`, `self-test-failed`, `failed`, or `off`), how long the last install (including its
 retransformation of loaded classes) and its self-test each took, the self-test's result, how many JDK types it
 instrumented, how many loaded classes it retransformed and how long all its installs and releases took, and the types
 that failed to transform. The **Class transformation** card sums every sensor's transformed, retransformed, failed, and
 skipped classes and its install and release time since the JVM started: the time is aggregate work, not a wall-clock
 interval, because the sensors install one after another and also retransform when a claim is released. Its state is
-`off` once every sensor is released. Without a sensor, the
+`off` once every sensor is released. A sensor that finished installing but is still `testing` counts as installed in
+this class-transformation summary, not as retransformation still running. The summary reads `failed` when a sensor's
+behavioral self-test fails, even if the executor transformer remains installed with propagation disabled.
+Without a sensor, the
 panel says:
 
 > No sensor installed: the agent installs the sensors this application asks for when it claims the agent
@@ -141,7 +147,9 @@ The hooks table shows, for each one, whether this JDK has its type, whether the 
 result (`passed`, `failed`, `not-exercised`, `unsupported`, or `not-run`), and how many tasks it received or ran. Each
 hook passes only on its own count: a thread pool's `addWorker` and `queue` keys and `CompletableFuture`'s supply and run
 stages are tested separately, so one working sibling cannot hide a missing hook. A self-test failure of a
-`ThreadPoolExecutor` or `ForkJoinTask.doExec` hook disables propagation for that claim, and the panel says why; the next
+`ThreadPoolExecutor` or `ForkJoinTask.doExec` hook disables propagation for that claim, including a timeout,
+interruption, or probe error with no positive hook hits. Detailed step outcomes remain in the report: an inconclusive
+core hook is not a pass. The panel says why; the next
 claim tests again. A failed `CompletableFuture.AsyncSupply` or `AsyncRun` hook disables nothing: a pool's run hook
 then propagates that kind of stage itself, without reading its outcome; a stage `CompletableFuture` runs on its own
 thread-per-task fallback has no other run hook, so it is counted as never applied. The hooks are verified on JDK 17, 21, 25, 26, and 27; on any other JDK the
@@ -200,7 +208,8 @@ For plain `Runnable` tasks the agent marks the body's return, before closing the
 Completing a promise inside that body is not its return: the body can keep computing after the handler answers.
 This boundary includes a decorator's code and synchronous completion callbacks the runnable invokes; a handler
 waiting for a hidden future or promise does not necessarily wait for the submitted runnable's whole body.
-If that nested publication preceded the response, raw body-return evidence uses 2 ms of clock slack to avoid counting
+If that nested publication or a task's own early result publication preceded the response, body-return evidence uses
+2 ms of clock slack to avoid counting
 a near-response decorator return as a long continuation. A response already present at the first nested publication
 is a causal ordering fact, so fast bodies already running after the response do not need that slack.
 For JDK `FutureTask`, fork/join tasks, and asynchronous `CompletableFuture` stages, the agent marks body completion
@@ -223,7 +232,7 @@ using `internalComplete` (`completeExceptionally`, `cancel`, and `obtrude*`) hav
 or early-failure timing can remain unconfirmed. Latches and foreign futures do not define a submitted runnable's
 return either.
 That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
-and armed for the application, its `executors` sensor is installed and not disabled by a failed self-test, and BootUI
+and armed for the application, its `executors` sensor is installed with a passed core-hook self-test and is not disabled, and BootUI
 attached its handoffs to the claim; otherwise they say which of these is missing.
 
 ## The threads sensor
@@ -232,7 +241,10 @@ attached its handoffs to the claim; otherwise they say which of these is missing
 application code starts, with `new Thread(...).start()`, a virtual thread, or
 `Executors.newVirtualThreadPerTaskExecutor()`. It is off by default because `java.lang.Thread` is the riskiest JDK
 class to retransform; it installs and self-tests on its own, with a platform thread and, from JDK 21, a virtual thread.
-A failed self-test stops only this sensor, at once, then removes its transformer; if the JVM refuses that, the sensor
+A failed or inconclusive self-test of a present key or apply hook stops only this sensor, at once, then removes its
+transformer; timeouts, interruptions, and probe errors do not verify a hook without positive hits. The deliberately
+unexercised application-subclass hook and unsupported virtual-thread features do not prevent a pass, including preview
+virtual threads disabled on JDK 19/20. If the JVM refuses removal, the sensor
 stays stopped and its state reads `self-test-failed (release-failed)`.
 
 | Hook | Role | JDK type |

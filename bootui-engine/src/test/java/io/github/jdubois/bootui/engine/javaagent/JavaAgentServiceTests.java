@@ -481,17 +481,33 @@ class JavaAgentServiceTests {
         stub.sensors = List.of(sensor);
         assertThat(service.propagationUnavailableReason()).endsWith("the sensor is installing.");
 
+        sensor.put("state", "testing");
+        assertThat(service.propagationUnavailableReason()).contains("self-test");
+        assertThat(service.propagating()).isFalse();
+        assertThat(service.report().retransformation().state()).isEqualTo("installed");
+        assertThat(service.report().retransformation().running()).isFalse();
+
         sensor.put("state", "installed");
+        assertThat(service.propagating()).as("an absent self-test verdict").isFalse();
+        sensor.put("selfTestPassed", false);
+        assertThat(service.propagationUnavailableReason()).contains("self-test");
+        assertThat(service.propagating()).as("a pending self-test").isFalse();
+        sensor.put("selfTestPassed", true);
         assertThat(service.propagationUnavailableReason()).isNull();
         assertThat(service.propagating()).isTrue();
 
         long generation = claim.get().generation();
         io.github.jdubois.bootui.agent.bridge.TaskPropagation.disable(generation, "the self-test failed");
         try {
+            sensor.put("state", "self-test-failed");
             assertThat(service.propagationUnavailableReason()).endsWith("the self-test failed");
             assertThat(service.propagating()).isFalse();
+            assertThat(service.report().retransformation().state()).isEqualTo("failed");
+            sensor.put("state", "testing");
+            assertThat(service.propagationUnavailableReason()).contains("have not passed their self-test yet");
         } finally {
             io.github.jdubois.bootui.agent.bridge.TaskPropagation.enable();
+            sensor.put("state", "installed");
         }
 
         claim.get().detach();
@@ -508,6 +524,7 @@ class JavaAgentServiceTests {
         Map<String, Object> sensor = new LinkedHashMap<>();
         sensor.put("id", "executors");
         sensor.put("state", "installed");
+        sensor.put("selfTestPassed", true);
         stub.sensors = List.of(sensor);
         claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
         claim.get().attach(new AgentHandoffs(null, null, null));
