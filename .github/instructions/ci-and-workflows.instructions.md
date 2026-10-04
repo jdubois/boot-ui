@@ -22,7 +22,11 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   parallel `quarkus-extension-its` job (the main build passes `-Dbootui.skipQuarkusExtensionIts`; the `base` module
   stays in the main build because it feeds the coverage aggregate), and each Spring and Quarkus Playwright suite,
   including the agent-attached ones, is its own matrix leg. The `agent-overhead` job records the BootUI agent's
-  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. `jdk-compatibility.yml` runs on `main` and `v2` and covers
+  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. The agent-attached legs, `agent-overhead`,
+  and the JDK lanes run on every push to `main` and `v2`, every pull request into `main`, and the nightly schedule; a
+  pull request into `v2` runs them only when it changes a path listed in `.github/scripts/agent-changes.sh` or carries
+  the `agent` label (otherwise the agent legs pass without starting anything). Keep that path list in step with new
+  agent-backed code. `jdk-compatibility.yml` covers
   Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, and the Spring sample's agent integration
   tests, plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
