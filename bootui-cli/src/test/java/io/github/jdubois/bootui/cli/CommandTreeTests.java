@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.jdubois.bootui.client.JsonValue;
+import io.github.jdubois.bootui.engine.mcp.McpToolGuide;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -146,6 +148,89 @@ class CommandTreeTests {
         assertThat(status).isEqualTo(ExitCodes.SUCCESS);
         assertThat(output.toString()).contains("--scan-id", "--offset", "--limit", "<id>");
         assertThat(paths).isEmpty();
+    }
+
+    @Test
+    void everyExampleInTheHelpRunsItsToolWithExactlyTheArgumentsItShows() {
+        Map<String, String> failures = new LinkedHashMap<>();
+
+        for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
+            paths.clear();
+            bodies.clear();
+            List<String> words = shellWords(tool.example());
+            if (!words.get(0).equals("bootui")) {
+                failures.put(tool.command(), "does not start with bootui: " + tool.example());
+                continue;
+            }
+            int exitCode = run(words.subList(1, words.size()));
+            if (exitCode != ExitCodes.SUCCESS || !paths.equals(List.of("/bootui/api/cli/tools/" + tool.name()))) {
+                failures.put(tool.command(), "exit " + exitCode + ", called " + paths);
+                continue;
+            }
+            JsonValue body = JsonValue.parse(bodies.get(0));
+            Map<String, Object> expected = McpToolGuide.example(tool.name());
+            Map<String, String> sent = new LinkedHashMap<>();
+            for (String name : body.names()) {
+                sent.put(name, body.get(name).asDisplayText());
+            }
+            Map<String, String> wanted = new LinkedHashMap<>();
+            expected.forEach((name, value) -> wanted.put(name, String.valueOf(value)));
+            if (!sent.equals(wanted)) {
+                failures.put(tool.command(), "sent " + sent + " for " + wanted);
+            }
+        }
+
+        assertThat(failures).as("examples that do not do what they show").isEmpty();
+    }
+
+    @Test
+    void aMissingIdPrintsWhereTheIdComesFrom() {
+        StringWriter output = new StringWriter();
+        int status = BootUiCli.run(
+                new String[] {"insights", "show"},
+                Map.of(),
+                false,
+                new PrintWriter(output, true),
+                new PrintWriter(output, true));
+
+        assertThat(status).isEqualTo(ExitCodes.ERROR);
+        assertThat(output.toString())
+                .contains("Missing required parameter", "An observation id from 'bootui insights list'.");
+        assertThat(paths).isEmpty();
+    }
+
+    /** {@code line} split the way a POSIX shell splits it, for the single-quoting the examples use. */
+    private static List<String> shellWords(String line) {
+        List<String> words = new ArrayList<>();
+        StringBuilder word = new StringBuilder();
+        boolean quoted = false;
+        boolean escaped = false;
+        boolean inWord = false;
+        for (char c : line.toCharArray()) {
+            if (escaped) {
+                word.append(c);
+                escaped = false;
+            } else if (c == '\'') {
+                quoted = !quoted;
+                inWord = true;
+            } else if (c == '\\' && !quoted) {
+                escaped = true;
+                inWord = true;
+            } else if (c == ' ' && !quoted) {
+                if (inWord) {
+                    words.add(word.toString());
+                    word.setLength(0);
+                    inWord = false;
+                }
+            } else {
+                word.append(c);
+                inWord = true;
+            }
+        }
+        if (inWord) {
+            words.add(word.toString());
+        }
+        return words;
     }
 
     private void check(Map<String, String> failures, ToolManifest.Tool tool, String flag, boolean supported) {

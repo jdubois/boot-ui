@@ -11,7 +11,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Newest events and entry ids only."
+      "summary": "Newest events and entry ids only.",
+      "example": "bootui activity --limit 20"
     },
     {
       "name": "get_agent_status",
@@ -24,7 +25,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it."
+      "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it.",
+      "example": "bootui agent status"
     },
     {
       "name": "get_ai_overview",
@@ -37,7 +39,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans."
+      "summary": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans.",
+      "example": "bootui ai overview"
     },
     {
       "name": "get_architecture_report",
@@ -50,7 +53,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Architecture advisor report without starting a new classpath scan."
+      "summary": "Return the last completed Architecture advisor report without starting a new classpath scan.",
+      "example": "bootui architecture report"
     },
     {
       "name": "architecture_scan",
@@ -63,7 +67,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively scan application classes for architecture and dependency violations."
+      "summary": "Actively scan application classes for architecture and dependency violations.",
+      "example": "bootui architecture scan"
     },
     {
       "name": "get_architecture_rule_violations",
@@ -76,7 +81,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_architecture_report and that cached report's violationDetails.scanId.",
+      "example": "bootui architecture violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui architecture report'."
     },
     {
       "name": "get_beans",
@@ -89,7 +96,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search Spring beans by name or type and return a bounded result."
+      "summary": "Search Spring beans by name or type and return a bounded result.",
+      "example": "bootui beans --query dataSource"
     },
     {
       "name": "get_cache_stats",
@@ -102,7 +110,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return current cache manager and cache statistics (hits, misses, size) for each configured cache."
+      "summary": "Return current cache manager and cache statistics (hits, misses, size) for each configured cache.",
+      "example": "bootui cache"
     },
     {
       "name": "get_code_inventory",
@@ -115,7 +124,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return Code Inventory: did the code changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status)."
+      "summary": "Return Code Inventory: did the code changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status).",
+      "example": "bootui code inventory --query changed",
+      "queryHelp": "changed (the default), never-executed, not-tracked, executed, dependencies, or a package or class"
     },
     {
       "name": "get_code_paths",
@@ -128,7 +139,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return Code Paths: which application bean methods each route spends its time in, from the BootUI agent's code-paths sensor."
+      "summary": "Return Code Paths: which application bean methods each route spends its time in, from the BootUI agent's code-paths sensor.",
+      "example": "bootui code paths --query 'GET /orders'",
+      "queryHelp": "empty (the slowest routes), or a route or method name"
     },
     {
       "name": "get_conditions",
@@ -140,7 +153,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return matched, unmatched, and unconditional entries."
+      "summary": "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return matched, unmatched, and unconditional entries.",
+      "example": "bootui conditions --query DataSource"
     },
     {
       "name": "get_config",
@@ -153,7 +167,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search effective configuration by name or displayed value and return a bounded result."
+      "summary": "Search effective configuration by name or displayed value and return a bounded result.",
+      "example": "bootui config --query server.port"
     },
     {
       "name": "get_crac_report",
@@ -165,7 +180,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed CRaC readiness report without starting a new resource-lifecycle scan."
+      "summary": "Return the last completed CRaC readiness report without starting a new resource-lifecycle scan.",
+      "example": "bootui crac report"
     },
     {
       "name": "crac_scan",
@@ -177,7 +193,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively assess Spring checkpoint/restore readiness."
+      "summary": "Actively assess Spring checkpoint/restore readiness.",
+      "example": "bootui crac scan"
     },
     {
       "name": "get_flyway_migrations",
@@ -190,7 +207,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current Flyway migration history and status without running migrate or clean."
+      "summary": "Return the current Flyway migration history and status without running migrate or clean.",
+      "example": "bootui db flyway"
     },
     {
       "name": "get_liquibase_changesets",
@@ -203,7 +221,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current Liquibase change-set history and status without running update."
+      "summary": "Return the current Liquibase change-set history and status without running update.",
+      "example": "bootui db liquibase"
     },
     {
       "name": "mysql_read",
@@ -216,7 +235,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics queries."
+      "summary": "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics queries.",
+      "example": "bootui db mysql read"
     },
     {
       "name": "get_mysql_report",
@@ -229,7 +249,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed MySQL operational report without contacting the database."
+      "summary": "Return the last completed MySQL operational report without contacting the database.",
+      "example": "bootui db mysql report"
     },
     {
       "name": "get_database_connection_pools",
@@ -242,7 +263,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return current connection pool configuration and live metrics (active, idle, pending connections) for each configured datasource."
+      "summary": "Return current connection pool configuration and live metrics (active, idle, pending connections) for each configured datasource.",
+      "example": "bootui db pools"
     },
     {
       "name": "postgresql_read",
@@ -255,7 +277,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and return what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings."
+      "summary": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and return what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings.",
+      "example": "bootui db postgres read"
     },
     {
       "name": "get_postgresql_report",
@@ -268,7 +291,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed PostgreSQL runtime view without querying the server again."
+      "summary": "Return the last completed PostgreSQL runtime view without querying the server again.",
+      "example": "bootui db postgres report"
     },
     {
       "name": "get_database_advisor_report",
@@ -281,7 +305,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Database advisor report without querying schema metadata again."
+      "summary": "Return the last completed Database advisor report without querying schema metadata again.",
+      "example": "bootui db report"
     },
     {
       "name": "database_advisor_scan",
@@ -294,7 +319,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available."
+      "summary": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available.",
+      "example": "bootui db scan"
     },
     {
       "name": "get_database_advisor_rule_violations",
@@ -307,7 +333,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_database_advisor_report and that cached report's violationDetails.scanId.",
+      "example": "bootui db violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui db report'."
     },
     {
       "name": "get_dev_services",
@@ -320,7 +348,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current local Dev Services or development-service inventory and masked connection metadata."
+      "summary": "Return the current local Dev Services or development-service inventory and masked connection metadata.",
+      "example": "bootui dev-services"
     },
     {
       "name": "trigger_devtools_livereload",
@@ -332,7 +361,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result."
+      "summary": "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result.",
+      "example": "bootui devtools livereload"
     },
     {
       "name": "get_devtools_status",
@@ -344,7 +374,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current Spring Boot DevTools restart and LiveReload status."
+      "summary": "Return the current Spring Boot DevTools restart and LiveReload status.",
+      "example": "bootui devtools status"
     },
     {
       "name": "clear_exceptions",
@@ -357,7 +388,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear BootUI's bounded in-memory exception groups and occurrences."
+      "summary": "Clear BootUI's bounded in-memory exception groups and occurrences.",
+      "example": "bootui exceptions clear"
     },
     {
       "name": "get_exceptions",
@@ -370,7 +402,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "List recent exception groups, newest first."
+      "summary": "List recent exception groups, newest first.",
+      "example": "bootui exceptions list"
     },
     {
       "name": "get_exception_detail",
@@ -383,7 +416,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions or get_live_activity."
+      "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions or get_live_activity.",
+      "example": "bootui exceptions show <id>",
+      "idHelp": "An exception group id from 'bootui exceptions list' or 'bootui activity'."
     },
     {
       "name": "get_fault_tolerance",
@@ -396,7 +431,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the configured Resilience4j and Spring Retry policy inventory with live counters and circuit breaker state, plus a bounded metadata-only event history."
+      "summary": "Return the configured Resilience4j and Spring Retry policy inventory with live counters and circuit breaker state, plus a bounded metadata-only event history.",
+      "example": "bootui fault-tolerance"
     },
     {
       "name": "get_github_dashboard",
@@ -409,7 +445,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return local repository identity plus the last cached GitHub dashboard report."
+      "summary": "Return local repository identity plus the last cached GitHub dashboard report.",
+      "example": "bootui github"
     },
     {
       "name": "get_graalvm_report",
@@ -421,7 +458,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed GraalVM readiness report without starting a new classpath or dependency scan."
+      "summary": "Return the last completed GraalVM readiness report without starting a new classpath or dependency scan.",
+      "example": "bootui graalvm report"
     },
     {
       "name": "graalvm_scan",
@@ -433,7 +471,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively assess Spring native-image readiness without the longer dependency metadata scan."
+      "summary": "Actively assess Spring native-image readiness without the longer dependency metadata scan.",
+      "example": "bootui graalvm scan"
     },
     {
       "name": "get_health",
@@ -446,7 +485,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current aggregated Actuator health tree."
+      "summary": "Return the current aggregated Actuator health tree.",
+      "example": "bootui health"
     },
     {
       "name": "get_hibernate_report",
@@ -459,7 +499,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Hibernate advisor report without starting a new mapping scan."
+      "summary": "Return the last completed Hibernate advisor report without starting a new mapping scan.",
+      "example": "bootui hibernate report"
     },
     {
       "name": "hibernate_scan",
@@ -472,7 +513,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks."
+      "summary": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks.",
+      "example": "bootui hibernate scan"
     },
     {
       "name": "get_hibernate_rule_violations",
@@ -485,7 +527,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_hibernate_report and that cached report's violationDetails.scanId.",
+      "example": "bootui hibernate violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui hibernate report'."
     },
     {
       "name": "get_http_exchanges",
@@ -498,7 +542,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a bounded, newest-first snapshot of application HTTP request/response metadata."
+      "summary": "Return a bounded, newest-first snapshot of application HTTP request/response metadata.",
+      "example": "bootui http exchanges --limit 20"
     },
     {
       "name": "get_http_routes",
@@ -511,7 +556,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return route performance rankings over the retained HTTP exchanges: per method and route template, request and status-class counts, average, p50, p95, p99 and maximum duration, and share of request time, plus the evidence window."
+      "summary": "Return route performance rankings over the retained HTTP exchanges: per method and route template, request and status-class counts, average, p50, p95, p99 and maximum duration, and share of request time, plus the evidence window.",
+      "example": "bootui http routes --limit 5"
     },
     {
       "name": "get_http_sessions",
@@ -522,7 +568,8 @@
       "stacks": [
         "SPRING_MVC"
       ],
-      "summary": "Return the bounded active embedded-Tomcat HTTP-session inventory without creating, clearing, or invalidating a session."
+      "summary": "Return the bounded active embedded-Tomcat HTTP-session inventory without creating, clearing, or invalidating a session.",
+      "example": "bootui http sessions"
     },
     {
       "name": "get_runtime_run_comparison",
@@ -535,7 +582,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Compare this run with a kept one: id is optional, previous or a run id."
+      "summary": "Compare this run with a kept one: id is optional, previous or a run id.",
+      "example": "bootui insights compare previous",
+      "idHelp": "Previous (the default), or a run id from the runs it answers with."
     },
     {
       "name": "get_runtime_impact",
@@ -548,7 +597,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates."
+      "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates.",
+      "example": "bootui insights impact 'OrderService#total'",
+      "idHelp": "A route, bean, class, Class#method, repository, table, cache, host, or event type."
     },
     {
       "name": "get_runtime_insights",
@@ -561,7 +612,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, and a verify line."
+      "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, and a verify line.",
+      "example": "bootui insights list --query security",
+      "queryHelp": "empty (every observation), new, security, diff, latency, an observation kind such as repeated-selects, or a route, table, bean, or class"
     },
     {
       "name": "get_runtime_insight",
@@ -574,7 +627,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows."
+      "summary": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows.",
+      "example": "bootui insights show <id>",
+      "idHelp": "An observation id from 'bootui insights list'."
     },
     {
       "name": "get_jms_activity",
@@ -586,7 +641,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded local JMS activity snapshot captured from application templates and listeners."
+      "summary": "Return the bounded local JMS activity snapshot captured from application templates and listeners.",
+      "example": "bootui jms"
     },
     {
       "name": "get_jvm_tuning",
@@ -599,7 +655,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current JVM sizing facts and generated tuning recommendations using detected defaults."
+      "summary": "Return the current JVM sizing facts and generated tuning recommendations using detected defaults.",
+      "example": "bootui jvm tuning"
     },
     {
       "name": "get_kafka_activity",
@@ -612,7 +669,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded local Kafka activity snapshot captured from application producers and consumers."
+      "summary": "Return the bounded local Kafka activity snapshot captured from application producers and consumers.",
+      "example": "bootui kafka"
     },
     {
       "name": "get_loggers",
@@ -625,7 +683,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search configured loggers by case-insensitive name and return their configured and effective levels, bounded by limit."
+      "summary": "Search configured loggers by case-insensitive name and return their configured and effective levels, bounded by limit.",
+      "example": "bootui loggers --query org.hibernate.SQL"
     },
     {
       "name": "get_log_tail",
@@ -638,7 +697,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the latest buffered application log snapshot."
+      "summary": "Return the latest buffered application log snapshot.",
+      "example": "bootui logs tail"
     },
     {
       "name": "get_emails",
@@ -651,7 +711,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded local email-capture inventory with content governed by BootUI exposure policy."
+      "summary": "Return the bounded local email-capture inventory with content governed by BootUI exposure policy.",
+      "example": "bootui mail"
     },
     {
       "name": "get_mappings",
@@ -664,7 +725,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search request routes and handlers and return a bounded result."
+      "summary": "Search request routes and handlers and return a bounded result.",
+      "example": "bootui mappings --query /api"
     },
     {
       "name": "analyze_heap_dump",
@@ -677,7 +739,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Analyze the existing BootUI heap dump and return the resulting report."
+      "summary": "Analyze the existing BootUI heap dump and return the resulting report.",
+      "example": "bootui memory heap analyze"
     },
     {
       "name": "get_heap_dump_report",
@@ -690,7 +753,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return passive heap-dump status, file metadata, and any already-cached analysis."
+      "summary": "Return passive heap-dump status, file metadata, and any already-cached analysis.",
+      "example": "bootui memory heap report"
     },
     {
       "name": "get_live_memory",
@@ -703,7 +767,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and thread measurements without requesting GC or a class histogram."
+      "summary": "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and thread measurements without requesting GC or a class histogram.",
+      "example": "bootui memory live"
     },
     {
       "name": "get_memory_report",
@@ -716,7 +781,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Memory advisor report without triggering a class histogram or full GC."
+      "summary": "Return the last completed Memory advisor report without triggering a class histogram or full GC.",
+      "example": "bootui memory report"
     },
     {
       "name": "memory_scan",
@@ -729,7 +795,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively analyze JVM memory and return prioritized findings."
+      "summary": "Actively analyze JVM memory and return prioritized findings.",
+      "example": "bootui memory scan"
     },
     {
       "name": "get_memory_rule_violations",
@@ -742,7 +809,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_memory_report and that cached report's violationDetails.scanId.",
+      "example": "bootui memory violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui memory report'."
     },
     {
       "name": "get_metrics",
@@ -755,7 +824,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search the current application metrics inventory and return a bounded page of local meter values."
+      "summary": "Search the current application metrics inventory and return a bounded page of local meter values.",
+      "example": "bootui metrics --query jvm.memory"
     },
     {
       "name": "get_overview",
@@ -768,7 +838,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return stable application identity and runtime context, including versions, active profiles, and BootUI status."
+      "summary": "Return stable application identity and runtime context, including versions, active profiles, and BootUI status.",
+      "example": "bootui overview"
     },
     {
       "name": "get_pentest_report",
@@ -781,7 +852,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Pentesting advisor report without sending any HTTP probes."
+      "summary": "Return the last completed Pentesting advisor report without sending any HTTP probes.",
+      "example": "bootui pentest report"
     },
     {
       "name": "pentest_scan",
@@ -794,7 +866,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings."
+      "summary": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings.",
+      "example": "bootui pentest scan"
     },
     {
       "name": "get_method_probe",
@@ -807,7 +880,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a method probe by id: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame."
+      "summary": "Return a method probe by the id start_method_probe returned: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame.",
+      "example": "bootui probe show <id>",
+      "idHelp": "A probe id from 'bootui probe start'."
     },
     {
       "name": "start_method_probe",
@@ -820,7 +895,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run."
+      "summary": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run.",
+      "example": "bootui probe start 'com.example.OrderService#total'",
+      "idHelp": "An application method (binary.Class#name) from 'bootui code paths'."
     },
     {
       "name": "get_profile_diff",
@@ -833,7 +910,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current active-profile configuration comparison using masked local configuration data."
+      "summary": "Return the current active-profile configuration comparison using masked local configuration data.",
+      "example": "bootui profile diff"
     },
     {
       "name": "get_rabbitmq_activity",
@@ -846,7 +924,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded local RabbitMQ activity snapshot captured from application publishers and listeners."
+      "summary": "Return the bounded local RabbitMQ activity snapshot captured from application publishers and listeners.",
+      "example": "bootui rabbitmq"
     },
     {
       "name": "get_spring_data_repositories",
@@ -858,7 +937,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return Spring Data repository metadata already computed by the application context."
+      "summary": "Return Spring Data repository metadata already computed by the application context.",
+      "example": "bootui repositories"
     },
     {
       "name": "get_request_profile",
@@ -871,7 +951,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Open a profileable request or scheduled/message execution id from Live Activity or a Runtime Insights exemplar."
+      "summary": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar.",
+      "example": "bootui request-profile <id>",
+      "idHelp": "A profileable request or execution id (an entry id or an observation's exemplarRequestId) from 'bootui activity' or 'bootui insights list'."
     },
     {
       "name": "get_rest_api_report",
@@ -884,7 +966,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed REST API advisor report without starting a new endpoint scan."
+      "summary": "Return the last completed REST API advisor report without starting a new endpoint scan.",
+      "example": "bootui rest-api report"
     },
     {
       "name": "rest_api_scan",
@@ -897,7 +980,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks."
+      "summary": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks.",
+      "example": "bootui rest-api scan"
     },
     {
       "name": "get_rest_api_rule_violations",
@@ -910,7 +994,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_rest_api_report and that cached report's violationDetails.scanId.",
+      "example": "bootui rest-api violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui rest-api report'."
     },
     {
       "name": "clear_rest_client_traces",
@@ -923,7 +1009,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear the bounded in-memory REST-client trace buffer and return the resulting report."
+      "summary": "Clear the bounded in-memory REST-client trace buffer and return the resulting report.",
+      "example": "bootui rest-client clear"
     },
     {
       "name": "pause_rest_client_recording",
@@ -936,7 +1023,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Pause REST-client trace recording and return the resulting report."
+      "summary": "Pause REST-client trace recording and return the resulting report.",
+      "example": "bootui rest-client pause"
     },
     {
       "name": "resume_rest_client_recording",
@@ -949,7 +1037,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Resume REST-client trace recording and return the resulting report."
+      "summary": "Resume REST-client trace recording and return the resulting report.",
+      "example": "bootui rest-client resume"
     },
     {
       "name": "get_rest_client_traces",
@@ -962,7 +1051,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy."
+      "summary": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy.",
+      "example": "bootui rest-client traces"
     },
     {
       "name": "get_scheduled_tasks",
@@ -975,7 +1065,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current scheduled task inventory and recent run history, including timing and outcome."
+      "summary": "Return the current scheduled task inventory and recent run history, including timing and outcome.",
+      "example": "bootui scheduled"
     },
     {
       "name": "get_spring_security",
@@ -987,7 +1078,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current Spring Security filter-chain and authentication configuration report."
+      "summary": "Return the current Spring Security filter-chain and authentication configuration report.",
+      "example": "bootui security config"
     },
     {
       "name": "get_security_logs",
@@ -1000,7 +1092,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a bounded, newest-first snapshot of authentication and authorization audit events."
+      "summary": "Return a bounded, newest-first snapshot of authentication and authorization audit events.",
+      "example": "bootui security logs --limit 20"
     },
     {
       "name": "get_security_report",
@@ -1013,7 +1106,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Security advisor report without starting a new configuration scan."
+      "summary": "Return the last completed Security advisor report without starting a new configuration scan.",
+      "example": "bootui security report"
     },
     {
       "name": "security_scan",
@@ -1026,7 +1120,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively review application security configuration and return prioritized findings."
+      "summary": "Actively review application security configuration and return prioritized findings.",
+      "example": "bootui security scan"
     },
     {
       "name": "get_security_rule_violations",
@@ -1039,7 +1134,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_security_report and that cached report's violationDetails.scanId.",
+      "example": "bootui security violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui security report'."
     },
     {
       "name": "get_claude_code_sessions",
@@ -1052,7 +1149,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files."
+      "summary": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files.",
+      "example": "bootui sessions claude"
     },
     {
       "name": "get_copilot_sessions",
@@ -1065,7 +1163,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files."
+      "summary": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files.",
+      "example": "bootui sessions copilot"
     },
     {
       "name": "get_spring_report",
@@ -1078,7 +1177,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the last completed Spring advisor report without starting a new application scan."
+      "summary": "Return the last completed Spring advisor report without starting a new application scan.",
+      "example": "bootui spring report"
     },
     {
       "name": "spring_scan",
@@ -1091,7 +1191,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks."
+      "summary": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks.",
+      "example": "bootui spring scan"
     },
     {
       "name": "get_spring_rule_violations",
@@ -1104,7 +1205,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+      "summary": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId.",
+      "example": "bootui spring violations <ruleId> --scan-id <scanId> --limit 100",
+      "idHelp": "A rule id and the violationDetails.scanId from 'bootui spring report'."
     },
     {
       "name": "clear_sql_traces",
@@ -1117,7 +1220,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear the bounded in-memory SQL trace buffer and return the resulting report."
+      "summary": "Clear the bounded in-memory SQL trace buffer and return the resulting report.",
+      "example": "bootui sql clear"
     },
     {
       "name": "pause_sql_trace_recording",
@@ -1130,7 +1234,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Pause SQL trace recording and return the resulting report."
+      "summary": "Pause SQL trace recording and return the resulting report.",
+      "example": "bootui sql pause"
     },
     {
       "name": "resume_sql_trace_recording",
@@ -1143,7 +1248,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Resume SQL trace recording and return the resulting report."
+      "summary": "Resume SQL trace recording and return the resulting report.",
+      "example": "bootui sql resume"
     },
     {
       "name": "get_sql_traces",
@@ -1156,7 +1262,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current bounded SQL trace snapshot with statements and timings."
+      "summary": "Return the current bounded SQL trace snapshot with statements and timings.",
+      "example": "bootui sql traces"
     },
     {
       "name": "get_startup_timeline",
@@ -1168,7 +1275,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the captured Spring startup-step timeline after filtering BootUI's own steps."
+      "summary": "Return the captured Spring startup-step timeline after filtering BootUI's own steps.",
+      "example": "bootui startup"
     },
     {
       "name": "get_threads",
@@ -1181,7 +1289,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search the current JVM thread snapshot and return a bounded page of thread states and stack summaries."
+      "summary": "Search the current JVM thread snapshot and return a bounded page of thread states and stack summaries.",
+      "example": "bootui threads --query http --limit 10"
     },
     {
       "name": "clear_traces",
@@ -1194,7 +1303,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear BootUI's bounded in-memory trace buffer."
+      "summary": "Clear BootUI's bounded in-memory trace buffer.",
+      "example": "bootui traces clear"
     },
     {
       "name": "get_traces",
@@ -1207,7 +1317,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI."
+      "summary": "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI.",
+      "example": "bootui traces list --limit 20"
     },
     {
       "name": "clear_transactions",
@@ -1219,7 +1330,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear the bounded in-memory Spring transaction trace buffer and return the resulting report."
+      "summary": "Clear the bounded in-memory Spring transaction trace buffer and return the resulting report.",
+      "example": "bootui tx clear"
     },
     {
       "name": "get_transactions",
@@ -1231,7 +1343,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts."
+      "summary": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts.",
+      "example": "bootui tx list"
     },
     {
       "name": "pause_transaction_recording",
@@ -1243,7 +1356,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Pause Spring transaction-boundary recording and return the resulting report."
+      "summary": "Pause Spring transaction-boundary recording and return the resulting report.",
+      "example": "bootui tx pause"
     },
     {
       "name": "resume_transaction_recording",
@@ -1255,7 +1369,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Resume Spring transaction-boundary recording and return the resulting report."
+      "summary": "Resume Spring transaction-boundary recording and return the resulting report.",
+      "example": "bootui tx resume"
     },
     {
       "name": "get_vulnerabilities_report",
@@ -1268,7 +1383,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service."
+      "summary": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service.",
+      "example": "bootui vulnerabilities report"
     },
     {
       "name": "vulnerabilities_scan",
@@ -1281,7 +1397,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings."
+      "summary": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings.",
+      "example": "bootui vulnerabilities scan"
     }
   ]
 }

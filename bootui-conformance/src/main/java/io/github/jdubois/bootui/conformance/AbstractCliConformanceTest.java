@@ -245,6 +245,11 @@ public abstract class AbstractCliConformanceTest {
         assertThat(comparison.status()).isEqualTo(200);
         assertThat(comparison.json().path("status").asText()).isNotBlank();
         assertThat(invoke("get_runtime_insight", "{}").status()).isEqualTo(400);
+        assertThat(invoke("get_runtime_insight", "{}").json().path("error").asText())
+                .as("a missing id names the command that lists the ids")
+                .contains("get_runtime_insights");
+        Response unknown = invoke("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
+        assertThat(unknown.json().path("next").path(0).path("command").asText()).isEqualTo("bootui insights list");
     }
 
     @Test

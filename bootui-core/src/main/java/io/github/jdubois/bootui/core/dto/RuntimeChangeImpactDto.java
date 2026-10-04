@@ -32,6 +32,8 @@ import java.util.List;
  * @param notObserved for a method, the routes that reach it and ran in this run while their call trees did not show it:
  *     never proof that it did not run, each with why
  * @param notObservedTotal how many there are
+ * @param next for an agent, the calls that resolve an ambiguous, unknown, or unavailable symbol, at most three; empty
+ *     in the panel
  */
 public record RuntimeChangeImpactDto(
         String status,
@@ -52,7 +54,8 @@ public record RuntimeChangeImpactDto(
         List<String> methods,
         String methodStatus,
         List<RuntimeImpactRouteDto> notObserved,
-        int notObservedTotal) {
+        int notObservedTotal,
+        List<RuntimeNextStepDto> next) {
 
     public static final String FROM_STRUCTURE = "STRUCTURE";
     public static final String FROM_HANDLER_MAPPING = "HANDLER_MAPPING";
@@ -69,6 +72,50 @@ public record RuntimeChangeImpactDto(
         limitations = DtoCollections.immutableCopy(limitations);
         methods = DtoCollections.immutableCopy(methods);
         notObserved = DtoCollections.immutableCopy(notObserved);
+        next = DtoCollections.immutableCopy(next);
+    }
+
+    public RuntimeChangeImpactDto(
+            String status,
+            String reason,
+            String symbol,
+            String node,
+            List<String> candidates,
+            long structuralReach,
+            List<RuntimeImpactRouteDto> observed,
+            int observedTotal,
+            List<RuntimeImpactRouteDto> notExercised,
+            int notExercisedTotal,
+            List<RuntimeImpactRouteDto> sharedResources,
+            int sharedResourcesTotal,
+            List<String> limitations,
+            boolean notExercisedUndetermined,
+            String observedFrom,
+            List<String> methods,
+            String methodStatus,
+            List<RuntimeImpactRouteDto> notObserved,
+            int notObservedTotal) {
+        this(
+                status,
+                reason,
+                symbol,
+                node,
+                candidates,
+                structuralReach,
+                observed,
+                observedTotal,
+                notExercised,
+                notExercisedTotal,
+                sharedResources,
+                sharedResourcesTotal,
+                limitations,
+                notExercisedUndetermined,
+                observedFrom,
+                methods,
+                methodStatus,
+                notObserved,
+                notObservedTotal,
+                List.of());
     }
 
     public RuntimeChangeImpactDto(
