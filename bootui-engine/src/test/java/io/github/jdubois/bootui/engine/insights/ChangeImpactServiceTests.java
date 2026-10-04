@@ -3,11 +3,16 @@ package io.github.jdubois.bootui.engine.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
+import io.github.jdubois.bootui.core.dto.CodeInventoryMethodDto;
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactRouteDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
+import io.github.jdubois.bootui.engine.codepaths.MethodRoutes;
+import io.github.jdubois.bootui.engine.codepaths.TracedMethods;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.inventory.ClassScanner;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -22,6 +27,8 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.AfterEach;
@@ -460,6 +467,218 @@ class ChangeImpactServiceTests {
 
     private ChangeImpactService service(StructureSnapshot structure) {
         return service(structure, panel -> true);
+    }
+
+    // --- M5-7a: a method's impact from the route trees -------------------------------------------------------------
+
+    private static final String FIND_ALL = "com.example.ProductService#findAll()Ljava/util/List;";
+    private static final String FIND_BY_NAME = "com.example.ProductService#findAll(Ljava/lang/String;)Ljava/util/List;";
+    private static final Set<String> BEAN_CLASSES =
+            Set.of("com.example.ProductController", "com.example.ProductService", "com.example.ReviewController");
+
+    @Test
+    void aMethodsObservedRoutesAreThoseWhoseCallTreesRanItAndARouteThatRanWithoutItIsNeverSaidNotExercised()
+            throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        request("/api/products", "select * from sample_products");
+        request("/api/products/{id}", "select * from sample_products where id = ?");
+        ChangeImpactService service = service(structure(null));
+        service.setCodePaths(wanted -> routes(
+                wanted,
+                Map.of(FIND_ALL, Map.of("GET /api/products", 2L)),
+                Map.of(
+                        "GET /api/products",
+                        new MethodRoutes.RouteEvidence(2, false, List.of()),
+                        "GET /api/products/{id}",
+                        new MethodRoutes.RouteEvidence(1, false, List.of()))));
+        service.setCodeInventory((type, name) ->
+                lookup(ClassScanner.COMPLETE, method(FIND_ALL, CodeInventoryService.EXECUTED, "GET /api/products")));
+
+        RuntimeChangeImpactDto impact = service.impact("ProductService#findAll");
+
+        assertThat(impact.status()).isEqualTo(ChangeImpactService.RESOLVED);
+        assertThat(impact.observedFrom()).isEqualTo(RuntimeChangeImpactDto.FROM_ROUTE_TREES);
+        assertThat(impact.node()).isEqualTo("METHOD com.example.ProductService#findAll");
+        assertThat(impact.methods()).containsExactly(FIND_ALL);
+        assertThat(impact.methodStatus()).isEqualTo(CodeInventoryService.EXECUTED);
+        assertThat(impact.observed()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/products");
+            assertThat(route.executedRequests()).isEqualTo(2);
+            assertThat(route.requests()).isEqualTo(2);
+            assertThat(route.partial()).isFalse();
+        });
+        assertThat(impact.notExercised())
+                .as("the other route of its bean ran, so it is never said not exercised on silence alone")
+                .isEmpty();
+        assertThat(impact.notObserved()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/products/{id}");
+            assertThat(route.check()).contains("does not prove it did not run");
+        });
+        assertThat(impact.notObservedTotal()).isEqualTo(1);
+        assertThat(impact.notExercisedUndetermined()).isTrue();
+        assertThat(impact.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("calls observed across requests are never"));
+
+        assertThat(service.impact("ProductService.findAll").node())
+                .as("Class.method, tried once no other symbol matched")
+                .isEqualTo("METHOD com.example.ProductService#findAll");
+    }
+
+    @Test
+    void codeInventorySeeingTheMethodNeverRunProvesEveryRouteNotExercised() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        ChangeImpactService service = service(structure(null));
+        service.setCodePaths(wanted -> routes(
+                wanted, Map.of(), Map.of("GET /api/products", new MethodRoutes.RouteEvidence(1, false, List.of()))));
+        service.setCodeInventory((type, name) ->
+                lookup(ClassScanner.COMPLETE, method(FIND_ALL, CodeInventoryService.NEVER_EXECUTED, null)));
+
+        RuntimeChangeImpactDto impact = service.impact("com.example.ProductService#findAll");
+
+        assertThat(impact.observed()).isEmpty();
+        assertThat(impact.notObserved()).isEmpty();
+        assertThat(impact.methodStatus()).isEqualTo(CodeInventoryService.NEVER_EXECUTED);
+        assertThat(impact.notExercised())
+                .extracting(RuntimeImpactRouteDto::route, RuntimeImpactRouteDto::check)
+                .containsExactly(
+                        tuple(
+                                "GET /api/products",
+                                "`GET /api/products` served 1 request in this run, and Code Inventory saw the method"
+                                        + " never run: send a request of `GET /api/products` that reaches it."),
+                        tuple(
+                                "GET /api/products/{id}",
+                                "Exercise `GET /api/products/{id}` before relying on this change: no request reached"
+                                        + " it in this run."));
+
+        service.setCodeInventory((type, name) ->
+                lookup(ClassScanner.PARTIAL, method(FIND_ALL, CodeInventoryService.NEVER_EXECUTED, null)));
+        assertThat(service.impact("ProductService#findAll").notObserved())
+                .as("a partial scan may miss an overload, so the proof does not hold")
+                .extracting(RuntimeImpactRouteDto::route)
+                .containsExactly("GET /api/products");
+    }
+
+    @Test
+    void parametersNameOneOverloadAndSeveralClassesAreAmbiguous() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        ChangeImpactService service = service(structure(null));
+        service.setCodePaths(wanted -> routes(
+                wanted,
+                Map.of(FIND_ALL, Map.of("GET /api/products", 1L), FIND_BY_NAME, Map.of()),
+                Map.of("GET /api/products", new MethodRoutes.RouteEvidence(1, false, List.of()))));
+        service.setCodeInventory((type, name) -> lookup(
+                ClassScanner.COMPLETE,
+                method(FIND_ALL, CodeInventoryService.EXECUTED, null),
+                method(FIND_BY_NAME, CodeInventoryService.NEVER_EXECUTED, null),
+                method("com.example.other.ProductService#findAll()V", CodeInventoryService.NEVER_EXECUTED, null)));
+
+        RuntimeChangeImpactDto ambiguous = service.impact("ProductService#findAll");
+        assertThat(ambiguous.status()).isEqualTo(ChangeImpactService.AMBIGUOUS);
+        assertThat(ambiguous.candidates())
+                .containsExactly(
+                        "METHOD com.example.ProductService#findAll", "METHOD com.example.other.ProductService#findAll");
+
+        RuntimeChangeImpactDto byName = service.impact("com.example.ProductService#findAll(String)");
+        assertThat(byName.methods()).containsExactly(FIND_BY_NAME);
+        assertThat(byName.observed()).isEmpty();
+        assertThat(byName.methodStatus()).isEqualTo(CodeInventoryService.NEVER_EXECUTED);
+
+        RuntimeChangeImpactDto both = service.impact("METHOD com.example.ProductService#findAll");
+        assertThat(both.methods()).as(both.toString()).containsExactlyInAnyOrder(FIND_ALL, FIND_BY_NAME);
+        assertThat(both.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("2 overloads"));
+        assertThat(both.observed()).extracting(RuntimeImpactRouteDto::route).containsExactly("GET /api/products");
+    }
+
+    @Test
+    void aFailedCodePathsReadIsUnavailableAndAMethodTheSensorDoesNotTimeSaysSo() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        ChangeImpactService service = service(structure(null));
+        service.setCodePaths(wanted -> {
+            throw new IllegalStateException("boom");
+        });
+        assertThat(service.impact("ProductService#findAll")).satisfies(impact -> {
+            assertThat(impact.status()).isEqualTo(ChangeImpactService.UNAVAILABLE);
+            assertThat(impact.reason()).startsWith(MethodRoutes.READ_FAILED);
+        });
+
+        String helper = "com.example.ProductService#normalize(Ljava/lang/String;)Ljava/lang/String;";
+        service.setCodePaths(wanted -> routes(
+                wanted, Map.of(), Map.of("GET /api/products", new MethodRoutes.RouteEvidence(1, false, List.of()))));
+        service.setCodeInventory((type, name) -> new CodeInventoryService.MethodLookup(
+                null,
+                ClassScanner.COMPLETE,
+                List.of(new CodeInventoryService.InventoryMethod(
+                        method(helper, CodeInventoryService.EXECUTED, null).method(), 0x0002))));
+        RuntimeChangeImpactDto impact = service.impact("ProductService#normalize");
+        assertThat(impact.notObserved())
+                .singleElement()
+                .satisfies(route -> assertThat(route.check()).contains(TracedMethods.NOT_TRACED));
+        assertThat(impact.notExercised())
+                .extracting(RuntimeImpactRouteDto::route)
+                .containsExactly("GET /api/products/{id}");
+    }
+
+    @Test
+    void withoutTheAgentOnlyAHandlerMethodIsCheckedAndTheReasonIsNamed() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        ChangeImpactService service = service(structure(null));
+        service.setCodePaths(wanted -> MethodRoutes.unavailable("The BootUI agent is not attached."));
+
+        RuntimeChangeImpactDto handler = service.impact("ProductController#list");
+        assertThat(handler.observedFrom()).isEqualTo(RuntimeChangeImpactDto.FROM_HANDLER_MAPPING);
+        assertThat(handler.observed()).extracting(RuntimeImpactRouteDto::route).containsExactly("GET /api/products");
+        assertThat(handler.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("The BootUI agent is not attached"));
+
+        RuntimeChangeImpactDto service2 = service.impact("ProductService#findAll");
+        assertThat(service2.status()).isEqualTo(ChangeImpactService.NOT_FOUND);
+        assertThat(service2.reason())
+                .contains("only handler methods can be checked")
+                .contains("agent is not attached");
+    }
+
+    private static MethodRoutes routes(
+            Predicate<String> wanted,
+            Map<String, Map<String, Long>> byKey,
+            Map<String, MethodRoutes.RouteEvidence> evidence) {
+        Map<String, Map<String, Long>> matching = new java.util.LinkedHashMap<>();
+        byKey.forEach((key, routes) -> {
+            if (wanted.test(key) && !routes.isEmpty()) {
+                matching.put(key, routes);
+            }
+        });
+        return new MethodRoutes(null, matching, Map.of(), evidence, Set.of(), BEAN_CLASSES, List.of());
+    }
+
+    private static CodeInventoryService.MethodLookup lookup(
+            String scan, CodeInventoryService.InventoryMethod... methods) {
+        return new CodeInventoryService.MethodLookup(null, scan, List.of(methods));
+    }
+
+    private static CodeInventoryService.InventoryMethod method(String key, String status, String firstRoute) {
+        int hash = key.indexOf('#');
+        int open = key.indexOf('(');
+        String className = key.substring(0, hash);
+        return new CodeInventoryService.InventoryMethod(
+                new CodeInventoryMethodDto(
+                        key,
+                        className.substring(0, className.lastIndexOf('.')),
+                        className,
+                        key.substring(hash + 1, open),
+                        key.substring(open),
+                        status,
+                        null,
+                        null,
+                        firstRoute == null ? null : "r1",
+                        firstRoute,
+                        null),
+                0x0001);
     }
 
     private ChangeImpactService service(StructureSnapshot structure, Predicate<String> panelEnabled) {

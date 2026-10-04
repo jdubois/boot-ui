@@ -9,6 +9,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
+  any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
+  and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth
+  (first requests, executor work the agent followed, and late fragments included) or Code Inventory's first request,
+  never composed from calls observed across requests; each says how many of its requests ran it. Routes reaching the
+  method's bean that ran without their trees showing it are listed apart, **ran without showing it**, with why that
+  proves nothing, and are called not exercised only when Code Inventory saw the method never run. The run comparison
+  leads with **Code changes**: the methods changed or added since the previous run, not run yet first, with whether
+  each ran and on which routes, and the removed methods counted. New `observedFrom`, `methods`, `methodStatus`,
+  `notObserved`, and `notObservedTotal` impact fields, `executedRequests` and `partial` per route, and `codeChanges`
+  in the comparison, on Spring MVC, Spring WebFlux, and Quarkus; `get_runtime_impact` takes the method form,
+  `get_runtime_run_comparison` leads with `codeChanges`, and the `verify_after_change` prompt checks each changed
+  method's impact. Without the agent, only handler methods are checked and the comparison says code changes need it
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.7, §5.8, §5.17, M5-7a).
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
@@ -207,6 +221,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Code Paths counts a late fragment's request once.** A code-paths fragment arriving after its request's tree was
+  merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
+  partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
+  (PLAN-v2 M5-7a).
 - **Durable Live Activity history is journal-rendered.** With
   `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
   polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**

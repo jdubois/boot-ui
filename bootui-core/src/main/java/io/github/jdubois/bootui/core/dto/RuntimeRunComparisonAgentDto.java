@@ -15,6 +15,8 @@ import java.util.List;
  * @param runs the kept runs, newest first, with the HTTP requests each served: any id can be passed instead of
  *     {@code previous}
  * @param notComparableReasons what differs between the runs, when not comparable
+ * @param codeChanges the methods changed, added, and removed since the previous run, which ran, and where, first; at
+ *     most {@value #MAX_ROWS} methods, each with at most {@value #MAX_ROWS} routes
  * @param behavior what the routes did differently, at most {@value #MAX_ROWS}
  * @param behaviorOmitted the behavior rows left out
  * @param edges the runtime model's added and removed edges, at most {@value #MAX_ROWS}
@@ -28,6 +30,7 @@ public record RuntimeRunComparisonAgentDto(
         String previousRunId,
         List<RuntimeRunRefDto> runs,
         List<String> notComparableReasons,
+        RuntimeCodeChangesDto codeChanges,
         List<RuntimeRunChangeDto> behavior,
         int behaviorOmitted,
         List<RuntimeRunChangeDto> edges,
@@ -43,5 +46,35 @@ public record RuntimeRunComparisonAgentDto(
         behavior = DtoCollections.immutableCopy(behavior);
         edges = DtoCollections.immutableCopy(edges);
         limitations = DtoCollections.immutableCopy(limitations);
+        codeChanges = codeChanges == null
+                ? RuntimeCodeChangesDto.unavailable(RuntimeRunComparisonDto.NO_CODE_CHANGES)
+                : codeChanges;
+    }
+
+    public RuntimeRunComparisonAgentDto(
+            String status,
+            String reason,
+            String currentRunId,
+            String previousRunId,
+            List<RuntimeRunRefDto> runs,
+            List<String> notComparableReasons,
+            List<RuntimeRunChangeDto> behavior,
+            int behaviorOmitted,
+            List<RuntimeRunChangeDto> edges,
+            int edgesOmitted,
+            List<String> limitations) {
+        this(
+                status,
+                reason,
+                currentRunId,
+                previousRunId,
+                runs,
+                notComparableReasons,
+                null,
+                behavior,
+                behaviorOmitted,
+                edges,
+                edgesOmitted,
+                limitations);
     }
 }

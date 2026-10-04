@@ -97,3 +97,55 @@ export function comparisonSummary(comparison) {
   }
   return comparisonStatusLabel(comparison.status)
 }
+
+const CODE_STATUS = {
+  EXECUTED: 'ran in this run',
+  GENERATED: 'ran in this run',
+  NEVER_EXECUTED: 'not run yet',
+  NOT_TRACKED: 'not tracked'
+}
+
+/**
+ * The code changes a comparison leads with (M5-7a), or null when the response carries none: whether they are listed,
+ * why not, their counts in a few words, and each changed or added method as a row.
+ */
+export function codeChanges(comparison) {
+  const changes = comparison?.codeChanges
+  if (!changes || typeof changes.available !== 'boolean') return null
+  if (!changes.available) return {available: false, reason: changes.unavailableReason ?? '', rows: [], counts: ''}
+  return {
+    available: true,
+    reason: null,
+    counts: codeChangeCounts(changes.counts),
+    rows: (changes.methods ?? []).map(codeChangeRow),
+    more: Math.max(0, (changes.methodsTotal ?? 0) - (changes.methods?.length ?? 0)),
+    limitations: changes.limitations ?? []
+  }
+}
+
+/** Code change counts, such as "2 changed · 1 added · 3 removed · 1 not run yet". */
+export function codeChangeCounts(counts) {
+  if (!counts) return ''
+  const parts = [`${formatNumber(counts.changed)} changed`, `${formatNumber(counts.added)} added`]
+  if (counts.removed != null) parts.push(`${formatNumber(counts.removed)} removed`)
+  if (counts.notExecuted > 0) parts.push(`${formatNumber(counts.notExecuted)} not run yet`)
+  return parts.join(' · ')
+}
+
+/** One changed or added method as the comparison lists it: a short name, its change, whether it ran, and where. */
+export function codeChangeRow(method) {
+  const className = method.className ?? ''
+  const simple = className.slice(className.lastIndexOf('.') + 1)
+  return {
+    key: method.key,
+    name: `${simple}#${method.name}`,
+    change: method.change === 'ADDED' ? 'ADDED' : 'CHANGED',
+    changeLabel: method.change === 'ADDED' ? 'Added' : 'Changed',
+    ran: method.status === 'EXECUTED' || method.status === 'GENERATED',
+    status: CODE_STATUS[method.status] ?? String(method.status ?? '').toLowerCase(),
+    notTrackedReason: method.notTrackedReason ?? null,
+    routes: method.routes ?? [],
+    moreRoutes: Math.max(0, (method.routesTotal ?? 0) - (method.routes?.length ?? 0)),
+    note: method.routesNote ?? null
+  }
+}

@@ -96,6 +96,66 @@ class RequestTreeStoreTests {
         assertThat(store.tree(CodePathFragment.hex(1L)).fragments()).isEqualTo(1);
     }
 
+    /**
+     * M5-7a: a fragment arriving after its tree was handed over amends its route with what it executed, whether its tree
+     * is still recent, only an exemplar, or forgotten, and never opens a duplicate tree that would count its request
+     * twice; one merged before the tree was handed over is part of it.
+     */
+    @Test
+    void aLateFragmentAmendsTheRouteItsTreeWasHandedOverWith() {
+        RequestTreeStore store = new RequestTreeStore(ids -> everyRequest("GET /a", ids));
+        RouteTrees trees = new RouteTrees();
+        store.onSettled((tree, outcome) -> trees.add(tree, outcome.route(), false));
+        store.onAmended(trees::amend);
+        store.add(fragment(1L, 1_000_000L), 0L);
+        store.settle(2 * SECOND);
+        store.add(
+                Blobs.handoff(1L, 1L, 0xc1L)
+                        .between(0L, 400L)
+                        .node(-1, 9, 0, 1L, 400L, 0L)
+                        .fragment(),
+                3 * SECOND);
+        assertThat(store.amended()).isEqualTo(1);
+        assertThat(trees.route("GET /a").executedRequests(9)).isEqualTo(1);
+        assertThat(trees.route("GET /a").executedRequests(1)).isEqualTo(1);
+
+        for (long request = 2; request <= RequestTreeStore.RECENT + 1; request++) {
+            store.add(fragment(request, 10L), 3 * SECOND);
+        }
+        store.settle(6 * SECOND);
+        assertThat(store.recent()).extracting(RequestTree::requestId).doesNotContain(CodePathFragment.hex(1L));
+        store.add(
+                Blobs.handoff(1L, 1L, 0xc2L)
+                        .between(0L, 400L)
+                        .node(-1, 10, 0, 1L, 400L, 0L)
+                        .fragment(),
+                7 * SECOND);
+        assertThat(trees.route("GET /a").executedRequests(10))
+                .as("its exemplar's route")
+                .isEqualTo(1);
+
+        for (long request = RequestTreeStore.RECENT + 2; request <= RequestTreeStore.RECENT + 6; request++) {
+            store.add(fragment(request, 10L), 7 * SECOND);
+        }
+        store.settle(10 * SECOND);
+        assertThat(store.tree(CodePathFragment.hex(4L)))
+                .as("neither recent nor an exemplar")
+                .isNull();
+        long merged = trees.merged();
+        store.add(
+                Blobs.handoff(1L, 4L, 0xc3L)
+                        .between(0L, 400L)
+                        .node(-1, 11, 0, 1L, 400L, 0L)
+                        .fragment(),
+                11 * SECOND);
+        store.settleAll();
+        assertThat(trees.merged())
+                .as("a forgotten tree's request is not counted twice")
+                .isEqualTo(merged);
+        assertThat(trees.route("GET /a").executedRequests(11)).isEqualTo(1);
+        assertThat(store.amended()).isEqualTo(3);
+    }
+
     @Test
     void openTreesAndKeptTreesStayBounded() {
         RequestTreeStore store = new RequestTreeStore(null);

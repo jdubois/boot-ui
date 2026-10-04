@@ -618,6 +618,68 @@ class SpringAgentScenarioIT {
                 .isEqualTo("SQL");
     }
 
+    /**
+     * M5-7a with the agent: a method's change impact lists the seeded route whose requests' own call trees ran it, read
+     * from the route trees, not from the bean graph or calls composed across requests; the run comparison carries its
+     * code changes, unavailable with the reason in a first run, in the shape every stack answers.
+     */
+    @Test
+    void aMethodsChangeImpactListsTheSeededRouteWhoseCallTreesRanIt() throws Exception {
+        String route = "GET /api/insights/orders";
+        for (int i = 0; i < 4; i++) {
+            assertThat(probe.get("/api/insights/orders").status()).isEqualTo(200);
+        }
+
+        String symbol = java.net.URLEncoder.encode(
+                "InsightOrderService#ordersLineByLine", java.nio.charset.StandardCharsets.UTF_8);
+        JsonNode impact;
+        JsonNode observed = null;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        do {
+            Thread.sleep(250);
+            impact = probe.get("/bootui/api/runtime-insights/impact?symbol=" + symbol)
+                    .json();
+            observed = null;
+            for (JsonNode candidate : impact.path("observed")) {
+                if (route.equals(candidate.path("route").asText())) {
+                    observed = candidate;
+                }
+            }
+            // Code Inventory's first request alone gives one request: more come only from the route trees.
+        } while ((observed == null || observed.path("executedRequests").asLong() < 2) && System.nanoTime() < deadline);
+        List<String> failures = new ArrayList<>();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/runtime-insights/impact", BootUiApiContractCatalog.changeImpact(), impact, failures);
+        assertThat(failures).as("change impact contract, a method").isEmpty();
+        assertThat(observed).as("the seeded route ran the method: %s", impact).isNotNull();
+        assertThat(impact.path("status").asText()).isEqualTo("RESOLVED");
+        assertThat(impact.path("observedFrom").asText()).isEqualTo("ROUTE_TREES");
+        assertThat(impact.path("node").asText())
+                .isEqualTo("METHOD io.github.jdubois.bootui.sample.insights.InsightOrderService#ordersLineByLine");
+        assertThat(impact.path("methods").toString())
+                .contains("InsightOrderService#ordersLineByLine()Ljava/util/List;");
+        assertThat(impact.path("methodStatus").asText()).isEqualTo("EXECUTED");
+        assertThat(observed.path("executedRequests").asLong())
+                .as("the route trees counted its requests: %s", observed)
+                .isGreaterThanOrEqualTo(2);
+
+        JsonNode comparison =
+                probe.get("/bootui/api/runtime-insights/comparison").json();
+        failures.clear();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/runtime-insights/comparison", BootUiApiContractCatalog.runComparison(), comparison, failures);
+        assertThat(failures).as("run comparison contract, with the agent").isEmpty();
+        JsonNode codeChanges = comparison.path("codeChanges");
+        assertThat(codeChanges.path("available").isBoolean())
+                .as(codeChanges.toString())
+                .isTrue();
+        if (!codeChanges.path("available").asBoolean()) {
+            assertThat(codeChanges.path("unavailableReason").asText())
+                    .as("a first run has nothing to compare its code with")
+                    .isNotBlank();
+        }
+    }
+
     /** The conformance catalog's contract of the Code Paths read whose path starts with {@code path}. */
     private static BootUiApiContractCatalog.ReadContract contract(String path) {
         List<BootUiApiContractCatalog.ReadContract> contracts = new ArrayList<>(BootUiApiContractCatalog.reads());

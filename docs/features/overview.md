@@ -752,7 +752,18 @@ outside its reach that use a table, cache, or host the routes through it touched
 the routes that share what it touched. A handler method, such as `ProductController#list` or
 `com.example.ProductController#list`, narrows the impact to the routes mapped to it, so the class's other routes appear
 only when they share what it touched; a method no route is mapped to is reported not found rather than widened to its class, and the
-class name alone still checks the whole bean. The structural reach is a count, kept apart from what ran, since a route's
+class name alone still checks the whole bean. With the BootUI agent's `code-paths` sensor, any application method can be
+named, as `OrderService#total`, `OrderService.total(long)`, or `OrderService#total(J)J` for one overload (without
+parameters, every overload counts as one method), and its observed routes become those whose requests' own call trees
+ran it, read from each route's tree at any depth, the first request, executor work the agent followed, and fragments
+that arrived after their tree settled included, or the route of the first request Code Inventory saw run it; they are
+never composed from the calls observed across requests, and each lists how many of its requests ran the method, marked
+**partial** when its trees folded methods away or a late fragment arrived after its tree was forgotten. The routes that
+reach its bean are then split: those with no traffic are **not exercised**; those that ran without their call trees
+showing it are listed apart, **ran without showing it**, with why that proves nothing (a private, static, or lambda
+method the sensor does not time, a method it excluded, trees still settling, requests without a tree, an assembly-only
+handler); and a route that ran is called not exercised only when Code Inventory saw the method never run in this run.
+The structural reach is a count, kept apart from what ran, since a route's
 traffic does not prove that a request went through the changed code. Spring MVC and WebFlux read the bean graph and
 Quarkus its ArC injection edges; when the beans cannot be read, the impact says so rather than listing nothing.
 `?impact=<symbol>` opens the panel on a symbol.
@@ -778,7 +789,12 @@ list no route, and say so; re-enabling the panel shows the routes again.
 **Compared with the previous run** compares this run with the newest run whose summary is kept, including runs
 without HTTP requests, after a DevTools restart, a Quarkus live reload, or, with
 `bootui.runtime-journal.baseline-file`, a full JVM restart. An idle previous run reports insufficient evidence rather
-than being silently skipped. A picker chooses another kept run. On a laptop, warmup and noise dominate latency while
+than being silently skipped. A picker chooses another kept run. With the BootUI agent, the comparison leads with
+**Code changes**: the methods [Code Inventory](diagnostics.md#code-inventory) found changed or added since the
+application's previous run in this JVM, not run yet first, each with whether it ran in this run and the routes whose
+requests' call trees ran it, and the count of removed methods, which the previous run keeps only as hashes. Code
+changes are listed against the previous run only, and need the Code Inventory panel; without the agent the comparison
+is otherwise unchanged and says that code changes need it. On a laptop, warmup and noise dominate latency while
 the work identical requests do is stable, so comparison leads with behavior: per route or execution (scheduled jobs
 and consumed messages), the statements, REST calls, AI calls, cache misses, and tokens per request or execution.
 Statement groups are compared and displayed only as literal-free shapes, in the browser, MCP and CLI under every

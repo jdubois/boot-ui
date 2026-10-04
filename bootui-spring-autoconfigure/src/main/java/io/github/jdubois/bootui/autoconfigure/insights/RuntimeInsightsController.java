@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
@@ -127,6 +128,28 @@ public class RuntimeInsightsController {
                     CodePathsService paths = codePaths.getIfUnique();
                     return paths == null ? 0L : paths.routeTreesFingerprint();
                 });
+        // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
+        this.impact.setCodePaths(wanted -> {
+            CodePathsService paths = codePaths.getIfUnique();
+            return paths == null ? null : paths.methodRoutes(wanted);
+        });
+        this.impact.setCodeInventory((type, name) -> {
+            CodeInventoryService inventory = codeInventory.getIfUnique();
+            return inventory == null ? null : inventory.lookup(type, name);
+        });
+        this.comparison.setCodeChanges(
+                limit -> {
+                    CodeInventoryService inventory = codeInventory.getIfUnique();
+                    return inventory == null ? null : inventory.changes(0, limit);
+                },
+                keys -> {
+                    CodeInventoryService inventory = codeInventory.getIfUnique();
+                    return inventory == null ? Map.of() : inventory.accessFlags(keys);
+                },
+                wanted -> {
+                    CodePathsService paths = codePaths.getIfUnique();
+                    return paths == null ? null : paths.methodRoutes(wanted);
+                });
         this.insights.setCodePaths(
                 route -> {
                     CodePathsService paths = codePaths.getIfUnique();
@@ -157,7 +180,8 @@ public class RuntimeInsightsController {
     }
 
     /**
-     * What a change to a bean, class, repository, table, cache, or host reaches in this run ({@code PLAN-v2} §5.7):
+     * What a change to a bean, class, method, repository, table, cache, or host reaches in this run ({@code PLAN-v2}
+     * §5.7):
      * the routes that ran through it, those that did not, and those that share a resource with it.
      */
     @GetMapping("/impact")

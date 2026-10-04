@@ -590,6 +590,107 @@ public final class CodeInventoryService implements AutoCloseable {
     }
 
     /**
+     * The scanned methods named {@code methodName} of the classes {@code className} names, by binary name, by its
+     * source form ({@code Outer.Inner}), or by simple name, with their status, change, and access flags, for change
+     * impact by method ({@code docs/PLAN-v2.md} §5.7, M5-7a); with the reason, and nothing else, when the sensor does not
+     * record this run.
+     */
+    public MethodLookup lookup(String className, String methodName) {
+        String reason = unavailableReason();
+        View view = reason == null ? view() : null;
+        if (view == null) {
+            return new MethodLookup(reason == null ? unavailableNow() : reason, null, List.of());
+        }
+        ClassScanner.Result result = view.scan.result();
+        List<InventoryMethod> found = new ArrayList<>();
+        for (CodeInventoryMethodDto method : view.methods) {
+            if (!method.name().equals(methodName) || !namesClass(method.className(), className)) {
+                continue;
+            }
+            int access = -1;
+            ScannedClass scanned = result == null ? null : result.classes().get(method.className());
+            if (scanned != null) {
+                for (MethodHash hash : scanned.hashes().methods()) {
+                    if (hash.name().equals(method.name()) && hash.descriptor().equals(method.descriptor())) {
+                        access = hash.access();
+                        break;
+                    }
+                }
+            }
+            found.add(new InventoryMethod(method, access));
+        }
+        return new MethodLookup(null, view.scan.status(), found);
+    }
+
+    /**
+     * The access flags the scan read for the methods {@code keys} name, {@code class#name+descriptor}; a key the scan
+     * did not read is absent. Empty when the sensor does not record this run.
+     */
+    public Map<String, Integer> accessFlags(Set<String> keys) {
+        if (keys == null || keys.isEmpty() || unavailableReason() != null) {
+            return Map.of();
+        }
+        View view = view();
+        ClassScanner.Result result = view == null ? null : view.scan.result();
+        if (result == null) {
+            return Map.of();
+        }
+        Map<String, Integer> flags = new HashMap<>();
+        for (String key : keys) {
+            int hash = key.indexOf('#');
+            ScannedClass scanned = hash <= 0 ? null : result.classes().get(key.substring(0, hash));
+            if (scanned == null) {
+                continue;
+            }
+            for (MethodHash method : scanned.hashes().methods()) {
+                if (method.key(scanned.className()).equals(key)) {
+                    flags.put(key, method.access());
+                    break;
+                }
+            }
+        }
+        return flags;
+    }
+
+    /** Whether {@code asked} names the class {@code className}: its binary name, source form, or simple name. */
+    static boolean namesClass(String className, String asked) {
+        if (className.equals(asked) || className.replace('$', '.').equals(asked)) {
+            return true;
+        }
+        String simple = simpleName(className);
+        int dollar = simple.lastIndexOf('$');
+        return simple.equals(asked)
+                || simple.replace('$', '.').equals(asked)
+                || (dollar >= 0 && simple.substring(dollar + 1).equals(asked));
+    }
+
+    /**
+     * The methods {@link #lookup} found.
+     *
+     * @param unavailableReason why the inventory sensor cannot answer this run, or {@code null}
+     * @param scanStatus the scan's status: only {@link ClassScanner#COMPLETE} lists every method of a class
+     * @param methods the matching methods
+     */
+    public record MethodLookup(String unavailableReason, String scanStatus, List<InventoryMethod> methods) {
+
+        public MethodLookup {
+            methods = List.copyOf(methods);
+        }
+
+        public boolean complete() {
+            return unavailableReason == null && ClassScanner.COMPLETE.equals(scanStatus);
+        }
+    }
+
+    /**
+     * One method {@link #lookup} found.
+     *
+     * @param method its inventory row
+     * @param access its access flags from the class file, or -1 when the scan has not read them
+     */
+    public record InventoryMethod(CodeInventoryMethodDto method, int access) {}
+
+    /**
      * A cheap number that changes whenever {@link #changedCode()} may answer something else: this application's
      * availability, the run, the bridge's flags and tracking ({@code CodeInventory.version}), the scan's state, the run
      * history, and the drained records and resolved routes. Unlike {@link #changedCode()}, it builds no view.

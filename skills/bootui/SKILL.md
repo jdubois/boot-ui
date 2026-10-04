@@ -327,10 +327,13 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 1. Before editing a bean, class, repository, or table, read `bootui insights impact <name> --json`
    (`get_runtime_impact`): the routes this run exercised through it, the mapped routes it reaches that no request did,
    and the routes sharing its tables. `AMBIGUOUS` lists candidates; never guess one. The answer says what was and was
-   not exercised, never that a change is safe.
+   not exercised, never that a change is safe. With the BootUI agent, name the method itself, `Class#method` (add
+   parameter types for one overload): its `observed` routes ran it, and a `notObserved` route ran without showing it,
+   which is not proof it never does.
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
 3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
-   (`get_runtime_run_comparison`, optional `id`), and stop. The default list keeps a sufficient repeated SELECT,
+   (`get_runtime_run_comparison`, optional `id`), and stop. With the BootUI agent, its `codeChanges` come first: read
+   any changed method still `NEVER_EXECUTED` before anything else. The default list keeps a sufficient repeated SELECT,
    including a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times
    in any request, so that query shows whether a weak cheap repeat is gone. Omitted `id` or `previous` selects the
    newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint

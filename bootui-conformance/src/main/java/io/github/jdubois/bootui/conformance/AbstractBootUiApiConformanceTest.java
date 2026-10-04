@@ -1612,6 +1612,16 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(unknown.json().path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
         assertThat(unknown.json().path("reason").asText()).isNotBlank();
         assertThat(unknown.json().path("observed").size()).isZero();
+
+        // A method is a symbol too (M5-7a): an unknown one answers the same shape on every stack, never guessed.
+        Response method = probe().get(api("/runtime-insights/impact?symbol="
+                + URLEncoder.encode("ConformanceUnknown#method(String)", StandardCharsets.UTF_8)));
+        assertThat(method.status()).isEqualTo(200);
+        assertJsonContract("change impact, unknown method", contract, method.json(), failures);
+        assertThat(failures).as("change impact contract, method").isEmpty();
+        assertThat(method.json().path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
+        assertThat(method.json().path("reason").asText()).isNotBlank();
+        assertThat(method.json().path("notObserved").size()).isZero();
     }
 
     @Test
@@ -1679,6 +1689,18 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(json.path("reason").asText()).isNotBlank();
         }
         assertThat(json.path("restartCost").path("status").asText()).isIn("COMPARED", "UNAVAILABLE");
+        // Code changes lead the comparison (M5-7a): the same shape on every stack, unavailable with its reason
+        // without the BootUI agent.
+        JsonNode codeChanges = json.path("codeChanges");
+        assertThat(codeChanges.path("available").isBoolean())
+                .as(codeChanges.toString())
+                .isTrue();
+        assertThat(codeChanges.path("methods").isArray())
+                .as(codeChanges.toString())
+                .isTrue();
+        if (!codeChanges.path("available").asBoolean()) {
+            assertThat(codeChanges.path("unavailableReason").asText()).isNotBlank();
+        }
 
         Response unknown = probe.get(api(contract.relativePath() + "?run=conformance-unknown-run"));
         assertThat(unknown.status()).isEqualTo(200);

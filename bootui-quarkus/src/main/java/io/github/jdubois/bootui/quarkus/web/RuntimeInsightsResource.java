@@ -40,6 +40,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.eclipse.microprofile.config.Config;
 
 /**
@@ -126,6 +127,15 @@ public class RuntimeInsightsResource {
         models.setInvocations(
                 () -> codePaths.isResolvable() ? codePaths.get().invocations() : List.of(),
                 () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
+        // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
+        this.impact.setCodePaths(
+                wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
+        this.impact.setCodeInventory((type, name) ->
+                codeInventory.isResolvable() ? codeInventory.get().lookup(type, name) : null);
+        this.comparison.setCodeChanges(
+                limit -> codeInventory.isResolvable() ? codeInventory.get().changes(0, limit) : null,
+                keys -> codeInventory.isResolvable() ? codeInventory.get().accessFlags(keys) : Map.of(),
+                wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
         this.insights.setCodePaths(
                 route -> codePaths.isResolvable() ? codePaths.get().handlerMethods(route) : null,
                 () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L,

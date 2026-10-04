@@ -25,6 +25,8 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     const comparison = page.locator('.insight-comparison')
     await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
+    // The comparison leads with code changes (M5-7a), which need the BootUI agent this suite runs without.
+    await expect(comparison.locator('[data-testid="code-changes-unavailable"]')).toContainText('BootUI agent')
 
     const impact = page.locator('.insight-impact')
     const symbol = impact.getByRole('combobox', {name: /Symbol to check/})

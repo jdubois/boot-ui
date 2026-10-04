@@ -53,6 +53,74 @@ class RouteTreesTests {
         assertThat(trees.merged()).isEqualTo(3);
     }
 
+    /**
+     * M5-7a: each route counts the requests that executed each method, the first recorded included, at any depth and
+     * in executor work, read from the request tree before the route tree folds anything; a tree with an Other node is
+     * incomplete; a tree without a route keeps its methods apart.
+     */
+    @Test
+    void eachRouteCountsTheRequestsThatExecutedEachMethodTheFirstIncluded() {
+        RouteTrees trees = new RouteTrees();
+        Tree first = new Tree(0L);
+        int outer = first.add(0, 7, 2, 1, 1_000L);
+        first.add(outer, 8, 2, 3, 500L);
+        trees.add(first.build("0000000000000001"), ROUTE, false);
+        Tree second = new Tree(0L);
+        int async = second.add(0, RequestTree.ASYNC, 0, 1, 0L);
+        second.add(async, 9, 0, 1, 100L);
+        second.add(0, 7, 2, 2, 100L);
+        second.add(0, RequestTree.OTHER, 2, 1, 100L);
+        trees.add(second.build("0000000000000002"), ROUTE, false);
+        trees.add(new Tree(0L).method(0, 10, 2, 1, 1L).build("0000000000000003"), RequestOutcome.UNKNOWN_ROUTE, false);
+
+        RouteTree route = trees.route(ROUTE);
+        assertThat(route.requestsSeen()).isEqualTo(2);
+        assertThat(route.executedRequests(7))
+                .as("each request once, the first included")
+                .isEqualTo(2);
+        assertThat(route.executedRequests(8))
+                .as("at any depth, in the first request")
+                .isEqualTo(1);
+        assertThat(route.executedRequests(9)).as("in executor work").isEqualTo(1);
+        assertThat(route.executedRequests(10)).isZero();
+        assertThat(route.executedMethods()).containsExactlyInAnyOrder(7, 8, 9);
+        assertThat(route.incompleteRequests()).as("the tree with an Other node").isEqualTo(1);
+        assertThat(trees.unroutedExecutions(10)).isEqualTo(1);
+
+        trees.amend(ROUTE, new int[] {RequestTree.REQUEST, 7}, new int[] {7, 11}, false);
+        assertThat(route.executedRequests(7))
+                .as("the request already counted it")
+                .isEqualTo(2);
+        assertThat(route.executedRequests(11)).isEqualTo(1);
+        assertThat(route.amendments()).isEqualTo(1);
+        assertThat(route.amendedWithoutTree()).isFalse();
+        trees.amend(ROUTE, null, new int[] {7, 12}, true);
+        assertThat(route.executedRequests(7))
+                .as("without the tree, a known method is not counted again")
+                .isEqualTo(2);
+        assertThat(route.executedRequests(12)).isEqualTo(1);
+        assertThat(route.amendedWithoutTree()).isTrue();
+        assertThat(route.incompleteRequests()).isEqualTo(2);
+        trees.amend("GET /unknown", new int[0], new int[] {13}, false);
+        assertThat(trees.unroutedExecutions(13)).isEqualTo(1);
+    }
+
+    @Test
+    void aRoutesMethodTableIsBounded() {
+        RouteTrees trees = new RouteTrees();
+        int half = RouteTrees.MAX_METHODS_PER_ROUTE / 2 + 1;
+        for (int request = 0; request < 2; request++) {
+            Tree wide = new Tree(0L);
+            for (int id = request * half; id < (request + 1) * half; id++) {
+                wide.add(0, id, 2, 1, 1L);
+            }
+            trees.add(wide.build("000000000000000" + (request + 1)), ROUTE, false);
+        }
+        RouteTree route = trees.route(ROUTE);
+        assertThat(route.executedMethods()).hasSize(RouteTrees.MAX_METHODS_PER_ROUTE);
+        assertThat(route.methodsPartial()).isTrue();
+    }
+
     @Test
     void withoutARequestTheFirstRequestIsUnknown() {
         RouteTrees trees = new RouteTrees();

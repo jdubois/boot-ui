@@ -548,7 +548,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "For a route, bean, class, repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates."
+      "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates."
     },
     {
       "name": "get_runtime_insights",

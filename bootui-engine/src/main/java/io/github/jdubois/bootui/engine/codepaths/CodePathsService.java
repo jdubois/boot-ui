@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.model.BeanInvocations;
 import io.github.jdubois.bootui.engine.model.ClassInvocation;
@@ -893,6 +894,119 @@ public final class CodePathsService implements AutoCloseable {
     }
 
     /**
+     * Which routes' requests executed the methods whose keys {@code wanted} accepts ({@code docs/PLAN-v2.md} §5.7, §5.17,
+     * M5-7a), from each route's own trees, after draining what is waiting and settling the quiet trees; unavailable
+     * while the sensor does not record this run or HTTP Exchanges is not visible. Keys are resolved outside the lock, in
+     * one bridge read, and only the matching methods are looked up in each route's table. Never throws.
+     */
+    public MethodRoutes methodRoutes(Predicate<String> wanted) {
+        try {
+            String reason = readReason();
+            if (reason != null) {
+                return MethodRoutes.unavailable(reason);
+            }
+            Run current = settledRun();
+            if (current == null) {
+                return MethodRoutes.unavailable("The code-paths sensor has not recorded this run yet.");
+            }
+            // Only the ids the route tables hold are resolved, through the run's key cache.
+            Map<Integer, String> matched = new HashMap<>();
+            List<Integer> excludedIds;
+            synchronized (lock) {
+                Set<Integer> ids = new HashSet<>();
+                for (RouteTree tree : current.routes.routes()) {
+                    for (int id : tree.executedMethods()) {
+                        ids.add(id);
+                    }
+                }
+                for (int id : current.routes.unroutedMethods()) {
+                    ids.add(id);
+                }
+                excludedIds = current.exclusion.excluded();
+                ids.addAll(excludedIds);
+                for (int id : ids) {
+                    String key = current.key(id);
+                    if (!key.startsWith("#") && wanted.test(key)) {
+                        matched.put(id, key);
+                    }
+                }
+            }
+            Set<String> excluded = new LinkedHashSet<>();
+            for (int id : excludedIds) {
+                String key = matched.get(id);
+                if (key != null) {
+                    excluded.add(key);
+                }
+            }
+            Map<String, Map<String, Long>> byKey = new LinkedHashMap<>();
+            Map<String, Long> unrouted = new LinkedHashMap<>();
+            Map<String, MethodRoutes.RouteEvidence> evidence = new LinkedHashMap<>();
+            List<String> limitations = new ArrayList<>();
+            synchronized (lock) {
+                for (RouteTree tree : current.routes.routes()) {
+                    for (Map.Entry<Integer, String> method : matched.entrySet()) {
+                        long requests = tree.executedRequests(method.getKey());
+                        if (requests > 0) {
+                            byKey.computeIfAbsent(method.getValue(), ignored -> new LinkedHashMap<>())
+                                    .merge(tree.route(), requests, Long::sum);
+                        }
+                    }
+                    evidence.put(tree.route(), evidence(tree));
+                }
+                for (Map.Entry<Integer, String> method : matched.entrySet()) {
+                    long trees = current.routes.unroutedExecutions(method.getKey());
+                    if (trees > 0) {
+                        unrouted.merge(method.getValue(), trees, Long::sum);
+                    }
+                }
+                int settling = current.store.openCount() + current.store.unresolvedCount();
+                if (settling > 0) {
+                    limitations.add(settling + (settling == 1 ? " request tree is" : " request trees are")
+                            + " still settling, about two seconds after their last fragment or until their exchange is"
+                            + " recorded: their requests are not counted yet.");
+                }
+                if (current.malformed > 0) {
+                    limitations.add(current.malformed + " code-paths fragments could not be read in this run.");
+                }
+                if (current.routes.routesDropped() > 0 || current.routes.unroutedPartial()) {
+                    limitations.add("The run's route trees reached their bounds: some requests' methods are counted"
+                            + " under no route.");
+                }
+            }
+            long dropped = current.agentDropped() - current.droppedAtStart;
+            if (dropped > 0) {
+                limitations.add("The agent dropped " + dropped + " code-paths fragments in this run, as its fragment"
+                        + " pool or queue was full: their methods are counted under no route.");
+            }
+            return new MethodRoutes(
+                    null, byKey, unrouted, evidence, excluded, current.claim.beanClasses(), limitations);
+        } catch (RuntimeException ex) {
+            log.log(Level.FINE, "BootUI could not read the methods of this run's route trees", ex);
+            return MethodRoutes.unavailable(
+                    MethodRoutes.READ_FAILED + ex.getClass().getSimpleName() + ".");
+        }
+    }
+
+    private static MethodRoutes.RouteEvidence evidence(RouteTree tree) {
+        List<String> reasons = new ArrayList<>();
+        if (tree.methodsPartial()) {
+            reasons.add("its executed-method table reached its bound");
+        }
+        if (tree.incompleteRequests() > 0) {
+            reasons.add(tree.incompleteRequests() + " of its request trees folded methods into Other nodes or dropped"
+                    + " calls");
+        }
+        if (tree.amendedWithoutTree()) {
+            reasons.add(
+                    "a late fragment arrived after its request's tree was forgotten, so its counts are approximate");
+        }
+        if (tree.assemblyOnly()) {
+            reasons.add("its handler only assembled its result, so work that ran later or elsewhere may be missing");
+        }
+        return new MethodRoutes.RouteEvidence(tree.requestsSeen(), !reasons.isEmpty(), reasons);
+    }
+
+    /**
      * A cheap fingerprint of what the route trees hold, which changes with every merged tree and claim generation, so
      * a cached projection that read them knows it is stale. 0 when the sensor does not record this run, or HTTP
      * Exchanges is not visible.
@@ -999,6 +1113,7 @@ public final class CodePathsService implements AutoCloseable {
         final AdaptiveExclusion exclusion = new AdaptiveExclusion();
         final RouteTrees routes = new RouteTrees();
         final Map<Integer, String> keys = new HashMap<>();
+        final long droppedAtStart;
         long fragments;
         long stale;
         long malformed;
@@ -1027,6 +1142,21 @@ public final class CodePathsService implements AutoCloseable {
             });
             this.store.onSettled((tree, outcome) ->
                     routes.add(tree, outcome.route(), tree.requestId() != null && isAssemblyOnly(tree.requestId())));
+            // A fragment arriving after its tree was merged amends its route's executed methods (M5-7a).
+            this.store.onAmended(routes::amend);
+            this.droppedAtStart = agentDropped();
+        }
+
+        /** The code-paths fragments the agent dropped in this JVM, its pool or queue full; 0 when unknown. */
+        long agentDropped() {
+            try {
+                Map<String, Object> counters = AgentBridgeAccess.map(access.status(), AgentSensorSettings.CODE_PATHS);
+                Long pool = AgentBridgeAccess.number(counters, "fragmentsDropped");
+                Long queue = AgentBridgeAccess.number(counters, "queueDropped");
+                return (pool == null ? 0L : pool) + (queue == null ? 0L : queue);
+            } catch (RuntimeException ex) {
+                return 0L;
+            }
         }
 
         /** The classes of the application's repository beans, read once per run from the Beans panel's beans. */

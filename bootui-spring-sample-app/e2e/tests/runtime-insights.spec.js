@@ -66,6 +66,15 @@ test.describe('Runtime Insights view', () => {
     await expect(impact.locator('.insight-impact-node')).toContainText('GET /api/sample/products')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/products')
 
+    // A method is a symbol too (M5-7a): without the agent, a handler method is checked through the routes mapped to it.
+    await symbol.fill('SampleController#products')
+    await impact.getByRole('button', {name: 'Check impact'}).click()
+    await expect(impact.locator('.insight-impact-node')).toContainText('method')
+    await expect(impact.locator('.insight-impact-node')).toContainText('SampleController#products')
+    await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/products')
+    // The comparison leads with code changes, which need the agent this suite runs without.
+    await expect(comparison.locator('[data-testid="code-changes-unavailable"]')).toContainText('BootUI agent')
+
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
   })
