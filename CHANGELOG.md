@@ -17,6 +17,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
+  completion events now mark observations that examine those executions partial, while disabled optional evidence
+  does not. A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
+  includes Hibernate flush counts changing to or from zero when both runs recorded the ORM source,
+  with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
+  event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
+  [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
+  [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
+
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The

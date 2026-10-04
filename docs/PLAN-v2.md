@@ -1037,8 +1037,11 @@ Architecture:
 - Observations are pure engine classes (`id()`, `minimumTier()`, `availability(snapshot)`, `project(indexes)`), each
   with fixtures for a justified observation, a plausible counterexample, and insufficient evidence. Unknown never reads
   as healthy.
-- Projections are cached per journal watermark and per exposure generation, so a live exposure change never serves a
-  stale, less-masked result.
+- Projections are cached per journal watermark, clear generation, per-source drop counters, panel visibility, SQL
+  capture, and exposure policy, so a drop before the next dispatched event refreshes completeness and a live exposure
+  change never serves a stale, less-masked result. Completeness counts recorded, visible anchors for the kinds of
+  work an observation examines (HTTP, scheduled runs, messaging, and WebSocket handlers), deduplicated with its
+  required and available optional sources; run-level collection checks count no execution anchors.
 - Sentences name what was counted, never a cause, a severity, or a patch. **What to check** stays conditional ("if
   these writes must succeed together…").
 - Human text and agent text differ. The panel's **What to check** may suggest a design alternative. The agent
@@ -1147,7 +1150,10 @@ Scope:
   such as "run 5 added `OrderService → pay.internal:8443`, 15 calls". A count shift needs ≥ 3 requests on each side;
   a new item appears at its first occurrence. Scheduled jobs and consumed messages compare per execution beside routes.
   Source-specific facts and edges require the source in both runs and an enabled, available owning panel from
-  `JournalSourcePanels`. Disabled source facts and their roots/edges are not shown; a limitation names each disabled
+  `JournalSourcePanels`. ORM counters compare positive counts against zero when both runs' start facts record the
+  ORM source; summaries without both start facts conservatively require ORM events in both runs. A run with no ORM
+  events names the capture-listener assumption instead of claiming capture was verified.
+  Disabled source facts and their roots/edges are not shown; a limitation names each disabled
   panel. Broker panels gate their own messaging roots and edges independently. HTTP Exchanges policy also hides every
   run reference's request count (`0` in the stable JSON field, explicitly labelled hidden in the UI); configuration
   comparability facts and restart timings remain independent of source-panel evidence.
