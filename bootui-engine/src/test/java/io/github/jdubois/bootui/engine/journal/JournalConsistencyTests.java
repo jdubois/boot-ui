@@ -196,6 +196,43 @@ class JournalConsistencyTests {
     }
 
     @Test
+    void aStatementRecordedOnlyForTheJournalIsFormattedOnItsDispatcher() {
+        List<RuntimeEvent> events = new ArrayList<>();
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, false, false, true, 10, 500, 2000, 200, 5);
+        recorder.setRuntimeEventSink(events::add);
+        ApplicationCode.run(() -> recorder.recordNanos(
+                StatementType.STATEMENT, Category.SELECT, "select 1", List.of(), 1, true, null, null, 0, "c1", "t"));
+        SqlPayload recorded = (SqlPayload) events.get(0).payload();
+
+        assertThat(recorded.frames().isFormatted())
+                .as("the application thread only selects the frames")
+                .isFalse();
+
+        SqlPayload retained = (SqlPayload) recorded.interned(new JournalDictionary(100, 100_000));
+        assertThat(retained.frames().isFormatted()).isTrue();
+        assertThat(retained.callSite())
+                .startsWith("com.example.journalapp.ApplicationCode.run(")
+                .isEqualTo(retained.frames().callSite())
+                .isEqualTo(recorded.callSite());
+        SqlPayload formattedOnTheApplicationThread = new SqlPayload(
+                recorded.sql(),
+                recorded.frames().callSite(),
+                recorded.dataSource(),
+                recorded.failed(),
+                ApplicationFrames.of(recorded.frames().frames()),
+                recorded.phase(),
+                recorded.completedNanos(),
+                recorded.codePathStamp());
+        assertThat(recorded.estimatedBytes(null))
+                .as("the same bytes as frames formatted where they were captured")
+                .isEqualTo(formattedOnTheApplicationThread.estimatedBytes(null));
+        assertThat(retained.estimatedBytes(null))
+                .isEqualTo(formattedOnTheApplicationThread
+                        .interned(new JournalDictionary(100, 100_000))
+                        .estimatedBytes(null));
+    }
+
+    @Test
     void repeatedStatementsRetainTheirSqlOnce() {
         String sql = "select o.id, o.total, o.customer_id from orders o where o.customer_id = ? order by o.id";
         long sqlBytes = RuntimeEvent.stringBytes(sql);
