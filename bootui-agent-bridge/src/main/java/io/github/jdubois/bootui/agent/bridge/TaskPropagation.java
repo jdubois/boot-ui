@@ -9,12 +9,15 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.ForkJoinWorkerThread;
+import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
 /**
@@ -28,7 +31,11 @@ import java.util.function.Supplier;
  * {@code Object[]} of {@code String}, {@code Long}, {@code Integer}, {@code Boolean}, or {@code null}, whose first four
  * values identify the owner (request, execution, trace, and span ids); {@code reopen} receives
  * {@code Object[] {snapshot, taskClass, hook}} and returns {@code null} or an {@code AutoCloseable}, which may also be a
- * {@code Consumer<Throwable>} told the task's failure before it is closed.
+ * {@code Consumer<Throwable>} told the task's failure before it is closed. An optional {@code Runnable} receives the
+ * body-completion marker before normal JDK result publication, or at an explicitly early-published body's return.
+ * An optional {@code IntConsumer} receives {@code 1} before an early manual result publication and {@code 2} for a
+ * nested publication inside a plain runnable. Plain runnables are marked at their own return, never at a nested
+ * future's publication.
  */
 public final class TaskPropagation {
 
@@ -99,8 +106,26 @@ public final class TaskPropagation {
     private static final LongAdder SKIPPED_TASKS = new LongAdder();
     private static final LongAdder SKIPPED_THREADS = new LongAdder();
     private static final LongAdder FAILURES = new LongAdder();
+    private static final ThreadLocal<Active> ACTIVE = new ThreadLocal<>();
+    private static final StackWalker WALKER = StackWalker.getInstance();
+    private static final BodyCaller BODY_CALLER = new BodyCaller();
 
     private TaskPropagation() {}
+
+    private static final class Active {
+        // Only the worker's dynamic scope holds these references; exit removes it even when closing fails.
+        final Object target;
+        final Object handle;
+        final Active previous;
+        boolean completed;
+        boolean ownPublished;
+
+        Active(Object target, Object handle, Active previous) {
+            this.target = target;
+            this.handle = handle;
+            this.previous = previous;
+        }
+    }
 
     // ---- key points ----------------------------------------------------------------------------------------------
 
@@ -310,6 +335,11 @@ public final class TaskPropagation {
 
     /** Where an executor runs {@code task}: the handle to {@link #exit} after it, or {@code null}. */
     public static Object enter(Object task, int hook) {
+        return enter(task, hook, task);
+    }
+
+    /** Async stages publish to their dependent future rather than to the runnable itself. */
+    public static Object enter(Object task, int hook, Object completionTarget) {
         try {
             if (task == null || TaskSnapshots.TASKS.isEmpty()) {
                 return null;
@@ -357,6 +387,11 @@ public final class TaskPropagation {
                     reopen.apply(new Object[] {snapshot.payload, task.getClass().getName(), APPLY_HOOKS[hook]});
             if (handle != null) {
                 APPLIED[hook].increment();
+                if (handle instanceof Runnable) {
+                    Active active = new Active(completionTarget, handle, ACTIVE.get());
+                    ACTIVE.set(active);
+                    return active;
+                }
             }
             return handle;
         } catch (Throwable ex) {
@@ -367,10 +402,105 @@ public final class TaskPropagation {
 
     /** Ends the child execution {@code handle} opened, telling it the task's failure first, if any. */
     public static void exit(Object handle, Throwable failure) {
+        exit(handle, failure, true);
+    }
+
+    private static void exit(Object handle, Throwable failure, boolean bodyFailure) {
         if (handle != null && failure != null) {
             FAILURES.increment();
         }
-        exitHandle(handle, failure);
+        if (handle instanceof Active) {
+            Active active = (Active) handle;
+            try {
+                exitHandle(active.handle, failure, bodyFailure);
+            } finally {
+                if (active.previous == null) {
+                    ACTIVE.remove();
+                } else {
+                    ACTIVE.set(active.previous);
+                }
+            }
+        } else {
+            exitHandle(handle, failure, bodyFailure);
+        }
+    }
+
+    /** Result-publication entry, before a waiter can resume. Never marks a different or nested task. */
+    public static void bodyCompleted(Object target) {
+        try {
+            if (!AgentBridge.recording()) {
+                return;
+            }
+            Active active = ACTIVE.get();
+            if (active == null || active.completed) {
+                return;
+            }
+            if (active.target != target) {
+                if (!(active.target instanceof Future) && active.handle instanceof IntConsumer) {
+                    ((IntConsumer) active.handle).accept(2);
+                }
+                return;
+            }
+            if (!jdkBodyReturned()) {
+                if (!active.ownPublished && target instanceof Future && !((Future<?>) target).isDone()) {
+                    active.ownPublished = true;
+                    if (active.handle instanceof IntConsumer) {
+                        ((IntConsumer) active.handle).accept(1);
+                    }
+                }
+                return;
+            }
+            if (target instanceof ForkJoinTask && ((ForkJoinTask<?>) target).isDone() && !active.ownPublished) {
+                return;
+            }
+            active.completed = true;
+            ((Runnable) active.handle).run();
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    private static boolean jdkBodyReturned() {
+        return WALKER.walk(BODY_CALLER).booleanValue();
+    }
+
+    private static final class BodyCaller
+            implements Function<java.util.stream.Stream<StackWalker.StackFrame>, Boolean> {
+
+        @Override
+        public Boolean apply(java.util.stream.Stream<StackWalker.StackFrame> frames) {
+            java.util.Iterator<StackWalker.StackFrame> iterator = frames.iterator();
+            for (int i = 0; i < 16 && iterator.hasNext(); i++) {
+                StackWalker.StackFrame frame = iterator.next();
+                String type = frame.getClassName();
+                String method = frame.getMethodName();
+                if (i < 2 || publicationMethod(type, method)) {
+                    continue;
+                }
+                return Boolean.valueOf(("java.util.concurrent.FutureTask".equals(type) && "run".equals(method))
+                        || ("java.util.concurrent.ForkJoinTask".equals(type) && "doExec".equals(method))
+                        || ("java.util.concurrent.ForkJoinTask$InterruptibleTask".equals(type) && "exec".equals(method))
+                        || (type.startsWith("java.util.concurrent.CompletableFuture$Async") && "run".equals(method)));
+            }
+            return Boolean.FALSE;
+        }
+    }
+
+    private static boolean publicationMethod(String type, String method) {
+        if ("java.util.concurrent.FutureTask".equals(type)) {
+            return "set".equals(method) || "setException".equals(method);
+        }
+        if ("java.util.concurrent.ForkJoinTask".equals(type)
+                || "java.util.concurrent.ForkJoinTask$RunnableExecuteAction".equals(type)) {
+            return "setDone".equals(method)
+                    || "trySetThrown".equals(method)
+                    || "trySetException".equals(method)
+                    || "setExceptionalCompletion".equals(method);
+        }
+        return "java.util.concurrent.CompletableFuture".equals(type)
+                && ("completeValue".equals(method)
+                        || "completeNull".equals(method)
+                        || "completeThrowable".equals(method));
     }
 
     private static boolean sensorOn(Claim claim) {
@@ -378,13 +508,19 @@ public final class TaskPropagation {
     }
 
     /** Tells {@code handle} the failure, if any, then closes it; never throws. */
-    @SuppressWarnings("unchecked")
     static void exitHandle(Object handle, Throwable failure) {
+        exitHandle(handle, failure, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void exitHandle(Object handle, Throwable failure, boolean bodyFailure) {
         if (handle == null) {
             return;
         }
         try {
-            if (failure != null && handle instanceof Consumer) {
+            if (failure != null && handle instanceof BiConsumer) {
+                ((BiConsumer<Throwable, Boolean>) handle).accept(failure, Boolean.valueOf(bodyFailure));
+            } else if (failure != null && handle instanceof Consumer) {
                 ((Consumer<Throwable>) handle).accept(failure);
             }
         } catch (Throwable ex) {
@@ -413,7 +549,18 @@ public final class TaskPropagation {
             thrown = ex;
             throw ex;
         } finally {
-            exit(handle, thrown != null ? thrown : futureFailure(task));
+            if (handle instanceof Active) {
+                Active active = (Active) handle;
+                if (!active.completed && (!(task instanceof Future) || active.ownPublished)) {
+                    active.completed = true;
+                    try {
+                        ((Runnable) active.handle).run();
+                    } catch (Throwable ex) {
+                        AgentBridge.error(ex);
+                    }
+                }
+            }
+            exit(handle, thrown != null ? thrown : futureFailure(task), thrown == null || !(task instanceof Future));
         }
     }
 
@@ -424,6 +571,13 @@ public final class TaskPropagation {
         }
         Throwable failure = null;
         try {
+            if (handle instanceof Active) {
+                Active active = (Active) handle;
+                if (active.target == task && active.ownPublished && !active.completed) {
+                    active.completed = true;
+                    ((Runnable) active.handle).run();
+                }
+            }
             if (task instanceof ForkJoinTask && ((ForkJoinTask<?>) task).isCompletedAbnormally()) {
                 failure = ((ForkJoinTask<?>) task).getException();
             }
@@ -606,6 +760,7 @@ public final class TaskPropagation {
         SKIPPED_TASKS.reset();
         SKIPPED_THREADS.reset();
         FAILURES.reset();
+        ACTIVE.remove();
         selfTestThread = null;
         asyncSupplyApplies = false;
         asyncRunApplies = false;

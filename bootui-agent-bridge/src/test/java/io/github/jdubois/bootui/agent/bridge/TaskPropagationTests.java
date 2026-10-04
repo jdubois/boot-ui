@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent.bridge;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -11,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -27,6 +29,7 @@ class TaskPropagationTests {
     private final ThreadLocal<Object> owner = new ThreadLocal<>();
     private final List<String> reopened = new ArrayList<>();
     private final List<Throwable> failures = new ArrayList<>();
+    private final List<Boolean> bodyFailures = new ArrayList<>();
     private Supplier<Object> capture;
     private Function<Object, AutoCloseable> reopen;
 
@@ -353,6 +356,60 @@ class TaskPropagationTests {
     }
 
     @Test
+    void aThrownFutureTailFailureIsDistinguishedFromBodyFailures() {
+        FutureTask<Object> thrown = new FutureTask<>(() -> null) {
+            @Override
+            protected void done() {
+                throw new IllegalStateException("tail");
+            }
+        };
+        owner.set(snapshot("r1"));
+        TaskPropagation.submitted(thrown, TaskPropagation.KEY_THREAD_POOL);
+        owner.remove();
+        assertThatThrownBy(() -> TaskPropagation.runTask(thrown)).isInstanceOf(IllegalStateException.class);
+        FutureTask<Object> deferred = new FutureTask<>(() -> {
+            throw new IllegalArgumentException("body");
+        });
+        owner.set(snapshot("r2"));
+        TaskPropagation.submitted(deferred, TaskPropagation.KEY_THREAD_POOL);
+        owner.remove();
+        TaskPropagation.runTask(deferred);
+        Runnable plain = () -> {
+            throw new IllegalArgumentException("plain body");
+        };
+        owner.set(snapshot("r3"));
+        TaskPropagation.submitted(plain, TaskPropagation.KEY_THREAD_POOL);
+        owner.remove();
+        assertThatThrownBy(() -> TaskPropagation.runTask(plain)).isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(bodyFailures).containsExactly(false, true, true);
+        assertThat(failures).hasSize(3);
+    }
+
+    @Test
+    void aLegacyConsumerOnlyHandleStillReceivesFailures() {
+        class LegacyHandle implements AutoCloseable, Consumer<Throwable> {
+            boolean closed;
+
+            @Override
+            public void accept(Throwable failure) {
+                failures.add(failure);
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+            }
+        }
+        LegacyHandle handle = new LegacyHandle();
+        IllegalStateException failure = new IllegalStateException("body");
+        TaskPropagation.exitHandle(handle, failure);
+
+        assertThat(failures).containsExactly(failure);
+        assertThat(handle.closed).isTrue();
+    }
+
+    @Test
     void aSelfTestTaskIsRecognizedByItsMarkerAndNeverReachesTheEngine() {
         Runnable task = () -> {};
         TaskPropagation.beginSelfTest();
@@ -505,7 +562,7 @@ class TaskPropagationTests {
             Object[] call = (Object[]) argument;
             Object[] snapshot = (Object[]) call[0];
             reopened.add(snapshot[0] + " " + call[1] + " " + call[2]);
-            return new Handle(failures);
+            return new Handle(failures, bodyFailures);
         };
         Map<String, Object> request = request(skipTasks);
         return (Long) AgentBridge.claim(request, capture, reopen).get("token");
@@ -532,12 +589,20 @@ class TaskPropagationTests {
         return (Long) executors.get(name);
     }
 
-    static final class Handle implements AutoCloseable, Consumer<Throwable> {
+    static final class Handle implements AutoCloseable, Consumer<Throwable>, BiConsumer<Throwable, Boolean> {
 
         private final List<Throwable> failures;
+        private final List<Boolean> bodyFailures;
 
-        Handle(List<Throwable> failures) {
+        Handle(List<Throwable> failures, List<Boolean> bodyFailures) {
             this.failures = failures;
+            this.bodyFailures = bodyFailures;
+        }
+
+        @Override
+        public void accept(Throwable failure, Boolean bodyFailure) {
+            bodyFailures.add(bodyFailure);
+            accept(failure);
         }
 
         @Override

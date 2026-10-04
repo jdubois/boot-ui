@@ -23,6 +23,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
   alongside REST calls without double-counting a nested transport call
   ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
+- **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
+  task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
+  computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
+  and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
+  tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
 - **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
