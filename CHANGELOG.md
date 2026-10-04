@@ -17,6 +17,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights write attribution and remote calls.** Anonymous access reports Quarkus Hibernate SQL as an
+  unverified preparation instead of a proven table write; hidden Hibernate evidence cannot promote it. Runtime model,
+  change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;
+  older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
+  alongside REST calls without double-counting a nested transport call
+  ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
+
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The

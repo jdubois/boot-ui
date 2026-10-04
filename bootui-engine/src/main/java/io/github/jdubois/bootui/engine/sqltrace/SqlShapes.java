@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.sqltrace;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -49,6 +50,11 @@ public final class SqlShapes {
     /** The tables {@code sql} names, as {@link SqlTables#of} reads them; the set is unmodifiable. */
     public static Set<String> tables(String sql) {
         return sql == null ? Set.of() : shape(sql).tables();
+    }
+
+    /** The bounded shape cache's exact or candidate write targets for each captured statement. */
+    public static List<SqlTables.WriteTargets> writes(String sql) {
+        return sql == null ? List.of() : shape(sql).writes();
     }
 
     /**
@@ -110,6 +116,7 @@ public final class SqlShapes {
         private final String fingerprint;
         private final boolean shareable;
         private volatile Set<String> tables;
+        private volatile List<SqlTables.WriteTargets> writes;
 
         Shape(String sql) {
             SqlStatementNormalizer.Result normalized = SqlStatementNormalizer.normalize(sql);
@@ -135,12 +142,21 @@ public final class SqlShapes {
             return read;
         }
 
+        List<SqlTables.WriteTargets> writes() {
+            List<SqlTables.WriteTargets> found = writes;
+            if (found == null) {
+                found = SqlTables.writes(sql);
+                writes = found;
+            }
+            return found;
+        }
+
         /**
          * What it retains, counted up front: the statement, its fingerprint, and its tables, which are never longer
          * than the statement, at two bytes a character, plus the objects holding them.
          */
         long bytes() {
-            return 2L * (2L * sql.length() + fingerprint.length()) + 128;
+            return 2L * (3L * sql.length() + fingerprint.length()) + 128;
         }
     }
 }

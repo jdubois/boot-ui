@@ -76,6 +76,19 @@ class ChangeImpactServiceTests {
     }
 
     @Test
+    void impactListsDmlReadSourcesAsReadsAndOnlyTheTargetAsAWritingTable() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "insert into audit_log select id from sample_products");
+
+        RuntimeChangeImpactDto impact = service(structure(null)).impact("GET /api/products");
+
+        assertThat(impact.observed()).singleElement().satisfies(route -> {
+            assertThat(route.reads()).contains("TABLE sample_products");
+            assertThat(route.writes()).containsExactly("TABLE audit_log");
+        });
+    }
+
+    @Test
     void aTableResolvesToTheRoutesThatAccessedItAndAmbiguousOrUnknownSymbolsAreNeverGuessed() throws Exception {
         journal.addListener(aggregates);
         request("/api/products", "select * from sample_products");

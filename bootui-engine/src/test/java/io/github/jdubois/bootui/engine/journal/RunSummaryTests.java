@@ -82,7 +82,7 @@ class RunSummaryTests {
                 RunSummary.of(new RunIdentity("sql-shapes", 2, 1000), aggregates.snapshot(), 2000),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 10);
+        assertThat(encoded[4]).isEqualTo((byte) 11);
         assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain("zzsecretzz", "secondsecret");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
         assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
@@ -100,6 +100,35 @@ class RunSummaryTests {
                 .containsExactlyEntriesOf(java.util.Map.of("insert into users(pw) values(?)", 2L));
         assertThat(RunSummaryCodec.encode(decoded, RunHistory.MAX_SUMMARY_BYTES))
                 .isEqualTo(encoded);
+    }
+
+    @Test
+    void oldVersionTenTableEdgesAreMarkedIncomparableWithoutLosingOtherEdges() {
+        JournalAggregates aggregates = new JournalAggregates();
+        CorrelationContext request = CorrelationContext.forRequest("legacy-request");
+        publish(
+                aggregates,
+                RuntimeEvent.of(
+                        JournalSource.SQL,
+                        1000,
+                        1_000_000,
+                        request,
+                        "worker",
+                        null,
+                        false,
+                        new SqlPayload("insert into audit_log select id from products", null, "db", false)));
+        publish(aggregates, http("legacy-request", "/audit", 200, 2_000_000));
+        byte[] encoded = RunSummaryCodec.encode(
+                RunSummary.of(new RunIdentity("legacy-edges", 1, 1000), aggregates.snapshot(), 2000),
+                RunHistory.MAX_SUMMARY_BYTES);
+        encoded[4] = 10;
+        RunSummary legacy = RunSummaryCodec.decode(encoded);
+
+        assertThat(legacy.aggregates().overflowed()).containsKey(JournalAggregates.LEGACY_TABLE_EDGES);
+        var diff = io.github.jdubois.bootui.engine.model.RunEdgeDiff.compare(legacy, aggregates.snapshot(), null);
+        assertThat(diff.added()).isEmpty();
+        assertThat(diff.removed()).isEmpty();
+        assertThat(diff.limitations()).anyMatch(reason -> reason.contains("table reads and writes cannot be compared"));
     }
 
     @Test
