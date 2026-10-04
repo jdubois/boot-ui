@@ -78,7 +78,8 @@ public class RuntimeInsightsController {
         this.profile = new ResourceProfileService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
-                properties.getResources().toSettings().jfrMaxDuration());
+                properties.getResources().toSettings().jfrMaxDuration(),
+                properties::isPanelEnabled);
         this.insights = new RuntimeInsightsService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),

@@ -68,6 +68,10 @@ public final class RuntimeInsightsService {
     public static final String ROUTE_INVENTORY_UNAVAILABLE = "The application's declared routes could not be read, so"
             + " the routes no request reached are not listed: that does not mean every route was exercised.";
 
+    /** Why no route is listed as not exercised when the runtime journal does not record HTTP requests. */
+    public static final String ROUTE_EXERCISE_UNRECORDED = "The runtime journal does not record the http source"
+            + " (bootui.runtime-journal.sources), so the routes no request reached are not listed.";
+
     /**
      * Prefix of the limitation naming retained scheduled runs and consumed messages, which {@code requests} does not
      * count. The agent view matches this prefix rather than the counted totals.
@@ -570,7 +574,7 @@ public final class RuntimeInsightsService {
         if (nonHttp != null) {
             limitations.add(nonHttp);
         }
-        List<String> notExercised = notExercised(snapshot, limitations);
+        List<String> notExercised = notExercised(snapshot, visibility, limitations);
         RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
                 true,
                 null,
@@ -615,10 +619,28 @@ public final class RuntimeInsightsService {
     /**
      * The declared routes no request of this run reached. The run's aggregates count every request, retained or
      * evicted, so an evicted request still counts as reaching its route.
+     *
+     * <p>Which routes were reached is HTTP Exchanges evidence ({@code docs/PLAN-v2.md} §8): while that panel is off, or
+     * the journal does not record HTTP, none is listed, and the report says why rather than reading hidden or
+     * unrecorded requests as absence.</p>
      */
-    private List<String> notExercised(InsightsSnapshot snapshot, List<String> limitations) {
+    private List<String> notExercised(InsightsSnapshot snapshot, PanelVisibility visibility, List<String> limitations) {
         Supplier<List<MappingDto>> mappings = declaredMappings;
         if (mappings == null) {
+            return List.of();
+        }
+        if (!snapshot.records(JournalSource.HTTP)) {
+            limitations.add(ROUTE_EXERCISE_UNRECORDED);
+            return List.of();
+        }
+        if (!visibility.visible(JournalSource.HTTP)) {
+            List<String> panels = JournalSourcePanels.panelsOf(JournalSource.HTTP);
+            limitations.add(
+                    visibility.disabled(JournalSource.HTTP).isEmpty()
+                            ? panelsLabel(panels)
+                                    + " is not available in this application, so the routes no request reached"
+                                    + " are not listed: " + visibility.reasonsFor(panels)
+                            : panelsLabel(panels) + " is disabled, so the routes no request reached are not listed.");
             return List.of();
         }
         try {

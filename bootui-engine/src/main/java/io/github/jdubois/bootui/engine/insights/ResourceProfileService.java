@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileRouteDto;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler.RequestSamples;
@@ -22,12 +23,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
  * Runtime Insights' <b>Profile resources</b> ({@code docs/PLAN-v2.md} §5.11, D17): starts and stops the JVM's {@link
  * JfrProfiler} session only when the developer asks, and reports its samples by route, naming each request's route from
  * the runtime journal. Reading its status starts nothing.
+ *
+ * <p>The per-route rows are HTTP Exchanges evidence ({@code docs/PLAN-v2.md} §8): while that panel is off, each read
+ * keeps the session's sample totals and withholds the rows, saying why.</p>
  */
 public final class ResourceProfileService {
 
@@ -38,26 +43,39 @@ public final class ResourceProfileService {
     static final String RESOURCES_OFF = "Profile resources joins samples to the request segments the runtime journal's"
             + " resources source measures: add resources to bootui.runtime-journal.sources.";
 
+    /** Why a completed session lists no route while the panel owning HTTP requests is off. */
+    static final String ROUTES_HIDDEN = "The http-exchanges panel is disabled, so the samples are not listed by"
+            + " route; the session's totals still count every sampled request.";
+
     private final RuntimeJournal journal;
     private final Supplier<RouteTemplateResolver> routes;
     private final Duration maxDuration;
     private final JfrProfiler profiler;
+    private final Predicate<String> panelEnabled;
 
     private Instant mappedFor;
     private List<RuntimeResourceProfileRouteDto> mappedRoutes = List.of();
     private int mappedOmitted;
 
+    /**
+     * @param panelEnabled whether a panel, by its id, may be shown; {@code null} enables every panel
+     */
     public ResourceProfileService(
-            RuntimeJournal journal, Supplier<RouteTemplateResolver> routes, Duration maxDuration) {
-        this(journal, routes, maxDuration, JfrProfiler.shared());
+            RuntimeJournal journal,
+            Supplier<RouteTemplateResolver> routes,
+            Duration maxDuration,
+            Predicate<String> panelEnabled) {
+        this(journal, routes, maxDuration, panelEnabled, JfrProfiler.shared());
     }
 
     ResourceProfileService(
             RuntimeJournal journal,
             Supplier<RouteTemplateResolver> routes,
             Duration maxDuration,
+            Predicate<String> panelEnabled,
             JfrProfiler profiler) {
         this.journal = journal;
+        this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
         this.routes = routes == null ? RouteTemplateResolver::empty : routes;
         this.maxDuration = Objects.requireNonNull(maxDuration, "maxDuration");
         this.profiler = profiler;
@@ -117,6 +135,13 @@ public final class ResourceProfileService {
             mappedFor = snapshot.finishedAt();
         }
         boolean completed = snapshot.state() == State.COMPLETED;
+        // Evaluated on every read, so disabling the panel after the session completed withholds its cached rows too.
+        boolean routesShown = completed && routesVisible();
+        List<String> limitations = completed ? limitations(snapshot) : List.of();
+        if (completed && !routesShown) {
+            limitations = new ArrayList<>(limitations);
+            limitations.add(ROUTES_HIDDEN);
+        }
         return new RuntimeResourceProfileDto(
                 snapshot.state().name(),
                 snapshot.reason(),
@@ -128,9 +153,22 @@ public final class ResourceProfileService {
                 analysis.cpuSamples(),
                 analysis.outsideSamples(),
                 analysis.requests().size(),
-                completed ? mappedRoutes : List.of(),
-                completed ? mappedOmitted : 0,
-                completed ? limitations(snapshot) : List.of());
+                routesShown ? mappedRoutes : List.of(),
+                routesShown ? mappedOmitted : 0,
+                limitations);
+    }
+
+    private boolean routesVisible() {
+        for (String panel : JournalSourcePanels.panelsOf(JournalSource.HTTP)) {
+            try {
+                if (!panelEnabled.test(panel)) {
+                    return false;
+                }
+            } catch (RuntimeException ex) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Names each request's route from the journal once, when the session completes, before it may evict them. */

@@ -91,7 +91,8 @@ public class RuntimeInsightsResource {
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
                 config.getOptionalValue("bootui.resources.jfr.max-duration", Duration.class)
-                        .orElse(ResourceSettings.DEFAULT_JFR_MAX_DURATION));
+                        .orElse(ResourceSettings.DEFAULT_JFR_MAX_DURATION),
+                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
         this.insights = new RuntimeInsightsService(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),

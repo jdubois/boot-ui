@@ -144,6 +144,108 @@ class LiveActivityResourceTests {
         }
     }
 
+    @Test
+    void underMetadataOnlyAPersistedRowKeepsNoPrincipalAndIsNotFoundByItsWithheldText() {
+        SwitchableActivityStore store = persistentStore(new RecordingActivityStore(ActivityPage.EMPTY), "instance-a");
+        LiveActivityResource resource = resourceWith(
+                store,
+                enabledSettings("instance-a"),
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(50),
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of("bootui.expose-values", "metadata-only")));
+        try {
+            store.appendBatch(List.of(
+                    new StoredActivityEntry("instance-a", 1L, storedRow("log-1", "LOG", "card alice-4111 declined")),
+                    new StoredActivityEntry(
+                            "instance-a",
+                            2L,
+                            new ActivityEntryDto(
+                                    "req-1",
+                                    "REQUEST",
+                                    1_000L,
+                                    "OK",
+                                    "GET /orders → 200",
+                                    null,
+                                    null,
+                                    null,
+                                    "GET",
+                                    "/orders",
+                                    200,
+                                    null,
+                                    false,
+                                    null,
+                                    "alice",
+                                    false))));
+
+            assertThat(resource.activity(0, null, null, "alice", null, null, null, 10)
+                            .entries())
+                    .isEmpty();
+            LiveActivityReport orders = resource.activity(0, null, null, "orders", null, null, null, 10);
+            assertThat(orders.entries()).extracting(ActivityEntryDto::id).containsExactly("req-1");
+            assertThat(orders.entries().get(0).securedPrincipal()).isNull();
+        } finally {
+            cleanup(resource, store);
+        }
+    }
+
+    @Test
+    void aSecretARawStoredRowStillHoldsIsNeitherShownNorSearchableUnderMasked() {
+        SwitchableActivityStore store = persistentStore(new RecordingActivityStore(ActivityPage.EMPTY), "instance-a");
+        LiveActivityResource resource = resourceWith(
+                store,
+                enabledSettings("instance-a"),
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(50),
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of("bootui.expose-values", "full")));
+        try {
+            store.appendBatch(
+                    List.of(new StoredActivityEntry("instance-a", 1L, storedRow("log-1", "LOG", "password=hunter2"))));
+
+            assertThat(resource.activity(0, null, null, "hunter2", null, null, null, 10)
+                            .entries())
+                    .isEmpty();
+            assertThat(resource.activity(0, null, null, "password", null, null, null, 10)
+                            .entries())
+                    .singleElement()
+                    .extracting(ActivityEntryDto::summary)
+                    .asString()
+                    .doesNotContain("hunter2");
+        } finally {
+            cleanup(resource, store);
+        }
+    }
+
+    @Test
+    void theBufferedFeedWithholdsRequestsWhileHttpExchangesIsDisabled() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(50);
+        buffer.record(new CapturedHttpExchange(
+                Instant.ofEpochMilli(1_000L),
+                "GET",
+                URI.create("http://localhost:8080/orders"),
+                200,
+                7L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null));
+        LiveActivityResource resource = resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                buffer,
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of("bootui.panels." + BootUiPanels.HTTP_EXCHANGES + ".enabled", "false")));
+
+        assertThat(resource.mergedReport(0).entries()).noneMatch(entry -> "REQUEST".equals(entry.type()));
+    }
+
     private static ActivityEntryDto storedRow(String id, String type, String summary) {
         return new ActivityEntryDto(
                 id, type, 1_000L, "OK", summary, null, null, null, null, null, null, null, false, null, null, false);

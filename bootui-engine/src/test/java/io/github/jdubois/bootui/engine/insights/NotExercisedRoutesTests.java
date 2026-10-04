@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.MappingDto;
+import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -11,10 +12,13 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class NotExercisedRoutesTests {
@@ -112,6 +116,61 @@ class NotExercisedRoutesTests {
                     .anySatisfy(limitation -> assertThat(limitation).contains("more routes than its aggregates keep"));
         } finally {
             journal.close();
+        }
+    }
+
+    @Test
+    void noRouteIsListedAsNotExercisedWhileHttpExchangesIsHiddenOrHttpIsNotRecorded() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+        RuntimeJournal withoutHttp = new RuntimeJournal(
+                new RuntimeJournalSettings(
+                        true, 1_000, 10_000_000, 1_000, 10, 10, EnumSet.complementOf(EnumSet.of(JournalSource.HTTP))),
+                RunIdentity.start());
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1,
+                    1,
+                    CorrelationContext.forRequest("r1"),
+                    "http-1",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/api/orders/7", "/api/orders/{id}", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            AtomicBoolean httpEnabled = new AtomicBoolean(true);
+            RuntimeInsightsService service = new RuntimeInsightsService(
+                    journal,
+                    null,
+                    panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES) || httpEnabled.get(),
+                    null,
+                    null);
+            // Production wiring: the run's aggregates count every request, whatever the panel shows.
+            service.setDeclaredRoutes(
+                    () -> DECLARED, () -> new JournalAggregates.RouteLabels(Set.of("DELETE /api/orders/{id}"), false));
+            assertThat(service.report().notExercised())
+                    .containsExactly("ANY /api/legacy", "ANY /api/ping", "POST /graphql");
+
+            httpEnabled.set(false);
+            RuntimeInsightsReportDto hidden = service.report();
+
+            assertThat(hidden.notExercised()).isEmpty();
+            assertThat(hidden.notExercisedOmitted()).isZero();
+            assertThat(hidden.limitations())
+                    .contains("The http-exchanges panel is disabled, so the routes no request reached are not listed.");
+            RuntimeInsightsAgentReportDto agent = RuntimeInsightsAgentView.list(hidden, null, null);
+            assertThat(agent.notExercised()).isEmpty();
+            assertThat(agent.notExercisedOmitted()).isZero();
+
+            RuntimeInsightsService unrecorded = new RuntimeInsightsService(withoutHttp, null, null, null, null);
+            unrecorded.setDeclaredRoutes(() -> DECLARED, () -> new JournalAggregates.RouteLabels(Set.of(), false));
+            RuntimeInsightsReportDto report = unrecorded.report();
+            assertThat(report.notExercised()).isEmpty();
+            assertThat(report.limitations()).contains(RuntimeInsightsService.ROUTE_EXERCISE_UNRECORDED);
+        } finally {
+            journal.close();
+            withoutHttp.close();
         }
     }
 

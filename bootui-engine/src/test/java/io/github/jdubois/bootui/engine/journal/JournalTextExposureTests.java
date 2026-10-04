@@ -314,6 +314,37 @@ class JournalTextExposureTests {
                 .isEqualTo("RestClient");
     }
 
+    @Test
+    void metadataOnlyWithholdsAStoredPrincipalThatMaskedStillShows() {
+        ActivityEntryDto stored = new ActivityEntryDto(
+                "id",
+                "REQUEST",
+                0,
+                "OK",
+                "GET /orders → 200",
+                "/orders",
+                1L,
+                null,
+                "GET",
+                "/orders",
+                200,
+                null,
+                false,
+                null,
+                "alice",
+                false,
+                List.of());
+
+        assertThat(new JournalTextExposure(ValueExposure.METADATA_ONLY, true)
+                        .reapply(stored)
+                        .securedPrincipal())
+                .isNull();
+        assertThat(new JournalTextExposure(ValueExposure.MASKED, true)
+                        .reapply(stored)
+                        .securedPrincipal())
+                .isEqualTo("alice");
+    }
+
     private List<ActivityEntryDto> render() {
         return feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries();
     }
