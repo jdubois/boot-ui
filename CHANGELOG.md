@@ -283,11 +283,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   selects its application frames on the application thread; the journal's dispatcher formats them, with the same
   `Class.method(File.java:42)` text and masking as before. An offer to the journal takes one lock instead of three,
   checks the queue's reserved share and inserts atomically, and no longer wakes the dispatcher for every event: the
-  dispatcher drains in batches, recording an event at most about a millisecond later. On the Spring MVC sample under
-  load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about 8.4 % to 3.5 %.
-  An event offered after the run ended is now counted as dropped rather than accepted. A frame whose class is
-  redefined, by the BootUI agent or a hot swap, while its event waits for the dispatcher reads `(Unknown Source)`
-  (PLAN-v2 M4-18d).
+  dispatcher drains in batches, recording an event at most about a millisecond later, or one timer tick on systems
+  with a coarser timer (about 15.6 ms on Windows by default). A burst that fills half the queue's routine share ends
+  that pause at once, so a small `queue-capacity` does not drop events while the dispatcher waits. On the Spring MVC
+  sample under load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about
+  8.4 % to 3.5 %. An event offered after the run ended is now counted as dropped rather than accepted, even when a
+  listener keeps the dispatcher from stopping. A frame whose class is redefined, by the BootUI agent or a hot swap,
+  while its event waits for the dispatcher reads `(Unknown Source)` (PLAN-v2 M4-18d).
 - **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
   Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
   attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,
