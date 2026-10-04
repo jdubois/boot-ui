@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -15,9 +16,11 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -25,7 +28,7 @@ class TransactionAcrossRemoteCallTests {
 
     private static final long MS = 1_000_000;
 
-    private final RuntimeJournal journal = new RuntimeJournal(
+    private RuntimeJournal journal = new RuntimeJournal(
             new RuntimeJournalSettings(true, 10_000, 50_000_000, 10_000, 10, 10, JournalSource.all()),
             RunIdentity.start());
     private int requests;
@@ -147,6 +150,166 @@ class TransactionAcrossRemoteCallTests {
         assertThat(check(report).reason()).isNull();
     }
 
+    @Test
+    void aiOnlyCallsArePlacedAtTheirMonotonicStartEvenWhenTheyFinishAfterTheTransaction() {
+        journalSources(Set.of(JournalSource.HTTP, JournalSource.TRANSACTION, JournalSource.AI));
+        for (int i = 0; i < 3; i++) {
+            request("POST", "/api/generate", transaction("Generator.run", 0, 100), ai(AiPayload.CHAT, 180, 100));
+        }
+        request("POST", "/api/generate", transaction("Generator.run", 0, 100), ai(AiPayload.CHAT, 180, 50));
+        request("POST", "/api/generate", transaction("Generator.run", 0, 100), ai(AiPayload.CHAT, 160, 60));
+        request("POST", "/api/generate", transaction("Generator.run", 0, 100), aiWithoutClock());
+        request("POST", "/api/generate", transaction("Generator.run", 0, 100), aiWithoutDuration());
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeInsightsReportDto report = service.report();
+
+        assertThat(report.observations())
+                .filteredOn(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.status()).isEqualTo("OBSERVED");
+                    assertThat(observation.affected()).isEqualTo(3);
+                    assertThat(observation.sentence()).contains("`AI chat (gpt-4o)` in 3 of 5 requests");
+                    assertThat(observation.evidenceRows()).isEqualTo(3);
+                    assertThat(service.insight(observation.id()).rows().get(0).cells())
+                            .contains("AI chat (gpt-4o)", "100");
+                });
+        assertThat(check(report).status()).isEqualTo("EVALUATED");
+        assertThat(check(report).reason()).contains("Without the rest-client source");
+    }
+
+    @Test
+    void aNestedRestClientCallIsNotCountedAgainButAnIndependentRestCallStillIs() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "POST",
+                    "/api/generate",
+                    transaction("Generator.run", 0, 150),
+                    ai(AiPayload.CHAT, 130, 100),
+                    call("/models", 90, 50));
+        }
+        request(
+                "POST",
+                "/api/generate",
+                transaction("Generator.run", 0, 150),
+                ai(AiPayload.CHAT, 130, 100),
+                call("/independent", 140, 5));
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeInsightsReportDto report = service.report();
+
+        assertThat(report.observations())
+                .filteredOn(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.status()).isEqualTo("OBSERVED");
+                    assertThat(observation.affected()).isEqualTo(4);
+                    assertThat(observation.sentence())
+                            .contains("its calls took a median 100 ms")
+                            .doesNotContain("stock:8080/models");
+                    assertThat(observation.evidenceRows()).isEqualTo(5);
+                    assertThat(service.insight(observation.id()).rows().toString())
+                            .contains("stock:8080/independent")
+                            .doesNotContain("stock:8080/models");
+                });
+    }
+
+    @Test
+    void restCallInsideTransactionStillCountsWhenEnclosingAiCallStartedBeforeIt() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "POST",
+                    "/api/generate",
+                    transaction("Generator.run", 50, 150),
+                    ai(AiPayload.CHAT, 120, 100),
+                    call("/models", 100, 50));
+        }
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+
+        assertThat(report.observations())
+                .filteredOn(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.sentence()).contains("`GET stock:8080/models` in 3 of 3 requests");
+                    assertThat(observation.evidenceRows()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void neitherRemoteSourceAvailableMakesTheCheckNotApplicable() {
+        journalSources(Set.of(JournalSource.HTTP, JournalSource.TRANSACTION));
+        request("POST", "/api/generate", transaction("Generator.run", 0, 100));
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+
+        assertThat(check(report).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(check(report).reason()).contains("Neither REST client nor AI calls");
+    }
+
+    @Test
+    void restOnlySourceStillReportsCalls() {
+        journalSources(Set.of(JournalSource.HTTP, JournalSource.TRANSACTION, JournalSource.REST_CLIENT));
+        for (int i = 0; i < 3; i++) {
+            request("POST", "/api/orders", transaction("OrderService.place", 0, 100), call("/items", 80, 50));
+        }
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+
+        assertThat(report.observations())
+                .filteredOn(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.status()).isEqualTo("OBSERVED"));
+        assertThat(check(report).status()).isEqualTo("EVALUATED");
+        assertThat(check(report).reason()).contains("Without the ai source");
+    }
+
+    @Test
+    void hiddenRemotePanelsCannotSupplyOrSuppressEvidenceFromAVisibleSource() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "POST",
+                    "/api/generate",
+                    transaction("Generator.run", 0, 150),
+                    ai(AiPayload.CHAT, 130, 100),
+                    call("/models", 90, 50));
+        }
+        RuntimeInsightsReportDto withoutAi = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.AI), InsightsStack.SPRING_MVC, null)
+                .report();
+        RuntimeInsightsReportDto withoutRest = new RuntimeInsightsService(
+                        journal,
+                        null,
+                        panel -> !panel.equals(BootUiPanels.REST_CLIENT_TRACE),
+                        InsightsStack.SPRING_MVC,
+                        null)
+                .report();
+
+        assertThat(withoutAi.observations())
+                .filteredOn(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.sentence())
+                        .contains("GET stock:8080/models")
+                        .doesNotContain("AI chat"));
+        assertThat(withoutRest.observations())
+                .filteredOn(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .singleElement()
+                .satisfies(observation ->
+                        assertThat(observation.sentence()).contains("AI chat").doesNotContain("stock:8080/models"));
+    }
+
+    private void journalSources(Set<JournalSource> sources) {
+        journal.close();
+        journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 10_000, 50_000_000, 10_000, 10, 10, sources), RunIdentity.start());
+    }
+
     private static RuntimeInsightCheckDto check(RuntimeInsightsReportDto report) {
         return report.checks().stream()
                 .filter(check -> check.kind().equals(TransactionAcrossRemoteCall.KIND))
@@ -166,6 +329,25 @@ class TransactionAcrossRemoteCallTests {
                 JournalSource.REST_CLIENT,
                 durationMs * MS,
                 new RestClientPayload("GET", "stock:8080", path, 200, "RestClient", false, null, completedMs * MS));
+    }
+
+    private static Child ai(String operation, long completedMs, long durationMs) {
+        return new Child(
+                JournalSource.AI,
+                durationMs * MS,
+                new AiPayload(operation, "openai", "gpt-4o", 10L, 5L, "stop", false, null, completedMs * MS));
+    }
+
+    private static Child aiWithoutClock() {
+        return new Child(
+                JournalSource.AI, 30 * MS, new AiPayload(AiPayload.CHAT, "openai", "gpt-4o", null, null, null, false));
+    }
+
+    private static Child aiWithoutDuration() {
+        return new Child(
+                JournalSource.AI,
+                -1,
+                new AiPayload(AiPayload.CHAT, "openai", "gpt-4o", null, null, null, false, null, 80 * MS));
     }
 
     private void request(String method, String template, Child... children) {

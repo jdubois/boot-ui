@@ -415,6 +415,104 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void springWritesDoNotReadHiddenHibernateEvidence() {
+        request(
+                "POST",
+                "/api/reviews",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("REQUEST", null, null, "ANONYMOUS", true, 0)),
+                new Child(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload("insert into reviews values (1)", null, "db", false)));
+        request("GET", "/api/views", sqls("update views set count = 1", 0, null));
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HIBERNATE), InsightsStack.SPRING_MVC, null)
+                .report();
+
+        for (String kind : List.of(AnonymousDataReach.KIND, SafeMethodDml.KIND)) {
+            assertThat(checks(report).get(kind)).satisfies(check -> {
+                assertThat(check.status()).isEqualTo("EVALUATED");
+                assertThat(check.reason()).isNull();
+            });
+            assertThat(observations(report, kind)).hasSize(1).allSatisfy((route, finding) -> {
+                assertThat(finding.status()).isEqualTo("OBSERVED");
+                assertThat(finding.limitations()).noneMatch(limitation -> limitation.contains("hibernate"));
+            });
+        }
+    }
+
+    @Test
+    void springWritesRemainEvaluatedWhenOnlyOrmEventsAreDropped() throws InterruptedException {
+        journal.close();
+        journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 10_000, 50_000_000, 10, 10, 0, JournalSource.all()),
+                RunIdentity.start());
+        request(
+                "POST",
+                "/api/reviews",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("REQUEST", null, null, "ANONYMOUS", true, 0)),
+                new Child(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload("insert into reviews values (1)", null, "db", false)));
+        request("GET", "/api/views", sqls("update views set count = 1", 0, null));
+
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            blocked.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        try {
+            RuntimeEvent orm = RuntimeEvent.of(
+                    JournalSource.ORM,
+                    2_000,
+                    1_000,
+                    CorrelationContext.forRequest("other"),
+                    "http-1",
+                    null,
+                    false,
+                    orm());
+            assertThat(journal.offer(orm)).isTrue();
+            assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+            for (int i = 0; i < 10; i++) {
+                assertThat(journal.offer(orm)).isTrue();
+            }
+            assertThat(journal.offer(orm)).isFalse();
+        } finally {
+            release.countDown();
+        }
+        drain();
+
+        assertThat(journal.status().dropped())
+                .containsOnlyKeys(JournalSource.ORM)
+                .containsEntry(JournalSource.ORM, 1L);
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+        for (String kind : List.of(AnonymousDataReach.KIND, SafeMethodDml.KIND)) {
+            assertThat(checks(report).get(kind)).satisfies(check -> {
+                assertThat(check.status()).isEqualTo("EVALUATED");
+                assertThat(check.reason()).isNull();
+            });
+            assertThat(observations(report, kind)).hasSize(1).allSatisfy((route, finding) -> {
+                assertThat(finding.status()).isEqualTo("OBSERVED");
+                assertThat(finding.limitations()).noneMatch(limitation -> limitation.contains("dropped"));
+            });
+        }
+    }
+
+    @Test
     void aSentenceAndItsEvidenceQuoteAStatementsShapeNeverAValueItsFingerprintKeeps() {
         // A fingerprint keeps identifier-like "..." runs, which MySQL reads as string literals, and a truncated dollar
         // quote verbatim: it groups statements but is never shown.

@@ -9,11 +9,13 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -64,11 +66,15 @@ class AnonymousAccessObservationsTests {
                     .asString()
                     .startsWith("Do not add authorization from this row alone");
             assertThat(finding.limitations()).first().asString().contains("statement text");
+            assertThat(finding.limitations()).noneMatch(limitation -> limitation.contains("orm source"));
         });
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(AnonymousDataReach.KIND))
                 .singleElement()
-                .satisfies(check -> assertThat(check.status()).isEqualTo("EVALUATED"));
+                .satisfies(check -> {
+                    assertThat(check.status()).isEqualTo("EVALUATED");
+                    assertThat(check.reason()).isNull();
+                });
     }
 
     @Test
@@ -126,6 +132,42 @@ class AnonymousAccessObservationsTests {
                         "`POST /api/write` wrote table `cart_items` in 1 of 1 successful anonymous request.",
                         "`POST /api/write` wrote table `orders` in 1 of 1 successful anonymous request.",
                         "`POST /api/write` wrote table `stock` in 1 of 1 successful anonymous request.");
+    }
+
+    @Test
+    void quarkusPreparationsAreNeverProvenWritesAndTimedJdbcStillIs() {
+        preparedRequest("/prepared", 1, false);
+        preparedRequest("/unexecuted", 0, false);
+        preparedRequest("/jdbc", 0, true);
+
+        var report = new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null).report();
+        assertThat(byKind(report, AnonymousDataReach.KIND))
+                .extracting(RuntimeObservationDto::sentence)
+                .containsExactlyInAnyOrder(
+                        "`POST /prepared` prepared a write statement targeting table `audit_log` in 1 of 1"
+                                + " successful anonymous request.",
+                        "`POST /jdbc` wrote table `audit_log` in 1 of 1 successful anonymous request.");
+        assertThat(byKind(report, AnonymousDataReach.KIND))
+                .filteredOn(finding -> finding.subject().equals("POST /prepared"))
+                .singleElement()
+                .satisfies(finding -> assertThat(finding.limitations())
+                        .anyMatch(limitation -> limitation.contains("cannot prove this particular statement ran")));
+    }
+
+    @Test
+    void hidingHibernateEvidenceCannotTurnAnUnverifiedPreparationIntoAWrite() {
+        preparedRequest("/prepared", 1, false);
+        preparedRequest("/jdbc", 0, true);
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HIBERNATE), InsightsStack.QUARKUS, null)
+                .report();
+        assertThat(byKind(report, AnonymousDataReach.KIND))
+                .extracting(RuntimeObservationDto::subject)
+                .containsExactly("POST /jdbc");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(AnonymousDataReach.KIND))
+                .singleElement()
+                .satisfies(check -> assertThat(check.reason()).contains("unverified Quarkus preparations"));
     }
 
     @Test
@@ -285,6 +327,53 @@ class AnonymousAccessObservationsTests {
 
     private static SqlPayload sql(String sql) {
         return new SqlPayload(sql, null, "db", false);
+    }
+
+    private void preparedRequest(String path, int ormStatements, boolean timedJdbc) {
+        String requestId = "r" + (++requests);
+        CorrelationContext context = CorrelationContext.forRequest(requestId);
+        journal.offer(RuntimeEvent.of(
+                JournalSource.AUTHORIZATION,
+                1_000,
+                1_000,
+                context,
+                "http-1",
+                null,
+                false,
+                decision("ANONYMOUS", true, null)));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_000,
+                timedJdbc ? 1_000_000 : 0,
+                context,
+                "http-1",
+                null,
+                false,
+                sql("insert into audit_log select id from products")));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.ORM,
+                1_000,
+                10_000_000,
+                context,
+                "http-1",
+                null,
+                false,
+                new OrmPayload(null, ormStatements, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000 + requests,
+                5_000_000,
+                context,
+                "http-1",
+                null,
+                false,
+                new HttpPayload("POST", path, path, null, 200)));
+        try {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
     }
 
     private void request(

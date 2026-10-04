@@ -441,7 +441,8 @@ How it works:
   literal, method reference, or `@GetMapping` value does not. The scan is bounded by
   `bootui.code-inventory.max-classes` (20,000) and `bootui.code-inventory.scan-timeout` (30 seconds), finding its roots
   included; past either it is partial and says so. A class file unchanged since the previous scan is not parsed again,
-  nor a class-path jar opened again, and a class file that cannot be parsed makes the scan partial. While the scan runs,
+  nor a class-path jar opened again, and a class file that cannot be parsed, or a class directory or jar that cannot be
+  read, makes the scan partial (failed when nothing could be read), so its methods are never reported as removed. While the scan runs,
   or after it failed, the **Changed** tab says so rather than "no previous run", and nothing is compared.
 - The previous run's method hashes are kept across restarts in the same JVM, at most 1 MB a run (12 bytes a method),
   per application, beside the run summaries of [run comparison](overview.md). Only classes both scans covered are
@@ -449,6 +450,9 @@ How it works:
   restart, or BootUI itself loaded by the restart class loader, keeps no previous run, which the panel says too.
 - Which methods executed comes from the agent's hit flags, exactly, and the first request, route, and time from its
   records, which a full ring may drop (counted, and said).
+- The first request and route belong to [HTTP Exchanges](#http-exchanges): while that panel is disabled, every read,
+  `get_code_inventory`, and Runtime Insights' `changed-code-not-executed` leave them out, with the reason, and say only
+  which methods executed and when.
 - A method counts as executed or never executed only when the agent instrumented its class in this run, or when its
   class has not loaded in this run at all (after a DevTools restart, a class the new class loader has not loaded yet
   has not run). Any other method on disk is **not tracked**, with its reason (static initializer, abstract method,
@@ -501,6 +505,8 @@ How it works:
   with its least and most, from which an approximate (≈) median and 95th percentile are read: interpolated within a
   bucket and clamped to that least and most. Each route's first recorded request, the first whose tree settled, is kept
   apart, as its time and request id only.
+- Route trees are keyed by the routes and outcomes [HTTP Exchanges](#http-exchanges) owns: while that panel is
+  disabled, the panel, every read, `get_code_paths`, and the handler split are unavailable with that reason.
 - Route trees are bounded: 2,000 nodes a route with one **Other** node per parent past the budget, 100,000 nodes and
   500 routes across the run. A call that finds no node left keeps its time in its caller's self time. Route trees cover
   the current run only: a DevTools restart or Quarkus live reload starts new ones.

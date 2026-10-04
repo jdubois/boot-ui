@@ -48,6 +48,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer consume the bounded token pool, and dead loaders' slots are safely recycled. Capacity failures stay
   **not tracked**, rather than falsely **never executed** ([#1247](https://github.com/jdubois/boot-ui/pull/1247);
   M52-01; PLAN-v2 §5.15, §5.17).
+- **Code Inventory and Code Paths honor a disabled HTTP Exchanges panel.** Code Inventory, its API, and
+  `get_code_inventory` no longer show the first request and route that ran a method, and `changed-code-not-executed`
+  names no route, while HTTP Exchanges is disabled; Code Paths, its API, `get_code_paths`, and the handler split of
+  `route-time-breakdown` are unavailable with that reason, on Spring MVC, Spring WebFlux, and Quarkus.
+- **Code Inventory no longer reports methods as removed when a class root could not be read.** A class directory or
+  jar the scan cannot open or walk now counts as skipped, as a class file it cannot parse already did, and makes the
+  scan partial (failed when nothing could be read) instead of complete.
+- **Runtime Insights write attribution and remote calls.** Anonymous access reports Quarkus Hibernate SQL as an
+  unverified preparation instead of a proven table write; hidden Hibernate evidence cannot promote it. Runtime model,
+  change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;
+  older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
+  alongside REST calls without double-counting a nested transport call
+  ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
 - **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
   against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
   recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,

@@ -70,6 +70,8 @@ public final class JournalAggregates implements JournalListener {
     /** The {@link AggregatesSnapshot#overflowed()} key of the edge observations not counted beyond {@value #MAX_EDGES}. */
     public static final String EDGES = "edges";
 
+    public static final String LEGACY_TABLE_EDGES = "legacy-table-edges";
+
     public static final String COMPLETED_REQUEST_ATTRIBUTIONS = "completedRequestAttributions";
     public static final String LATE_REQUEST_ATTRIBUTIONS = "lateRequestAttributions";
     public static final String ATTRIBUTION_TOMBSTONES = "attributionTombstones";
