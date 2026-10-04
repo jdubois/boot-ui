@@ -8,9 +8,14 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.google.protobuf.ByteString;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.InstrumentationScope;
@@ -20,8 +25,13 @@ import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.proto.trace.v1.Status;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -46,6 +56,12 @@ class OtlpReceiverControllerTests {
 
     private static final String SELF_CHILD_SPAN_ID = "3333333333333333";
 
+    private static final String TRACE_ID_2 = "abababababababababababababababab";
+
+    private static final String SPAN_ID_2 = "4444444444444444";
+
+    private static final String SPAN_ID_3 = "5555555555555555";
+
     private BootUiProperties properties;
 
     private TelemetryStore store;
@@ -68,6 +84,10 @@ class OtlpReceiverControllerTests {
     }
 
     private static ExportTraceServiceRequest request(Span... spans) {
+        return request("sample", spans);
+    }
+
+    private static ExportTraceServiceRequest request(String serviceName, Span... spans) {
         ScopeSpans.Builder scope = ScopeSpans.newBuilder()
                 .setScope(InstrumentationScope.newBuilder()
                         .setName("io.micrometer.observation")
@@ -78,7 +98,7 @@ class OtlpReceiverControllerTests {
         return ExportTraceServiceRequest.newBuilder()
                 .addResourceSpans(ResourceSpans.newBuilder()
                         .setResource(Resource.newBuilder()
-                                .addAttributes(stringAttr("service.name", "sample"))
+                                .addAttributes(stringAttr("service.name", serviceName))
                                 .build())
                         .addScopeSpans(scope.build())
                         .build())
@@ -99,6 +119,13 @@ class OtlpReceiverControllerTests {
                         .build())
                 .addAttributes(stringAttr("gen_ai.operation.name", "chat"))
                 .addAttributes(stringAttr("gen_ai.system", "ollama"))
+                .build();
+    }
+
+    private static Span aiSpan(String traceId, String spanId) {
+        return hostSpan().toBuilder()
+                .setTraceId(bytes(traceId))
+                .setSpanId(bytes(spanId))
                 .build();
     }
 
@@ -145,7 +172,9 @@ class OtlpReceiverControllerTests {
         properties.getTelemetry().setEnabled(true);
         store = new TelemetryStore(new SpringTelemetrySettings(properties));
         OtlpSpanDecoder decoder = new OtlpSpanDecoder(properties.getTelemetry());
-        mvc = standaloneSetup(new OtlpReceiverController(store, decoder, properties))
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.application.name", "sample");
+        mvc = standaloneSetup(new OtlpReceiverController(
+                        store, decoder, properties, BootUiSelfDataFilter.defaults(), environment))
                 .build();
     }
 
@@ -160,6 +189,118 @@ class OtlpReceiverControllerTests {
 
         assertThat(store.retainedTraceCount()).isEqualTo(1);
         assertThat(store.allSpansSnapshot()).hasSize(1);
+    }
+
+    @Test
+    void importedApplicationAiSpansReachTheJournalFromTheReceiversBootUiScopeButOtherServicesAndSelfTracesDoNot()
+            throws Exception {
+        List<RuntimeEvent> imported = new ArrayList<>();
+        List<RuntimeEvent> offered = new ArrayList<>();
+        store.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                offered.add(event);
+                return true;
+            }
+
+            @Override
+            public boolean offerImported(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+        });
+
+        // The adapters' correlation filters run the receiver in BootUI's own scope.
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
+            mvc.perform(post("/bootui/api/otlp/v1/traces")
+                            .contentType("application/x-protobuf")
+                            .content(request(hostSpan()).toByteArray()))
+                    .andExpect(status().isOk());
+            // A cooperating local process exports under its own service name: its AI call is not this application's.
+            mvc.perform(post("/bootui/api/otlp/v1/traces")
+                            .contentType("application/x-protobuf")
+                            .content(request("other-service", aiSpan(TRACE_ID_2, SPAN_ID_2))
+                                    .toByteArray()))
+                    .andExpect(status().isOk());
+            // An AI call ending, so exported, ahead of BootUI's own request span: the whole trace is BootUI's own.
+            mvc.perform(post("/bootui/api/otlp/v1/traces")
+                            .contentType("application/x-protobuf")
+                            .content(request(aiSpan(TRACE_ID, SPAN_ID_3), selfSpan())
+                                    .toByteArray()))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(offered).isEmpty();
+        assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly(HOST_TRACE_ID);
+        assertThat(store.findTrace(TRACE_ID_2))
+                .as("still stored for the Traces panel")
+                .isNotNull();
+    }
+
+    @Test
+    void theApplicationsServiceNameIsResolvedAsSpringBootResolvesItsOpenTelemetryResource() {
+        Map<String, String> variables = new HashMap<>();
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.application.name", "orders")
+                .withProperty("OTEL_SERVICE_NAME", "ignored-as-a-property");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders");
+
+        variables.put("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=dev, service.name = orders%20attributes");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders attributes");
+
+        variables.put("OTEL_SERVICE_NAME", "orders-env");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders-env");
+
+        environment.setProperty("management.opentelemetry.resource-attributes.service.name", "orders-api");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .isEqualTo("orders-api");
+
+        environment.setProperty("management.opentelemetry.resource-attributes.service.name", "");
+        assertThat(OtlpReceiverController.applicationServiceName(environment, variables::get))
+                .as("an explicitly empty name wins, as in Boot, and fails closed")
+                .isNull();
+
+        assertThat(OtlpReceiverController.applicationServiceName(new MockEnvironment(), name -> null))
+                .as("Boot's unknown_service default names no application")
+                .isNull();
+        assertThat(OtlpReceiverController.applicationServiceName(null)).isNull();
+    }
+
+    @Test
+    void anAiSpanOfABootUiTraceInTheBatchStaysOutOfTheJournalEvenBeyondTheStoresSelfTraceMemory() throws Exception {
+        List<RuntimeEvent> imported = new ArrayList<>();
+        store.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+
+            @Override
+            public boolean offerImported(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+        });
+        String firstSelfTrace = String.format("%032x", 1);
+        List<Span> spans = new ArrayList<>();
+        spans.add(aiSpan(firstSelfTrace, SPAN_ID_3));
+        for (int i = 1; i <= 4_097; i++) {
+            spans.add(selfSpan().toBuilder()
+                    .setTraceId(bytes(String.format("%032x", i)))
+                    .build());
+        }
+
+        mvc.perform(post("/bootui/api/otlp/v1/traces")
+                        .contentType("application/x-protobuf")
+                        .content(request(spans.toArray(Span[]::new)).toByteArray()))
+                .andExpect(status().isOk());
+
+        assertThat(imported).isEmpty();
+        assertThat(store.retainedTraceCount()).isZero();
     }
 
     @Test
