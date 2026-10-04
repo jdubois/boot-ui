@@ -21,6 +21,7 @@ import java.util.List;
  * @param notExercised declared routes no request of this run reached, at most {@value #MAX_NOT_EXERCISED}
  * @param notExercisedOmitted the declared routes not reached beyond those listed
  * @param limitations what the report cannot see
+ * @param next the calls that answer the obvious follow-up questions, at most three
  */
 public record RuntimeInsightsAgentReportDto(
         boolean available,
@@ -33,7 +34,8 @@ public record RuntimeInsightsAgentReportDto(
         int omitted,
         List<String> notExercised,
         int notExercisedOmitted,
-        List<String> limitations) {
+        List<String> limitations,
+        List<RuntimeNextStepDto> next) {
 
     /** The observations listed when no limit is asked for. */
     public static final int DEFAULT_LIMIT = 8;
@@ -47,5 +49,33 @@ public record RuntimeInsightsAgentReportDto(
         observations = DtoCollections.immutableCopy(observations);
         notExercised = DtoCollections.immutableCopy(notExercised);
         limitations = DtoCollections.immutableCopy(limitations);
+        next = DtoCollections.immutableCopy(next);
+    }
+
+    public RuntimeInsightsAgentReportDto(
+            boolean available,
+            String unavailableReason,
+            String query,
+            long requests,
+            List<RuntimeInsightCoverageDto> coverage,
+            List<String> checksNotRun,
+            List<RuntimeInsightAgentDto> observations,
+            int omitted,
+            List<String> notExercised,
+            int notExercisedOmitted,
+            List<String> limitations) {
+        this(
+                available,
+                unavailableReason,
+                query,
+                requests,
+                coverage,
+                checksNotRun,
+                observations,
+                omitted,
+                notExercised,
+                notExercisedOmitted,
+                limitations,
+                List.of());
     }
 }

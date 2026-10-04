@@ -460,7 +460,11 @@ class CodePathStampsTests {
     /** M2: stamped calls past the bound a request keeps are counted as such, never silently lost. */
     @Test
     void stampedCallsPastTheBoundAreCountedAsUnplaced() throws Exception {
-        RuntimeJournal journal = journal(RequestOutcome.MAX_CALLS + 100);
+        // A queue for every offer, none reserved: a dispatcher lagging behind the burst must not drop routine events.
+        int events = RequestOutcome.MAX_CALLS + 100;
+        RuntimeJournal journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, events, 200_000_000L, 2 * events, 10, 0, JournalSource.all()),
+                RunIdentity.start());
         try {
             CorrelationContext request = CorrelationContext.forRequest(REQUEST_ID);
             long stamp = CodePathStamps.pack(4L, 0, 1);

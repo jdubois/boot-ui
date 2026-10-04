@@ -131,6 +131,7 @@ one into a shell on the user's behalf without their explicit agreement.
 Once it is on the `PATH`:
 
 ```bash
+bootui --help                                  # every command: arguments, where each <id> comes from, one example
 bootui tools                                   # what this application actually exposes
 bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
@@ -331,7 +332,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    left out per kind; `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
    cheap repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
    kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
-3. Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
+3. Follow `next`: every insights answer, an unknown id included, names at most three follow-up calls, each with the
+   `command` to run and the MCP `tool` and `arguments`, restricted to tools this application advertises.
+   Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
    `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
    resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included
    alongside a journal HTTP profile when retained), and `none` says neither window retains the id.

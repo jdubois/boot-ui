@@ -514,12 +514,19 @@ public abstract class AbstractMcpConformanceTest {
                     .isGreaterThanOrEqualTo(byDefault.path("observations").size()
                             + byDefault.path("omitted").asInt());
 
+            assertThat(list.path("next").isArray()).isTrue();
+
             JsonNode unknown = callTool("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
             assertThat(unknown.path("available").asBoolean(true)).isFalse();
             assertThat(unknown.path("unavailableReason").asText()).isNotBlank();
+            assertThat(unknown.path("next").path(0).path("tool").asText())
+                    .as("an unknown observation id names the call that lists the current ids")
+                    .isEqualTo("get_runtime_insights");
+            assertThat(unknown.path("next").path(0).path("command").asText()).isEqualTo("bootui insights list");
 
             JsonNode impact = callTool("get_runtime_impact", "{\"id\":\"conformanceUnknownSymbol\"}");
             assertThat(impact.path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
+            assertThat(impact.path("next").isArray()).isTrue();
 
             JsonNode comparison = callTool("get_runtime_run_comparison", "{\"id\":\"previous\"}");
             JsonNode defaultComparison = callTool("get_runtime_run_comparison", "{}");
@@ -534,6 +541,13 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(comparison.has("latency"))
                     .as("latency is left out for agents")
                     .isFalse();
+            assertThat(comparison.path("next").isArray()).isTrue();
+            JsonNode unknownRun = callTool("get_runtime_run_comparison", "{\"id\":\"conformance-unknown-run\"}");
+            if (!"UNAVAILABLE".equals(unknownRun.path("status").asText())) {
+                assertThat(unknownRun.path("next").path(0).path("command").asText())
+                        .as("an unknown run id names the default comparison instead")
+                        .isEqualTo("bootui insights compare previous");
+            }
         }
     }
 

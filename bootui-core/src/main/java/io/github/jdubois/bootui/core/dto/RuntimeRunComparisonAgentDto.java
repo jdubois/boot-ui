@@ -23,6 +23,7 @@ import java.util.List;
  * @param edges the runtime model's added and removed edges, at most {@value #MAX_ROWS}
  * @param edgesOmitted the edges left out
  * @param limitations what the comparison cannot see
+ * @param next the calls that follow the comparison up, or that recover from an unknown run id, at most three
  */
 public record RuntimeRunComparisonAgentDto(
         String status,
@@ -36,7 +37,8 @@ public record RuntimeRunComparisonAgentDto(
         int behaviorOmitted,
         List<RuntimeRunChangeDto> edges,
         int edgesOmitted,
-        List<String> limitations) {
+        List<String> limitations,
+        List<RuntimeNextStepDto> next) {
 
     /** The rows each list holds at most. */
     public static final int MAX_ROWS = 8;
@@ -47,6 +49,36 @@ public record RuntimeRunComparisonAgentDto(
         behavior = DtoCollections.immutableCopy(behavior);
         edges = DtoCollections.immutableCopy(edges);
         limitations = DtoCollections.immutableCopy(limitations);
+        next = DtoCollections.immutableCopy(next);
+    }
+
+    public RuntimeRunComparisonAgentDto(
+            String status,
+            String reason,
+            String currentRunId,
+            String previousRunId,
+            List<RuntimeRunRefDto> runs,
+            List<String> notComparableReasons,
+            RuntimeCodeChangesDto codeChanges,
+            List<RuntimeRunChangeDto> behavior,
+            int behaviorOmitted,
+            List<RuntimeRunChangeDto> edges,
+            int edgesOmitted,
+            List<String> limitations) {
+        this(
+                status,
+                reason,
+                currentRunId,
+                previousRunId,
+                runs,
+                notComparableReasons,
+                codeChanges,
+                behavior,
+                behaviorOmitted,
+                edges,
+                edgesOmitted,
+                limitations,
+                List.of());
     }
 
     public RuntimeRunComparisonAgentDto(

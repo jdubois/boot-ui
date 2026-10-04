@@ -46,11 +46,16 @@ class McpDispatcherTests {
         AtomicInteger invocations = new AtomicInteger();
         McpDispatcher dispatcher = advisorDispatcher(250, args -> invocations.incrementAndGet());
         assertThat(dispatcher.dispatch(advisorRequest(" ", "scan", 0, 10)))
-                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Missing required argument: id (a rule id and the violationDetails.scanId from"
+                                + " get_architecture_report)"));
         for (String scanId : new String[] {null, "", " "}) {
             assertThat(dispatcher.dispatch(advisorRequest("RULE-1", scanId, 0, 10)))
                     .isEqualTo(new ProtocolError(
-                            McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_SCAN_ID_ARGUMENT_MESSAGE));
+                            McpProtocol.INVALID_PARAMS,
+                            McpProtocol.MISSING_SCAN_ID_ARGUMENT_MESSAGE
+                                    + " (a rule id and the violationDetails.scanId from get_architecture_report)"));
         }
         assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan", -1, 10)))
                 .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Argument 'offset' must be at least 0"));
@@ -291,7 +296,10 @@ class McpDispatcherTests {
         McpDispatchOutcome outcome = dispatcher().dispatch(call("get_exception_detail"));
 
         assertThat(outcome)
-                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Missing required argument: id (an exception group id from get_exceptions or"
+                                + " get_live_activity)"));
     }
 
     @Test
@@ -301,7 +309,10 @@ class McpDispatcherTests {
                         new McpRequest(JSONRPC, "tools/call", false, null, "get_exception_detail", null, null, "   "));
 
         assertThat(outcome)
-                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Missing required argument: id (an exception group id from get_exceptions or"
+                                + " get_live_activity)"));
     }
 
     @Test

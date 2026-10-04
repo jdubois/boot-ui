@@ -324,6 +324,18 @@ read tools return short, stable facts rather than a dashboard:
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
 | `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then at most 8 route/execution behavior rows and edges; latency is left out |
 
+**Every answer names the next call.** Each of the four answers carries `next`: at most three follow-up calls, each
+with the `bootui` `command` line, the MCP `tool` and its `arguments`, and `why`. The list names the lead observation's
+evidence (`get_runtime_insight`, call sites included), one request that shows it (`get_request_profile`), the kind a
+`limit` left out, and for an anonymous-access observation the security rules (`get_spring_security`, on Spring) and
+the route's mapping. An unknown or evicted observation id names `get_runtime_insights`, an unknown run id names
+`previous` and the runs still kept, and an `AMBIGUOUS` or `NOT_FOUND` impact names the candidates, `get_beans`, or
+`get_mappings`. Only tools the application advertises are named, so Quarkus is never told to call a Spring-only tool;
+a named tool whose panel is disabled is still refused like any other call.
+Calling a tool without its required `id` fails with the message naming where the id comes from, such as `Missing
+required argument: id (an observation id from get_runtime_insights)`. In the panel, the change impact's `next` is
+always empty.
+
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
 never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
 exchanges only. `requests: 0` means not exercised only when the limitations say so: an observation that names a
