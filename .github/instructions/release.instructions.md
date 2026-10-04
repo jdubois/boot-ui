@@ -38,7 +38,8 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   overall" computation in `release.yml`; the integrity guard rejects it.
 - Every branch declares its release line, the major its contents belong to, in `.github/release-line` (`v2`
   declares `2` while it still carries a 1.x version). `release.yml` passes it to `next-version`, so a branch releases
-  only versions of its own line, and rechecks the tagged contents' line before publication. Never remove the file or
+  only versions of its own line, and rechecks the tagged contents' line before publication. Releases are prepared only
+  from `main` or the version's `N.x` maintenance branch, and a tag publishes only when its commit is on one of them. Never remove the file or
   make it optional; the first commit on a branch preparing a new major declares that major.
 - `pages.yml` and `docker-publish.yml` build from a branch, not a tag, so `.github/scripts/release-line-gate.sh`
   decides whether they publish: only when one tag of the branch's line has its artifacts on Maven Central and no newer

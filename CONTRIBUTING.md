@@ -626,7 +626,9 @@ Central uploads are published automatically; set `-Dcentral.autoPublish=false`
 to stage for manual publishing instead.
 
 To prepare and publish a release, run the **Release** GitHub Actions workflow
-from the branch you want to release, usually `main`, and enter the target version
+from `main`, or from an older major's maintenance branch such as `1.x` (no other
+branch is accepted, and a tag is published only when its commit is on one of
+them), and enter the target version
 without the leading `v`. Versions advance within a major version, so an older major
 can still receive patches after a newer major ships. The target must be exactly the
 next patch or minor after the latest stable tag of its own major, or `MAJOR.0.0`

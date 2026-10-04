@@ -27,7 +27,7 @@ These override any instinct carried over from ordinary pull-request work, where 
    minor after the latest stable tag of its own major, or `MAJOR.0.0` directly above the highest existing major; its
    major must match the source branch's project version (or be one above it when opening a new major). The workflow
    rejects anything else through `.github/scripts/release-version-policy.sh`. Confirm which branch is being released:
-   usually `main`, or a maintenance branch for a patch to an older major.
+   `main`, or the `N.x` maintenance branch for a patch to an older major; the workflow refuses any other branch.
 2. Preflight before dispatching, because most of this cannot be fixed after a tag exists:
    - The source branch is green on `build.yml` at the exact SHA to be released.
    - `bash .github/scripts/check-release-integrity.sh` passes locally.

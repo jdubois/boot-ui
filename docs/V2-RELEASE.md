@@ -22,7 +22,7 @@ declares that major.
 | --- | --- | --- | --- | --- |
 | Documentation site (`pages.yml`) | `release-line-gate.sh` on every push and manual run | `main` (line 1) deploys | `main` (line 2) builds the site but skips the upload and the deploy | `main` deploys again; `1.x` never deploys |
 | Docker Hub sample images (`docker-publish.yml`) | The same gate, in the workflow's first job | `main` publishes daily | Every job but prune is skipped | `main` publishes 2.x images; `1.x` publishes none |
-| Maven Central (`release.yml`) | `release-version-policy.sh` with the release line, before any file changes, and again on the tagged contents before publication | `main` releases 1.x only | `main` releases 2.0.0 only, and only when dispatched; `1.x` releases 1.x patches only | `main` releases 2.x; `1.x` releases 1.x patches, without redeploying the site |
+| Maven Central (`release.yml`) | `release-version-policy.sh` with the release line, before any file changes, and again on the tagged contents before publication; only from `main` or the version's `N.x` branch | `main` releases 1.x only | `main` releases 2.0.0 only, and only when dispatched; `1.x` releases 1.x patches only | `main` releases 2.x; `1.x` releases 1.x patches, without redeploying the site |
 | JBang alias (`jbang-catalog.json`) | The Release workflow rewrites it | 1.x | Unchanged: the catalog is identical on `main` and `v2` | 2.0.0 |
 | Installers (`install.sh`, `install.ps1`) and the CLI's update check | Maven Central's `maven-metadata.xml` | 1.x | 1.x | 2.x |
 
@@ -33,11 +33,18 @@ counting a newer major only once it is on Maven Central keeps a stray or failed 
 unreadable answer, from origin or from Maven Central, fails the run instead of deciding.
 
 The Release workflow dispatches `pages.yml` at the release tag only after every artifact is available and only for the
-newest major, so the gate passes there. Pull requests still build the site, without the gate.
+newest major, so the gate passes there, and it fails unless that run's deploy job actually deployed. Pull requests
+still build the site, without the gate.
 
-`check-release-integrity.sh` pins all of this: the release-line arguments and the tagged-contents check in
-`release.yml`, the gate and the gated upload and deploy in `pages.yml`, the gate job ahead of every publishing job in
-`docker-publish.yml`, and a valid `.github/release-line`. Workflows may not set the gate's test seams.
+The Release workflow also prepares a release only from `main` or from the version's maintenance branch (`1.x` for a
+1.x version), and publishes a tag only when its commit is on one of them, so a signed tag pushed on `v2` cannot publish
+before the merge.
+
+`check-release-integrity.sh` pins all of this: the release-line arguments, the tagged-contents and release-branch
+checks, and the deploy confirmation in `release.yml`; the gate and the gated upload and deploy in `pages.yml`; the gate
+job ahead of every publishing job in `docker-publish.yml`, whose image jobs keep exactly their repository condition so
+no status function such as `always()` can run them after a skipped gate; and a valid `.github/release-line`. Workflows
+may not set the gate's test seams.
 
 ### What workflow files cannot guard
 
@@ -45,12 +52,16 @@ A manual run executes the workflow file of the ref it is dispatched from, so ref
 `v1.*` tags or an older `v2` feature branch, carry ungated workflows forever. The GitHub environments are the only
 control over them:
 
-- `maven-central` accepts `main` and `v*` tags, with required reviewers. It refuses `v2` and its feature branches, so
-  2.0.0 cannot be released before the merge. Add `1.x` when the branch is cut.
+- `maven-central` accepts `main` and `v*` tags, with required reviewers. It refuses manual runs from `v2` and its
+  feature branches. Add `1.x` when the branch is cut.
 - `github-pages` accepts `main` and `v*` tags. Right after the 2.0 site deploys, narrow the tag rule to `v2.*`, so an
   old tag's ungated `pages.yml` cannot replace it. Repeat at 3.0.
 - `docker-hub` has no deployment policy. Restrict it to `main`: the daily schedule only runs there, and no other ref can
   then push `latest`.
+
+Re-running a workflow run replays the workflow file of that run, and GitHub allows it for 30 days. Never re-run a
+Pages or Docker run that predates the gate on `main`; landing the `main` preparation below well before release day
+lets those runs age out.
 
 ## The rehearsal
 
@@ -66,7 +77,8 @@ commit of `main` and `v2` with `git merge-tree` and `git commit-tree`, so no bra
 - simulated futures, with synthetic tags and a local stand-in for Maven Central: a v2.0.0 tag without its artifacts
   publishes nothing, its artifacts publish the 2.x site, and the `1.x` branch then publishes no site, releases its next
   patch without redeploying the site, and can never release 2.0.0;
-- whether `main` is ready to become `1.x`, and whether the GitHub environments are set as above (read only, with `gh`).
+- whether `main` is ready to become `1.x`, with its own integrity guard and release tests passing, whether the release
+  sign-off has no `TODO` left, and whether the GitHub environments are set as above (read only, with `gh`).
 
 ```bash
 # Any day: a local, read-only rehearsal against origin/main and the current v2 commit
@@ -79,8 +91,8 @@ python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day
 `--live` pushes the candidate to a temporary `rehearsal/v2-merge-*` branch, dispatches `pages.yml` and
 `docker-publish.yml` from it, requires every publishing job to be skipped, and deletes the branch. No push trigger
 runs on that branch, and the `github-pages` and `maven-central` environments refuse it, so a broken gate fails rather
-than publishes. Until `docker-hub` is restricted to `main`, watch the Docker run's gate job and cancel the run if it
-does not skip.
+than publishes. Until `docker-hub` is restricted to `main`, the rehearsal cancels a Docker run as soon as any job past
+its gate is queued, long before the first image push, which follows a full Maven build and smoke test.
 
 A merge conflict fails the rehearsal: merge `main` into `v2` first. Prerequisites that are not done yet are reported as
 `PENDING`; `--release-day` turns them into failures.
@@ -94,12 +106,12 @@ receiving fixes; do not cut the branch early.
 
 `main` does not have M4-16's per-major release machinery yet: its `release.yml` still takes the newest tag overall, so a
 `1.x` branch cut from it today would reject every 1.x patch once v2.0.0 exists, and would redeploy 1.x documentation
-over the 2.0 site. One pull request into `main`, before the cut:
+over the 2.0 site. One pull request into `main`, well before the cut:
 
 1. Copies byte for byte from `v2`: `release-version-policy.sh`, `release-line-gate.sh`, `pages.yml`, and
    `docker-publish.yml`. Identical files merge cleanly on every later `main`-to-`v2` sync; the rehearsal checks it.
-2. Ports to `main`'s `release.yml` the release-line arguments, the tagged-contents check, and the newest-major
-   documentation decision, keeping `main`'s own publication reactor and availability list, which have no agent
+2. Ports to `main`'s `release.yml` the release-line arguments, the tagged-contents and release-branch checks, the
+   deploy confirmation, and the newest-major documentation decision, keeping `main`'s own publication reactor and availability list, which have no agent
    modules; ports `check-release-integrity.sh` and the `test_release_*.py` tests the same way.
 3. Adds `.github/release-line` with `1`. The next `main`-to-`v2` sync then conflicts on that file once: keep `2`.
 4. Adds `1.x` to the push and pull-request branches of `build.yml` and `jdk-compatibility.yml`, so `1.x` gets the green

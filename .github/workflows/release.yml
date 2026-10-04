@@ -106,6 +106,12 @@ jobs:
             exit 1
           fi
 
+          # Releases come from `main`, or from the maintenance branch of an older major (D40).
+          if [[ "$SOURCE_BRANCH" != "main" && "$SOURCE_BRANCH" != "${VERSION%%.*}.x" ]]; then
+            echo "::error::Release $VERSION must be prepared from main or ${VERSION%%.*}.x, not $SOURCE_BRANCH"
+            exit 1
+          fi
+
           if [[ "$RESUME_AFTER_PUBLISH" == "true" ]]; then
             echo "::error::resume_after_publish can only be used with an empty version on an existing release tag"
             exit 1
@@ -366,6 +372,26 @@ jobs:
            echo "::error::$RELEASE_TAG's contents declare release line $TAGGED_RELEASE_LINE in .github/release-line, not ${VERSION%%.*}"
            exit 1
          fi
+
+         # Releases come only from `main` or from the version's maintenance branch (`1.x` for 1.x
+         # patches once `main` carries 2.x), so a signed tag pushed on `v2` or any other branch cannot
+         # publish before that branch is merged.
+         RELEASE_MAJOR="${VERSION%%.*}"
+         git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+         git fetch --no-tags origin "+refs/heads/${RELEASE_MAJOR}.x:refs/remotes/origin/${RELEASE_MAJOR}.x" 2>/dev/null || true
+         RELEASE_BRANCH=""
+         for candidate in main "${RELEASE_MAJOR}.x"; do
+           if git rev-parse -q --verify "refs/remotes/origin/$candidate" >/dev/null &&
+             git merge-base --is-ancestor "$RELEASE_SHA" "refs/remotes/origin/$candidate"; then
+             RELEASE_BRANCH="$candidate"
+             break
+           fi
+         done
+         if [[ -z "$RELEASE_BRANCH" ]]; then
+           echo "::error::$RELEASE_TAG ($RELEASE_SHA) is on neither origin/main nor origin/${RELEASE_MAJOR}.x; releases are published only from those branches"
+           exit 1
+         fi
+         echo "$RELEASE_TAG is on origin/$RELEASE_BRANCH."
 
          for npm_dir in . bootui-ui/src/main/frontend bootui-spring-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             node -e '
@@ -826,6 +852,14 @@ jobs:
 
           if [[ "$CONCLUSION" != "success" ]]; then
             echo "::error::Documentation deployment run concluded with '$CONCLUSION': $RUN_URL"
+            exit 1
+          fi
+
+          # pages.yml's release-line gate can skip the deploy and still conclude `success`, so the
+          # deploy job itself must have succeeded.
+          DEPLOY_CONCLUSION="$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.name == "Deploy documentation site") | .conclusion')"
+          if [[ "$DEPLOY_CONCLUSION" != "success" ]]; then
+            echo "::error::The documentation run did not deploy the site (deploy job: '${DEPLOY_CONCLUSION:-missing}'); check its release-line gate: $RUN_URL"
             exit 1
           fi
 

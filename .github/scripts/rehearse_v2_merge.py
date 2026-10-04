@@ -18,7 +18,8 @@ Maven Central:
 
 With --live, the candidate is pushed to a temporary `rehearsal/v2-merge-*` branch, which no push
 trigger and no deployment environment accepts, `pages.yml` and `docker-publish.yml` are dispatched
-from it, the rehearsal asserts that their gates skipped every publishing job, and the branch is deleted.
+from it, the rehearsal asserts that their gates skipped every publishing job, cancelling a run as soon
+as one is queued, and the branch is deleted.
 
 Release-day prerequisites that are not done yet are reported as PENDING; --release-day turns them
 into failures. Exit status: 0 when nothing failed, 1 otherwise.
@@ -216,6 +217,20 @@ def environment_policies():
     return found
 
 
+def check_sign_off(candidate_tree, release_day):
+    pending = "FAIL" if release_day else "PENDING"
+    report = (candidate_tree / "docs/V2-VALIDATION-REPORT.md").read_text(encoding="utf-8")
+    section = re.search(r"^## Release sign-off\n(.*?)(?=^## |\Z)", report, re.MULTILINE | re.DOTALL)
+    if not section:
+        record("FAIL", "the validation report has a release sign-off section")
+        return
+    todos = section.group(1).count("TODO")
+    if todos:
+        record(pending, "the release sign-off is complete", f"{todos} TODO left in V2-VALIDATION-REPORT.md")
+    else:
+        record("PASS", "the release sign-off is complete")
+
+
 def check_environments(release_day):
     pending = "FAIL" if release_day else "PENDING"
     try:
@@ -251,7 +266,7 @@ def check_environments(release_day):
     )
 
 
-def check_maintenance_branch(main_ref, candidate_ref, repository, release_day):
+def check_maintenance_branch(main_ref, main_tree, candidate_ref, repository, release_day):
     pending = "FAIL" if release_day else "PENDING"
     policy_script = show(main_ref, POLICY, repository)
     release = show(main_ref, ".github/workflows/release.yml", repository) or ""
@@ -264,6 +279,26 @@ def check_maintenance_branch(main_ref, candidate_ref, repository, release_day):
             "main's release.yml still takes the newest tag overall, so a 1.x branch cut from it would reject "
             "every 1.x patch after v2.0.0 and redeploy 1.x documentation over 2.0: backport M4-16's policy first",
         )
+    if show(main_ref, GATE, repository) is not None and show(main_ref, ".github/release-line", repository):
+        for name, command in (
+            ("integrity guard", ["bash", ".github/scripts/check-release-integrity.sh"]),
+            (
+                "release tests",
+                ["python3", "-B", "-m", "unittest", "discover", "-s", ".github/scripts", "-p", "test_release_*.py"],
+            ),
+        ):
+            result = run(command, cwd=main_tree, check=False)
+            output = (result.stdout + result.stderr).strip().splitlines()
+            record("PASS" if result.returncode == 0 else "FAIL", f"{main_ref}'s own {name} pass",
+                   output[-1] if output else "")
+        ported = all(
+            literal in release
+            for literal in ('"$CURRENT_VERSION" "$RELEASE_LINE"', "TAGGED_RELEASE_LINE=", "newest-major")
+        )
+        record("PASS" if ported else pending, f"{main_ref}'s release.yml carries the release-line checks")
+    else:
+        record(pending, f"{main_ref}'s own integrity guard and release tests cover the release line",
+               "main has no release-line gate yet")
     line = show(main_ref, ".github/release-line", repository)
     if line and re.search(r"^\s*1\s*(#.*)?$", line, re.MULTILINE):
         record("PASS", f"{main_ref} declares release line 1")
@@ -285,6 +320,15 @@ def check_maintenance_branch(main_ref, candidate_ref, repository, release_day):
         )
 
 
+# Jobs that publish, or lead to publishing, per dispatched workflow. A live run is cancelled as soon as
+# one of them is queued or running, long before docker-publish.yml's first push, which follows a full
+# Maven build and a smoke test.
+PUBLISHING_JOBS = {
+    "pages.yml": lambda name: name.startswith("Deploy"),
+    "docker-publish.yml": lambda name: not name.startswith("Decide"),
+}
+
+
 def live(candidate, repository):
     branch = f"rehearsal/v2-merge-{candidate[:12]}"
     git("push", "origin", f"{candidate}:refs/heads/{branch}", cwd=repository)
@@ -296,7 +340,7 @@ def live(candidate, repository):
             run(["gh", "workflow", "run", workflow, "--ref", branch])
             runs[workflow] = wait_for_new_run(workflow, branch, before)
         for workflow, run_id in runs.items():
-            jobs = wait_for_completion(run_id)
+            jobs = wait_for_completion(run_id, PUBLISHING_JOBS[workflow])
             check_live_jobs(workflow, run_id, jobs)
     finally:
         git("push", "origin", "--delete", branch, cwd=repository, check=False)
@@ -319,23 +363,29 @@ def wait_for_new_run(workflow, branch, before):
     raise RuntimeError(f"the dispatched {workflow} run never appeared")
 
 
-def wait_for_completion(run_id):
-    for _ in range(240):
+def wait_for_completion(run_id, publishing):
+    for _ in range(720):
         view = json.loads(run(["gh", "run", "view", str(run_id), "--json", "status,jobs"]).stdout)
+        started = [
+            job["name"]
+            for job in view["jobs"]
+            if publishing(job["name"]) and job["status"] in ("queued", "in_progress", "waiting", "pending")
+        ]
+        if started:
+            run(["gh", "run", "cancel", str(run_id)], check=False)
+            record("FAIL", f"run {run_id} started a publishing job; cancelled it", ", ".join(started))
+            return {job["name"]: job["status"] for job in view["jobs"]}
         if view["status"] == "completed":
             return {job["name"]: job["conclusion"] for job in view["jobs"]}
-        time.sleep(15)
+        time.sleep(5)
     raise RuntimeError(f"run {run_id} did not complete")
 
 
 def check_live_jobs(workflow, run_id, jobs):
     url = f"https://github.com/jdubois/boot-ui/actions/runs/{run_id}"
-    if workflow == "pages.yml":
-        gate_ok = jobs.get("Build documentation site") == "success"
-        publishing = {name: conclusion for name, conclusion in jobs.items() if name.startswith("Deploy")}
-    else:
-        gate_ok = jobs.get("Decide whether this branch may publish images") == "success"
-        publishing = {name: conclusion for name, conclusion in jobs.items() if not name.startswith("Decide")}
+    gate_job = "Build documentation site" if workflow == "pages.yml" else "Decide whether this branch may publish images"
+    gate_ok = jobs.get(gate_job) == "success"
+    publishing = {name: conclusion for name, conclusion in jobs.items() if PUBLISHING_JOBS[workflow](name)}
     skipped = all(conclusion == "skipped" for conclusion in publishing.values())
     status = "PASS" if gate_ok and skipped else "FAIL"
     record(status, f"live {workflow} dispatch skipped every publishing job", f"{url} jobs: {jobs}")
@@ -436,8 +486,13 @@ def rehearse(repository, candidate, candidate_tree, main_tree, tags, central, ar
     opens = policy(policy_script, "next-version", "2.0.0", main_version, "1", tags=tags)
     record("PASS" if opens.returncode == 2 else "FAIL", "a 1.x branch can never release 2.0.0", opens.stderr.strip())
 
-    print("\n== Readiness of main as the future 1.x branch, and of the GitHub environments ==")
-    check_maintenance_branch(arguments.main, candidate, repository, arguments.release_day)
+    simulated = maintenance / ".github/release-line"
+    if git("ls-files", "--error-unmatch", ".github/release-line", cwd=maintenance, check=False).returncode != 0:
+        simulated.unlink()
+
+    print("\n== Readiness of main as the future 1.x branch, the sign-off, and the GitHub environments ==")
+    check_maintenance_branch(arguments.main, main_tree, candidate, repository, arguments.release_day)
+    check_sign_off(candidate_tree, arguments.release_day)
     check_environments(arguments.release_day)
 
 

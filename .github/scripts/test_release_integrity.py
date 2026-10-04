@@ -251,6 +251,46 @@ class ReleaseIntegrityTests(unittest.TestCase):
             with self.subTest(old=old):
                 self.assert_rejected(None, message, docker=self.mutate_file(DOCKER, old, new))
 
+    def test_docker_image_jobs_cannot_run_after_a_skipped_gate(self):
+        condition = "    if: github.repository == 'jdubois/boot-ui'\n"
+        for replacement in (
+            "    if: ${{ always() && github.repository == 'jdubois/boot-ui' }}\n",
+            "    if: ${{ !cancelled() }}\n",
+            "",
+        ):
+            with self.subTest(replacement=replacement):
+                content = DOCKER.read_text(encoding="utf-8")
+                self.assertEqual(content.count(condition), 2, "fixture drifted: image job conditions")
+                for occurrence in range(2):
+                    mutated = content
+                    start = -1
+                    for _ in range(occurrence + 1):
+                        start = mutated.index(condition, start + 1)
+                    mutated = mutated[:start] + replacement + mutated[start + len(condition):]
+                    self.assert_rejected(None, "never runs after a skipped docker-config", docker=mutated)
+
+    def test_release_comes_only_from_main_or_its_maintenance_branch(self):
+        self.assert_rejected(
+            self.mutate(
+                'if [[ "$SOURCE_BRANCH" != "main" && "$SOURCE_BRANCH" != "${VERSION%%.*}.x" ]]; then',
+                "if false; then",
+            ),
+            "release preparation restricted to main",
+        )
+        self.assert_rejected(
+            self.mutate(
+                'git merge-base --is-ancestor "$RELEASE_SHA" "refs/remotes/origin/$candidate"',
+                "true",
+            ),
+            "release restricted to main or its maintenance branch",
+        )
+
+    def test_documentation_deploy_job_must_have_succeeded(self):
+        self.assert_rejected(
+            self.mutate('if [[ "$DEPLOY_CONCLUSION" != "success" ]]; then', "if false; then"),
+            "confirmed from the deploy job",
+        )
+
     def test_docker_cannot_publish_from_an_ungated_job(self):
         docker = DOCKER.read_text(encoding="utf-8") + (
             "\n  sneaky:\n    runs-on: ubuntu-latest\n    steps:\n      - run: docker push example\n"

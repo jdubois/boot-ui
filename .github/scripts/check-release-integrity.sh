@@ -81,6 +81,13 @@ require_literal 'TAGGED_RELEASE_LINE="$(bash .github/scripts/release-version-pol
   'release line of the tagged contents'
 require_literal 'if [[ "$TAGGED_RELEASE_LINE" != "${VERSION%%.*}" ]]; then' \
   'tagged contents restricted to their own release line'
+require_literal 'git merge-base --is-ancestor "$RELEASE_SHA" "refs/remotes/origin/$candidate"' \
+  'release restricted to main or its maintenance branch'
+require_literal 'for candidate in main "${RELEASE_MAJOR}.x"; do' 'release branch candidates'
+require_literal 'if [[ "$SOURCE_BRANCH" != "main" && "$SOURCE_BRANCH" != "${VERSION%%.*}.x" ]]; then' \
+  'release preparation restricted to main or its maintenance branch'
+require_literal 'if [[ "$DEPLOY_CONCLUSION" != "success" ]]; then' \
+  'documentation deployment confirmed from the deploy job, not the run'
 require_literal 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"' \
   'newest-major documentation redeploy decision'
 require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
@@ -192,12 +199,16 @@ require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \
   'consumer smoke tests must follow Maven Central availability'
+require_order 'if [[ "$SOURCE_BRANCH" != "main"' './mvnw -B -ntp versions:set' \
+  'the source branch must be checked before any project file is rewritten'
 require_order 'release-version-policy.sh next-version' './mvnw -B -ntp versions:set' \
   'the release version must be validated against its major before any project file is rewritten'
 require_order 'TAGGED_RELEASE_LINE=' '- name: Publish to Maven Central' \
   'the tagged contents must be checked against their release line before Maven Central publication'
 require_order '- name: Checkout immutable release' 'TAGGED_RELEASE_LINE=' \
   'the release line must be read from the immutable release checkout'
+require_order 'git merge-base --is-ancestor "$RELEASE_SHA"' '- name: Publish to Maven Central' \
+  'the release branch must be checked before Maven Central publication'
 require_order '- name: Smoke test published distributions' '- name: Decide documentation redeploy' \
   'the documentation redeploy decision must follow the consumer smoke tests'
 require_order 'rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"' '-f "$AGENT_SMOKE_DIR/pom.xml"' \
@@ -309,6 +320,16 @@ fi
 if ! grep -Eq '^    needs: docker-config$' <<<"$docker_build" || ! grep -Eq '^    needs: build$' <<<"$docker_merge"; then
   report_workflow_error "$DOCKER_WORKFLOW" 'image builds and tags must follow the gated docker-config job'
 fi
+# A status function such as always() would run a job after a skipped docker-config, so the image
+# jobs keep exactly the repository condition and nothing else.
+readonly DOCKER_JOB_CONDITION="    if: github.repository == 'jdubois/boot-ui'"
+for job in build merge; do
+  block="$(job_block "$DOCKER_WORKFLOW" "$job")"
+  if [[ "$(grep -E '^    if:' <<<"$block" || true)" != "$DOCKER_JOB_CONDITION" ]]; then
+    report_workflow_error "$DOCKER_WORKFLOW" \
+      "the $job job must keep exactly \"if: github.repository == 'jdubois/boot-ui'\" so it never runs after a skipped docker-config"
+  fi
+done
 for job in $(job_names "$DOCKER_WORKFLOW"); do
   case "$job" in
     gate | docker-config | build | merge | prune) ;;
