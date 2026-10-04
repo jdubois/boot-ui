@@ -457,6 +457,13 @@ its hook's `fired` count is fragments, not calls, since the advice keeps no glob
 is `null`. The shared transformer's counters are on the `inventory` row while its advice applies, and on the
 `code-paths` row otherwise.
 
+**On BootUI's side.** BootUI's drain thread reads the fragments every 100 ms and merges each request's into its
+request tree, which settles about two seconds after its last fragment, when the engine looks up its request's exchange
+and stamped calls in the runtime journal. Under sustained load, once 512 younger request trees are open, the eldest 128
+settle together, with one journal read for all of them. Settling them one at a time read the whole journal once per
+request: in a profile of the sample under the agent overhead benchmark's load, that was 15 % of the process's CPU,
+against about 0.25 % for the advice on the application threads.
+
 **Debuggers.** The agent's bridge, which the advice calls, carries no line numbers or local variable tables, only its
 source file names, so stepping into an instrumented method in IntelliJ IDEA, Eclipse, or any JDI debugger steps over
 the advice's calls into BootUI and stops in the application's method, as a forked JDI test verifies; an error the bridge

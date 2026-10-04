@@ -103,12 +103,47 @@ class RequestTreeStoreTests {
             store.add(fragment(request, request), 0L);
         }
 
-        assertThat(store.openCount()).isEqualTo(RequestTreeStore.MAX_OPEN);
+        assertThat(store.openCount())
+                .isGreaterThanOrEqualTo(RequestTreeStore.MAX_OPEN)
+                .isLessThan(RequestTreeStore.MAX_OPEN + RequestTreeStore.OVERFLOW_BATCH);
         store.settleAll();
         assertThat(store.openCount()).isZero();
         assertThat(store.recent()).hasSize(RequestTreeStore.RECENT);
         assertThat(store.forgotten()).isPositive();
         assertThat(store.keptNodes()).isLessThanOrEqualTo(RequestTreeStore.MAX_KEPT_NODES);
+    }
+
+    /**
+     * M5-13: once {@link RequestTreeStore#MAX_OPEN} younger trees are open, the eldest settle in batches of
+     * {@link RequestTreeStore#OVERFLOW_BATCH}, each with one journal read, not one read per request, and the
+     * {@code MAX_OPEN} youngest stay open.
+     */
+    @Test
+    void openTreesPastTheBoundSettleInBatchesWithOneJournalReadEach() {
+        List<Set<String>> reads = new ArrayList<>();
+        Map<String, RequestOutcome> outcomes = new HashMap<>();
+        int requests = RequestTreeStore.MAX_OPEN + 4 * RequestTreeStore.OVERFLOW_BATCH;
+        for (long request = 1; request <= requests; request++) {
+            outcomes.put(CodePathFragment.hex(request), new RequestOutcome("GET /orders", 200, false));
+        }
+        RequestTreeStore store = new RequestTreeStore(ids -> {
+            reads.add(Set.copyOf(ids));
+            return named(outcomes).apply(ids);
+        });
+        for (long request = 1; request <= requests; request++) {
+            store.add(fragment(request, request), 0L);
+        }
+
+        assertThat(reads).hasSize(4).allSatisfy(ids -> assertThat(ids).hasSize(RequestTreeStore.OVERFLOW_BATCH));
+        assertThat(reads.get(0)).as("the eldest first").contains(CodePathFragment.hex(1L));
+        assertThat(store.openCount()).isEqualTo(RequestTreeStore.MAX_OPEN);
+        assertThat(reads.get(3))
+                .as("the youngest MAX_OPEN still open")
+                .contains(CodePathFragment.hex(requests - RequestTreeStore.MAX_OPEN))
+                .doesNotContain(CodePathFragment.hex(requests - RequestTreeStore.MAX_OPEN + 1L));
+        assertThat(store.settled()).isEqualTo(4L * RequestTreeStore.OVERFLOW_BATCH);
+        assertThat(store.unresolvedCount()).isZero();
+        assertThat(store.exemplars("GET /orders")).isNotEmpty();
     }
 
     @Test
