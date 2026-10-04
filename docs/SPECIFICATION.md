@@ -3443,19 +3443,21 @@ collapsible:
   - Exceptions.
   - HTTP Exchanges.
   - HTTP Probe.
-  - Code Inventory.
+- Java agent:
+  - Java Agent.
   - Code Paths.
+  - Code Inventory.
 - Developer tools:
   - MCP Server.
   - Command Line.
-  - Java Agent.
   - Spring DevTools.
   - Dev Services.
   - Copilot.
   - Claude Code.
   - GitHub.
 - Disabled / unavailable:
-  - Panels outside Home whose backing infrastructure is unavailable.
+  - Panels outside Home whose backing infrastructure is unavailable, or that configuration disables. A Java agent panel
+    that is unavailable only because the agent is not attached stays in the Java agent group, dimmed, with its reason.
 
 ### 7.2 UI principles
 

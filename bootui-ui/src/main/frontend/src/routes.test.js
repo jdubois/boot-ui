@@ -317,11 +317,11 @@ describe('routes', () => {
       'Exceptions',
       'HTTP Exchanges',
       'HTTP Probe',
-      'Code Inventory',
+      'Java Agent',
       'Code Paths',
+      'Code Inventory',
       'MCP Server',
       'Command Line',
-      'Java Agent',
       'Spring DevTools',
       'Dev Services',
       'Copilot',
@@ -448,6 +448,7 @@ describe('routes', () => {
         Security: groups.security,
         Services: groups.services,
         Diagnostics: groups.diagnostics,
+        'Java agent': groups.agent,
         'Developer Tools': groups.developerTools
       }).map(([title, group]) => [
         title,
@@ -472,6 +473,7 @@ describe('routes', () => {
       'security',
       'services',
       'diagnostics',
+      'agent',
       'developer-tools'
     ])
     expect(new Set(namedRoutes.map((route) => route.name)).size).toBe(namedRoutes.length)
@@ -486,7 +488,7 @@ describe('routes', () => {
         title: expect.any(String),
         icon: expect.stringMatching(/^bi-/),
         group: expect.stringMatching(
-          /^(home|advisors|runtime|configuration|database|security|services|diagnostics|developer-tools)$/
+          /^(home|advisors|runtime|configuration|database|security|services|diagnostics|agent|developer-tools)$/
         ),
         shortcut: expect.stringMatching(/^[a-z]{2,3}$/)
       })
@@ -549,9 +551,9 @@ describe('routes', () => {
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
-      groups.diagnostics,
-      groups.diagnostics,
-      groups.developerTools,
+      groups.agent,
+      groups.agent,
+      groups.agent,
       groups.developerTools,
       groups.developerTools,
       groups.developerTools,
@@ -560,6 +562,15 @@ describe('routes', () => {
       groups.developerTools,
       groups.developerTools
     ])
+  })
+
+  it('groups the agent-backed panels under Java agent, setup first', () => {
+    const agentRoutes = namedRoutes.filter((route) => route.meta.group === groups.agent)
+    expect(agentRoutes.map((route) => route.name)).toEqual(['java-agent', 'code-paths', 'code-inventory'])
+    expect(agentRoutes.map((route) => route.meta.requiresAgent === true)).toEqual([false, true, true])
+    expect(namedRoutes.filter((route) => route.meta.requiresAgent).every((r) => r.meta.group === groups.agent)).toBe(
+      true
+    )
   })
 
   it('keeps redirect aliases out of sidebar navigation', () => {

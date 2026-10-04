@@ -48,8 +48,9 @@ const allPanelLinks = [
   {id: 'exceptions', title: 'Exceptions', heading: /^Exceptions/},
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
-  {id: 'code-inventory', title: 'Code Inventory', heading: /^Code Inventory/},
+  {id: 'java-agent', title: 'Java Agent', heading: /^Java Agent/},
   {id: 'code-paths', title: 'Code Paths', heading: /^Code Paths/},
+  {id: 'code-inventory', title: 'Code Inventory', heading: /^Code Inventory/},
   {id: 'email', title: 'Email', heading: /^Email/},
   {id: 'kafka', title: 'Kafka', heading: /^Kafka/},
   {id: 'rabbitmq', title: 'RabbitMQ', heading: /^RabbitMQ/},
@@ -58,7 +59,6 @@ const allPanelLinks = [
   {id: 'rest-api', title: 'REST API', heading: /^REST API/},
   {id: 'mcp-server', title: 'MCP Server', heading: /^MCP Server/},
   {id: 'cli', title: 'Command Line', heading: /^Command Line/},
-  {id: 'java-agent', title: 'Java Agent', heading: /^Java Agent/},
   {id: 'devtools', title: 'Spring DevTools', heading: /^Spring DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
@@ -77,6 +77,7 @@ async function mockPanelAvailability(page, overrides = {}) {
             id: link.id,
             title: link.title,
             available: overrides[link.id]?.available ?? true,
+            enabled: overrides[link.id]?.enabled ?? true,
             unavailableReason: overrides[link.id]?.unavailableReason ?? null
           }))
         })
@@ -427,8 +428,9 @@ test.describe('BootUI app shell', () => {
       {title: 'Database', count: 9},
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
-      {title: 'Diagnostics', count: 7},
-      {title: 'Developer tools', count: 8}
+      {title: 'Diagnostics', count: 5},
+      {title: 'Java agent', count: 3},
+      {title: 'Developer tools', count: 7}
     ]
 
     for (const group of groups) {
@@ -482,30 +484,26 @@ test.describe('BootUI app shell', () => {
       'JMS'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+7/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
       'Exceptions',
       'HTTP Exchanges',
-      'HTTP Probe',
-      'Code Inventory',
-      'Code Paths'
+      'HTTP Probe'
     ])
 
-    await page.getByRole('button', {name: /Developer tools\s+8/}).click()
+    await page.getByRole('button', {name: /Java agent\s+3/}).click()
+    await expect(page.getByRole('group', {name: 'Java agent panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Java Agent',
+      'Code Paths',
+      'Code Inventory'
+    ])
+
+    await page.getByRole('button', {name: /Developer tools\s+7/}).click()
     await expect(
       page.getByRole('group', {name: 'Developer tools panels'}).locator('.bootui-nav-link__label')
-    ).toHaveText([
-      'MCP Server',
-      'Command Line',
-      'Java Agent',
-      'Spring DevTools',
-      'Dev Services',
-      'Copilot',
-      'Claude Code',
-      'GitHub'
-    ])
+    ).toHaveText(['MCP Server', 'Command Line', 'Spring DevTools', 'Dev Services', 'Copilot', 'Claude Code', 'GitHub'])
   })
 
   test('sidebar dims unavailable panels and the active panel explains why', async ({page}) => {
@@ -571,6 +569,33 @@ test.describe('BootUI app shell', () => {
     )
   })
 
+  test('sidebar keeps agent panels in the Java agent group until configuration disables them', async ({page}) => {
+    const reason = 'The BootUI agent is not attached to this JVM'
+    await mockPanelAvailability(page, {
+      'code-paths': {available: false, unavailableReason: reason},
+      'code-inventory': {available: false, enabled: false}
+    })
+    await page.goto('/bootui/')
+
+    const agentToggle = page.getByRole('button', {name: /Java agent\s+2/})
+    await expect(agentToggle).toHaveAttribute('aria-expanded', 'false')
+    await agentToggle.click()
+    const agentGroup = page.getByRole('group', {name: 'Java agent panels'})
+    await expect(agentGroup.locator('.bootui-nav-link__label')).toHaveText(['Java Agent', 'Code Paths'])
+    const codePathsLink = agentGroup.locator('.nav-link', {hasText: 'Code Paths'})
+    await expect(codePathsLink).toHaveClass(/bootui-nav-link--unavailable/)
+    await expect(codePathsLink).toHaveAttribute('title', `Code Paths - unavailable: ${reason}`)
+
+    await page.getByRole('button', {name: /Disabled \/ unavailable\s+1/}).click()
+    await expect(
+      page.getByRole('group', {name: 'Disabled / unavailable panels'}).locator('.bootui-nav-link__label')
+    ).toHaveText(['Code Inventory'])
+
+    await codePathsLink.click()
+    await expect(page.locator('.panel-availability-alert')).toContainText(reason)
+    await expect(agentToggle).toHaveClass(/active/)
+  })
+
   test('sidebar links open every BootUI section', async ({page}) => {
     await mockPanelAvailability(page)
     await page.goto('/bootui/')
@@ -605,18 +630,9 @@ test.describe('BootUI app shell', () => {
       'Runtime Insights'
     ])
     await expect(page.locator('aside .bootui-nav-group__toggle', {hasText: 'Home'})).toHaveCount(0)
-    await page.getByRole('button', {name: /Developer tools\s+8/}).click()
+    await page.getByRole('button', {name: /Developer tools\s+7/}).click()
     await expect(
       page.getByRole('group', {name: 'Developer tools panels'}).locator('.bootui-nav-link__label')
-    ).toHaveText([
-      'MCP Server',
-      'Command Line',
-      'Java Agent',
-      'Spring DevTools',
-      'Dev Services',
-      'Copilot',
-      'Claude Code',
-      'GitHub'
-    ])
+    ).toHaveText(['MCP Server', 'Command Line', 'Spring DevTools', 'Dev Services', 'Copilot', 'Claude Code', 'GitHub'])
   })
 })

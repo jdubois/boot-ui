@@ -72,6 +72,7 @@ export const groups = {
   security: 'security',
   services: 'services',
   diagnostics: 'diagnostics',
+  agent: 'agent',
   developerTools: 'developer-tools'
 }
 
@@ -977,11 +978,57 @@ export const routes = [
     }
   },
   {
+    path: '/java-agent',
+    name: 'java-agent',
+    component: JavaAgent,
+    meta: {
+      group: groups.agent,
+      icon: 'bi-plug-fill',
+      title: 'Java Agent',
+      shortcut: 'ja',
+      keywords: [
+        'agent',
+        'javaagent',
+        'instrumentation',
+        '-javaagent',
+        'byte buddy',
+        'bootui-agent',
+        'executors',
+        'propagation',
+        'thread pool'
+      ]
+    }
+  },
+  {
+    path: '/code-paths',
+    name: 'code-paths',
+    component: CodePaths,
+    meta: {
+      group: groups.agent,
+      requiresAgent: true,
+      icon: 'bi-hourglass-split',
+      title: 'Code Paths',
+      shortcut: 'co',
+      keywords: [
+        'call tree',
+        'slow route',
+        'handler time',
+        'self time',
+        'which method is slow',
+        'bean calls',
+        'callers',
+        'hot path',
+        'agent'
+      ]
+    }
+  },
+  {
     path: '/code-inventory',
     name: 'code-inventory',
     component: CodeInventory,
     meta: {
-      group: groups.diagnostics,
+      group: groups.agent,
+      requiresAgent: true,
       icon: 'bi-list-check',
       title: 'Code Inventory',
       shortcut: 'ci',
@@ -995,28 +1042,6 @@ export const routes = [
         'dependencies',
         'unused jars',
         'not loaded',
-        'agent'
-      ]
-    }
-  },
-  {
-    path: '/code-paths',
-    name: 'code-paths',
-    component: CodePaths,
-    meta: {
-      group: groups.diagnostics,
-      icon: 'bi-hourglass-split',
-      title: 'Code Paths',
-      shortcut: 'co',
-      keywords: [
-        'call tree',
-        'slow route',
-        'handler time',
-        'self time',
-        'which method is slow',
-        'bean calls',
-        'callers',
-        'hot path',
         'agent'
       ]
     }
@@ -1043,28 +1068,6 @@ export const routes = [
       title: 'Command Line',
       shortcut: 'cl',
       keywords: ['cli', 'command line', 'terminal', 'shell', 'bootui cli', 'ci', 'scripting', 'jbang']
-    }
-  },
-  {
-    path: '/java-agent',
-    name: 'java-agent',
-    component: JavaAgent,
-    meta: {
-      group: groups.developerTools,
-      icon: 'bi-plug-fill',
-      title: 'Java Agent',
-      shortcut: 'ja',
-      keywords: [
-        'agent',
-        'javaagent',
-        'instrumentation',
-        '-javaagent',
-        'byte buddy',
-        'bootui-agent',
-        'executors',
-        'propagation',
-        'thread pool'
-      ]
     }
   },
   {

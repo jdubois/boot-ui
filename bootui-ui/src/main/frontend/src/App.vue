@@ -30,6 +30,7 @@ import {
   panelDisabledReason,
   resolveRouteTitle,
   routeAvailabilityLabel as routeAccessibleLabel,
+  routeMovesToUnavailableGroup as movesToUnavailableGroup,
   routeStatusIcon as panelStatusIcon,
   routeUnavailable as isRouteUnavailable
 } from './utils/panelNavigation.js'
@@ -318,6 +319,7 @@ const semanticNavigationGroups = [
   {key: 'security', title: 'Security', icon: 'bi-shield-lock'},
   {key: 'services', title: 'Services', icon: 'bi-hdd-network'},
   {key: 'diagnostics', title: 'Diagnostics', icon: 'bi-search'},
+  {key: 'agent', title: 'Java agent', icon: 'bi-cpu'},
   {key: 'developer-tools', title: 'Developer tools', icon: 'bi-tools'}
 ]
 const unavailableNavigationGroup = {
@@ -430,13 +432,13 @@ const navigationSections = computed(() => {
   ]
 
   for (const group of semanticNavigationGroups) {
-    const groupRoutes = routes.filter((r) => r.meta?.group === group.key && !routeUnavailable(r))
+    const groupRoutes = routes.filter((r) => r.meta?.group === group.key && !routeInUnavailableGroup(r))
     if (groupRoutes.length) {
       sections.push({...group, collapsible: true, unavailable: false, routes: groupRoutes})
     }
   }
 
-  const unavailableRoutes = routes.filter((r) => r.meta?.group !== 'home' && routeUnavailable(r))
+  const unavailableRoutes = routes.filter((r) => r.meta?.group !== 'home' && routeInUnavailableGroup(r))
   if (unavailableRoutes.length) {
     sections.push({...unavailableNavigationGroup, collapsible: true, unavailable: true, routes: unavailableRoutes})
   }
@@ -446,7 +448,7 @@ const navigationSections = computed(() => {
 const activeNavigationGroupKey = computed(() => {
   const currentRoute = activeRoute.value
   if (!currentRoute || currentRoute.meta?.group === 'home') return null
-  return routeUnavailable(currentRoute) ? unavailableNavigationGroup.key : currentRoute.meta?.group
+  return routeInUnavailableGroup(currentRoute) ? unavailableNavigationGroup.key : currentRoute.meta?.group
 })
 
 async function loadOverview() {
@@ -522,6 +524,10 @@ async function authenticate() {
 
 function routeUnavailable(r) {
   return isRouteUnavailable(r, panelLookup.value)
+}
+
+function routeInUnavailableGroup(r) {
+  return movesToUnavailableGroup(r, panelLookup.value)
 }
 
 function routeStatusIcon(r) {

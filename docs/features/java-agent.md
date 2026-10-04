@@ -1,8 +1,13 @@
 # Java Agent
 
 The Java Agent panel explains whether the optional BootUI `-javaagent` is attached to the current JVM, whether this
-application has claimed it, and how to attach it when it is missing. The panel is in **Developer tools**, immediately
-after **Command Line**, and is view-only on Spring MVC, Spring WebFlux, and Quarkus.
+application has claimed it, and how to attach it when it is missing. It is view-only on Spring MVC, Spring WebFlux, and
+Quarkus.
+
+The panel opens the sidebar's **Java agent** group, the setup and status entry point for the panels that read the
+agent's sensors: [Code Paths](#code-paths) and [Code Inventory](#code-inventory). Without the agent those two stay in
+the group, dimmed, with the reason they are unavailable, so they can be found before the agent is attached; only
+`bootui.panels.<panel-id>.enabled=false` moves them to *Disabled / unavailable*.
 
 The agent is a development-time helper that propagates a request's correlation through the JDK's executors, so work an
 application hands to a raw thread pool or `CompletableFuture` is owned by the request that handed it over. It is
@@ -317,7 +322,7 @@ Its counters are those of the executors sensor, over threads instead of tasks, p
 ## The inventory sensor
 
 The `inventory` sensor, on by default, records which application methods ran in this run and which jars and class
-directories loaded classes. The [Code Inventory](diagnostics.md#code-inventory) panel reads it (changed methods since the
+directories loaded classes. The [Code Inventory](#code-inventory) panel reads it (changed methods since the
 previous run, executed and never-executed code, dependency use); the Java Agent panel shows the sensor's row, its hooks,
 and its counters.
 
@@ -422,7 +427,7 @@ shares its transformer with the [`code-paths` sensor](#the-code-paths-sensor).
 The `code-paths` sensor, on by default, times the application's bean methods per request: for each request, a call
 tree of the public and protected methods of its beans, merged by caller and method, with each node's calls, total time,
 time in its callees, and the request phase it entered in (filters, handler, or response). It is the evidence behind
-the [Code Paths](diagnostics.md#code-paths) panel, `get_code_paths`, and `route-time-breakdown`'s handler split; the
+the [Code Paths](#code-paths) panel, `get_code_paths`, and `route-time-breakdown`'s handler split; the
 engine keeps the request and route trees in memory for the current run, and the Java Agent panel shows the sensor's row,
 its hook, and its counters.
 
@@ -602,3 +607,253 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 
 On Quarkus these are build-time properties, read when the application is built (augmented); dev mode rebuilds when
 they change.
+
+## Code Paths
+
+The Code Paths panel names the application methods a route spends its time in: it turns "handler 80 ms" into
+"`SlowPricingService.quote` 55 ms", across the route's warm requests, without tracing, spans, or a profiler session. It
+needs the agent's [`code-paths` sensor](#the-code-paths-sensor), on by default once the agent is attached; without it
+the panel is unavailable with the Java Agent panel's reason and a link to it, and every read and `get_code_paths` answer
+`available: false` with that reason. The sidebar keeps it in the **Java agent** group, dimmed, with that reason. Its reads change nothing on Spring MVC, Spring WebFlux, and Quarkus; its one action
+is a [method probe](#method-probes), which the panel's read-only policy refuses.
+
+- **Routes**, ranked by their warm median: each route's warm requests, first recorded request, median and 95th
+  percentile, and its top methods by self time. A route marked **assembly only** has a handler that ran on an event
+  loop, returned a reactive or asynchronous result, or BootUI could not tell where its work ran, so its tree times the
+  handler's assembly, not the work that ran later or elsewhere.
+- **The selected route's tree** as an indented table: method, calls per request, total and self time per request, an
+  approximate median (≈) per request that reached it, and its share of the handler's time in application methods (of the request's own time when no handler phase is known,
+  as on WebFlux), with a share bar. Work an executor ran for the request is marked **async** and shown apart under the
+  method that submitted it, never subtracted from it; a parent's methods past the tree's node budget are one **Other**
+  node.
+- **Calls under methods**: under each method, its SQL statements, REST client calls, cache accesses, and AI calls per
+  request, with their time: the calls recorded while it was the innermost instrumented method open on their thread. A
+  statement Hibernate flushes at commit runs after the `@Transactional` method returned, in the transaction interceptor
+  around it, so it shows under the method that called the `@Transactional` one. Calls issued while no instrumented
+  method was open, as in a filter or while the response is written, and calls recorded on another thread, as a
+  streaming AI call's, show under no method; the limitations count each apart and say why.
+- **Selecting a method** shows its callers within the tree, every route whose tree reaches it, and **Probe this
+  method** ([method probes](#method-probes)).
+- **Beans at runtime**, a tab beside the routes: the calls between beans observed in this run's route trees, with their
+  counts, beside the dependencies the beans declare, as the Beans panel lists them. A filter keeps only the declared
+  dependencies **not called in this run**, which is all a run can say: never "unused", since a path no request took or
+  work outside a request may still call it. Calls come from each route's warm requests and its first request. A
+  dependency is not called only when a call would have been observed: both beans' classes are instrumented and none of
+  their methods was adaptively excluded; otherwise it is **not observable**, with why, as with a repository whose class
+  a framework generates, and never counted as not called.
+- **Excluded methods**: the methods the sensor stopped timing in this run, called more than 50,000 times a second under
+  2 µs each, whose time stays in their callers.
+
+How it works:
+
+- The agent times the public and protected methods of the application's bean classes (Spring beans, ArC beans) and
+  builds a per-thread fragment of each request's call tree; the engine merges a request's fragments into its request
+  tree, then, about two seconds after its last fragment, or sooner under sustained load, when more than 512 request
+  trees are open and the eldest quarter settle together, merges the settled tree into its **route tree**: per node, the
+  requests that reached it, its calls, total and self time, and a log2 histogram of the time each request spent in it
+  with its least and most, from which an approximate (≈) median and 95th percentile are read: interpolated within a
+  bucket and clamped to that least and most. Each route's first recorded request, the first whose tree settled, is kept
+  apart, as its time and request id only.
+- Route trees are keyed by the routes and outcomes [HTTP Exchanges](diagnostics.md#http-exchanges) owns: while that panel is
+  disabled, the panel, every read, `get_code_paths`, and the handler split are unavailable with that reason.
+- A node is its caller, its method, and the request phase it was entered in: a helper called by the handler and again
+  while the response is written is two nodes, so its response-write time never counts as handler time, whichever
+  request reached it first.
+- A request's tree joins its route tree once the request's exchange is recorded. A slow reactive response's tree can
+  settle before its response completes: it waits for the exchange, looked up again with a back-off, up to the executor
+  handoff window (five minutes), and only then is kept without a route.
+- Route trees are bounded: 2,000 nodes a route with one **Other** node per parent and phase past the budget, 100,000
+  nodes and 500 routes across the run. A call that finds no node left keeps its time in its caller's self time. Route
+  trees cover the current run only: a DevTools restart or Quarkus live reload starts new ones.
+- Request and route trees are kept outside the runtime journal, under the
+  [agent evidence contract](#agent-evidence-outside-the-journal). While the Code Paths panel is disabled,
+  every read, `get_code_paths`, Beans at runtime, the runtime model's observed calls, the handler split, and
+  `repeated-selects`' issuing method say so and show nothing of it. Their estimated bytes show in Live Activity's journal
+  status as **Agent evidence**; a smaller `bootui.runtime-journal.agent-evidence-max-bytes` shrinks the bounds above in
+  proportion. **Clear recording** drops every request and route tree, and any fragment flushed before the clear, still
+  queued or not: a request that lost a fragment to the clear is left out whole, never shown partial. The counts and the
+  adaptive exclusions are kept, and the summary says the recording was cleared.
+- A method's self time is its time outside its recorded child methods, so a JDK, framework, or library method shows
+  only as its caller's self time, and so do the SQL, REST client, cache, and AI calls it waited on.
+- **Call-site stamps.** Where the SQL, REST client, cache, and AI recorders already capture their application call site,
+  on the thread that issued the call, they also take the agent's stamp of the innermost instrumented method open there:
+  its fragment and node, packed into one number. When the request's tree settles, each stamped call is counted under the
+  exact node that issued it, and the route tree sums them per node. A call recorded on another thread than the one that
+  issued it carries no stamp and shows under no method: a streaming AI call, one received over OTLP, or a WebClient call
+  subscribed on another thread (Spring's WebClient filter takes the stamp where the exchange is subscribed, which is the
+  issuing thread when the caller blocks or subscribes in place; Quarkus's REST client, where its request filter runs). A
+  call issued on the request's thread while no instrumented method was open, as in a filter, while the response is
+  written, or in a commit after the outermost instrumented method returned, is counted apart. An executor's handoff
+  carries the submitting method's stamp too, so its work shows under that method, and the thread's previous submitter
+  comes back when the work is over, as for work a caller-runs executor ran in place.
+- **Assembly only**: a handler that ran on an event loop, returned a reactive or asynchronous result, or whose work
+  BootUI could not place. That is a Spring MVC handler that started async processing, every Spring WebFlux handler (the
+  fragment covers the request's subscription on the assembling thread, up to its first asynchronous boundary; the
+  WebFlux configuration marks every tree once, not each request), and a Quarkus resource method that runs on the event
+  loop or returns `Uni`, `Multi`, `CompletionStage`, or a publisher. When Quarkus cannot tell which method ran, the
+  request is marked assembly only rather than guessed.
+- **Handler split.** With the sensor active, Runtime Insights' `route-time-breakdown` splits a route's **Handler, other
+  work** into its top five handler-phase methods by own time, the rest as **Other handler time**, for every route whose
+  tree is not assembly only. A method's own time is its self time minus the recorded calls stamped to it, which the
+  breakdown already names as SQL, REST client, or AI time. Each method takes the share its own time per request has of
+  the handler's other work (or of the handler's methods, when they add up to more), so the parts never exceed it. A
+  recorded call without a stamp stays in the own time of the method that waited on it, and the observation says how
+  many there were. Only handler-phase nodes count. Each method keeps its own row, labelled `Class.method`, with its
+  parameter types when two overloads would share a label, and its package when two classes share a name.
+- **Issuing method.** Runtime Insights' `repeated-selects` names the method that issued the repeated statements, such
+  as a service method looping over a repository, beside SQL Trace's call site: the instrumented method that was
+  innermost on the statements' thread, since a repository's own methods are not instrumented.
+
+API, all `GET`:
+
+| Path | Returns |
+| --- | --- |
+| `/bootui/api/code-paths` | The sensor's status, the routes with a tree ranked by warm median with their top methods, the excluded methods, and the limitations |
+| `/bootui/api/code-paths/route?route=` | One route's tree, paged by `depth` (8 by default, at most 33), `offset`, and `limit` (200, at most 500), with each listed method's callers and the routes that reach it, and the route's exemplar request ids |
+| `/bootui/api/code-paths/requests/{requestId}` | One request's tree while the run keeps it: its recent requests and each route's slowest and latest failed |
+| `/bootui/api/code-paths/beans` | Beans at runtime: the observed calls between beans and the declared dependencies, observed first, with how many declared dependencies on a timed bean were not called in this run |
+
+Each tree node carries `calls`: per kind (`SQL`, `REST`, `CACHE`, `AI`), the calls it issued per request and their
+time, `null` for cache accesses, which have none. The runtime model gains an observed `INVOKES` edge between two beans
+per call pair, with its count; change impact never walks it, since a call observed in one run is evidence of the paths
+its requests took, not of what a change can reach. Change impact by method reads each route's own tree instead: every
+route counts, per method, the requests whose tree ran it, at any depth and before its tree folds methods into Other
+nodes, the first request and executor work included, at most 4,096 methods per route and 200,000 per run; a fragment
+that arrives after its request's tree was merged amends its route rather than opening a second tree, and a route whose
+trees may miss methods says so ([Change impact](overview.md#runtime-insights)).
+
+`get_code_paths` and `bootui code paths` return at most `limit` (10) routes matching `query` (a route, or part of a
+route or of a method), slowest warm median first, each with its top methods; for a single route, its method nodes with
+the most self time, each with its calls. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.
+
+### Method probes
+
+A method probe answers "did this method run, how long did it take, and for which request?" for one application method,
+without a debugger, a breakpoint, or a log line. **Probe this method**, on a method selected in a route's tree, or
+**Probe in Code Paths**, on a method Code Inventory lists as changed, asks for a confirmation, then the agent
+retransforms that one method and records its next **20 invocations**, for at most **60 seconds**, **five probes at
+once**:
+
+- each invocation's duration, thread kind (platform or virtual), request id (a link to Live Activity), outcome
+  (returned, or the type of the exception it threw), and calling frame: the first frame of the application's packages
+  above the method, past proxies and interceptors, else the frame right above it;
+- **metadata only**: never an argument, a return value, or a field, in any exposure mode.
+
+The **Method probes** card lists the run's probes, newest first, with their state (**starting**, **active**,
+**waiting for its class** when this run has not loaded the class yet, **ending** while the agent removes its
+instrumentation, **ended**, or **failed** with why), how many invocations each recorded, and why it ended: its
+invocations, its window, a **Stop**, or the end of the run. The card refreshes every second only while a probe is live.
+
+- **Bounds hold where the method runs.** The agent counts invocations and checks the window in the probe's own advice,
+  so a probe never records past its bound even if removing its instrumentation is slow or fails; such a removal is
+  reported on the probe. A probe ends with its run: a DevTools restart, a Quarkus live reload, or BootUI disabled. When
+  the run ended with a restart or a reload, the previous run's copy of the class is not retransformed again: the probe's
+  transformer is only removed, and the advice left in that copy records nothing until it is unloaded. While the panel
+  is read-only, a running probe still ends by itself within its window.
+- **The current run's code only.** A probe takes a method the agent's inventory or code-paths sensor instrumented, in the
+  application's packages, by `binary.Class#name` with its descriptor when the method is overloaded. Only the copy of the
+  class the current run's class loader defined is probed, never a previous run's still loaded; the inventory and
+  code-paths instrumentation of the method stays as it was once the probe ends.
+- **Reactive and asynchronous methods.** For a method returning `Mono`, `Flux`, `CompletionStage`, `Uni`, or another
+  reactive or asynchronous type, the probe is marked **assembly only**: it times the result's assembly and sees only
+  what the method throws itself; its request id is known only on the thread that captured it.
+- **Evidence.** Probes and their invocations are kept under the
+  [agent evidence contract](#agent-evidence-outside-the-journal), the run's last 25 probes with at most 20
+  invocations each: hidden with the Code Paths panel, without request ids while HTTP Exchanges is disabled, counted in
+  the journal status as **Agent evidence**, and **Clear recording** drops the probes that ended and every invocation
+  recorded before it, keeping a live probe for what it records next.
+- **Actions.** Starting and stopping probes are refused while BootUI or the panel is read-only
+  (`bootui.read-only=true`, `bootui.panels.code-paths.read-only=true`), in the browser, the API, MCP, and the CLI.
+
+| Method and path | Does |
+| --- | --- |
+| `GET /bootui/api/code-paths/probes` | The run's probes with their recorded invocations, the bounds, and the limitations |
+| `POST /bootui/api/code-paths/probes` | Starts a probe on `{"method": "com.example.PriceService#quote(I)J"}`: 400 for a method that cannot be probed, 409 when refused (unavailable, five running, or already probed) |
+| `GET /bootui/api/code-paths/probes/{id}` | One probe; 404 when this run has none |
+| `POST /bootui/api/code-paths/probes/{id}/stop`, `DELETE /bootui/api/code-paths/probes/{id}` | Stops a probe |
+
+AI agents start one with `start_method_probe` (`bootui probe start <method>`) and read it with `get_method_probe`
+(`bootui probe show <id>`), only after the user's separate approval; see
+[Did this method run, and how?](../AI-AGENTS.md#did-this-method-run-and-how).
+
+## Code Inventory
+
+The Code Inventory panel answers the question an agent or a developer asks right after an edit: **did the code I changed
+actually run?** It needs the agent's [`inventory` sensor](#the-inventory-sensor), on by default once the agent is
+attached; without it the panel is unavailable with the Java Agent panel's reason and a link to it, and every read and
+`get_code_inventory` answer `available: false` with that reason. The sidebar keeps it in the **Java agent** group,
+dimmed, with that reason. It is view-only on Spring MVC, Spring WebFlux, and
+Quarkus.
+
+Its header states the run and **N of M application methods executed**, where M counts the methods the agent tracked in
+this run. Three tabs follow:
+
+- **Changed since the previous run**, first when a previous run of the application was kept in this JVM: the methods
+  whose code changed, and those added, since the previous DevTools restart or Quarkus live reload, without git. Each says
+  whether it executed in this run, with the first request and route that ran it, which opens that request in Live
+  Activity. Methods not executed come first; removed methods are a count.
+- **Application code**: the claimed packages, then their classes and methods, with executed, never-executed, and
+  not-tracked counts, filterable to *never executed*.
+- **Dependencies**: the application's declared dependencies (the Vulnerabilities panel's inventory), matched by
+  `groupId:artifactId` from each jar's Maven metadata, else by its file name, to the jars the agent saw define classes:
+  classes loaded in this run, whether the first loaded at startup or later, and the route of the request that loaded it.
+  A declared jar with no class loaded is **not loaded in this run**, never "unused": a route this run did not exercise
+  may load it. BootUI's own jars and the agent are left out.
+
+How it works:
+
+- At each run, BootUI scans the application's own class files in the claimed packages, off the request path, in the
+  directories and jars the application class loader finds them in (test roots excluded), and hashes each method over
+  its resolved instructions: constant-pool operands by their symbolic value, `invokedynamic` through its bootstrap
+  arguments, branch targets as instruction positions, its exception table, and its runtime-visible annotations, never
+  line numbers or other debug attributes. The class's own annotations (a `@RequestMapping` prefix) count toward every
+  method, its fields' annotations (`@Value`, `@Autowired`) toward its constructors, and abstract methods (a repository's
+  `@Query`) are listed too. A recompilation with other debug settings, or another constant-pool order, hashes the same,
+  and so does a lambda or anonymous class the compiler only renumbered because another was added before it; a changed
+  literal, method reference, or `@GetMapping` value does not. The scan is bounded by
+  `bootui.code-inventory.max-classes` (20,000) and `bootui.code-inventory.scan-timeout` (30 seconds), finding its roots
+  included; past either it is partial and says so. A class file unchanged since the previous scan is not parsed again,
+  nor a class-path jar opened again, and a class file that cannot be parsed, or a class directory or jar that cannot be
+  read, makes the scan partial (failed when nothing could be read), so its methods are never reported as removed. While the scan runs,
+  or after it failed, the **Changed** tab says so rather than "no previous run", and nothing is compared.
+- The previous run's method hashes are kept across restarts in the same JVM, at most 1 MB a run (12 bytes a method),
+  per application, beside the run summaries of [run comparison](overview.md). Only classes both scans covered are
+  compared. When another application claimed the agent in between, the panel says the runs are mixed. A full JVM
+  restart, or BootUI itself loaded by the restart class loader, keeps no previous run, which the panel says too.
+- Which methods executed comes from the agent's hit flags, exactly, and the first request, route, and time from its
+  records, which a full ring may drop (counted, and said).
+- The first request and route belong to [HTTP Exchanges](diagnostics.md#http-exchanges): while that panel is disabled, every read,
+  `get_code_inventory`, and Runtime Insights' `changed-code-not-executed` leave them out, with the reason, and say only
+  which methods executed and when. While the Code Inventory panel itself is disabled, every read, the MCP tool, and
+  `changed-code-not-executed` answer that it is disabled, and the journal status reports only its bytes.
+- First calls are kept per method id, bounded by the agent's method limit (about 9 MB with their loads and routes), and counted in the journal
+  status's **Agent evidence** with Code Paths' trees ([agent evidence](#agent-evidence-outside-the-journal)).
+  **Clear recording** in Live Activity drops every first request and route recorded before it, those still queued in
+  the agent's ring included; which methods executed, and when each first ran, still cover the whole run, since the
+  agent marks each method once a run, so a method whose first call is older than the clear may not have run since. The
+  summary's `recordingClearedAt` and a limitation say when.
+- A method counts as executed or never executed only when the agent instrumented its class in this run, or when its
+  class has not loaded in this run at all (after a DevTools restart, a class the new class loader has not loaded yet
+  has not run). Any other method on disk is **not tracked**, with its reason (static initializer, abstract method,
+  `$`-prefixed name, synthetic class, a class the agent never instruments by name such as a generated proxy, transform
+  failed, over the agent's method limit, or **ran before instrumentation** when its class loaded before the agent
+  instrumented it), and never counted as executed or never executed. A method that executed but has no class file in
+  the scanned roots, as in a generated class, is counted apart as **generated**. Methods called before BootUI claimed
+  the agent are not seen.
+- A HotSwap (a debugger's **Reload Changed Classes**) keeps the agent tracking the edited methods, but the class files
+  are hashed only when a run starts: the edit shows in **Changed** after the next DevTools restart or Quarkus live
+  reload ([HotSwap](#hotswap)).
+
+API, all `GET`, paged with `offset` and `limit` where they list:
+
+| Path | Returns |
+| --- | --- |
+| `/bootui/api/code-inventory` | The run, the scan, the method counts, the change counts, the dependency counts, and the limitations |
+| `/bootui/api/code-inventory/changes` | The changed and added methods, not executed first |
+| `/bootui/api/code-inventory/methods` | Methods filtered by `package`, `class`, and `status` (`executed`, `never-executed`, `not-tracked`, `generated`), with package and class counts |
+| `/bootui/api/code-inventory/dependencies` | The dependency use, declared jars not loaded first, filtered by `status` |
+
+`get_code_inventory` and `bootui code inventory` return the counts first, then at most `limit` (25) rows of `query`:
+`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
+`verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
+`changed-code-not-executed`.

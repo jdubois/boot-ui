@@ -54,7 +54,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Spring MVC, WebFlux, and Quarkus, and the `start_method_probe` (`bootui probe start`, an action needing the user's
   separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
   Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
-  ([Method probes](docs/features/diagnostics.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
+  ([Method probes](docs/features/java-agent.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
@@ -73,7 +73,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   method entered in another request phase under the same caller is now another node, so response-write time is never
   split as handler time; overloads and same-named classes keep their own rows in the handler split, and no part of the
   handler is lost between them; and a slow reactive response's tree, settled before its response completed, now joins
-  its route once the response is recorded ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14,
+  its route once the response is recorded ([Code Paths](docs/features/java-agent.md#code-paths), PLAN-v2 §5.14,
   M5-4c).
 - **Code Paths panel, API, and tools.** With the BootUI agent's `code-paths` sensor, the new view-only Code Paths panel
   (Diagnostics) ranks routes by their warm median and shows each route's call tree of application bean methods, merged
@@ -86,7 +86,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   route's handler work into its top five methods, with the rest as other handler time. `GET {api}/code-paths`,
   `/code-paths/route`, `/code-paths/requests/{id}`, `get_code_paths`, and `bootui code paths` on Spring MVC, Spring
   WebFlux, and Quarkus; the samples gain a seeded slow route, `GET /api/quotes/{sku}`
-  ([Code Paths](docs/features/diagnostics.md#code-paths), PLAN-v2 §5.14, M5-4b).
+  ([Code Paths](docs/features/java-agent.md#code-paths), PLAN-v2 §5.14, M5-4b).
 - **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
   protected methods of the application's beans per request, as call trees built on the request's own threads, with
   executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
@@ -143,7 +143,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `changed-code-not-executed` reports "your change has not run yet" (23 checks). Without the agent it is unavailable with
   the Java Agent panel's reason. New properties: `bootui.code-inventory.max-classes` and
   `bootui.code-inventory.scan-timeout`. The samples seed a never-called method and a declared jar they never load
-  ([Code Inventory](docs/features/diagnostics.md#code-inventory), PLAN-v2 M5-3).
+  ([Code Inventory](docs/features/java-agent.md#code-inventory), PLAN-v2 M5-3).
 
 - **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
   expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
@@ -253,6 +253,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
+  Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
+  attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,
+  instead of moving into the collapsed *Disabled / unavailable* group; a panel turned off with
+  `bootui.panels.<panel-id>.enabled=false` still moves there. Their documentation moves to the
+  [Java Agent](docs/features/java-agent.md) page.
 - **Code Paths counts a late fragment's request once.** A code-paths fragment arriving after its request's tree was
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too

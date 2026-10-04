@@ -12,8 +12,9 @@ straight to a panel by name.
 | [Database](./database.md) | Connection Pools · PostgreSQL · MySQL · SQL Trace · Hibernate Statistics · Transactions · Spring Data · Flyway · Liquibase | What is my app doing to the database? |
 | [Security](./security.md) | Spring Security · Security Logs | How is access actually enforced? |
 | [Services](./services.md) | Scheduled Tasks · REST Client · Fault Tolerance · WebSockets · AI Framework · Cache · Email · Kafka · RabbitMQ · JMS | What is my app talking to? |
-| [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe · Code Inventory · Code Paths | Why did that request fail? Did my change run? Where does the handler's time go? |
-| [Developer tools](./developer-tools.md) | MCP Server · Command Line · Java Agent · Spring DevTools · Dev Services · Copilot · Claude Code | What is my toolchain doing locally? |
+| [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe | Why did that request fail? |
+| [Java agent](./java-agent.md) | Java Agent · Code Paths · Code Inventory | Did my change run? Where does the handler's time go? |
+| [Developer tools](./developer-tools.md) | MCP Server · Command Line · Spring DevTools · Dev Services · Copilot · Claude Code | What is my toolchain doing locally? |
 
 ## Rules that apply to every panel
 
@@ -26,7 +27,10 @@ There is no automatic retry, reload loop, or background connection probe, and or
 existing handling.
 
 **Unavailable panels are visible, not hidden.** When a panel's backing infrastructure is missing, the sidebar moves it
-into a collapsed *Disabled / unavailable* group, and opening it shows the reason at the top of the page.
+into a collapsed *Disabled / unavailable* group, and opening it shows the reason at the top of the page. The panels that
+need the BootUI agent are the exception: without the agent they stay in the *Java agent* group, dimmed, with the reason
+as their tooltip, so they can be found before the agent is attached. A panel turned off by configuration always moves to
+*Disabled / unavailable*.
 
 The vendor-specific database panels are the exception. PostgreSQL and MySQL appear only when that vendor's JDBC driver
 is on the runtime classpath. With the driver present but no matching datasource configured they are listed as

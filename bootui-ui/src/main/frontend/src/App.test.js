@@ -19,7 +19,7 @@ function jsonResponse(body) {
   }
 }
 
-function mockShellFetch(platform = 'spring-boot') {
+function mockShellFetch(platform = 'spring-boot', panelOverrides = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn((url) => {
@@ -45,7 +45,8 @@ function mockShellFetch(platform = 'spring-boot') {
               id: route.name,
               title: route.meta.title,
               available: true,
-              enabled: true
+              enabled: true,
+              ...panelOverrides[route.name]
             }))
           })
         )
@@ -208,6 +209,32 @@ describe('App sidebar navigation', () => {
 
     expect(groupToggle(wrapper, 'Security').classes()).not.toContain('active')
     expect(groupToggle(wrapper, 'Services').classes()).toContain('active')
+  })
+
+  it('keeps agent panels in the Java agent group without the agent, but moves a config-disabled one', async () => {
+    mockShellFetch('spring-boot', {
+      'code-paths': {available: false, unavailableReason: 'The BootUI agent is not attached'},
+      'code-inventory': {available: false, enabled: false}
+    })
+    const {wrapper} = await mountApp('/code-paths')
+
+    const agentToggle = groupToggle(wrapper, 'Java agent')
+    expect(agentToggle.classes()).toContain('active')
+    expect(agentToggle.attributes('aria-expanded')).toBe('true')
+    const agentGroup = wrapper.find('#bootui-nav-group-agent')
+    expect(agentGroup.findAll('.bootui-nav-link__label').map((label) => label.text())).toEqual([
+      'Java Agent',
+      'Code Paths'
+    ])
+    const codePathsLink = agentGroup.findAll('a').find((link) => link.text().includes('Code Paths'))
+    expect(codePathsLink.classes()).toContain('bootui-nav-link--unavailable')
+    expect(codePathsLink.attributes('title')).toBe('Code Paths - unavailable: The BootUI agent is not attached')
+
+    const unavailableGroup = wrapper.find('#bootui-nav-group-unavailable')
+    const unavailableLabels = unavailableGroup.findAll('.bootui-nav-link__label').map((label) => label.text())
+    expect(unavailableLabels).toContain('Code Inventory')
+    expect(unavailableLabels).not.toContain('Code Paths')
+    expect(groupToggle(wrapper, 'Disabled / unavailable').classes()).not.toContain('active')
   })
 
   it('releases pointer focus from group toggles after mouse or touch activation', async () => {
