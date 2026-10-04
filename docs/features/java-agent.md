@@ -81,17 +81,26 @@ Production launch mode never claims the agent and reports `DISABLED` with reason
 `bootui.agent.*` properties are build-time on Quarkus, so the panel reports the `bootui.agent.enabled` the build claimed
 or released with, never a runtime value, which changes nothing.
 
-**When the claim happens.** On Spring, the claim is made once the environment is prepared, before any bean is created:
-in the Spring sample started with DevTools, at about 0.6 s of JVM uptime in each restart's thread, by which time the
-restart class loader had loaded only the main class, the primary source, and a listener the main method registers. On
-Quarkus, it is made by a static-init step, about 0.5 to 1 s after static init begins in the Quarkus sample on JDK 17, by
-which time three application classes had loaded for earlier static-init steps: a configuration mapping, an exception
-class, and an AI service interface, none of whose code runs then. Classes loaded before the claim are instrumented when
-the sensors install and marked late for that run. The first claim in a JVM installs the sensors off the claiming thread:
-on a loaded 10-core laptop, the agent's own start took about 20 ms, each sensor's install and retransformation 0.3 to
-0.7 s on Spring (JDK 26) and about 1.1 to 1.5 s on Quarkus (JDK 17), and the Spring sample's first start went from about
-6.1 s (no agent, or the agent dormant) to about 7.1 s, while a DevTools restart, whose claim finds the sensors installed,
-went from about 1.05 s to 1.13 s.
+**When the claim happens.** On Spring, the claim is made once the environment is prepared, before any bean is created.
+In Spring PetClinic and the Spring sample, both started with DevTools on JDK 26, it came at about 0.6 to 0.75 s of JVM
+uptime in each restart's thread. By then the restart class loader had loaded only the main class (and, in the sample, the
+primary source and a listener its main method registers). On Quarkus, a static-init step makes the claim. In the Quarkus
+sample on JDK 17, it came about 0.5 to 1 s after static init began. By then three application classes had loaded for
+earlier static-init steps: a configuration mapping, an exception class, and an AI service interface, none of whose code
+runs then. Classes loaded before the claim are instrumented when the sensors install, and marked late for that run.
+
+**What the first claim costs.** The first claim in a JVM installs the sensors off the claiming thread. These figures were
+measured on a shared 10-core laptop running other builds, at load averages of 21 to 35. They are upper bounds, not typical
+values:
+
+- In PetClinic, the agent's own start took about 25 ms.
+- Installing the sensors, including retransforming the classes already loaded, took 0.63 to 0.80 s in total, within the
+  1 s budget. The `executors` sensor's share of the retransformation was 0.59 to 0.73 s, and the `inventory` sensor's
+  0.05 to 0.07 s.
+- PetClinic's first start took a median of 6.3 s of JVM uptime with the agent claimed, against 5.4 s without it. A DevTools
+  restart, whose claim finds the sensors installed, took 0.83 s against 0.70 s.
+- The Quarkus sample's install took 1.1 to 1.5 s, but that was measured at load averages of 55 to 90, which also made its
+  start times too noisy to compare.
 
 **Across restarts and reloads.** Tests restart the Spring sample ten times with DevTools, and live-reload a minimal
 Quarkus application ten times, with the agent claimed again at each run, then walk the heap from the agent (its classes'

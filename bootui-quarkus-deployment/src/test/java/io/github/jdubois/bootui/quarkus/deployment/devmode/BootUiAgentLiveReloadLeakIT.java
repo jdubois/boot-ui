@@ -17,11 +17,17 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.DisabledForJreRange;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -29,8 +35,9 @@ import org.junit.jupiter.api.extension.RegisterExtension;
  * The BootUI agent across real Quarkus live reloads of a minimal application ({@code docs/PLAN-v2.md} M5-1, §5.13's
  * leak risk): run by failsafe, after the agent jar is packaged, in a JVM started with the agent, so BootUI's static-init
  * recorder claims it again at each of ten reloads of the dev-mode application. A heap walk rooted at the agent (its
- * classes' statics, its instances, and its threads) must then reach no earlier run's class loader; the engine's drain
- * thread, which works for the run still going, is the walk's control.
+ * classes' statics, its instances, and its threads) must then reach no earlier run's class loader but the first, which
+ * a mutation keeps through a thread named as the agent's, to prove the walk finds such a hold; the engine's drain
+ * thread, which works for the run still going, is the walk's other control.
  *
  * <p>Disabled on JDK 27 and later, as {@link BootUiLiveReloadRunIdentityTest} is: the Quarkus LTS platform's dev mode
  * cannot read class files of that version.</p>
@@ -52,6 +59,7 @@ class BootUiAgentLiveReloadLeakIT {
     private final HttpClient client = HttpClient.newHttpClient();
 
     @Test
+    @Timeout(value = 20, unit = TimeUnit.MINUTES)
     void afterTenLiveReloadsTheAgentReachesNoEarlierRun() throws Exception {
         if (Boolean.getBoolean("bootui.agent.it.required")) {
             assertThat(bridgePresent())
@@ -60,21 +68,32 @@ class BootUiAgentLiveReloadLeakIT {
         } else {
             Assumptions.assumeTrue(bridgePresent(), "run by failsafe, whose JVM starts with the agent");
         }
+        System.setProperty(ReloadProbeResource.MUTATION_PROPERTY, "true");
         assertThat(get("/reload-probe")).startsWith("v0 run ");
+        List<Long> generations = new ArrayList<>();
+        generations.add(generation(get("/bootui/api/java-agent")));
         for (int reload = 1; reload <= RELOADS; reload++) {
             String from = "\"v" + (reload - 1) + " run \"";
             String to = "\"v" + reload + " run \"";
             TEST.modifySourceFile(ReloadProbeResource.class, source -> source.replace(from, to));
             assertThat(get("/reload-probe")).as("reload %d", reload).startsWith("v" + reload + " run ");
+            long generation = generation(get("/bootui/api/java-agent"));
+            assertThat(generation)
+                    .as("reload %d claims again: %s", reload, generations)
+                    .isGreaterThan(generations.get(generations.size() - 1));
+            generations.add(generation);
         }
         String answer = get("/reload-probe");
         int current = Integer.parseInt(answer.substring(answer.lastIndexOf(' ') + 1));
         assertThat(current).as("each reload loaded its own copy: %s", answer).isGreaterThan(RELOADS);
         String report = get("/bootui/api/java-agent");
         assertThat(report).as(report).contains("\"state\":\"ARMED\"");
-        assertThat(report)
-                .as("the bridge's counters: %s", report)
-                .containsPattern("\"counters\":\\{[^}]*\"errors\":0[,}]");
+        for (String counter : List.of("takeovers", "holds", "errors")) {
+            assertThat(report)
+                    .as("the bridge's %s: %s", counter, report)
+                    .containsPattern("\"counters\":\\{[^}]*\"" + counter + "\":0[,}]");
+        }
+        System.out.println("CLAIM_GENERATIONS=" + generations);
 
         Path dump = Files.createTempDirectory("bootui-live-reload-").resolve("live-reloads.hprof");
         try {
@@ -82,9 +101,11 @@ class BootUiAgentLiveReloadLeakIT {
             ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class).dumpHeap(dump.toString(), true);
             HeapWalk walk = HeapWalk.read(dump);
             SortedSet<Integer> present = walk.runsPresent(SENTINEL);
+            Map<String, Integer> roots = walk.agentRoots(AGENT);
             Map<Integer, String> reached = walk.runsReachedByAgent(AGENT, SENTINEL);
             Map<Integer, String> fromDrain = walk.runsReachedFromThreads("bootui-agent-drain", AGENT, SENTINEL);
             int drainThreads = walk.liveThreads("bootui-agent-drain");
+            System.out.println("AGENT_ROOTS=" + roots);
             System.out.println("RUNS_IN_HEAP=" + present);
             System.out.println("RUNS_REACHED_BY_AGENT=" + reached.keySet());
             System.out.println("RUNS_REACHED_FROM_THE_ENGINE_DRAIN=" + fromDrain.keySet());
@@ -96,10 +117,18 @@ class BootUiAgentLiveReloadLeakIT {
             assertThat(fromDrain)
                     .as("the walk reaches the run still going from its drain thread")
                     .containsKey(current);
+            assertThat(roots)
+                    .as("the walk starts from the agent's classes, instances, and threads")
+                    .allSatisfy((kind, count) -> assertThat(count).as(kind).isPositive());
+            // The mutation: the first run's thread named as an agent thread keeps that run, and the walk must find it.
+            assertThat(reached)
+                    .as("the first run, which the mutation thread keeps")
+                    .containsKey(1);
+            assertThat(reached.get(1)).contains("ROOT agent thread " + ReloadProbeResource.MUTATION_THREAD);
             // The test's own class loader holds an uninitialized copy, numbered -1, which is no run.
             assertThat(reached.keySet())
                     .as("earlier runs the agent strongly reaches: %s", reached)
-                    .allMatch(run -> run == current || run < 1);
+                    .allMatch(run -> run == 1 || run == current || run < 1);
         } finally {
             delete(dump);
             delete(dump.getParent());
@@ -113,6 +142,14 @@ class BootUiAgentLiveReloadLeakIT {
         } catch (IOException ex) {
             path.toFile().deleteOnExit();
         }
+    }
+
+    /** The armed claim's generation in a Java Agent report. */
+    private static long generation(String report) {
+        Matcher matcher = Pattern.compile("\"claim\":\\{\"generation\":(\\d+)").matcher(report);
+        assertThat(report).contains("\"state\":\"ARMED\"");
+        assertThat(matcher.find()).as("a claim in %s", report).isTrue();
+        return Long.parseLong(matcher.group(1));
     }
 
     private static boolean bridgePresent() {

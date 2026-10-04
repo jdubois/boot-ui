@@ -21,7 +21,7 @@ import java.util.TreeSet;
  * Reads an HPROF heap dump and answers which application runs the agent itself strongly reaches (PLAN-v2 M5-0 second
  * pass, extended by the M5-1 reviews). The walk starts from the statics and every instance of each class whose name
  * starts with the agent prefix, and from every thread whose name starts with {@code bootui-agent} but the engine's
- * (a thread running a BootUI task outside the agent's package, as the engine's drain thread); it follows instance
+ * (a thread running a task of a BootUI module beside the agent, as the engine's drain thread); it follows instance
  * fields, array elements, instance-to-class and class-to-loader edges, but never a reference's referent, queue, or
  * pending links, nor the links of the cleaner's list of cleanables, nor the statics of a class outside the prefix
  * (the application's and the JDK's own pins are not the agent's). Each reached copy of the run class reports its static
@@ -34,6 +34,14 @@ import java.util.TreeSet;
 public final class HeapWalk {
 
     private static final long CHUNK = 1L << 30;
+
+    /** BootUI's own modules beside the agent, whose threads (the engine's drain) are not the agent's. */
+    private static final List<String> BOOTUI_MODULES = List.of(
+            "io/github/jdubois/bootui/engine/",
+            "io/github/jdubois/bootui/core/",
+            "io/github/jdubois/bootui/spi/",
+            "io/github/jdubois/bootui/autoconfigure/",
+            "io/github/jdubois/bootui/quarkus/");
 
     private final List<MappedByteBuffer> maps = new ArrayList<>();
     private int idSize;
@@ -234,9 +242,9 @@ public final class HeapWalk {
     }
 
     /**
-     * Whether the thread runs a task of BootUI outside the agent, as the engine's {@code bootui-agent-drain} thread
-     * does for its claim: the engine's, not the agent's, so not a root (a walk from it would follow the application run
-     * that owns it into whatever that run, or its framework, retains). JDK 19 and later keep the task in the thread's
+     * Whether the thread runs a task of a BootUI module beside the agent, as the engine's {@code bootui-agent-drain}
+     * thread does for its claim: the engine's, not the agent's, so not a root (a walk from it would follow the
+     * application run that owns it into whatever that run, or its framework, retains). JDK 19 and later keep the task in the thread's
      * {@code holder}, earlier JDKs in {@code target}.
      */
     private boolean engineTask(long thread, long type, String agentPrefix) {
@@ -252,7 +260,48 @@ public final class HeapWalk {
             return false;
         }
         String name = classNames.getOrDefault(classOf(id), "");
-        return name.startsWith("io/github/jdubois/bootui/") && !name.startsWith(agentPrefix);
+        if (name.startsWith(agentPrefix)) {
+            return false;
+        }
+        for (String module : BOOTUI_MODULES) {
+            if (name.startsWith(module)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Root kind ({@code classes}, {@code instances}, {@code threads}) to how many roots of that kind the walk from the
+     * agent starts from: a walk from no root reaches nothing, so a leak test asserts there are some.
+     */
+    public Map<String, Integer> agentRoots(String agentPrefix) {
+        int classes = 0;
+        int instances = 0;
+        int threads = 0;
+        for (Map.Entry<Long, String> entry : classNames.entrySet()) {
+            if (entry.getValue().startsWith(agentPrefix) && classInfo.containsKey(entry.getKey())) {
+                classes++;
+            }
+        }
+        for (Long object : offsets.keySet()) {
+            long type = classOf(object);
+            if (classNames.getOrDefault(type, "").startsWith(agentPrefix)) {
+                instances++;
+            } else if (isThread(type)) {
+                String threadName = threadName(object, type);
+                if (threadName != null
+                        && threadName.startsWith("bootui-agent")
+                        && !engineTask(object, type, agentPrefix)) {
+                    threads++;
+                }
+            }
+        }
+        Map<String, Integer> roots = new TreeMap<>();
+        roots.put("classes", classes);
+        roots.put("instances", instances);
+        roots.put("threads", threads);
+        return roots;
     }
 
     private String threadName(long thread, long type) {

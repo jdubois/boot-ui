@@ -72,7 +72,16 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         try {
             AgentBridgeAccess access = bridge.get();
-            if (!access.present() || nestedRun() || springCloudBootstrap(environment)) {
+            if (!access.present()) {
+                return;
+            }
+            if (nestedRun()) {
+                LOGGER.debug("Not claiming or releasing the BootUI agent from a SpringApplication run inside another");
+                return;
+            }
+            if (springCloudBootstrap(environment)) {
+                LOGGER.debug("Not claiming or releasing the BootUI agent from an environment with a property source"
+                        + " named '" + SPRING_CLOUD_BOOTSTRAP + "' (Spring Cloud's bootstrap context)");
                 return;
             }
             String name = applicationName(environment, application);

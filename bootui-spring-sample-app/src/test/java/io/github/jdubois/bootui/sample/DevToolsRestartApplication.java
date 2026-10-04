@@ -31,7 +31,11 @@ public final class DevToolsRestartApplication {
 
         @Override
         public void onApplicationEvent(ApplicationReadyEvent event) {
-            System.out.println("RESTART_RUN=" + RestartSentinel.run());
+            int run = RestartSentinel.run();
+            if (run == 1 && Boolean.getBoolean(RestartSentinel.MUTATION_PROPERTY)) {
+                RestartSentinel.keepFirstRun();
+            }
+            System.out.println("RESTART_RUN=" + run);
         }
     }
 }
