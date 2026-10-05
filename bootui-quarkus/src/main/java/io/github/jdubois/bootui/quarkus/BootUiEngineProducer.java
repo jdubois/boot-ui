@@ -352,7 +352,8 @@ public class BootUiEngineProducer {
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
             AgentEvidence evidence,
-            Instance<QuarkusBeanProvider> beans) {
+            Instance<QuarkusBeanProvider> beans,
+            QuarkusExposurePolicy exposure) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         // Its panel and HTTP Exchanges, which owns route trees and request outcomes, gate its reads (docs/PLAN-v2.md
         // §8).
@@ -364,6 +365,8 @@ public class BootUiEngineProducer {
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.isResolvable() ? beans.get() : null, null));
+        // Method probes' argument and return shapes follow the live bootui.expose-values (M5-8, D44).
+        service.setExposure(exposure);
         return service;
     }
 

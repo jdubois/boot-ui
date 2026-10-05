@@ -33,6 +33,9 @@ class MethodProbesIT {
                     + " deregisters it",
             "a call in flight across the install records nothing, one across the removal records once, and both sensors"
                     + " still see the method",
+            "a shapes probe records argument and return shapes, joined by index, and runs no application method",
+            "return shapes name an application collection by its class and a JDK list by its size, and a void method has"
+                    + " none",
             "a release ends and removes probes");
 
     @Test

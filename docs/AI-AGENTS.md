@@ -418,7 +418,9 @@ approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue
 ### Did this method run, and how?
 
 A [method probe](features/java-agent.md#method-probes) records one application method's next invocations: metadata
-only, in every exposure mode (D24).
+only, in every exposure mode (D24). A probe the user started in the Code Paths panel with argument and return shapes
+says so (`recordShapes`), but `get_method_probe` never returns those shapes, in any exposure mode: its
+`shapesHiddenReason` says they are shown in the panel only.
 
 | Tool | CLI | Returns |
 | --- | --- | --- |

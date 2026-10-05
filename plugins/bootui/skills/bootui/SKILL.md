@@ -211,7 +211,8 @@ With the agent attached and the user's separate approval, `bootui probe start <m
 and Code Inventory name it. It is an action: read-only policy refuses it, and it changes the running code for its
 window. Run the test or send the request that should reach the method, then `bootui probe show <id> --json`
 (`get_method_probe`): each invocation's duration, thread kind, request id, outcome or exception type, and calling frame,
-never argument or return values. No invocation after the code ran is evidence the path never reaches the method. A
+never argument or return values; shapes the user asked for in the panel stay there. No invocation after the code ran
+is evidence the path never reaches the method. A
 probe `waitingForClass` has not seen this run load its class yet; an `async` method's durations time its result's
 assembly only.
 
