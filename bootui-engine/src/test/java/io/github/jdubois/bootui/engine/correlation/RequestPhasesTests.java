@@ -68,4 +68,30 @@ class RequestPhasesTests {
         assertThat(phases.phaseOf("r2")).isEqualTo(RequestPhase.FILTERS);
         assertThat(phases.phaseOf("r3")).isEqualTo(RequestPhase.FILTERS);
     }
+
+    @Test
+    void endListenersHearEveryEndEvenOfAForgottenRequestAndAFailingOneChangesNothing() {
+        RequestPhases phases = new RequestPhases(1);
+        java.util.List<String> heard = new java.util.ArrayList<>();
+        phases.addEndListener(id -> {
+            throw new IllegalStateException("listener failure");
+        });
+        java.util.function.Consumer<String> listener = heard::add;
+        phases.addEndListener(listener);
+        phases.begin("first");
+        phases.begin("second");
+
+        phases.end("first");
+        phases.end("second");
+        phases.end("second");
+        phases.end(null);
+
+        assertThat(heard).containsExactly("first", "second", "second");
+        assertThat(phases.markers("first")).as("forgotten").isNull();
+        assertThat(phases.markers("second").endedAt()).isNotNull();
+
+        phases.removeEndListener(listener);
+        phases.end("third");
+        assertThat(heard).hasSize(3);
+    }
 }

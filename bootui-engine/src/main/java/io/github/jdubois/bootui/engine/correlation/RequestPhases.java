@@ -1,7 +1,10 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * The phase markers of recent requests, keyed by BootUI request id ({@code docs/PLAN-v2.md} §5.1). Adapters mark
@@ -11,6 +14,10 @@ import java.util.Map;
  *
  * <p>Bounded: the oldest requests are forgotten first, and work recorded for a forgotten request carries no phase. All
  * methods are thread-safe and ignore a {@code null} request id.</p>
+ *
+ * <p>End listeners ({@link #addEndListener}) hear every {@link #end(String)}, whether or not the request is still
+ * tracked, outside this class's lock, as the BootUI agent's thread-activity sensor does to check what a request left
+ * running ({@code docs/PLAN-v2.md} §5.16).</p>
  */
 public final class RequestPhases {
 
@@ -18,6 +25,7 @@ public final class RequestPhases {
     public static final int DEFAULT_MAX_REQUESTS = 4_096;
 
     private final int maxRequests;
+    private final List<Consumer<String>> endListeners = new CopyOnWriteArrayList<>();
     private final Map<String, Timeline> timelines = new LinkedHashMap<>(16, 0.75f, false) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Timeline> eldest) {
@@ -86,6 +94,28 @@ public final class RequestPhases {
                 timeline.endedAt = epochMicros();
             }
         }
+        for (Consumer<String> listener : endListeners) {
+            try {
+                listener.accept(requestId);
+            } catch (RuntimeException ex) {
+                // A listener's failure never changes the request's own outcome.
+            }
+        }
+    }
+
+    /**
+     * Adds a listener told the request id of every {@link #end(String)}, on the thread that ended it, outside this
+     * class's lock; an adapter may end a request more than once, as a WebFlux chain subscribed again does.
+     */
+    public void addEndListener(Consumer<String> listener) {
+        if (listener != null) {
+            endListeners.add(listener);
+        }
+    }
+
+    /** Removes a listener {@link #addEndListener} added. */
+    public void removeEndListener(Consumer<String> listener) {
+        endListeners.remove(listener);
     }
 
     /**
