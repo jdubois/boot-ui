@@ -54,6 +54,23 @@ export function availableThemes(report) {
   return THEMES.filter((theme) => theme.kinds.some((kind) => kinds.has(kind)))
 }
 
+/** The short marker of each external validation outcome a kind did not pass (docs/PLAN-v2.md M4-20). */
+const VALIDATION_MARKERS = {
+  NOT_VALIDATED: 'Not externally validated',
+  UNDER_SAMPLED: 'Not externally validated',
+  FAILED: 'Did not pass external validation',
+  NOT_JUDGED: 'Not judged yet'
+}
+
+/**
+ * A check's external validation (docs/PLAN-v2.md M4-20) as the panel shows it with the kind's rows: a short marker and
+ * the engine's reason, or null for a kind that passed, one not listed by design, or a server that predates it.
+ */
+export function validationOf(check) {
+  const marker = VALIDATION_MARKERS[check?.validation]
+  return marker ? {marker, reason: check.validationReason ?? null} : null
+}
+
 /**
  * Whether the default list shows an observation (docs/PLAN-v2.md M4-19). A server that predates the flag lists them
  * all.
@@ -81,7 +98,7 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
   const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
   const groups = new Map()
   for (const check of report?.checks ?? []) {
-    groups.set(check.kind, {kind: check.kind, title: check.title, observations: []})
+    groups.set(check.kind, {kind: check.kind, title: check.title, validation: validationOf(check), observations: []})
   }
   for (const observation of report?.observations ?? []) {
     if (theme && themeOf(observation.kind) !== theme) continue
@@ -91,6 +108,7 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
       groups.set(observation.kind, {
         kind: observation.kind,
         title: titles.get(observation.kind) ?? observation.kind,
+        validation: null,
         observations: []
       })
     }

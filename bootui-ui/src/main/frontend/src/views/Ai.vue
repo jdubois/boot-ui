@@ -9,6 +9,7 @@ import {useDataState} from '../utils/panelState.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import FoldedInsightsLink from './components/FoldedInsightsLink.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ProgressBar from './components/ProgressBar.vue'
 
@@ -540,6 +541,8 @@ const detectedFrameworkLabel = computed(() => {
       </div>
 
       <template v-else>
+        <FoldedInsightsLink class="mb-3" theme="ai" what="AI calls and tokens per route" />
+
         <div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 mb-3">
           <div class="col">
             <div class="card h-100">

@@ -293,36 +293,43 @@ class RuntimeInsightsSeedsTest {
     }
 
     /**
-     * The default list (docs/PLAN-v2.md M4-19): the seeded run lists each seed's observation except where a rule leaves
-     * it out, and every row it leaves out says why.
+     * The default list (docs/PLAN-v2.md M4-19, M4-20): each kind's external validation decides whether its rows are
+     * listed. The kinds that passed or stayed silent are listed, D29's included; the kinds that failed their gate or had
+     * too few facts are left out, each row saying why; and the report's repeated statement is left to SQL after the
+     * handler returned, which names its cause.
      */
     @Test
-    void theDefaultListLeavesOutNoiseAndDuplicatesWithTheirReasonAndListsD29sKinds() {
-        assertThat(listed("repeated-selects")).contains("GET /api/insights/orders", "GET /api/insights/orders/report");
-        assertThat(unlisted("lazy-sql-after-handler"))
-                .as("Repeated SELECTs already reports the report's statement from the same call site")
-                .contains("GET /api/insights/orders/report");
-        assertThat(listed("lazy-sql-after-handler")).isEmpty();
-        // D29's kinds are listed once their counterexample fixtures pass the cross-observation harness (M4-18e).
+    void theDefaultListFollowsEachKindsExternalValidationAndEveryRowLeftOutSaysWhy() {
+        assertThat(listed("errors-behind-2xx")).contains("POST /api/insights/orders/{id}/import");
+        assertThat(listed("safe-method-dml")).contains("GET /api/insights/orders/{id}");
+        assertThat(listed("proxy-bypass")).contains("POST /api/insights/orders/{id}/recalculate");
         assertThat(listed("transactional-listener-skipped")).contains("POST /api/insights/orders/{id}/notify");
         assertThat(listed("after-commit-writes")).contains("POST /api/insights/orders/{id}/archive");
         assertThat(listed("orm-auto-flush")).contains("POST /api/insights/tags/auto-flush");
-        for (String kind : List.of("transactional-listener-skipped", "after-commit-writes", "orm-auto-flush")) {
-            assertThat(unlisted(kind)).as(kind).isEmpty();
+        assertThat(listed("anonymous-success-on-restricted-route")).contains("GET /api/insights/reports/{name}");
+        for (String kind : List.of(
+                "route-time-breakdown",
+                "exception-hotspots",
+                "connections-per-request",
+                "repeated-selects",
+                "lazy-sql-after-handler",
+                "split-transaction-writes",
+                "framework-warnings-by-route",
+                "anonymous-data-reach")) {
+            assertThat(listed(kind))
+                    .as(kind + " is not listed by default since M4-20")
+                    .isEmpty();
         }
-        assertThat(unlisted("exception-hotspots"))
-                .as("the unreadable body answered 400")
-                .contains("POST /api/insights/orders");
-        assertThat(listed("exception-hotspots")).contains("Behind 4xx responses");
-        assertThat(unlisted("framework-warnings-by-route")).contains("POST /api/insights/orders");
-        assertThat(listed("route-time-breakdown"))
-                .as("only prominent routes, and the seeds' routes are short")
-                .doesNotContain("GET /api/insights/orders", "GET /api/sample/products");
+        assertThat(unlisted("repeated-selects")).contains("GET /api/insights/orders");
+        assertThat(subjects("repeated-selects", null))
+                .as("SQL after the handler returned reports the report's statement from the same call site")
+                .doesNotContain("GET /api/insights/orders/report");
+        assertThat(unlisted("lazy-sql-after-handler")).contains("GET /api/insights/orders/report");
+        assertThat(unlisted("exception-hotspots")).contains("POST /api/insights/orders", "Behind 4xx responses");
         assertThat(observations)
                 .filteredOn(observation -> !observation.path("listed").asBoolean())
                 .allSatisfy(observation ->
                         assertThat(observation.path("unlistedReason").asText()).isNotBlank());
-        assertThat(listed("anonymous-data-reach")).contains("POST /api/insights/debug/reset-totals");
     }
 
     private List<String> listed(String kind) {

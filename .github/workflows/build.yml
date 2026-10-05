@@ -662,7 +662,7 @@ jobs:
   # no agent (the cumulative overhead with it, fifteen pairs). It may be on by default only with its own median at most
   # 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL, and fails the job when the verdict
   # is FAIL while thread-activity is among the default sensors. Pushes, manual runs, and pull requests labelled agent.
-  # Java 17 measures platform threads; a server that starts a virtual thread per request (Java 21+) takes the cached
+  # The first run measured 11.5 % own and 16.6 % cumulative, so thread-activity stays opt-in. Java 17 measures platform threads; a server that starts a virtual thread per request (Java 21+) takes the cached
   # path of a start no request owns, which this route does not exercise.
   agent-overhead-thread-activity:
     name: Agent overhead, thread activity A/B (Java 17)

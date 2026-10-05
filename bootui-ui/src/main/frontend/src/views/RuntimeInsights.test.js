@@ -121,6 +121,41 @@ describe('Runtime Insights panel', () => {
     )
   })
 
+  it('marks a kind not externally validated beside its title, and says why on its selected row (M4-20)', async () => {
+    const reason = 'It found nothing on the seven validation applications (M4-20), so it is not externally validated.'
+    const marked = {
+      ...report,
+      checks: [{...report.checks[0], validation: 'NOT_VALIDATED', validationReason: reason}, report.checks[1]]
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : marked)))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.insight-group-title').text()).toBe('Repeated SELECTs')
+    expect(wrapper.find('.insight-validation').text()).toBe('Not externally validated')
+    expect(wrapper.find('.insight-validation').attributes('title')).toBe(reason)
+    expect(wrapper.find('.insight-validation-reason').text()).toBe(`Not externally validated: ${reason}`)
+  })
+
+  it('shows no validation marker for a kind that passed', async () => {
+    const passed = {
+      ...report,
+      checks: [{...report.checks[0], validation: 'PASSED', validationReason: 'It passed.'}, report.checks[1]]
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : passed)))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.insight-validation').exists()).toBe(false)
+    expect(wrapper.find('.insight-validation-reason').exists()).toBe(false)
+  })
+
   it('links the run summary to the comparison, which comes before the routes not exercised', async () => {
     const comparison = {
       status: 'COMPARED',

@@ -11,11 +11,13 @@ and **may not be in 2.0**: whatever is not merged when 2.0.0 is cut ships in a l
 
 ## Runtime Insights
 
-- **The default list is not final until the release sign-off.** The first external validation run found too much
-  noise, so each observation kind must pass its own gate on the rerun: at least 50 % of its facts useful to both
-  reviewers and nothing misleading. A kind that misses its gate folds back into the panel it came from, or stays
-  hidden; a kind that never fired on the validation applications stays listed, marked as not externally validated.
-  The sign-off lists the outcome for every kind.
+- **Most observation kinds are not externally validated.** On the validation rerun (M4-20), only `errors-behind-2xx`
+  and `changed-code-not-executed` passed their per-kind gate: at least half their facts useful to both reviewers and
+  nothing misleading. `route-time-breakdown`, `exception-hotspots`, `connections-per-request`, and `ai-usage-by-route`
+  failed and are folded into the panels that show the same evidence; five kinds had too few facts to judge and are not
+  listed by default; the ten kinds that never fired on the validation applications stay listed, marked
+  **Not externally validated**. Every row stays reachable with **Show all routes** or the agent query `all`. See the
+  [per-kind gates](V2-VALIDATION-REPORT.md#per-kind-gates).
 - **No new observation kinds before 2.0.0.** The planned agent-backed observations ship as panel rows first, and become
   Runtime Insights kinds only after their seeded case, their counterexample, and an external run pass.
 - **Kafka Streams processing is not recorded** on any stack. Producer sends and listener executions are. Runtime

@@ -1172,8 +1172,9 @@ final class ApplicationMethodsSensor {
     }
 
     /**
-     * A claimed class that is neither synthetic nor loaded from a test root, and, unless the inventory visit applies,
-     * a bean class; or a probe.
+     * A claimed class not loaded from a test root, and, unless the inventory, the caught exceptions', or the blocking
+     * call-site visit applies, a bean class; synthetic only for the blocking visit, whose call sites may sit in one; or
+     * a probe.
      */
     final class Claimed implements AgentBuilder.RawMatcher {
 
@@ -1450,7 +1451,7 @@ final class ApplicationMethodsSensor {
                 // without it, with the others' visits.
                 caughtRejected.add(typeName);
                 stats.failure("caught exceptions left out of " + typeName + ": " + error);
-                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_CODE_PATHS)) != 0) {
+                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_CODE_PATHS | VISIT_BLOCKING)) != 0) {
                     int[] failed = ids != null ? ids.toArray() : idsByType.get(typeName);
                     retryLater(typeName, failed == null ? new int[0] : failed);
                 }
@@ -1458,10 +1459,12 @@ final class ApplicationMethodsSensor {
             }
             if (applied != null && (applied.intValue() & VISIT_CODE_PATHS) != 0) {
                 // The code-paths visit may be what failed, as one pushing a method past the JVM's 64 KB code limit:
-                // never applied to the class again, so a retransformation with the inventory's alone keeps that one.
+                // never applied to the class again, so a retransformation with the inventory's alone keeps that one,
+                // and
+                // the blocking call sites' rewrite.
                 codePathsRejected.add(typeName);
                 stats.failure("code paths left out of " + typeName + ": " + error);
-                if ((applied.intValue() & VISIT_INVENTORY) != 0) {
+                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_BLOCKING)) != 0) {
                     int[] failed = ids != null ? ids.toArray() : idsByType.get(typeName);
                     retryLater(typeName, failed == null ? new int[0] : failed);
                     return;

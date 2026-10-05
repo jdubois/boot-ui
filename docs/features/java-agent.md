@@ -910,8 +910,9 @@ the same starting thread family, target, kind, and code-paths call site (at most
 is its first start's when the code-paths sensor did not stamp it; a start no request owns is counted in that sighting
 and published by the drain thread. The sensor is opt-in until a same-runner A/B of the agent's overhead benchmark on a
 route that starts a thread and creates an executor per request shows its own median increment at most 3 % and the
-cumulative median at most 10 % (the `agent-overhead-thread-activity` job of `build.yml`). Add `thread-activity` to
-`bootui.agent.sensors` to record it.
+cumulative median at most 10 % (the `agent-overhead-thread-activity` job of `build.yml`). The first run measured 11.5 %
+for its own increment and 16.6 % cumulative, on a route that starts a thread and creates an executor on every request,
+so it stays opt-in. Add `thread-activity` to `bootui.agent.sensors` to record it.
 
 Each hook is self-tested on the sensor's own thread: a platform thread started and joined, from JDK 21 a virtual thread,
 a `ThreadPoolExecutor` running one task then shut down and another shut down at once, a `ForkJoinPool` shut down, and,

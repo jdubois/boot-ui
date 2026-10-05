@@ -26,7 +26,8 @@ import java.util.TreeSet;
  * <p>The default list ({@code docs/PLAN-v2.md} M4-19) shows a group when one of its requests failed, answering 5xx or,
  * for a scheduled run or consumed message, ending with an exception nothing caught; when it was not observed in the
  * previous run; or when one of its responses was neither 2xx nor 4xx, such as a redirect, which no other check reports.
- * Groups seen only behind 4xx responses are collapsed into one counted row, and groups caught in scheduled runs or
+ * Groups seen only behind 4xx responses are collapsed into one counted row, unless (nearly) every request to their route
+ * recorded them, and groups caught in scheduled runs or
  * messages that completed into another, both listed last; groups behind 2xx responses are reported by Errors behind 2xx
  * responses. Every group stays in the report.</p>
  */
@@ -42,6 +43,21 @@ public final class ExceptionHotspots implements Observation {
     /** Why a group seen only behind 4xx responses is left out of the default list. */
     static final String ONLY_4XX = "It was recorded only behind 4xx responses, which are usually intended, and is"
             + " counted in the row Behind 4xx responses.";
+
+    /**
+     * The share of a route's requests at or above which a group seen only behind 4xx responses is its own row rather than
+     * counted in {@link #BEHIND_4XX} (M4-20's adjudication follow-up 3): a route on which (nearly) every request fails
+     * with the same exception may never succeed, which no intended 4xx explains.
+     */
+    static final double EVERY_REQUEST_SHARE = 0.95;
+
+    /** The requests a route needs before {@link #EVERY_REQUEST_SHARE} applies, so one rejected request is not a route. */
+    static final int EVERY_REQUEST_MIN = 3;
+
+    /** The check of a group that (nearly) every request to its route recorded behind a 4xx response. */
+    static final String EVERY_REQUEST_CHECK = "Every request to this route, or nearly, answered 4xx with this"
+            + " exception: check whether the route can succeed at all, or whether its callers always send what it"
+            + " rejects.";
 
     /** Why a group seen behind 2xx responses, and otherwise only 4xx, is left out of the default list. */
     static final String ONLY_2XX_OR_4XX =
@@ -220,8 +236,12 @@ public final class ExceptionHotspots implements Observation {
                     .append(InsightText.counted(servedBefore, "time"));
         }
         sentence.append('.');
+        boolean everyRequest = group.onEveryRequest(eligible);
         List<String> checks = new ArrayList<>();
-        checks.addAll(group.checks.stream().limit(2).toList());
+        if (everyRequest) {
+            checks.add(EVERY_REQUEST_CHECK);
+        }
+        checks.addAll(group.checks.stream().limit(everyRequest ? 1 : 2).toList());
         checks.add(GENERIC_CHECK);
         List<String> limitations = new ArrayList<>();
         if (group.checks.size() > 2) {
@@ -249,7 +269,7 @@ public final class ExceptionHotspots implements Observation {
                 List.of("Request", "Status", "Occurrences", "Exception group"),
                 group.rows,
                 limitations);
-        return servedBefore != null ? finding : finding.unlisted(group.unlisted());
+        return servedBefore != null || everyRequest ? finding : finding.unlisted(group.unlisted());
     }
 
     /** The exception a group's sentence names, between its first pair of backticks after the route's. */
@@ -353,6 +373,20 @@ public final class ExceptionHotspots implements Observation {
                     String.valueOf(request.status()),
                     String.valueOf(count),
                     exception.groupId() == null ? "" : exception.groupId()));
+        }
+
+        /**
+         * Whether it was seen only behind 4xx responses, on at least {@value #EVERY_REQUEST_MIN} requests and at least
+         * {@link #EVERY_REQUEST_SHARE} of the route's {@code eligible} ones.
+         */
+        boolean onEveryRequest(long eligible) {
+            return clientError
+                    && !failed
+                    && !other
+                    && !success
+                    && !completedExecution
+                    && rows.size() >= EVERY_REQUEST_MIN
+                    && rows.size() >= eligible * EVERY_REQUEST_SHARE;
         }
 
         /** Why the default list leaves this group out when it is not new, or {@code null} when it is listed. */
