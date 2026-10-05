@@ -10,7 +10,7 @@ public class EchoScheduler {
 
     private static final Logger LOG = Logger.getLogger(EchoScheduler.class);
 
-    @Scheduled(every = "30s")
+    @Scheduled(every = "5m")
     void echo() {
         LOG.info("echo");
     }
