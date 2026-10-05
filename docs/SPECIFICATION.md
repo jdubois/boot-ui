@@ -794,7 +794,9 @@ Data sources:
   `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d) when opted in. `security-sinks`
   (M5-6b) records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input reaching SQL
   text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a sentence
-  stating the fact. The `thread-activity`, `thread-locals`, and `resources` sensors are still listed but report
+  stating the fact; opted in alone, its JDK checks (M5-6b2) record deserialization without an `ObjectInputFilter`, weak
+  `MessageDigest` and `Cipher` algorithms (application and library requests apart), and the application's trust
+  managers and default hostname verifiers and SSL socket factories. The `thread-activity`, `thread-locals`, and `resources` sensors are still listed but report
   `not-available`
   with reason `Not available in this version.`
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide

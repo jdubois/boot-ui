@@ -105,7 +105,8 @@ final class SideEffectsStore {
             int port,
             String origin,
             String location,
-            String parameter) {
+            String parameter,
+            String classes) {
 
         /** An observation without a parameter: every sensor but security sinks. */
         Observation(
@@ -136,6 +137,7 @@ final class SideEffectsStore {
                     port,
                     origin,
                     location,
+                    null,
                     null);
         }
 
@@ -167,7 +169,42 @@ final class SideEffectsStore {
                     -1,
                     null,
                     location,
-                    parameter);
+                    parameter,
+                    null);
+        }
+
+        /**
+         * A security-sinks JDK check's observation (M5-6b2): what was asked for or installed, who asked ({@code origin},
+         * the library frame as {@code location} when a library did), and, for a deserialization, the other classes it
+         * read, merged per row rather than keying it.
+         */
+        static Observation check(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily,
+                String origin,
+                String location,
+                String classes) {
+            return new Observation(
+                    record,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    threadFamily,
+                    null,
+                    null,
+                    null,
+                    -1,
+                    origin,
+                    location,
+                    null,
+                    classes);
         }
 
         /** A network observation: no origin or location. */
@@ -253,7 +290,8 @@ final class SideEffectsStore {
                     port,
                     origin,
                     location,
-                    parameter);
+                    parameter,
+                    classes);
         }
 
         boolean waiting() {
@@ -278,11 +316,18 @@ final class SideEffectsStore {
     /** The distinct raw sink texts a security-sinks row remembers to confirm it (M5-6 design Important 11). */
     static final int CONFIRMATIONS = 4;
 
+    /** The other classes a deserialization row names at most. */
+    static final int CLASSES = 16;
+
     /**
      * Whether a security-sinks observation is shown from one request: a value not made of digits only, inside an SQL
      * literal or in another sink; never one outside a literal or whose place in the text is not known.
      */
     static boolean standsAlone(SideEffectRecord record) {
+        if (SideEffectsCatalog.check(record.sensor(), record.kind())) {
+            // A JDK check is a fact, not a match: never waits for a confirmation.
+            return true;
+        }
         int flags = record.outcome();
         int position = flags & 0x3;
         return (flags & SideEffectsCatalog.SINK_NUMERIC) == 0
@@ -315,6 +360,11 @@ final class SideEffectsStore {
         int raw;
         boolean standalone;
 
+        /** A deserialization row's other classes read, merged across its records, at most {@value #CLASSES}. */
+        java.util.TreeSet<String> classes;
+
+        boolean moreClasses;
+
         Row(Key key) {
             this.key = key;
         }
@@ -323,7 +373,15 @@ final class SideEffectsStore {
             SideEffectRecord record = observation.record();
             if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
                 count += record.count();
-                sink(record, requestId);
+                if (SideEffectsCatalog.check(record.sensor(), record.kind())) {
+                    standalone = true;
+                    if ((record.outcome() & SideEffectsCatalog.CHECK_ERROR) != 0) {
+                        failed += record.count();
+                    }
+                    classes(observation.classes());
+                } else {
+                    sink(record, requestId);
+                }
                 firstSeen = Math.min(firstSeen, record.firstMillis());
                 lastSeen = Math.max(lastSeen, record.lastMillis());
                 if (requestId != null && exemplars.size() < EXEMPLARS && !exemplars.contains(requestId)) {
@@ -385,6 +443,25 @@ final class SideEffectsStore {
             }
         }
 
+        /** Merges a deserialization's other classes, as the agent listed them, comma-separated. */
+        private void classes(String list) {
+            if (list == null || list.isEmpty()) {
+                return;
+            }
+            if (classes == null) {
+                classes = new java.util.TreeSet<>();
+            }
+            for (String name : list.split(", ")) {
+                if (name.equals(SideEffectsCatalog.MORE_CLASSES)) {
+                    moreClasses = true;
+                } else if (classes.size() < CLASSES || classes.contains(name)) {
+                    classes.add(name);
+                } else {
+                    moreClasses = true;
+                }
+            }
+        }
+
         /** A security-sinks record: its raw text's keyed hash, carried in its duration's place, and its position. */
         private void sink(SideEffectRecord record, String requestId) {
             standalone |= standsAlone(record);
@@ -440,6 +517,10 @@ final class SideEffectsStore {
 
         void merge(Row other, boolean withExemplars) {
             standalone |= other.standalone;
+            if (other.classes != null) {
+                classes(String.join(", ", other.classes));
+            }
+            moreClasses |= other.moreClasses;
             for (int i = 0; i < other.raw; i++) {
                 remember(other.rawHashes[i], other.redactedHashes[i], other.rawRequests[i]);
             }
@@ -488,12 +569,30 @@ final class SideEffectsStore {
                     capture == null ? null : capture[0],
                     capture == null ? null : capture[1],
                     key.parameter(),
-                    SideEffectsCatalog.SECURITY_SINKS_ID.equals(key.sensor())
-                            ? SideEffectsRowDto.OTHER.equals(key.scope())
-                                    ? SinkWording.OTHER
-                                    : SinkWording.detail(
-                                            key.kind(), key.location(), key.parameter(), key.target(), confirmed())
-                            : null);
+                    detail());
+        }
+
+        /** A security-sinks row's sentence: a JDK check's fact, or what request input reached. */
+        private String detail() {
+            if (!SideEffectsCatalog.SECURITY_SINKS_ID.equals(key.sensor())) {
+                return null;
+            }
+            boolean other = SideEffectsRowDto.OTHER.equals(key.scope());
+            if (CheckWording.isCheck(key.kind())) {
+                return other
+                        ? CheckWording.OTHER
+                        : CheckWording.detail(
+                                key.kind(),
+                                key.target(),
+                                key.callSite(),
+                                key.origin(),
+                                key.location(),
+                                classes == null ? List.of() : List.copyOf(classes),
+                                moreClasses);
+            }
+            return other
+                    ? SinkWording.OTHER
+                    : SinkWording.detail(key.kind(), key.location(), key.parameter(), key.target(), confirmed());
         }
     }
 

@@ -278,7 +278,7 @@ class SecuritySinksServiceTests {
                         null,
                         AgentSensorSettings.DEFAULT_RING_CAPACITY));
         claim.attach(new AgentHandoffs(context::get, null, null));
-        SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_FILES);
+        SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_FILES | SideEffects.MASK_SECURITY_SINKS);
         service = new SideEffectsService(
                 AgentBridgeAccess.bind(AgentBridge.class),
                 () -> claim,

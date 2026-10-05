@@ -77,7 +77,8 @@ public final class SideEffectsService implements AutoCloseable {
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
             + " methods, and FileChannel.open, the environment variables and system properties it reads by name"
             + " through System.getenv and System.getProperty, and request input reaching SQL text, a command, a file"
-            + " path, or an outbound URL unchanged (security sinks). Threads are not available in this version.";
+            + " path, or an outbound URL unchanged, deserialization without a filter, weak algorithms, and trust managers"
+            + " and hostname verifiers (security sinks). Threads are not available in this version.";
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -179,6 +180,20 @@ public final class SideEffectsService implements AutoCloseable {
             + " when a text was scanned only in part or held more matches than could be redacted, no text is kept. A"
             + " value outside an SQL literal, or made of digits only, is shown once a second request confirms the text"
             + " varies with it.";
+
+    static final String LIMITATION_SECURITY_CHECKS = "Security sinks' JDK checks: a deserialization is one outermost"
+            + " ObjectInputStream.readObject whose stream has no ObjectInputFilter, named by the classes"
+            + " ObjectInputStream.resolveClass resolved, at most 16, so a subclass that resolves classes itself names none;"
+            + " readUnshared is not checked. A weak algorithm is MessageDigest MD5, MD2, or SHA-1, or a Cipher with DES,"
+            + " DESede, RC4, or a block cipher in ECB mode, which a bare AES, Blowfish, or RC2 defaults to; KeyGenerator,"
+            + " Signature, Mac, SecureRandom, and PBE algorithms are not checked. What the JDK asks for itself, as"
+            + " UUID.nameUUIDFromBytes, SecureRandom, TLS, or jar verification, is counted, never shown; a library's"
+            + " request is shown apart. A trust manager is shown when its class is the application's; a default hostname"
+            + " verifier or SSL socket factory when the application installed it. A check group whose JDK hook failed its"
+            + " self-test is off alone.";
+
+    /** A deserialization row whose classes no {@code resolveClass} named, as a subclass resolving them itself. */
+    static final String CLASSES_NOT_NAMED = "(classes not named)";
 
     /** A security-sinks row whose redacted text the holder could not keep. */
     static final String TEXT_NOT_KEPT = "(text not kept)";
@@ -920,6 +935,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_ENVIRONMENT,
                 LIMITATION_BLOCKING,
                 LIMITATION_SECURITY_SINKS,
+                LIMITATION_SECURITY_CHECKS,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().blocking()) {
             if (serverEventLoops() && eventLoops() == 0) {
@@ -1321,7 +1337,9 @@ public final class SideEffectsService implements AutoCloseable {
                     return;
                 }
                 String target = string(record.target());
-                if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
+                if (SideEffectsCatalog.check(record.sensor(), record.kind())) {
+                    store.add(check(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
                     store.add(sink(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                     // Ahead of the context below: a network record's bits 32-63 are its client frame, not a context.
@@ -1462,6 +1480,38 @@ public final class SideEffectsService implements AutoCloseable {
                     normalizer.threadFamily(string(record.threadName())),
                     location,
                     parameter == null ? "(name not kept)" : parameter);
+        }
+
+        /**
+         * A security-sinks JDK check's observation (M5-6b2): what was asked for or installed, at the application frame,
+         * else the first frame outside the JDK; a library's request names that library frame as its location and is
+         * grouped as a library's; a deserialization carries the other classes it read.
+         */
+        private SideEffectsStore.Observation check(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            boolean library = (record.outcome() & 0x3) == SideEffectsCatalog.CHECK_LIBRARY;
+            String shown = target != null
+                    ? target
+                    : record.kind() == SideEffectsCatalog.KIND_CHECK_DESERIALIZATION && record.target() == 0
+                            ? CLASSES_NOT_NAMED
+                            : TEXT_NOT_KEPT;
+            return SideEffectsStore.Observation.check(
+                    record,
+                    sensor.id(),
+                    SideEffectsCatalog.kind(record.sensor(), record.kind()),
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    library ? SideEffectOrigins.LIBRARY : SideEffectOrigins.APPLICATION,
+                    library ? outside : null,
+                    record.kind() == SideEffectsCatalog.KIND_CHECK_DESERIALIZATION
+                            ? string(record.exitStatus())
+                            : null);
         }
 
         /** A frame of BootUI's own modules, never an application's, as the sample apps' are. */

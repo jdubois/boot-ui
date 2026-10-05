@@ -40,6 +40,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * statement, and one file read, for the security-sinks sensor's request-value matching (M5-6b). {@code
  * bootui.benchmark.agent.extra} and {@code bootui.benchmark.agent.baseline-extra} add comma-separated application
  * arguments to the agent arm and to the other arm, so an A/B can claim the same sensors with matching on and off.
+ * {@code bootui.benchmark.route=checks} drives {@value #CHECKS_ROUTE}: the search plus the security-sinks sensor's JDK
+ * checks, their fast paths and one weak path (M5-6b2).
  * {@code bootui.benchmark.agent.rule-percent} prints whether the median met a rule (PASS or FAIL) without failing on it;
  * {@code fail-above-percent} prints the same and fails.
  *
@@ -61,6 +63,12 @@ class AgentOverheadBenchmarkIT {
 
     /** The security-sinks variant's route (M5-6b): two query parameters, one SQL statement, and one file read. */
     static final String SINKS_ROUTE = "/api/side-effects/benchmark-sinks?term=console&tag=sample-tag";
+
+    /**
+     * The security-sinks JDK checks variant's route (M5-6b2): the search, a SHA-256 digest, an AES/GCM cipher, a read
+     * with a filter, and one MD5 the application asks for.
+     */
+    static final String CHECKS_ROUTE = "/api/side-effects/benchmark-checks?term=console";
 
     private static final Duration WARM_UP = Duration.ofSeconds(10);
 
@@ -85,7 +93,11 @@ class AgentOverheadBenchmarkIT {
         String failAbove = System.getProperty("bootui.benchmark.agent.fail-above-percent", "");
         String routeName = System.getProperty("bootui.benchmark.route", "");
         boolean io = "io".equals(routeName);
-        String route = io ? IO_ROUTE : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        String route = io
+                ? IO_ROUTE
+                : "sinks".equals(routeName)
+                        ? SINKS_ROUTE
+                        : "checks".equals(routeName) ? CHECKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
         List<String> agentExtra = arguments(System.getProperty("bootui.benchmark.agent.extra", ""));
         List<String> baselineExtra = arguments(System.getProperty("bootui.benchmark.agent.baseline-extra", ""));
         String rule = System.getProperty("bootui.benchmark.agent.rule-percent", "");

@@ -331,7 +331,8 @@ public final class McpToolDescriptions {
                             + "park, a blocking network or file operation) started on an event loop, and, opt-in, the "
                             + "files it opens, deletes, moves, and copies, the environment variables and system "
                             + "properties it reads, and request input reaching a sink (security-sinks, "
-                            + "request-input-in-sink). "
+                            + "request-input-in-sink) with JDK checks: deserialization without a filter, weak "
+                            + "algorithms, and trust managers. "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
@@ -351,7 +352,10 @@ public final class McpToolDescriptions {
                             + "argument index, file path pattern, or outbound URL that a request parameter's value "
                             + "reached unchanged, with that value redacted to {name}, the parameter's name, and a "
                             + "sentence stating the fact (for SQL, inside or outside a literal), a fact to check in the "
-                            + "code."),
+                            + "code; or a JDK check: an ObjectInputStream read without a filter with the classes read, "
+                            + "a weak MessageDigest or Cipher algorithm asked for by application or library code "
+                            + "(origin), or a trust manager, default hostname verifier, or SSL socket factory the "
+                            + "application installed, never a value."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "

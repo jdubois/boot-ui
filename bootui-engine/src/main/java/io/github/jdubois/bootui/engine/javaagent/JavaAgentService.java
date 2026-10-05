@@ -247,6 +247,41 @@ public final class JavaAgentService {
         }
     }
 
+    /** The security-sinks sensor's check groups, as the bridge's status names them, and how the reason says them. */
+    private static final Map<String, String> CHECK_GROUPS = Map.of(
+            "deserialization", "deserialization without a filter",
+            "weak-algorithms", "weak algorithms",
+            "trust-managers", "trust managers and hostname verifiers");
+
+    /**
+     * The installed {@code security-sinks} sensor's reason (M5-6b2): its JDK check groups, each on, or off with why, as
+     * one whose hook failed its self-test is off alone; then its request-value matching, as {@link
+     * #securitySinksCoverage} says it.
+     */
+    static String securitySinksReason(Map<String, Object> counters, Map<String, Object> status, List<String> claimed) {
+        Map<String, Object> groups = AgentBridgeAccess.map(counters, "groups");
+        List<String> on = new ArrayList<>();
+        List<String> off = new ArrayList<>();
+        for (String group : List.of("deserialization", "weak-algorithms", "trust-managers")) {
+            String state = AgentBridgeAccess.text(groups, group);
+            String label = CHECK_GROUPS.get(group);
+            if ("on".equals(state)) {
+                on.add(label);
+            } else {
+                off.add(label + (state != null && state.startsWith("off: ") ? " (" + state.substring(5) + ")" : ""));
+            }
+        }
+        StringBuilder reason = new StringBuilder("JDK checks: ");
+        reason.append(on.isEmpty() ? "none run" : String.join(", ", on));
+        if (!off.isEmpty()) {
+            reason.append("; off: ").append(String.join("; ", off));
+        }
+        reason.append(". ");
+        SideEffectsCoverage values = securitySinksCoverage(status, List.of(), claimed);
+        reason.append(values.reason());
+        return reason.toString();
+    }
+
     /**
      * The {@code security-sinks} sensor while the agent reports no hooks of its own for it (M5-6b1): its request-value
      * matching rides on the SQL and REST client recorders and on the processes and files sensors' hooks, so it records
@@ -354,6 +389,18 @@ public final class JavaAgentService {
                     buckets.put(bucket, number.longValue());
                 }
             });
+            if (AgentSensorSettings.SECURITY_SINKS.equals(id)) {
+                // Its JDK checks record; the reason says which check groups run and whether request values match.
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.RECORDING,
+                        securitySinksReason(
+                                counters,
+                                status,
+                                ours == null ? List.of() : ours.sensors().sensors()),
+                        hooks,
+                        dropped,
+                        buckets);
+            }
             return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped, buckets);
         } catch (RuntimeException ex) {
             return new SideEffectsCoverage(

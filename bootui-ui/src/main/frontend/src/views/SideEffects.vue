@@ -40,7 +40,7 @@ const OPT_IN = {
   files: 'the path patterns of the files the application opens, deletes, moves, and copies',
   environment: 'the names read',
   'security-sinks':
-    'where request input reaches SQL text, a command, a file path, or an outbound URL unchanged, with bootui.agent.security-sinks.request-values=true'
+    'deserialization without a filter, weak algorithms, and trust managers, and, with bootui.agent.security-sinks.request-values=true, where request input reaches SQL text, a command, a file path, or an outbound URL unchanged'
 }
 
 const STATE = {
@@ -92,6 +92,13 @@ const LOCATION_LABELS = {
 
 const GROUPED_APART = new Set(['class-path', 'jdk', 'logging'])
 
+/** A sensor whose rows are grouped apart by other origins: security sinks' library requests (M5-6b2). */
+const APART_BY_SENSOR = {
+  'security-sinks': {origins: new Set(['library']), label: 'Requested by libraries'}
+}
+
+const APART_DEFAULT = {origins: GROUPED_APART, label: 'Class path, JDK, and logging'}
+
 const SENSOR_COLUMNS = {
   processes: {target: 'Command', count: 'Starts', failed: true, exits: true, time: 'Lifetime (total / max ms)'},
   network: {target: 'Host / name', count: 'Count', failed: true, network: true, time: 'Time (total / max ms)'},
@@ -104,7 +111,7 @@ const SENSOR_COLUMNS = {
     failedLabel: 'Interrupted or failed',
     time: 'Blocked (total / max ms)'
   },
-  'security-sinks': {target: 'Sink (value redacted)', count: 'Times', parameter: true}
+  'security-sinks': {target: 'Sink (value redacted) or check', count: 'Times', parameter: true, origin: true}
 }
 
 const EMPTY_TEXT = {
@@ -113,7 +120,8 @@ const EMPTY_TEXT = {
   files: 'No file has been opened yet in this run.',
   environment: 'No environment variable or system property has been read yet in this run.',
   blocking: 'No blocking call has started on an event loop yet in this run.',
-  'security-sinks': 'No request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
+  'security-sinks':
+    'No deserialization without a filter, weak algorithm, or trust manager seen, and no request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
 }
 
 const summary = ref(null)
@@ -310,18 +318,18 @@ function columnCount(sensor) {
   )
 }
 
-function groupedApart(row) {
-  return GROUPED_APART.has(row.origin)
-}
-
-/** The application's rows, then, collapsed, those of class loading, the JDK, and logging, grouped apart. */
+/**
+ * The application's rows, then, collapsed, those grouped apart: class loading, the JDK, and logging, or, for security
+ * sinks, what libraries requested.
+ */
 function sections(report) {
+  const grouping = APART_BY_SENSOR[report?.sensor?.id] ?? APART_DEFAULT
   const rows = sensorRows(report)
-  const own = rows.filter((row) => !groupedApart(row))
-  const apart = rows.filter(groupedApart)
+  const own = rows.filter((row) => !grouping.origins.has(row.origin))
+  const apart = rows.filter((row) => grouping.origins.has(row.origin))
   const list = []
   if (own.length || !apart.length) list.push({id: 'own', apart: false, rows: own})
-  if (apart.length) list.push({id: 'apart', apart: true, rows: apart})
+  if (apart.length) list.push({id: 'apart', apart: true, label: grouping.label, rows: apart})
   return list
 }
 
@@ -539,7 +547,7 @@ function hookStatus(value, label) {
                   :class="section.apart ? 'side-effects-apart mb-3' : ''"
                 >
                   <summary v-if="section.apart" class="small fw-semibold mb-2">
-                    Class path, JDK, and logging ({{ formatNumber(section.rows.length) }}), grouped apart
+                    {{ section.label }} ({{ formatNumber(section.rows.length) }}), grouped apart
                   </summary>
                   <div class="table-responsive">
                     <table class="table table-sm align-middle side-effects-table">
@@ -548,7 +556,7 @@ function hookStatus(value, label) {
                         {{
                           sensor.label
                         }}{{
-                          section.apart ? ': class path, JDK, and logging' : ''
+                          section.apart ? ': ' + section.label.toLowerCase() : ''
                         }}
                       </caption>
                       <thead>
