@@ -138,6 +138,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/side-effects/sensor`, `get_side_effects`, and `bootui side-effects` are available on Spring MVC, Spring WebFlux, and
   Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects), PLAN-v2
   §5.16, M5-5a).
+- **Network sensor in the BootUI agent.** A new `network` agent sensor, on by default, records the hosts and ports the
+  application connects to (`Socket.connect`, `SocketChannel` connects, a non-blocking connect's finish with its time),
+  the datagrams it sends, and the host names the JVM resolves on an address-cache miss, with the client recognized from
+  the calling frames (JDBC drivers, messaging and mail clients, the JDK `HttpClient`, Lettuce, MongoDB, cloud SDKs,
+  ...), never a byte sent or received. The Side Effects panel's Network tab marks a connection **Not captured by any
+  panel** when no visible REST Client Trace call of the same request or time, SQL Trace, broker panel, or Email shows its
+  work; `get_side_effects --query "not captured"` lists these hidden outbound calls. The runtime model gains observed
+  `OPENS` edges from routes, jobs, and beans to hosts. Each hook passes a JDK 17, 21, and 26 retransformation check
+  and an I/O-free self-test; a failing optional hook is left out and a failing sensor no longer takes the other
+  side-effect sensors down. BootUI's own JDK `HttpClient`s run on a `bootui-http-N` executor so they are never recorded
+  ([The network sensor](docs/features/java-agent.md#the-network-sensor), PLAN-v2 §5.16, M5-5b).
 - **Processes sensor in the BootUI agent.** A new `processes` agent sensor, on by default, hooks the JDK
   `ProcessBuilder.start` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and
   `Runtime.exec(...)`. It records only the sanitized command name (a started process's executable file name; for a

@@ -18,7 +18,7 @@ package io.github.jdubois.bootui.engine.sideeffects;
  * @param executionKind the execution's kind: 1 an agent-propagated task of a request, 2 a managed task of a request, 3 an
  *     execution no request owns ({@link #EXECUTION_OWN}), 0 none
  * @param threadName the thread name's string id, for a record without request or execution
- * @param exitStatus a process's exit status
+ * @param exitStatus a process's exit status, or a network record's client frame string id ({@link #clientFrame()})
  * @param count its occurrences
  * @param nanos their total duration
  * @param maxNanos the longest
@@ -79,6 +79,11 @@ record SideEffectRecord(
                 Math.max(0L, record[12]),
                 (int) (frames >>> 32),
                 (int) frames);
+    }
+
+    /** A network record's client frame: the string id of the first frame outside the socket plumbing, 0 when none. */
+    int clientFrame() {
+        return sensor == SideEffectsCatalog.RECORD_NETWORK ? exitStatus : 0;
     }
 
     /** The request id as BootUI writes it, 16 hexadecimal digits, or {@code null}. */

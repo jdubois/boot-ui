@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 import io.github.jdubois.bootui.engine.graalvm.Coordinates;
 import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataIndex;
 import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataRepository;
+import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
 import io.github.jdubois.bootui.engine.web.BoundedBodyReader;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -46,7 +47,7 @@ public final class HttpReachabilityMetadataRepository implements ReachabilityMet
 
     public HttpReachabilityMetadataRepository(Duration requestTimeout) {
         this(
-                HttpClient.newBuilder().connectTimeout(requestTimeout).build(),
+                BootUiHttpClients.newBuilder().connectTimeout(requestTimeout).build(),
                 new ObjectMapper(),
                 DEFAULT_INDEX_BASE_URL,
                 requestTimeout);

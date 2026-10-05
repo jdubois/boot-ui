@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.model.HostOpen;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.util.ArrayList;
@@ -65,8 +67,25 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final String LIMITATION_SCOPE = "Side Effects records only what the BootUI agent's side-effect sensors hook:"
             + " this version records the processes the application starts, through ProcessBuilder.start, which"
-            + " Runtime.exec and ProcessBuilder.startPipeline also reach. Network, files, environment, threads, blocking,"
-            + " and security sinks are not available in this version.";
+            + " Runtime.exec and ProcessBuilder.startPipeline also reach, and its network: connects, datagram sends, and"
+            + " the host names the JVM resolves. Files, environment, threads, blocking, and security sinks are not"
+            + " available in this version.";
+
+    static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
+            + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
+            + " recorded only when the JVM's address cache misses it (networkaddress.cache.ttl, 30 s by default), so its"
+            + " time is the name service's. Asynchronous socket channels, a connected datagram channel's writes, and"
+            + " connects made by native code are not seen. Datagrams a thread sends are counted in its table and may"
+            + " lag until its next send.";
+
+    static final String LIMITATION_CAPTURE =
+            "Not captured by any panel: no visible panel shows the connection's work. A"
+                    + " JDBC, messaging, or mail client's connection counts as captured while SQL Trace, its broker's panel, or"
+                    + " Email recorded such work in this run, since pools connect before their first statement; a second"
+                    + " DataSource BootUI does not wrap is not told apart. Any other connection is captured when a REST client"
+                    + " call of the same request or execution, or, for unowned work, at the same time, names its host and port"
+                    + " (or a configured proxy). Infrastructure clients, such as DNS resolvers, telemetry exporters, and"
+                    + " container tooling, are no panel's to show.";
 
     static final String LIMITATION_VALUES = "A process row shows the command's file name only, never its arguments or"
             + " its environment, which can hold secrets; its exit status and lifetime come from Process.onExit, whose JDK"
@@ -95,6 +114,7 @@ public final class SideEffectsService implements AutoCloseable {
     private final SideEffectsNormalizer normalizer;
     private volatile Function<Set<String>, Map<String, String>> requestRoutes = ids -> Map.of();
     private volatile Function<Set<String>, Map<String, String>> executionLabels = ids -> Map.of();
+    private volatile NetworkCapture networkCapture = NetworkCapture.NONE;
     private final AgentEvidence evidence;
     private final AgentEvidence.Store store = new Store();
     /** Code Paths' panel, whose evidence a row's bean method is: read for its visibility only, never registered. */
@@ -167,6 +187,19 @@ public final class SideEffectsService implements AutoCloseable {
      */
     public void setExecutionLabels(Function<Set<String>, Map<String, String>> executionLabels) {
         this.executionLabels = executionLabels == null ? ids -> Map.of() : executionLabels;
+    }
+
+    /**
+     * Installs what tells whether a panel shows a network connection's work, such as {@link JournalNetworkCapture#of}
+     * (M5-5b).
+     */
+    public void setNetworkCapture(NetworkCapture networkCapture) {
+        this.networkCapture = networkCapture == null ? NetworkCapture.NONE : networkCapture;
+        synchronized (lock) {
+            if (run != null) {
+                run.store.setCapture(this.networkCapture);
+            }
+        }
     }
 
     /** Names waiting keys: request ids through the routes, execution keys through the execution labels. */
@@ -312,8 +345,9 @@ public final class SideEffectsService implements AutoCloseable {
         Run current = reason == null ? settledRun() : null;
         List<SideEffectsRowDto> all = List.of();
         if (current != null && sensor.available()) {
+            Function<String, String[]> captures = captures();
             synchronized (lock) {
-                all = current.store.rows(sensor.id(), read.requests(), codePathsShown());
+                all = current.store.rows(sensor.id(), read.requests(), codePathsShown(), captures);
             }
         }
         int start = Math.min(from, all.size());
@@ -346,12 +380,15 @@ public final class SideEffectsService implements AutoCloseable {
         List<SideEffectsRowDto> matching = new ArrayList<>();
         Run current = settledRun();
         if (current != null) {
+            Function<String, String[]> captures = captures();
+            boolean codePaths = codePathsShown();
             synchronized (lock) {
                 for (SideEffectsCatalog.Sensor sensor : SideEffectsCatalog.SENSORS) {
                     if (!sensor.available() || (bySensor && !sensor.id().equals(asked))) {
                         continue;
                     }
-                    for (SideEffectsRowDto row : current.store.rows(sensor.id(), read.requests(), codePathsShown())) {
+                    for (SideEffectsRowDto row :
+                            current.store.rows(sensor.id(), read.requests(), codePaths, captures)) {
                         if (bySensor || needle.isEmpty() || matches(row, needle)) {
                             matching.add(row);
                         }
@@ -382,7 +419,137 @@ public final class SideEffectsService implements AutoCloseable {
                 || contains(row.target(), needle)
                 || contains(row.callSite(), needle)
                 || contains(row.insideMethod(), needle)
-                || contains(row.sensor(), needle);
+                || contains(row.sensor(), needle)
+                || contains(row.client(), needle)
+                || (SideEffectsRowDto.NOT_CAPTURED.equals(row.capture())
+                        && ("not captured by any panel".contains(needle)
+                                || "not-captured".contains(needle)
+                                || "hidden outbound calls".contains(needle)));
+    }
+
+    /**
+     * How a network row's capture key reads now, as {@code {capture, capturedBy}}: a category's panel captured it when
+     * the run recorded such work and that panel is visible; a REST client capture holds while REST Client Trace is
+     * visible; any other is not captured, or infrastructure.
+     */
+    private Function<String, String[]> captures() {
+        NetworkCapture capture = networkCapture;
+        try {
+            capture.refresh();
+        } catch (RuntimeException ex) {
+            // Read from what was indexed before.
+        }
+        Map<String, Boolean> visible = new HashMap<>();
+        Function<String, Boolean> shown = panel -> visible.computeIfAbsent(
+                panel, id -> evidence.read(new PanelProbe(id)).shown());
+        return key -> {
+            if (key == null) {
+                return null;
+            }
+            if (SideEffectsStore.CAPTURE_INFRASTRUCTURE.equals(key)) {
+                return new String[] {SideEffectsRowDto.INFRASTRUCTURE, null};
+            }
+            String panel = null;
+            if (SideEffectsStore.REST_CAPTURED.equals(key)) {
+                panel = BootUiPanels.REST_CLIENT_TRACE;
+            } else if (SideEffectsStore.CAPTURE_SQL.equals(key) && capture.sql()) {
+                panel = BootUiPanels.SQL_TRACE;
+            } else if (SideEffectsStore.CAPTURE_MAIL.equals(key) && capture.mail()) {
+                panel = BootUiPanels.EMAIL;
+            } else if (key.startsWith(SideEffectsStore.CAPTURE_MESSAGING)) {
+                String broker = key.substring(SideEffectsStore.CAPTURE_MESSAGING.length());
+                if (capture.messaging(broker)) {
+                    panel = JournalSourcePanels.messagingPanel(broker);
+                }
+            }
+            if (panel != null && shown.apply(panel)) {
+                return new String[] {SideEffectsRowDto.CAPTURED, panel};
+            }
+            return new String[] {SideEffectsRowDto.NOT_CAPTURED, null};
+        };
+    }
+
+    /** One panel, for its visibility only. */
+    private record PanelProbe(String panel) implements AgentEvidence.Store {
+
+        @Override
+        public String id() {
+            return panel;
+        }
+
+        @Override
+        public String title() {
+            return panel;
+        }
+
+        @Override
+        public String unavailableReason() {
+            return null;
+        }
+
+        @Override
+        public AgentEvidence.Usage usage() {
+            return new AgentEvidence.Usage(0L, 0L, Map.of());
+        }
+
+        @Override
+        public String clear(long epochMillis) {
+            return null;
+        }
+    }
+
+    /**
+     * The hosts this run's network rows opened, from routes (while HTTP Exchanges is visible), scheduled jobs, and
+     * application call sites, for the runtime model's {@code OPENS} edges ({@code docs/PLAN-v2.md} §5.16): empty while
+     * Side Effects is hidden or records nothing.
+     */
+    public List<HostOpen> hostOpens() {
+        AgentEvidence.Read read = read();
+        if (shownReason(read) != null) {
+            return List.of();
+        }
+        Run current = current();
+        if (current == null) {
+            return List.of();
+        }
+        List<HostOpen> opens = new ArrayList<>();
+        synchronized (lock) {
+            for (SideEffectsStore.Opened opened :
+                    current.store.opened(SideEffectsCatalog.NETWORK_ID, read.requests())) {
+                if (SideEffectsRowDto.ROUTE.equals(opened.scope())
+                        && !SideEffectsStore.UNKNOWN_ROUTE.equals(opened.attribution())) {
+                    opens.add(new HostOpen(HostOpen.ROUTE, opened.attribution(), opened.target(), opened.count()));
+                } else if (SideEffectsRowDto.EXECUTION.equals(opened.scope())
+                        && opened.attribution().startsWith("scheduled ")) {
+                    opens.add(new HostOpen(
+                            HostOpen.SCHEDULED_JOB,
+                            opened.attribution().substring("scheduled ".length()),
+                            opened.target(),
+                            opened.count()));
+                }
+                String callSite = opened.callSite();
+                int hash = callSite == null ? -1 : callSite.indexOf('#');
+                if (hash > 0) {
+                    opens.add(
+                            new HostOpen(HostOpen.CLASS, callSite.substring(0, hash), opened.target(), opened.count()));
+                }
+            }
+        }
+        return opens;
+    }
+
+    /** A cheap fingerprint of {@link #hostOpens()}: changes when the run, its rows, or their counts change. */
+    public long hostOpensFingerprint() {
+        Run current;
+        synchronized (lock) {
+            current = run;
+        }
+        if (current == null) {
+            return 0L;
+        }
+        synchronized (lock) {
+            return current.generation * 31 + current.store.observations() * 17 + current.clears;
+        }
     }
 
     private static boolean contains(String text, String needle) {
@@ -442,8 +609,8 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     private List<String> limitations(Run current, AgentEvidence.Read read) {
-        List<String> limitations =
-                new ArrayList<>(List.of(LIMITATION_SCOPE, LIMITATION_VALUES, LIMITATION_ATTRIBUTION));
+        List<String> limitations = new ArrayList<>(List.of(
+                LIMITATION_SCOPE, LIMITATION_VALUES, LIMITATION_NETWORK, LIMITATION_CAPTURE, LIMITATION_ATTRIBUTION));
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
         }
@@ -520,6 +687,29 @@ public final class SideEffectsService implements AutoCloseable {
     /** Whether Code Paths, whose stamp names the bean method a row happened inside, is visible now. */
     private boolean codePathsShown() {
         return evidence.read(codePathsPanel).shown();
+    }
+
+    /** Whether a frame is the JDK's. */
+    static boolean jdk(String frame) {
+        return frame.startsWith("java.")
+                || frame.startsWith("javax.")
+                || frame.startsWith("jdk.")
+                || frame.startsWith("sun.")
+                || frame.startsWith("com.sun.");
+    }
+
+    /** How a connect or datagram of {@code client} is captured: by category, now, or once a REST call names it. */
+    static String captureKey(NetworkClients.Client client) {
+        if (client == null) {
+            return SideEffectsStore.REST_WAITING;
+        }
+        return switch (client.category()) {
+            case NetworkClients.INFRASTRUCTURE -> SideEffectsStore.CAPTURE_INFRASTRUCTURE;
+            case NetworkClients.SQL -> SideEffectsStore.CAPTURE_SQL;
+            case NetworkClients.MAIL -> SideEffectsStore.CAPTURE_MAIL;
+            case NetworkClients.MESSAGING -> SideEffectsStore.CAPTURE_MESSAGING + client.broker();
+            default -> SideEffectsStore.REST_WAITING;
+        };
     }
 
     /** Code Paths' panel, for its read only. */
@@ -654,6 +844,7 @@ public final class SideEffectsService implements AutoCloseable {
                     evidence.scaled(SideEffectsStore.MAX_ROWS, 100),
                     evidence.scaled(SideEffectsStore.MAX_ROWS_PER_SENSOR, 50),
                     evidence.scaled(SideEffectsStore.MAX_PENDING, 500));
+            this.store.setCapture(networkCapture);
         }
 
         void start() {
@@ -724,17 +915,66 @@ public final class SideEffectsService implements AutoCloseable {
                     return;
                 }
                 String target = string(record.target());
-                store.add(new SideEffectsStore.Observation(
-                        record,
-                        sensor.id(),
-                        SideEffectsCatalog.kind(record.sensor(), record.kind()),
-                        target == null ? "(unknown)" : normalizer.target(target),
-                        application != null ? application : outside,
-                        insideMethod(record.stamp()),
-                        normalizer.threadFamily(string(record.threadName()))));
+                if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
+                    store.add(network(record, sensor, target, outside, application));
+                } else {
+                    store.add(new SideEffectsStore.Observation(
+                            record,
+                            sensor.id(),
+                            SideEffectsCatalog.kind(record.sensor(), record.kind()),
+                            target == null ? "(unknown)" : normalizer.target(target),
+                            application != null ? application : outside,
+                            insideMethod(record.stamp()),
+                            normalizer.threadFamily(string(record.threadName()))));
+                }
                 resolve(false);
                 publish(this);
             }
+        }
+
+        /**
+         * A network record's observation: its client recognized from its frames and thread, its call site the first
+         * application frame, else the client's frame outside the JDK, else the first frame outside the JDK, and how a
+         * panel captures it: a lookup never, an infrastructure client never needs one, a SQL, messaging, or mail
+         * client's by category on read, and any other once a REST client call names it, or not.
+         */
+        private SideEffectsStore.Observation network(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            String client = string(record.clientFrame());
+            String thread = normalizer.threadFamily(string(record.threadName()));
+            String normalized = target == null ? "(unknown)" : normalizer.networkTarget(target);
+            NetworkClients.Client recognized = NetworkClients.recognize(client, outside, application, thread, target);
+            String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
+            String callSite = application != null
+                    ? application
+                    : client != null && !jdk(client) ? client : outside != null ? outside : client;
+            String captureKey = null;
+            String host = null;
+            int port = -1;
+            if (!SideEffectsCatalog.LOOKUP.equals(kind)) {
+                String[] hostPort = JournalNetworkCapture.hostPort(target);
+                if (hostPort != null) {
+                    host = hostPort[0];
+                    port = hostPort[1] == null ? -1 : Integer.parseInt(hostPort[1]);
+                }
+                captureKey = captureKey(recognized);
+            }
+            return new SideEffectsStore.Observation(
+                    record,
+                    sensor.id(),
+                    kind,
+                    normalized,
+                    callSite,
+                    insideMethod(record.stamp()),
+                    thread,
+                    recognized == null ? null : recognized.label(),
+                    captureKey,
+                    host,
+                    port);
         }
 
         /** A frame of BootUI's own modules, never an application's, as the sample apps' are. */
