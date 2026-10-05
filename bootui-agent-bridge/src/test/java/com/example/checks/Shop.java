@@ -22,6 +22,11 @@ public final class Shop {
         Digests.digest(algorithm);
     }
 
+    /** Another application method asking the same library helper. */
+    public static void etag(String algorithm) {
+        Digests.digest(algorithm);
+    }
+
     public static long reading(ObjectInputStream stream) {
         return SecuritySinks.reading(stream);
     }

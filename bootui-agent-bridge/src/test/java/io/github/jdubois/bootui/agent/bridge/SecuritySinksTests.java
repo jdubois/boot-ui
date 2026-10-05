@@ -143,6 +143,45 @@ class SecuritySinksTests {
     }
 
     @Test
+    void aRememberedLibraryCallerStillNamesTheApplicationFrameThatCalledIt() {
+        long token = enabledClaim(SecuritySinks.GROUPS);
+
+        Shop.hashThroughLibrary("MD5");
+        Shop.etag("MD5");
+
+        List<long[]> records = drain(token);
+        assertThat(records).hasSize(2);
+        assertThat(records)
+                .allSatisfy(record -> assertThat(outside(record)).isEqualTo("org.acme.crypto.Digests#digest"));
+        assertThat(application(records.get(0))).isEqualTo("com.example.checks.Shop#hashThroughLibrary");
+        assertThat(application(records.get(1))).isEqualTo("com.example.checks.Shop#etag");
+        assertThat(SideEffects.status(SideEffects.SECURITY_SINKS).get("recorded"))
+                .isEqualTo(Map.of(
+                        "MessageDigest.getInstance", 2L,
+                        "Cipher.getInstance", 0L,
+                        "ObjectInputStream.readObject", 0L,
+                        "ObjectInputStream.resolveClass", 0L,
+                        "SSLContext.init", 0L,
+                        "HttpsURLConnection.setDefaultHostnameVerifier", 0L,
+                        "HttpsURLConnection.setDefaultSSLSocketFactory", 0L));
+    }
+
+    @Test
+    void theChecksErrorBudgetSwitchesTheirGroupsOffButNeverRequestValueMatching() {
+        enabledClaim(SecuritySinks.GROUPS);
+        for (int i = 0; i < SideEffects.MAX_ERRORS; i++) {
+            SecuritySinks.failed(new IllegalStateException("check " + i));
+        }
+
+        assertThat(SecuritySinks.groups).isZero();
+        SecuritySinks.groups(SecuritySinks.GROUPS, null);
+        assertThat(SecuritySinks.groups).as("off for the JVM's life").isZero();
+        assertThat(SideEffects.mask & SideEffects.MASK_SECURITY_SINKS).isNotZero();
+        assertThat(RequestValues.active()).isTrue();
+        assertThat(SideEffects.status(SideEffects.SECURITY_SINKS)).containsEntry("checkErrors", 100L);
+    }
+
+    @Test
     void anImmediateCallerInTheJdkIsTheJdksOwnUseAndIsNotAttributed() {
         enabledClaim(SecuritySinks.GROUPS);
         Claim claim = AgentBridge.current();

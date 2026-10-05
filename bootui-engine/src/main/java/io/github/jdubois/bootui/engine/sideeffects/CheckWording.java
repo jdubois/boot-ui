@@ -42,18 +42,19 @@ final class CheckWording {
             String location,
             List<String> classes,
             boolean moreClasses) {
-        boolean library = SideEffectOrigins.LIBRARY.equals(origin) && location != null;
+        boolean library = SideEffectOrigins.LIBRARY.equals(origin);
+        String libraryFrame = location == null ? "(frame not kept)" : "`" + location + "`";
         String at = callSite == null ? "" : " at `" + callSite + "`";
         if (SideEffectsCatalog.DESERIALIZATION.equals(kind)) {
             return "Deserialization without an ObjectInputFilter"
-                    + (library ? " by library code `" + location + "`" : "")
+                    + (library ? " by library code " + libraryFrame : "")
                     + at + " (classes read: " + classes(target, classes, moreClasses) + "). Check that the stream comes"
                     + " only from a trusted source, or give it a filter (ObjectInputStream.setObjectInputFilter or"
                     + " jdk.serialFilter).";
         }
         if (SideEffectsCatalog.WEAK_DIGEST.equals(kind) || SideEffectsCatalog.WEAK_CIPHER.equals(kind)) {
             String who = library
-                    ? "library code `" + location + "`"
+                    ? "library code " + libraryFrame
                             + (callSite == null || callSite.equals(location)
                                     ? " (no application frame on the stack)"
                                     : " for application frame `" + callSite + "`")
@@ -66,8 +67,9 @@ final class CheckWording {
         }
         if (SideEffectsCatalog.TRUST_MANAGER.equals(kind)) {
             String who = library
-                    ? "Library code `" + location + "` initialized an SSLContext with the application's trust manager ("
-                            + target + ")" + (callSite == null ? "" : " for application frame `" + callSite + "`")
+                    ? "Library code " + libraryFrame
+                            + " initialized an SSLContext with the application's trust manager (" + target + ")"
+                            + (callSite == null ? "" : " for application frame `" + callSite + "`")
                     : "Application code initialized an SSLContext with a trust manager of its own (" + target + ")"
                             + at;
             return who + ". Check that it validates certificate chains and never trusts every certificate.";

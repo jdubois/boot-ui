@@ -122,7 +122,8 @@ final class SideEffectsSensor {
         {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE},
         // The security-sinks sensor's JDK checks are optional to the sensor, whose request-value matching needs none of
-        // them: a group whose core hook fails is switched off alone (CHECK_GROUPS).
+        // them: a group whose core hook fails is switched off alone (CHECK_CORE), its other hooks staying installed but
+        // returning at their group's check.
         {"MessageDigest.getInstance", MESSAGE_DIGEST, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
         {"Cipher.getInstance", CIPHER, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
         {"ObjectInputStream.readObject", OBJECT_INPUT_STREAM, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
@@ -146,16 +147,10 @@ final class SideEffectsSensor {
 
     /**
      * The security-sinks sensor's check groups ({@link SecuritySinks#GROUP_IDS}, by bit index): each group's core hooks,
-     * whose self-test failure switches that group off alone, and its other hooks, left out with it.
+     * whose self-test failure switches that group off alone; its other hooks stay installed and return at its check.
      */
     static final String[][] CHECK_CORE = {
         {"ObjectInputStream.readObject"}, {"MessageDigest.getInstance", "Cipher.getInstance"}, {"SSLContext.init"}
-    };
-
-    static final String[][] CHECK_OPTIONAL = {
-        {"ObjectInputStream.resolveClass"},
-        {},
-        {"HttpsURLConnection.setDefaultHostnameVerifier", "HttpsURLConnection.setDefaultSSLSocketFactory"}
     };
 
     /** The side-effect sensors, in status order. */

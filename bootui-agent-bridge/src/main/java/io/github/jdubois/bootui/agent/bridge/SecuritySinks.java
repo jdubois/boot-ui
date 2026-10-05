@@ -118,6 +118,8 @@ public final class SecuritySinks {
     private static final LongAdder MEMO_FULL = new LongAdder();
     private static final LongAdder SKIPPED = new LongAdder();
     private static final LongAdder NOT_KEPT = new LongAdder();
+    private static final LongAdder UNATTRIBUTED = new LongAdder();
+    private static final java.util.concurrent.atomic.AtomicLong ERRORS = new java.util.concurrent.atomic.AtomicLong();
     private static final AtomicInteger INTERNED = new AtomicInteger();
     private static volatile long internGeneration = Long.MIN_VALUE;
 
@@ -143,10 +145,38 @@ public final class SecuritySinks {
      * {@code reasons}, by group index, says why a group is off, or {@code null}. Never throws.
      */
     public static void groups(int bits, String[] reasons) {
+        if (ERRORS.get() >= SideEffects.MAX_ERRORS) {
+            // Off for the JVM's life after their error budget.
+            return;
+        }
         for (int i = 0; i < GROUP_REASONS.length; i++) {
             GROUP_REASONS[i] = reasons != null && i < reasons.length ? reasons[i] : null;
         }
         groups = bits & GROUPS;
+    }
+
+    /**
+     * An internal error of a check: counted against the checks' own budget of {@value SideEffects#MAX_ERRORS}, which
+     * switches every check group off for the JVM's life, never the sensor, so request-value matching keeps running.
+     * Never throws.
+     */
+    static void failed(Throwable ex) {
+        try {
+            if (ex instanceof VirtualMachineError) {
+                return;
+            }
+            AgentBridge.error(ex);
+            if (ERRORS.incrementAndGet() == SideEffects.MAX_ERRORS) {
+                String reason = "switched off after " + SideEffects.MAX_ERRORS + " internal errors, the last: " + ex;
+                for (int i = 0; i < GROUP_REASONS.length; i++) {
+                    GROUP_REASONS[i] = reason;
+                }
+                groups = 0;
+                AgentBridge.message("the security-sinks JDK checks were " + reason);
+            }
+        } catch (Throwable ignored) {
+            // Never throw from the error path.
+        }
     }
 
     // ---- (c) weak algorithms --------------------------------------------------------------------------------------
@@ -278,12 +308,11 @@ public final class SecuritySinks {
             String target = algorithmText(algorithm);
             long[] who = attribute(claim, hook, advised, target.hashCode());
             if (who == null) {
-                JDK_REQUESTS.increment();
                 return;
             }
             record(frame, claim, kind, intern(target, claim.generation), (int) who[1], 0, who[0]);
         } catch (Throwable ex) {
-            SideEffects.failed(SideEffects.SENSOR_SECURITY_SINKS, ex);
+            failed(ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -336,7 +365,7 @@ public final class SecuritySinks {
             serial.generation = generation;
             return token;
         } catch (Throwable ex) {
-            SideEffects.failed(SideEffects.SENSOR_SECURITY_SINKS, ex);
+            failed(ex);
             return 0L;
         }
     }
@@ -384,7 +413,6 @@ public final class SecuritySinks {
             long[] who = attribute(
                     claim, SideEffects.HOOK_READ_OBJECT, "java.io.ObjectInputStream", top == null ? 0 : top.hashCode());
             if (who == null) {
-                JDK_REQUESTS.increment();
                 return;
             }
             int outcome = (int) who[1] | (thrown != null ? FLAG_ERROR : 0);
@@ -392,12 +420,12 @@ public final class SecuritySinks {
                     frame,
                     claim,
                     KIND_DESERIALIZATION,
-                    top == null ? 0 : intern(top, claim.generation),
+                    top == null ? 0 : intern(className(top), claim.generation),
                     outcome,
                     others == null ? 0 : intern(others, claim.generation),
                     who[0]);
         } catch (Throwable ex) {
-            SideEffects.failed(SideEffects.SENSOR_SECURITY_SINKS, ex);
+            failed(ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -435,7 +463,7 @@ public final class SecuritySinks {
                 serial.more = true;
             }
         } catch (Throwable ex) {
-            SideEffects.failed(SideEffects.SENSOR_SECURITY_SINKS, ex);
+            failed(ex);
         }
     }
 
@@ -514,13 +542,12 @@ public final class SecuritySinks {
             opened = true;
             long[] who = attribute(claim, -1, "javax.net.ssl.SSLContext", 0);
             if (who == null) {
-                JDK_REQUESTS.increment();
                 return;
             }
             TRUST_MANAGERS.increment();
             record(frame, claim, KIND_TRUST_MANAGER, intern(className(own), claim.generation), (int) who[1], 0, who[0]);
         } catch (Throwable ex) {
-            SideEffects.failed(SideEffects.SENSOR_SECURITY_SINKS, ex);
+            failed(ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -564,7 +591,6 @@ public final class SecuritySinks {
             opened = true;
             long[] who = attribute(claim, -1, "javax.net.ssl.HttpsURLConnection", 0);
             if (who == null) {
-                JDK_REQUESTS.increment();
                 return;
             }
             if (who[1] != ORIGIN_APPLICATION) {
@@ -575,7 +601,7 @@ public final class SecuritySinks {
             String name = className(value.getClass().getName());
             record(frame, claim, kind, intern(name, claim.generation), ORIGIN_APPLICATION, 0, who[0]);
         } catch (Throwable ex) {
-            SideEffects.failed(SideEffects.SENSOR_SECURITY_SINKS, ex);
+            failed(ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -677,14 +703,20 @@ public final class SecuritySinks {
                 }
                 if (SideEffects.transparent(name)) {
                     if (++skipped > MAX_CALLER_FRAMES) {
-                        return null;
+                        break;
                     }
                     continue;
                 }
                 caller = frame;
                 break;
             }
-            if (caller == null || jdk(caller)) {
+            if (caller == null) {
+                // Past the reflection and method-handle frames walked, or the frames: who asked is not known.
+                UNATTRIBUTED.increment();
+                return null;
+            }
+            if (jdk(caller)) {
+                JDK_REQUESTS.increment();
                 return null;
             }
             String callerClass = caller.getClassName();
@@ -693,10 +725,17 @@ public final class SecuritySinks {
             if (hook >= 0) {
                 int callerHash =
                         callerClass.hashCode() * 31 + caller.getMethodName().hashCode();
-                key = ((long) (hook + 1) << 56) | ((long) (callerHash & 0xFFFFFF) << 32) | (targetHash & 0xFFFFFFFFL);
+                int folded = (targetHash ^ (targetHash >>> 24)) & 0xFFFFFF;
+                key = ((long) (hook + 1) << 56) | ((callerHash & 0xFFFFFFFFL) << 24) | folded;
                 found = new long[2];
                 int result = SIGHTINGS.find(SideEffects.generation, key, found);
                 if (result == SideEffects.Sightings.FOUND) {
+                    if (found[1] == ORIGIN_APPLICATION) {
+                        return found;
+                    }
+                    // A library's request: its own frame is the caller's, remembered; the application frame above it
+                    // depends on who called the library, so it is walked each time.
+                    found[0] = (found[0] & 0xFFFFFFFF00000000L) | (applicationFrame(iterator, seen) & 0xFFFFFFFFL);
                     return found;
                 }
                 if (result == SideEffects.Sightings.FULL) {
@@ -706,21 +745,25 @@ public final class SecuritySinks {
             }
             int outside = SideEffects.internFrame(callerClass, caller.getMethodName());
             boolean application = ThreadPropagation.inPackages(callerClass, claim);
-            int own = application ? outside : 0;
-            for (int i = seen; !application && i < SideEffects.MAX_FRAMES && iterator.hasNext(); i++) {
-                StackWalker.StackFrame frame = iterator.next();
-                String name = frame.getClassName();
-                if (ThreadPropagation.inPackages(name, claim)) {
-                    own = SideEffects.internFrame(name, frame.getMethodName());
-                    break;
-                }
-            }
+            int own = application ? outside : applicationFrame(iterator, seen);
             long packed = ((long) outside << 32) | (own & 0xFFFFFFFFL);
             int origin = application ? ORIGIN_APPLICATION : ORIGIN_LIBRARY;
             if (key != 0L) {
                 SIGHTINGS.put(SideEffects.generation, key, packed, origin);
             }
             return new long[] {packed, origin};
+        }
+
+        /** The first frame of the claimed packages left in {@code iterator}, interned; 0 when none. */
+        private int applicationFrame(Iterator<StackWalker.StackFrame> iterator, int seen) {
+            for (int i = seen; i < SideEffects.MAX_FRAMES && iterator.hasNext(); i++) {
+                StackWalker.StackFrame frame = iterator.next();
+                String name = frame.getClassName();
+                if (ThreadPropagation.inPackages(name, claim)) {
+                    return SideEffects.internFrame(name, frame.getMethodName());
+                }
+            }
+            return 0;
         }
     }
 
@@ -741,6 +784,7 @@ public final class SecuritySinks {
 
     private static void record(
             CodePaths.Frame frame, Claim claim, int kind, int target, int outcome, int detail, long frames) {
+        SideEffects.RECORDED[hookOf(kind)].increment();
         SideEffects.Owner owner = SideEffects.owner(frame, claim);
         SideEffects.record(
                 frame,
@@ -753,6 +797,24 @@ public final class SecuritySinks {
                 CodePaths.stamp(),
                 frames,
                 0L);
+    }
+
+    /** The hook a record of {@code kind} comes from, for its hook's recorded counter. */
+    private static int hookOf(int kind) {
+        switch (kind) {
+            case KIND_DESERIALIZATION:
+                return SideEffects.HOOK_READ_OBJECT;
+            case KIND_WEAK_DIGEST:
+                return SideEffects.HOOK_DIGEST;
+            case KIND_WEAK_CIPHER:
+                return SideEffects.HOOK_CIPHER;
+            case KIND_TRUST_MANAGER:
+                return SideEffects.HOOK_SSL_INIT;
+            case KIND_HOSTNAME_VERIFIER:
+                return SideEffects.HOOK_DEFAULT_VERIFIER;
+            default:
+                return SideEffects.HOOK_DEFAULT_FACTORY;
+        }
     }
 
     /** {@code text}'s id in the generation's strings, within the checks' quota; 0 past it, counted. */
@@ -844,6 +906,8 @@ public final class SecuritySinks {
         map.put("checkMemoFull", Long.valueOf(MEMO_FULL.sum()));
         map.put("checksSkipped", Long.valueOf(SKIPPED.sum()));
         map.put("checksNotKept", Long.valueOf(NOT_KEPT.sum()));
+        map.put("checksUnattributed", Long.valueOf(UNATTRIBUTED.sum()));
+        map.put("checkErrors", Long.valueOf(ERRORS.get()));
     }
 
     /** Loads and links what the hooks use, on the agent's own thread, before the transformer installs. */
@@ -878,10 +942,12 @@ public final class SecuritySinks {
             WALKS,
             MEMO_FULL,
             SKIPPED,
-            NOT_KEPT
+            NOT_KEPT,
+            UNATTRIBUTED
         }) {
             adder.reset();
         }
+        ERRORS.set(0);
         INTERNED.set(0);
         internGeneration = Long.MIN_VALUE;
         SIGHTINGS.clear();
