@@ -21,7 +21,8 @@ import java.util.function.Supplier;
  * token is the thread's depth before the call plus one, tagged with the thread's frame epoch; 0 is the no-op sentinel,
  * which an inactive sensor, an excluded method ({@link #EXCLUDED}), or a suppressed exception yields, so enter and exit
  * always balance. An exit pops to its token's depth, which tolerates a missing exit, and ignores a token of an earlier
- * epoch, so a frame reset after an internal error never mismatches later exits.
+ * epoch, so a frame reset after an internal error never mismatches later exits; such an exit only resets the frame again
+ * if an instrumented call entered since the reset lost its exit, since every one of them ran inside it.
  *
  * <p><b>Fragments.</b> A fragment starts at the outermost instrumented entry on a thread, or where an adapter calls
  * {@link #begin()} around a request's scope. It captures its owner once, through the claim's {@code capture} under the
@@ -270,9 +271,22 @@ public final class CodePaths {
             if (frame == null) {
                 return;
             }
+            if ((token >>> DEPTH_BITS) != (frame.epoch & EPOCH_MASK)) {
+                // A token of an earlier epoch: every instrumented call entered since the frame was reset ran inside
+                // this one, so none is open any more. One still counted lost its exit, as when a second
+                // StackOverflowError escaped the entry that took it before the frame could be reset again. Depth alone
+                // decides: a fragment begin() opened may legitimately outlive this call until its asynchronous end().
+                if (frame.depth != 0) {
+                    if (frame.tree != null) {
+                        ABANDONED.increment();
+                    }
+                    resetFrame(frame);
+                }
+                return;
+            }
             int target = (token & DEPTH_MASK) - 1;
-            if ((token >>> DEPTH_BITS) != (frame.epoch & EPOCH_MASK) || target >= frame.depth) {
-                // A token of an earlier epoch, or a call already popped by a later exit.
+            if (target >= frame.depth) {
+                // A call already popped by a later exit.
                 return;
             }
             frame.depth = target;
@@ -752,20 +766,7 @@ public final class CodePaths {
             }
             Frame frame = FRAME.get();
             if (frame != null) {
-                if (frame.tree != null && frame.tree.generation == generation) {
-                    // Possibly inconsistent: never back to the pool, and its slot is free again.
-                    CREATED.decrementAndGet();
-                }
-                frame.tree = null;
-                frame.base = -1;
-                frame.begun = -1;
-                frame.untracked = -1;
-                frame.nested = 0;
-                frame.depth = 0;
-                frame.phase = PHASE_UNKNOWN;
-                frame.submitter = 0L;
-                frame.handoffs = 0;
-                frame.epoch++;
+                resetFrame(frame);
             }
             if (!application && errors >= MAX_ERRORS && !off) {
                 off = true;
@@ -776,6 +777,27 @@ public final class CodePaths {
         } catch (Throwable ignored) {
             // Never throw from the error path.
         }
+    }
+
+    /**
+     * Forgets everything open on the thread and bumps its epoch, so tokens taken before are ignored: after an error
+     * inside an entry point, or at the exit of a call that outlived calls whose exits were lost.
+     */
+    private static void resetFrame(Frame frame) {
+        if (frame.tree != null && frame.tree.generation == generation) {
+            // Possibly inconsistent: never back to the pool, and its slot is free again.
+            CREATED.decrementAndGet();
+        }
+        frame.tree = null;
+        frame.base = -1;
+        frame.begun = -1;
+        frame.untracked = -1;
+        frame.nested = 0;
+        frame.depth = 0;
+        frame.phase = PHASE_UNKNOWN;
+        frame.submitter = 0L;
+        frame.handoffs = 0;
+        frame.epoch++;
     }
 
     // ---- the pool --------------------------------------------------------------------------------------------------
@@ -1122,7 +1144,7 @@ public final class CodePaths {
     /** One thread's state: primitives and the tree it borrowed while a fragment records. */
     static final class Frame {
 
-        /** Bumped when the frame is reset after an error: older tokens are ignored. */
+        /** Bumped when the frame is reset after an error or a lost exit: older tokens are ignored. */
         int epoch;
 
         /** Open instrumented calls with a non-zero token. */
