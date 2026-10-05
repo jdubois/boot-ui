@@ -196,3 +196,98 @@ it('keeps the Windows 95 title-bar caption legible', () => {
   const tokens = declarations(cssBlock("html[data-bootui-theme='win95'] {", skinCss('win95')))
   expect(contrastRatio(parseColor('#ffffff'), parseColor(tokens['--w95-title']))).toBeGreaterThanOrEqual(4.5)
 })
+
+/* Panel tabs (PanelTabs.vue). Every theme paints them through the --bootui-tab-*
+   tokens, which default to the nav link states and which a skin overrides only where
+   its own tab idiom differs. Inactive tabs once inherited Bootstrap's link blue; this
+   holds each tab state to WCAG AA on the card surfaces a tab strip actually sits on:
+   the label at rest, hovered, selected, and disabled (≥4.5:1), and the selected tab's
+   own indicator against the strip (≥3:1, WCAG 1.4.11), so selection never rests on a
+   text color alone. */
+describe.each(['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95'])(
+  '%s theme tab states',
+  (theme) => {
+    function tabTheme() {
+      const skin = ['light', 'dark'].includes(theme)
+        ? {}
+        : declarations(cssBlock(`html[data-bootui-theme='${theme}'] {`, skinCss(theme)))
+      const tokens = {...(theme === 'dark' ? darkTokens : lightTokens), ...skin}
+      const resolve = (value) => {
+        let resolved = value
+        for (let depth = 0; depth < 8; depth += 1) {
+          const reference = resolved.match(/^var\((--[\w-]+)\)$/)
+          if (!reference) return resolved
+          resolved = tokens[reference[1]]
+          if (resolved === undefined) throw new Error(`Unresolved token ${reference[1]} in ${theme}`)
+        }
+        throw new Error(`Token cycle while resolving ${value} in ${theme}`)
+      }
+      const color = (name) => {
+        const value = resolve(tokens[name])
+        return value === 'transparent' ? {red: 0, green: 0, blue: 0, alpha: 0} : parseColor(value)
+      }
+      const stops = (name) =>
+        [...resolve(tokens[name]).matchAll(/#[\da-f]{3,8}\b|rgba?\([^)]*\)/gi)].map((match) => parseColor(match[0]))
+      const cards = ['light', 'dark'].includes(theme)
+        ? [
+            ...backgroundStops(tokens).map((stop, index) => [
+              `card on body stop ${index + 1}`,
+              composite(color('--bootui-surface'), stop)
+            ]),
+            ['solid card', color('--bootui-surface-solid')]
+          ]
+        : [['card chrome', color('--bootui-surface-solid')]]
+      return {tokens, color, stops, cards, skinSource: ['light', 'dark'].includes(theme) ? css : skinCss(theme)}
+    }
+
+    function failures(check) {
+      const {cards} = tabTheme()
+      return cards.flatMap(([name, card]) => check(card).map((failure) => `${name}: ${failure}`))
+    }
+
+    it('keeps every tab label at or above 4.5:1 at rest, hovered, selected, and disabled', () => {
+      const {color, stops} = tabTheme()
+      const ratio = (foreground, background) => contrastRatio(foreground, background).toFixed(2)
+      const issues = failures((card) => {
+        const tray = composite(color('--bootui-tab-tray-bg'), card)
+        const rest = composite(color('--bootui-tab-bg'), tray)
+        const hover = composite(color('--bootui-tab-hover-bg'), tray)
+        const checks = [
+          ['rest', color('--bootui-tab-color'), rest],
+          ['hover', color('--bootui-tab-hover-color'), hover],
+          ['disabled', color('--bootui-tab-disabled-color'), rest],
+          ...stops('--bootui-tab-active-bg').map((stop, index) => [
+            `selected stop ${index + 1}`,
+            color('--bootui-tab-active-color'),
+            composite(stop, tray)
+          ])
+        ]
+        return checks
+          .filter(([, foreground, background]) => contrastRatio(foreground, background) < 4.5)
+          .map(([state, foreground, background]) => `${state} ${ratio(foreground, background)}:1`)
+      })
+
+      expect(issues).toEqual([])
+    })
+
+    it('marks the selected tab with an indicator of at least 3:1 against its strip', () => {
+      const {tokens, color, stops, skinSource} = tabTheme()
+      const indicators = tokens['--bootui-tab-indicator']
+        ? [color('--bootui-tab-indicator')]
+        : stops('--bootui-tab-active-bg')
+      const issues = failures((card) => {
+        const tray = composite(color('--bootui-tab-tray-bg'), card)
+        return indicators
+          .map((indicator) => contrastRatio(composite(indicator, tray), tray))
+          .filter((ratio) => ratio < 3)
+          .map((ratio) => `indicator ${ratio.toFixed(2)}:1`)
+      })
+
+      expect(issues).toEqual([])
+      // A declared indicator has to be drawn, not just declared.
+      if (tokens['--bootui-tab-indicator']) {
+        expect(skinSource.split('var(--bootui-tab-indicator)').length).toBeGreaterThan(1)
+      }
+    })
+  }
+)

@@ -7,6 +7,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
@@ -236,19 +237,6 @@ function selectTab(id) {
   loadGroupSensors(id)
 }
 
-function onTabKeydown(event, index) {
-  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
-  event.preventDefault()
-  const count = GROUPS.length
-  let next = index
-  if (event.key === 'ArrowRight') next = (index + 1) % count
-  if (event.key === 'ArrowLeft') next = (index - 1 + count) % count
-  if (event.key === 'Home') next = 0
-  if (event.key === 'End') next = count - 1
-  selectTab(GROUPS[next].id)
-  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus()
-}
-
 function stateOf(sensor) {
   return STATE[sensor.state] ?? {label: sensor.state || 'Unknown', badge: 'text-bg-secondary'}
 }
@@ -437,24 +425,14 @@ function hookStatus(value, label) {
         </div>
       </section>
 
-      <ul class="nav nav-tabs mb-3" role="tablist" aria-label="Side Effects sensor groups">
-        <li v-for="(group, index) in GROUPS" :key="group.id" class="nav-item" role="presentation">
-          <button
-            :id="`side-effects-tab-${group.id}`"
-            :aria-controls="`side-effects-panel-${group.id}`"
-            :aria-selected="activeTab === group.id"
-            :class="{active: activeTab === group.id}"
-            :tabindex="activeTab === group.id ? 0 : -1"
-            class="nav-link"
-            role="tab"
-            type="button"
-            @click="selectTab(group.id)"
-            @keydown="onTabKeydown($event, index)"
-          >
-            <i :class="['bi', group.icon, 'me-1']" aria-hidden="true"></i>{{ group.label }}
-          </button>
-        </li>
-      </ul>
+      <PanelTabs
+        class="mb-3"
+        :tabs="GROUPS"
+        :selected="activeTab"
+        id-prefix="side-effects"
+        label="Side Effects sensor groups"
+        @select="selectTab"
+      />
 
       <section
         :id="`side-effects-panel-${activeGroup.id}`"

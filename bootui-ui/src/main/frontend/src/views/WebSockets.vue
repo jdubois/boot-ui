@@ -11,6 +11,7 @@ import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -25,7 +26,6 @@ const directionFilter = ref('')
 const busy = ref(null)
 const lastFetched = ref(null)
 const tab = ref('endpoints')
-const tabButtons = ref([])
 
 async function fetchReport() {
   error.value = null
@@ -115,24 +115,6 @@ const tabs = computed(() => [
 
 function selectTab(id) {
   tab.value = id
-}
-
-function handleTabKeydown(event, index) {
-  let nextIndex
-  if (event.key === 'ArrowRight') {
-    nextIndex = (index + 1) % tabs.value.length
-  } else if (event.key === 'ArrowLeft') {
-    nextIndex = (index - 1 + tabs.value.length) % tabs.value.length
-  } else if (event.key === 'Home') {
-    nextIndex = 0
-  } else if (event.key === 'End') {
-    nextIndex = tabs.value.length - 1
-  } else {
-    return
-  }
-  event.preventDefault()
-  selectTab(tabs.value[nextIndex].id)
-  tabButtons.value[nextIndex]?.focus()
 }
 
 const subtitle = computed(() => {
@@ -437,31 +419,19 @@ function clearActivity() {
           </select>
         </div>
 
-        <ul class="websockets-tabs" role="tablist" aria-label="WebSocket data">
-          <li v-for="entry in tabs" :key="entry.id" class="websockets-tabs__item" role="presentation">
-            <button
-              :id="`websockets-tab-${entry.id}`"
-              ref="tabButtons"
-              type="button"
-              class="websockets-tabs__button"
-              :class="{active: tab === entry.id}"
-              role="tab"
-              :aria-selected="tab === entry.id"
-              :aria-controls="`websockets-panel-${entry.id}`"
-              :tabindex="tab === entry.id ? 0 : -1"
-              @click="selectTab(entry.id)"
-              @keydown="
-                handleTabKeydown(
-                  $event,
-                  tabs.findIndex((candidate) => candidate.id === entry.id)
-                )
-              "
-            >
-              <span>{{ entry.label }}</span>
-              <span class="websockets-tabs__count">{{ formatNumber(entry.count) }}</span>
-            </button>
-          </li>
-        </ul>
+        <PanelTabs
+          class="mt-3 mb-3"
+          :tabs="tabs"
+          :selected="tab"
+          id-prefix="websockets"
+          label="WebSocket data"
+          @select="selectTab"
+        >
+          <template #tab="{tab: entry}">
+            <span>{{ entry.label }}</span>
+            <span class="bootui-tabs__count">{{ formatNumber(entry.count) }}</span>
+          </template>
+        </PanelTabs>
 
         <div
           v-if="tab === 'endpoints'"
@@ -788,81 +758,6 @@ function clearActivity() {
   gap: 0.5rem;
 }
 
-.websockets-tabs {
-  align-items: center;
-  background: var(--bootui-surface-alt);
-  border: 1px solid var(--bootui-border);
-  border-radius: var(--bootui-radius-md);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
-  display: flex;
-  gap: 0.2rem;
-  list-style: none;
-  margin-bottom: 1rem;
-  margin-top: 0.75rem;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 0.22rem;
-  scrollbar-width: thin;
-  width: max-content;
-}
-
-.websockets-tabs__item {
-  flex: 0 0 auto;
-}
-
-.websockets-tabs__button {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: var(--bootui-radius-sm);
-  color: var(--bootui-text-muted);
-  display: inline-flex;
-  font-size: 0.875rem;
-  font-weight: 700;
-  gap: 0.45rem;
-  justify-content: center;
-  min-height: 2.25rem;
-  padding: 0.4rem 0.75rem;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.websockets-tabs__button:hover:not(.active) {
-  background: var(--bootui-nav-hover-bg);
-  color: var(--bootui-nav-hover-color);
-}
-
-.websockets-tabs__button.active {
-  background: var(--bootui-nav-active-bg);
-  box-shadow: 0 0.35rem 0.8rem rgba(25, 135, 84, 0.2);
-  color: var(--bootui-nav-active-color);
-}
-
-.websockets-tabs__button:focus-visible {
-  outline: 2px solid var(--bootui-blue);
-  outline-offset: 2px;
-}
-
-.websockets-tabs__count {
-  align-items: center;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  border-radius: var(--bootui-radius-pill);
-  display: inline-flex;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  height: 1.4rem;
-  justify-content: center;
-  min-width: 1.4rem;
-  padding: 0 0.3rem;
-}
-
-.websockets-tabs__button.active .websockets-tabs__count {
-  background: rgba(255, 255, 255, 0.2);
-}
-
 .websockets-table {
   overscroll-behavior-inline: contain;
 }
@@ -911,21 +806,6 @@ function clearActivity() {
   .websockets-filter-input,
   .websockets-direction-select {
     max-width: none;
-    width: 100%;
-  }
-
-  .websockets-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-left: -1rem;
-    margin-right: -1rem;
-    overflow: visible;
-    padding-left: 1rem;
-    padding-right: 1rem;
-    width: calc(100% + 2rem);
-  }
-
-  .websockets-tabs__button {
     width: 100%;
   }
 
