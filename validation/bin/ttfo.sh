@@ -14,9 +14,13 @@
 source "$(dirname "$0")/lib.sh"
 
 app="${1:?usage: ttfo.sh <app>}"
-require_cmd node curl
+require_cmd node curl git
 load_pin "$app"
 load_build
+[ -z "${VALIDATION_APP_ARGS:-}" ] || die "VALIDATION_APP_ARGS is set; a measured run takes no workaround argument"
+[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] || die "the checkout has uncommitted or untracked changes"
+[ "$(git -C "$REPO_ROOT" rev-parse HEAD)" = "$BOOTUI_COMMIT" ] ||
+  die "the checkout is not at the recorded build $BOOTUI_COMMIT; run validation/bin/build-v2.sh"
 PORT="$APP_PORT"
 check_port "$PORT"
 home="$(app_home "$app")"

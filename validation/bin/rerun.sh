@@ -3,10 +3,11 @@
 # evidence the reviewers judge, and stop. Evidence lands in $WORK/evidence/<label>/ with a run.json the worksheet reads.
 #
 # Usage: validation/bin/rerun.sh <app> [--agent] [--change] [--compare] [--skip-build] [--reason <why>] [--iterations N]
-#   --agent        attach the bootui-agent jar (the agent-attached runs: JHipster, and Super Heroes with --change)
-#   --change       after the traffic, apply the application's change.patch while it runs in dev mode, wait for the
-#                  live reload (a new run in the same JVM, which changed-code-not-executed compares with), send the
-#                  traffic again, then collect
+#   --agent        attach the bootui-agent jar (the agent-attached runs: JHipster and the bookstore, and Super Heroes
+#                  and PetClinic with --change)
+#   --change       start the application in dev mode (Quarkus dev mode, or Spring Boot DevTools), send the traffic,
+#                  apply its change.patch while it runs, wait for the restart in the same JVM (a new journal run, which
+#                  changed-code-not-executed compares with), send the traffic again, then collect
 #   --compare      run twice with a shared baseline file and no code change, and collect the second run with its
 #                  comparison under <app>-comparison (the only run that sets a BootUI property)
 #   --reason why   required when the run's evidence already exists: the previous attempt is kept as
@@ -41,9 +42,17 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-require_cmd node docker curl
+require_cmd node docker curl git
 load_pin "$app"
 load_build
+if [ ${#iterations[@]} -eq 0 ]; then
+  # A measured run uses the registered harness and the recorded build, from a clean checkout of one commit.
+  [ -z "${VALIDATION_APP_ARGS:-}" ] || die "VALIDATION_APP_ARGS is set; a measured run takes no workaround argument"
+  [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] || die "the checkout has uncommitted or untracked changes"
+  [ "$(git -C "$REPO_ROOT" rev-parse HEAD)" = "$BOOTUI_COMMIT" ] ||
+    die "the checkout is not at the recorded build $BOOTUI_COMMIT; run validation/bin/build-v2.sh"
+fi
+harness="$(node "$VALIDATION_HOME/scoring/harness.mjs")"
 PORT="$APP_PORT"
 check_port "$PORT"
 home="$(app_home "$app")"
@@ -55,6 +64,8 @@ evidence_root="$WORK/evidence"
 evidence="$evidence_root/$label"
 run_args=()
 $agent && run_args+=(--agent)
+$change && run_args+=(--dev)
+if $change && [ ! -f "$home/change.patch" ]; then die "$app has no change.patch"; fi
 
 "$VALIDATION_HOME/bin/prepare-app.sh" "$app"
 $build && "$VALIDATION_HOME/bin/run-app.sh" "$app" build
@@ -131,24 +142,36 @@ else
   run_once main
   traffic main
   if $change; then
-    log "applying change.patch while $app runs"
+    journal_run() {
+      curl -s --max-time 10 "http://localhost:$PORT/bootui/api/activity/journal" |
+        node -e 'let t="";process.stdin.on("data",d=>t+=d).on("end",()=>{try{console.log(JSON.parse(t).runId||"")}catch{console.log("")}})'
+    }
+    before="$(journal_run)"
+    log "applying change.patch while $app runs (journal run $before)"
     git -C "$(app_src "$app")" apply --whitespace=nowarn "$home/change.patch"
-    # Quarkus dev mode recompiles and restarts in the same JVM on the next request.
-    curl -s -o /dev/null --max-time 300 "http://localhost:$PORT${APP_READY_PATH:-/}" || true
-    wait_http "http://localhost:$PORT/q/health/live" 300
+    "$VALIDATION_HOME/bin/run-app.sh" "$app" reload --run main
+    waited=0
+    until [ -n "$(journal_run)" ] && [ "$(journal_run)" != "$before" ]; do
+      [ "$waited" -lt 300 ] || die "$app did not restart into a new run within 300 s after the change"
+      sleep 3
+      waited=$((waited + 3))
+    done
+    log "restarted into journal run $(journal_run)"
     traffic after-change
   fi
 fi
 sleep 10
 collect
 cp "$WORK/runs/$app/$current_run/proof.env" "$evidence/proof.env"
+engine_sha="$(sed -n 's/^ENGINE_SHA256=//p' "$evidence/proof.env")"
 services_json="$(node -e 'const fs=require("fs");const l=fs.readFileSync(process.argv[1],"utf8").trim();console.log(JSON.stringify(l.startsWith("[")?JSON.parse(l):l.split("\n").filter(Boolean)))' "$evidence/.services")"
 rm -f "$evidence/.services"
 cat >"$evidence/run.json" <<EOF
 {"app": "$app", "role": "$APP_ROLE", "stack": "$APP_STACK", "agent": $agent, "change": $change, "comparison": $compare,
  "iterationsOverride": ${iterations[1]:-null},
  "services": $services_json, "appCommit": "$APP_COMMIT", "bootuiVersion": "$BOOTUI_VERSION",
- "bootuiCommit": "$BOOTUI_COMMIT", "collectedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+ "bootuiCommit": "$BOOTUI_COMMIT", "engineSha256": "$engine_sha", "harnessSha256": "$harness",
+ "collectedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 EOF
 "$VALIDATION_HOME/bin/run-app.sh" "$app" stop --run "$current_run"
 trap - EXIT

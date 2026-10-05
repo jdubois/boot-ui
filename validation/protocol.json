@@ -1,5 +1,10 @@
 {
   "name": "BootUI 2.0 validation protocol, registered 2026-10-05 (M4-20a)",
+  "registration": {
+    "ref": "m4-20-protocol-1",
+    "kind": "annotated tag on the merged commit, created by the maintainer before the rerun and never moved",
+    "excluded": [".work/", "scoring/fixtures/"]
+  },
   "seed": "bootui-v2-rerun-1",
   "hiddenSample": 10,
   "tunedApps": ["petclinic", "jhipster", "super-heroes", "webflux-gateway", "kafka"],
@@ -7,17 +12,12 @@
   "agentRuns": {
     "jhipster": ["work-after-response"],
     "bookstore": ["work-after-response"],
-    "super-heroes": ["changed-code-not-executed"]
+    "super-heroes": ["changed-code-not-executed"],
+    "petclinic": ["changed-code-not-executed"]
   },
   "agentKinds": ["work-after-response", "changed-code-not-executed"],
-  "unlistedByDesign": [
-    "gc-inflated-latency",
-    "heap-growth-after-gc",
-    "transactional-listener-skipped",
-    "after-commit-writes",
-    "orm-auto-flush",
-    "large-persistence-context"
-  ],
+  "unlistedByDesign": ["gc-inflated-latency", "heap-growth-after-gc"],
+  "wholeKindUnlistedReasons": ["Garbage collection and heap rows are reached from the Memory panel"],
   "knownUnlistedReasons": [
     "Its warm median is under 20 ms",
     "It has fewer than",
@@ -27,18 +27,27 @@
     "Every scheduled run or message that recorded it completed",
     "Repeated SELECTs already reports this statement",
     "Garbage collection and heap rows are reached from the Memory panel",
-    "This check is not listed by default until its counterexample fixtures pass",
     "It is a WARN message BootUI has no specific check for",
     "Spring MVC resolved an exception to a 4xx response"
   ],
-  "registrationRef": "validation-protocol-1",
-  "registeredFiles": [
-    "protocol.json",
-    "RUBRIC.md",
-    "recall/known-misses.json",
-    "scoring/lib.mjs",
-    "scoring/worksheet.mjs",
-    "scoring/score.mjs"
+  "reviewers": {
+    "prompt": "REVIEWER-PROMPT.md",
+    "panel": [
+      {"id": "r1", "model": "claude-opus-5.5"},
+      {"id": "r2", "model": "gpt-6-sol"}
+    ]
+  },
+  "holdoutExposure": [
+    {
+      "app": "bookstore",
+      "date": "2026-10-05",
+      "seen": "Start check with 2 traffic iterations, before M4-19: route-time-breakdown rows on every route (most INSUFFICIENT), exception-hotspots on GET /orders/{orderNumber} (OrderNotFoundException) and GET /admin/catalog/products/{code} (ProductNotFoundException), heap-growth-after-gc INSUFFICIENT; proxy-bypass and transaction-across-remote-call INSUFFICIENT, event-loop-blocking, work-after-response, and changed-code-not-executed NOT_APPLICABLE. And the startup failure with Spring Modulith (#1274)."
+    },
+    {
+      "app": "timeless",
+      "date": "2026-10-05",
+      "seen": "Start checks with 2 to 10 traffic iterations, before and after M4-19: route-time-breakdown rows (POST /api/messages with AI calls at 94 %, POST /api/sign-in at 277 ms), ai-usage-by-route on POST /api/messages, exception-hotspots (UnauthorizedException, ResteasyReactiveViolationException, NullPointerException on GET /api/records, NotFoundException), and framework-warnings-by-route with one row per failed GET /api/records, since Quarkus's message carries a per-request error id. That grouping is fixed before the rerun in its own engine change."
+    }
   ],
   "gates": {
     "target": {"usefulPercent": 70, "misleading": 0},

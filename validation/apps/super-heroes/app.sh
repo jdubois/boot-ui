@@ -16,3 +16,8 @@ app_start() {
   start_bg "$RUN_DIR" app "$APP_MODULE/mvnw" -f "$APP_MODULE/pom.xml" -B -ntp -Dmaven.repo.local="$M2" quarkus:dev \
     -Ddebug=false -Dquarkus.http.port="$PORT" -Dquarkus.analytics.disabled=true -Djvm.args="${JVM_OPTS[*]}"
 }
+
+# Quarkus dev mode recompiles and restarts in the same JVM on the next request after a source change.
+app_reload() {
+  curl -s -o /dev/null --max-time 300 "http://localhost:$PORT$APP_READY_PATH" || true
+}

@@ -1,5 +1,5 @@
 {
-  "registered": "2026-10-05, before the rerun (M4-20a). The maintainer may add items before the rerun starts, never after.",
+  "registered": "2026-10-05, before the rerun (M4-20a). The maintainer may add items before the registration tag m4-20-protocol-1 is created, never after.",
   "outcomes": {
     "misses": "found-default (a default-visible fact states it), found-hidden (only a hidden row states it), honest-gap (a check or coverage line says it cannot see it), missed, not-exercised (allowed only for an item registered with \"exercised\": false, since the traffic is fixed now)",
     "counterexamples": "respected (no default-visible fact presents it as a problem to fix), violated (name the facts, which must be adjudicated Misleading)",
@@ -40,6 +40,14 @@
           "kinds": ["anonymous-data-reach", "anonymous-success-on-restricted-route"],
           "subjects": ["(check)"],
           "firstRun": "hidden"
+        },
+        {
+          "id": "PC-5",
+          "fact": "In the agent run, change.patch changes Owner.getPet(String), which nothing calls: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["org.springframework.samples.petclinic.owner.Owner"],
+          "firstRun": "not run",
+          "run": "petclinic+agent"
         }
       ],
       "counterexamples": [
@@ -57,6 +65,12 @@
           "id": "PC-C3",
           "fact": "Vets are cached (VetRepository.java:44-46); their reads are not an N+1.",
           "subjects": ["GET /vets", "GET /vets.html"]
+        },
+        {
+          "id": "PC-C4",
+          "fact": "In the agent run, change.patch changes Owner.addVisit, which every valid visit runs: changed-code-not-executed must not report it.",
+          "subjects": ["org.springframework.samples.petclinic.owner.Owner"],
+          "run": "petclinic+agent"
         }
       ]
     },

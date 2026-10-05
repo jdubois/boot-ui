@@ -17,12 +17,13 @@ and nothing in it runs against the application on port 8080.
 
 | Path | What it holds |
 | --- | --- |
-| `protocol.json` | The registered parameters: seed, sample size, tuned and holdout applications, agent runs and kinds, gates |
+| `protocol.json` | The registered parameters: registration tag, seed, sample size, applications, agent runs, kinds unlisted by design, reviewers, holdout exposure, gates |
 | `RUBRIC.md` | How reviewers judge a fact, an honesty row, and a hidden row |
+| `REVIEWER-PROMPT.md` | The prompt each registered reviewer receives once |
 | `apps/<app>/pin.env` | Repository, commit, stack, role, and default port |
 | `apps/<app>/align*.patch` | What the application needs to build on BootUI's Spring Boot or Quarkus line, applied first |
 | `apps/<app>/bootui.patch` | BootUI added exactly as [the setup guide](../docs/SETUP.md) says; `@BOOTUI_VERSION@` is filled in |
-| `apps/<app>/change.patch` | The code change of the agent-attached run (Super Heroes) |
+| `apps/<app>/change.patch` | The code change of the agent-attached runs (Super Heroes and PetClinic) |
 | `apps/<app>/app.sh` | How the application is built, started (with its containers), and stopped |
 | `traffic/<app>.mjs` | The application's traffic, a fixed number of iterations in a fixed order, plain HTTP |
 | `stubs/llm-stub.mjs` | A deterministic OpenAI- and Ollama-compatible chat model for the AI holdout |
@@ -47,8 +48,11 @@ everywhere. Containers the harness starts are named `bootui-validation-*` and ar
 
 ## Run it
 
-The protocol is registered by tagging the commit that merged it, once, before the rerun:
-`git tag validation-protocol-1 <commit> && git push origin validation-protocol-1`.
+The maintainer registers the protocol once, right before the rerun and after any addition to the known misses, with an
+annotated tag on the merged commit, which is never moved (a `v…` name would start `release.yml`):
+`git tag -a m4-20-protocol-1 -m "M4-20 validation protocol" <commit> && git push origin m4-20-protocol-1`.
+The tag registers everything under `validation/` except `.work/` and `scoring/fixtures/`. A measured run refuses a
+checkout with any change, a checkout that is not the recorded build, and `VALIDATION_APP_ARGS`.
 
 Every command runs from the repository root. `BOOTUI_VALIDATION_M2` (default `validation/.work/m2`) is the one Maven
 repository for BootUI and every application; never point it at `~/.m2`, which may hold the released 1.x artifact of the
@@ -63,10 +67,11 @@ for app in petclinic jhipster super-heroes webflux-gateway kafka bookstore timel
   validation/bin/rerun.sh "$app"
 done
 
-# 3. The three agent-attached runs, then the no-change comparisons, as the first run did.
+# 3. The four agent-attached runs, then the no-change comparisons, as the first run did.
 validation/bin/rerun.sh jhipster --agent
 validation/bin/rerun.sh bookstore --agent
 validation/bin/rerun.sh super-heroes --agent --change
+validation/bin/rerun.sh petclinic --agent --change
 for app in petclinic jhipster super-heroes webflux-gateway kafka bookstore timeless; do
   validation/bin/rerun.sh "$app" --compare
 done
@@ -96,9 +101,10 @@ summaries (duration, request count, statuses per route), and per service `runtim
 
 ## Review and score
 
-1. Give each reviewer a copy of `validation/.work/scoring/judgments-template.csv`, `RUBRIC.md`, the evidence, and the
-   applications' sources under `validation/.work/apps/`. Reviewers work on different models, independently, and fill in
-   the `judgment` and `note` columns only.
+1. Give each registered reviewer (`protocol.json`, `reviewers`) the prompt in `REVIEWER-PROMPT.md` once, in a fresh
+   session on its registered model, with `validation/.work/scoring/judgments-template.csv`, `RUBRIC.md`, the evidence,
+   and the applications' sources under `validation/.work/apps/`. Reviewers work independently and fill in the
+   `judgment` and `note` columns only; save their files as `r1.csv` and `r2.csv`.
 2. List the rows the maintainer must adjudicate, every disagreement, without any score:
 
    ```bash
@@ -110,7 +116,8 @@ summaries (duration, request count, statuses per route), and per service `runtim
 3. The maintainer fills `to-adjudicate.csv` in as `adjudication.csv` (`id,judgment,reason`), and writes `recall.csv`
    (`id,outcome,rows,note`) for every item of `recall/known-misses.json`. Two reviewers who agree are never overruled.
 4. The final score refuses to run while anything is missing, while the registered files differ from the
-   `validation-protocol-1` tag, or while the worksheet differs from the one the evidence gives:
+   `m4-20-protocol-1` tag, while the worksheet differs from the one the evidence gives, or without the investigations
+   and the time to first observation (`--partial` scores without them, marked as partial):
 
    ```bash
    node validation/scoring/score.mjs --worksheet validation/.work/scoring/worksheet.json \

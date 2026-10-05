@@ -32,7 +32,7 @@ not released while any row reads `TODO`.
 | --- | --- |
 | Release candidate | TODO: `v2` commit and its BootUI version |
 | Rerun date | TODO |
-| Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); TODO: the `validation-protocol-1` tag's commit |
+| Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); TODO: the SHA of the annotated tag `m4-20-protocol-1` |
 | Applications | TODO: the five tuned applications and the two holdouts, with their pins |
 | Reviewers and adjudicator | TODO: two reviewers; the maintainer adjudicates every misleading row and every disagreement |
 | Known limitations | TODO: [Known limitations](KNOWN-LIMITATIONS.md) updated to the shipped scope |
@@ -118,17 +118,24 @@ protocol, with who accepted it and what the release notes say.
 
 **Registered on 2026-10-05, before any rerun** (PLAN-v2 M4-20, D35, D36). Every rule below is fixed before the rerun's
 evidence exists, and is implemented in the committed harness ([`validation/`](https://github.com/jdubois/boot-ui/blob/v2/validation/README.md)), so anyone can
-recompute the numbers. Once this protocol is merged, its commit is tagged `validation-protocol-1`. The scorer refuses
-to run unless the registered files (`protocol.json`, the rubric, the known misses, and the worksheet and scoring
-scripts) match that tag, unless the worksheet the reviewers judged is the one the evidence gives, and unless the run
-set is complete. Changing a rule after the evidence is collected is a protocol change: it is dated, says why, and
-reports the scores under both versions.
+recompute the numbers. The registration covers the whole harness: everything under `validation/` except its work
+area (`.work/`) and the first run's fixture (`scoring/fixtures/`), so the pins, patches, start commands, traffic, LLM
+stub, collector, rubric, reviewer prompt, known misses, and scoring scripts. Right before the rerun, after any addition
+to the known misses, the maintainer creates the annotated tag `m4-20-protocol-1` on the merged commit, never moves it,
+and records its SHA in the sign-off. (Not `v…`: `release.yml` starts on any pushed tag matching `v*`.) The scorer
+refuses to run unless the harness matches that tag, every run's BootUI commit descends from it, the worksheet the
+reviewers judged is the one the evidence gives, and the run set is complete; it writes the tag's SHA into its output.
+Changing a rule after the evidence is collected is a protocol change: it is dated, says why, and reports the scores
+under both versions.
 
 ### Preconditions and integrity
 
 - The rerun starts once M4-18, M4-19, M4-21, and M4-22 are merged into `v2`, together with the fix for the Spring
   Modulith startup failure found while selecting the holdouts (see [Holdout applications](#holdout-applications)). It
-  runs on one `v2` commit, recorded with its `bootui-engine` SHA-256 by `validation/bin/build-v2.sh`.
+  runs on one `v2` commit, recorded with its `bootui-engine` SHA-256 by `validation/bin/build-v2.sh`. A measured run
+  refuses a checkout with any uncommitted or untracked change (`validation/` included), a checkout that is not that
+  commit, and any workaround argument (`VALIDATION_APP_ARGS`). Each run records the BootUI commit, the engine jar's
+  SHA-256, and the harness's SHA-256 in its `run.json`, and the worksheet refuses runs that do not all share them.
 - Each application uses the harness's own Maven repository, never `~/.m2`, and each run proves the build it used:
   `GET /bootui/api/runtime-insights` answers, and the `bootui-engine` jar the running application loads (inside its
   Spring Boot jar, or resolved from the harness repository in Quarkus dev mode) has the recorded SHA-256.
@@ -137,12 +144,19 @@ reports the scores under both versions.
   The worksheet refuses a missing, duplicated, or unregistered run, a role other than the registered one, and smoke
   runs, which the harness writes elsewhere. Superseded attempts and their reasons are printed with the scores.
 - **The holdouts stay holdouts.** Until the rerun, no change to BootUI may be motivated by what a holdout shows,
-  except the startup fix above. The holdouts were run to check that they start and serve their traffic, and that check
-  exposed one holdout row, recorded here so the rule can be audited: on Timeless, `framework-warnings-by-route` showed
-  one row per failed `GET /api/records`, since Quarkus's message carries a per-request error id (the distinct-fact rule
-  counts them as one fact). A change to how that kind groups messages makes Timeless tuned for that kind. Any commit
-  that changes a kind a holdout surfaced says whether the holdout drove it; if it did, that holdout is reported as
-  tuned for that kind.
+  except fixes to real bugs that the start checks exposed. Those checks showed the maintainer some holdout output,
+  recorded as holdout exposure in `protocol.json` and printed with the scores:
+  - **Bookstore:** the startup failure with Spring Modulith (being fixed, see above), and, on two iterations of traffic
+    before M4-19, route breakdowns on every route (most `INSUFFICIENT`), exception groups for unknown orders and
+    products, and the checks that did not run (`proxy-bypass`, `transaction-across-remote-call`, the agent kinds).
+  - **Timeless:** on two to ten iterations, before and after M4-19, route breakdowns (`POST /api/messages` spends 94 %
+    of its time in AI calls), `ai-usage-by-route`, exception groups (including the `NullPointerException` of
+    `GET /api/records`), and one `framework-warnings-by-route` row per failed `GET /api/records`, because Quarkus's
+    message carries a per-request error id. That grouping is a real bug, fixed before the rerun in its own engine
+    change.
+  
+  Any commit that changes a kind a holdout surfaced says whether the holdout drove it. Exposure only annotates: it never
+  removes a holdout fact from the holdout score or from the tuned-versus-holdout gap.
 
 ### Applications, traffic, and runs
 
@@ -152,9 +166,10 @@ tune anything. Each application's pin, patches, start command, and traffic are c
 instead of a duration, and prints its duration and request count. Each rerun covers:
 
 1. the 5 + 2 applications without the BootUI agent, with tracing off and no BootUI property;
-2. three agent-attached runs: JHipster and the bookstore, for `work-after-response`, and Quarkus Super Heroes in dev
-   mode with a registered code change applied while it runs (`validation/apps/super-heroes/change.patch`), for
-   `changed-code-not-executed`;
+2. four agent-attached runs: JHipster and the bookstore, for `work-after-response`; and, for
+   `changed-code-not-executed`, Quarkus Super Heroes in dev mode and PetClinic under Spring Boot DevTools, each with a
+   registered code change applied while it runs (`validation/apps/<app>/change.patch`): one changed method the traffic
+   reaches, and one it never does;
 3. a no-change comparison on every application (two runs sharing `bootui.runtime-journal.baseline-file`, the only
    BootUI property the rerun sets), reported in the text: any behaviour change it reports is a finding;
 4. the time to first observation on every application, measured the same way on every stack (below);
@@ -177,7 +192,10 @@ own kinds' gates.
 
 ### Judgments and adjudication
 
-Two reviewers, on different models named in the report, judge every row independently, in one pass, with
+Two reviewers, on the different models `protocol.json` registers (`r1` on `claude-opus-5.5`, `r2` on `gpt-6-sol`; the
+first run did not record its models), each given the registered
+[reviewer prompt](https://github.com/jdubois/boot-ui/blob/v2/validation/REVIEWER-PROMPT.md) once, judge every row
+independently, in one pass, with
 [the rubric](https://github.com/jdubois/boot-ui/blob/v2/validation/RUBRIC.md), the evidence, and the application's source; neither sees the other's file, nor
 any score. Facts and hidden rows keep the first run's four judgments (Actionable, Informative, Noise, Misleading). A
 fact is **useful** when both reviewers judged it Actionable or Informative.
@@ -205,8 +223,9 @@ cold first request); up to two exception groups caught in completed scheduled ru
 other (kind, reason) left out; then seeded draws until there are 10. A mandatory stratum is never dropped, so a sample
 can exceed 10, and a run with 10 hidden rows or fewer has all of them judged. The seed is registered in
 `validation/protocol.json` (`bootui-v2-rerun-1`, combined with the run's name); rows are ordered by fact before
-drawing, so the same evidence always gives the same sample. A reason left out that `protocol.json` does not register
-is reported, since it would form a stratum of its own.
+drawing, so the same evidence always gives the same sample. Each distinct (kind, reason) is its own stratum; a reason
+`protocol.json` does not register is reported. When hidden routes exist but none of their sentences states a latency,
+the worksheet refuses to run rather than drop the slowest-route stratum.
 
 Each sampled row is judged as if it were listed. A hidden row **either** reviewer judged Actionable is hidden value,
 whatever the adjudication says, and is listed with its kind and reason; its filter is fixed or explained before 2.0.0.
@@ -220,8 +239,8 @@ hidden rows.
 
 [`validation/recall/known-misses.json`](https://github.com/jdubois/boot-ui/blob/v2/validation/recall/known-misses.json) lists, per application, the real
 problems a good report should surface and the counterexamples it must not present as problems, from the first run's
-Findings and reviews and from each application's known issues. The maintainer may add items before the rerun starts,
-never after. After the rerun, the maintainer marks each item found in the default list, found only in a hidden row, an
+Findings and reviews and from each application's known issues. The maintainer may add items before the registration
+tag is created, never after: the tag freezes the list with the rest of the harness. After the rerun, the maintainer marks each item found in the default list, found only in a hidden row, an
 honest gap (a check or coverage line says it cannot see it), missed, or not exercised, which is allowed only for an
 item registered now as out of the traffic's reach (none is); and each counterexample respected or violated. A found
 item names the rows that state it, a violation names the facts, which must be adjudicated Misleading, and a
@@ -241,27 +260,32 @@ state, comparing exact fractions, never rounded shares:
 | §2.2 target | ≥ 70 % useful, and nothing misleading, on the tuned applications and on the holdouts, separately | The external-validity measure is met |
 | §2.3, after M3 | ≥ 50 % useful, pooled and on the tuned and holdout applications separately | Reported per group |
 | Per kind (D35) | A kind with at least 3 facts on at least 2 applications, over every run: at least 50 % useful, and nothing misleading | It stays listed by default; otherwise it folds into its panel or stays hidden |
-| Per kind, few facts | Fewer than 3 facts, or facts on one application only | It stays listed, marked as not externally validated, unless something of the kind is misleading, which fails it |
+| Per kind, few facts | 1 or 2 facts, or facts on one application only | It is hidden, marked as not externally validated: too few facts (D35, "below that the kind folds into its panel or stays hidden"); something of the kind misleading fails it |
 | Per kind, silent | No fact anywhere: the kind's checks ran and found nothing listed | It stays listed, marked as not externally validated |
 | Per kind, not exercised | No fact anywhere, and no run evaluated the kind's check (not applicable or unavailable everywhere) | It stays listed, marked as not externally validated, and the report says its check never ran |
 | Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent, not-exercised, and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
 
-Every kind any run's report evaluates is gated, so a kind that found nothing cannot drop out. The kinds left out of the
-default list by design (the two memory kinds and D29's four, registered in `protocol.json`) have no fact to gate; they
-are judged through the hidden sample and reported as not listed. Per kind, the tuned and holdout shares are reported
-apart, so a kind that is useful only where it was tuned shows.
+Only kinds with no fact at all stay listed as not externally validated. Every kind any run's report evaluates is
+gated, so a kind that found nothing cannot drop out. The per-kind gate pools the tuned, holdout, and agent facts of the
+kind, and reports the tuned and holdout shares apart, so a kind that is useful only where it was tuned shows; the
+default-visible score is pooled over the seven applications, without agent facts. The kinds left out of the default
+list by design, `gc-inflated-latency` and `heap-growth-after-gc` (reached from the Memory panel; D29's four kinds are
+listed since M4-18e), have no fact to gate: they are judged through the hidden sample and reported as not listed. That
+status is read from the evidence (every row of the kind hidden with the whole-kind reason) and must agree with
+`protocol.json`; a registered kind with a listed row, or an unregistered kind hidden whole, stops the worksheet.
 
 ### Agent runs and investigations
 
-The agent-attached runs are scored as above, on their registered kinds. With two runs each on a different
-application, `work-after-response` can reach its per-kind gate; `changed-code-not-executed` has one, so it stays "not
-externally validated" unless the maintainer adds a second code-change run before the rerun. In the Super Heroes run,
-the change touches `findAllVillainsHavingName`, which the traffic runs, and `deleteAllVillains`, which nothing runs: the
-first must not be reported and the second must be (SH-C4 and SH-4 in the known misses). The ten investigations run
+The agent-attached runs are scored as above, on their registered kinds; with two runs each, on two applications, both
+agent kinds can reach their per-kind gate. In the Super Heroes run, the change touches `findAllVillainsHavingName`,
+which the traffic runs, and `deleteAllVillains`, which nothing runs; in the PetClinic run, `Owner.addVisit`, which the
+traffic runs, and `Owner.getPet(String)`, which nothing calls. The ones the traffic runs must not be reported, and the
+others must be (SH-C4, SH-4, PC-C4, and PC-5 in the known misses). The ten investigations run
 from a clean agent session each, with the `bootui` CLI and no other evidence, as in the first run; an independent
 grader marks each answer correct, partial, or wrong against the expected answer, and tool calls, with `--help` apart,
 are counted from the CLI's own log. The target is met when the 2.0 arm answers all ten correctly with fewer calls than
-the 1.x arm.
+the 1.x arm. The final score requires the investigations and the time to first observation of all seven applications
+on the rerun's commit; without them it is only a partial score, marked as such.
 
 ### Time to first observation
 

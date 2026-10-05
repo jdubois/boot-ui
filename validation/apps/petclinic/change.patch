@@ -1,0 +1,22 @@
+diff --git a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
+index fb5eefa..b630b13 100644
+--- a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
++++ b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
+@@ -118,7 +118,7 @@ public class Owner extends Person {
+ 	 * @return the Pet with the given name, or null if no such Pet exists for this Owner
+ 	 */
+ 	public Pet getPet(String name) {
+-		return getPet(name, false);
++		return name == null ? null : getPet(name.strip(), false);
+ 	}
+ 
+ 	/**
+@@ -180,7 +180,7 @@ public class Owner extends Person {
+ 
+ 		Pet pet = getPet(petId);
+ 
+-		Assert.notNull(pet, "Invalid Pet identifier!");
++		Assert.notNull(pet, "Invalid Pet identifier: " + petId);
+ 
+ 		pet.addVisit(visit);
+ 	}

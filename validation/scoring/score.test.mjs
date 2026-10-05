@@ -17,8 +17,9 @@ import {
   upperBound95,
   worstLatencyMillis
 } from './lib.mjs'
-import {investigations, judge, readCsvById, recall, score} from './score.mjs'
-import {buildWorksheet, checkRuns, loadRuns, registeredHashes} from './worksheet.mjs'
+import {investigations, judge, readCsvById, recall, score, timeToFirstObservation} from './score.mjs'
+import {harnessHash} from './harness.mjs'
+import {buildWorksheet, checkRuns, loadRuns} from './worksheet.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const protocol = JSON.parse(readFileSync(join(here, '..', 'protocol.json'), 'utf8'))
@@ -132,11 +133,13 @@ test('CSV quoting survives a round trip', () => {
   assert.deepEqual(parseCsv(toCsv(rows, ['id', 'note'])), rows)
 })
 
+const SAME_BUILD = {bootuiCommit: 'c0ffee', engineSha256: 'e1e1', harnessSha256: 'h1h1'}
+
 function evidenceTree() {
   const root = mkdtempSync(join(tmpdir(), 'bootui-validation-'))
   const write = (run, meta, services) => {
     mkdirSync(join(root, run), {recursive: true})
-    writeFileSync(join(root, run, 'run.json'), JSON.stringify(meta))
+    writeFileSync(join(root, run, 'run.json'), JSON.stringify({...SAME_BUILD, ...meta}))
     for (const [service, report] of Object.entries(services)) {
       mkdirSync(join(root, run, service), {recursive: true})
       writeFileSync(join(root, run, service, 'runtime-insights.json'), JSON.stringify(report))
@@ -199,11 +202,7 @@ function evidenceTree() {
       '': {observations: [obs('x1', 'repeated-selects', 'GET /zzz')], checks: []}
     }
   )
-  write(
-    'smoke',
-    {app: 'tuned-app', role: 'tuned', iterationsOverride: 2, comparison: true},
-    {'': {observations: [], checks: []}}
-  )
+  write('smoke', {app: 'tuned-app', role: 'tuned', comparison: true}, {'': {observations: [], checks: []}})
   return root
 }
 
@@ -211,7 +210,8 @@ test('the worksheet: PARTIAL rows are facts, INSUFFICIENT rows honesty, a kind i
   const root = evidenceTree()
   const loaded = loadRuns(root)
   assert.deepEqual(loaded.superseded, [{label: 'tuned-app.attempt-1', reason: 'the broker did not start'}])
-  const sheet = buildWorksheet(loaded, protocol, root, {'protocol.json': 'x'})
+  const sheet = buildWorksheet(loaded, protocol, 'h1h1')
+  assert.deepEqual(sheet.problems, [])
   const by = (section, app) => sheet.rows.filter((r) => r.section === section && r.app === app)
   assert.deepEqual(
     by('fact', 'tuned-app')
@@ -246,25 +246,111 @@ test('the worksheet: PARTIAL rows are facts, INSUFFICIENT rows honesty, a kind i
   assert.deepEqual(inventory['connections-per-request'].checks, {'tuned-app': 'EVALUATED'})
   assert.equal(inventory['route-time-breakdown'].hidden, 1)
   assert.equal(inventory['repeated-selects'].listed, 4)
-  assert.deepEqual(sheet.registeredFiles, {'protocol.json': 'x'})
+  assert.equal(sheet.harnessSha256, 'h1h1')
+  assert.deepEqual(
+    new Set(sheet.rows.map((r) => r.evidence)),
+    new Set(['tuned-app', 'holdout-app/one', 'holdout-app/two', 'tuned-app-agent'])
+  )
   assert.ok(sheet.rows.every((r) => /^[a-z+-]+\/(fact|honesty|hidden)\/[0-9a-f]{8}$/.test(r.id)))
 
-  const problems = checkRuns(loaded.runs, loaded.superseded, {
-    ...protocol,
-    tunedApps: ['tuned-app', 'missing-app'],
-    holdoutApps: ['holdout-app'],
-    agentRuns: {'tuned-app': ['work-after-response'], 'holdout-app': ['work-after-response']}
-  })
+  const problems = checkRuns(
+    loaded.runs,
+    loaded.superseded,
+    {
+      ...protocol,
+      tunedApps: ['tuned-app', 'missing-app'],
+      holdoutApps: ['holdout-app'],
+      agentRuns: {'tuned-app': ['work-after-response'], 'holdout-app': ['work-after-response']}
+    },
+    'h1h1'
+  )
   assert.deepEqual(problems.sort(), [
     'holdout-app+agent: 0 agent-attached runs, expected 1',
     'missing-app: 0 measured runs without the agent, expected 1'
   ])
   const smoke = checkRuns(
-    [{label: 'x', app: 'tuned-app', role: 'holdout', iterationsOverride: 2}],
+    [
+      {label: 'x', app: 'tuned-app', role: 'holdout', iterationsOverride: 2, ...SAME_BUILD},
+      {
+        label: 'z',
+        app: 'other',
+        role: 'tuned',
+        comparison: true,
+        ...SAME_BUILD,
+        engineSha256: 'e2e2',
+        harnessSha256: 'old'
+      }
+    ],
     [{label: 'y.attempt-1', reason: null}],
-    {...protocol, tunedApps: ['tuned-app'], holdoutApps: [], agentRuns: {}}
+    {...protocol, tunedApps: ['tuned-app'], holdoutApps: [], agentRuns: {}},
+    'h1h1'
   )
-  assert.equal(smoke.length, 3)
+  assert.deepEqual(smoke.sort(), [
+    'every run must share one engineSha256, found e1e1, e2e2',
+    'x is a smoke run (2 iterations)',
+    'x: role holdout, registered as tuned',
+    'y.attempt-1 was superseded without a recorded reason',
+    'z ran with harness old, not the current one'
+  ])
+})
+
+test('unlisted by design is read from the evidence and must agree with the registration', () => {
+  const run = (observations) => ({
+    runs: [
+      {
+        label: 'a',
+        app: 'a',
+        role: 'tuned',
+        ...SAME_BUILD,
+        services: [{service: '', evidence: 'a', report: {observations, checks: []}}]
+      }
+    ]
+  })
+  const memory = 'Garbage collection and heap rows are reached from the Memory panel rather than listed by default.'
+  const ok = buildWorksheet(
+    run([obs('g1', 'gc-inflated-latency', 'GET /a', {listed: false, unlistedReason: memory})]),
+    protocol
+  )
+  assert.deepEqual(ok.problems, [])
+  assert.equal(ok.inventory.find((k) => k.kind === 'gc-inflated-latency').unlistedByDesign, true)
+  assert.equal(ok.inventory.find((k) => k.kind === 'heap-growth-after-gc').unlistedByDesign, true, 'registered, silent')
+  const listed = buildWorksheet(run([obs('g2', 'gc-inflated-latency', 'GET /a', {listed: true})]), protocol)
+  assert.match(listed.problems[0], /registered as unlisted by design, but 1 of its rows are listed/)
+  assert.equal(listed.inventory.find((k) => k.kind === 'gc-inflated-latency').unlistedByDesign, false)
+  const unregistered = buildWorksheet(
+    run([obs('o1', 'orm-auto-flush', 'GET /a', {listed: false, unlistedReason: memory})]),
+    protocol
+  )
+  assert.match(unregistered.problems[0], /orm-auto-flush is hidden as a whole kind/)
+  assert.equal(protocol.unlistedByDesign.includes('orm-auto-flush'), false, "D29's kinds are listed since M4-18e")
+})
+
+test('a lost slowest-route stratum is an error of the worksheet', () => {
+  const hidden = []
+  for (let i = 0; i < 12; i++) {
+    hidden.push(
+      obs(`r${i}`, 'route-time-breakdown', `GET /r${i}`, {
+        listed: false,
+        unlistedReason: 'Its warm median is under 20 ms',
+        sentence: 'reworded'
+      })
+    )
+  }
+  const sheet = buildWorksheet(
+    {
+      runs: [
+        {
+          label: 'a',
+          app: 'a',
+          role: 'tuned',
+          ...SAME_BUILD,
+          services: [{service: '', evidence: 'a', report: {observations: hidden}}]
+        }
+      ]
+    },
+    protocol
+  )
+  assert.match(sheet.problems[0], /slowest route is unknown/)
 })
 
 const reviewerMap = (entries) => new Map(Object.entries(entries).map(([id, judgment]) => [id, {id, judgment}]))
@@ -352,7 +438,9 @@ test('scores, adjudication rules, gates, and per-kind outcomes', () => {
   assert.equal(kind('repeated-selects').status, 'PASS')
   assert.equal(kind('route-time-breakdown').status, 'FAIL', 'one confirmed misleading fact fails the kind')
   assert.equal(kind('exception-hotspots').status, 'UNDER_SAMPLED')
+  assert.equal(kind('exception-hotspots').outcome, 'hidden, not externally validated: too few facts')
   assert.equal(kind('work-after-response').status, 'UNDER_SAMPLED')
+  assert.equal(kind('event-loop-blocking').outcome, 'stays listed, marked as not externally validated')
   assert.equal(kind('gc-inflated-latency').status, 'NOT_LISTED')
   assert.equal(kind('connections-per-request').status, 'SILENT', 'a kind with only EVALUATED checks is still gated')
   assert.equal(kind('event-loop-blocking').status, 'SILENT')
@@ -501,10 +589,7 @@ test('the command line lists rows to adjudicate without scores, and refuses a fi
   const fixture = join(here, 'fixtures', 'first-run')
   const out = mkdtempSync(join(tmpdir(), 'bootui-first-run-'))
   const worksheet = JSON.parse(readFileSync(join(fixture, 'worksheet.json'), 'utf8'))
-  writeFileSync(
-    join(out, 'worksheet.json'),
-    JSON.stringify({...worksheet, registeredFiles: registeredHashes(protocol)})
-  )
+  writeFileSync(join(out, 'worksheet.json'), JSON.stringify({...worksheet, harnessSha256: harnessHash()}))
   const args = [
     join(here, 'score.mjs'),
     '--worksheet',
@@ -526,4 +611,47 @@ test('the command line lists rows to adjudicate without scores, and refuses a fi
   assert.equal(final.status, 3)
   assert.match(final.stderr, /needs the maintainer's adjudication/)
   assert.match(final.stderr, /recall is part of the protocol/)
+})
+
+test('with no fact anywhere, nothing passes, the escalation triggers, and every kind is silent or not listed', () => {
+  const rows = [
+    {id: 'a/honesty/1', app: 'a', role: 'tuned', kind: 'event-loop-blocking', section: 'honesty', subject: '(check)'}
+  ]
+  const judged = judge(
+    {rows},
+    {r1: reviewerMap({'a/honesty/1': 'Honest'}), r2: reviewerMap({'a/honesty/1': 'Honest'})},
+    new Map()
+  )
+  const inventory = [{kind: 'gc-inflated-latency', checks: {}, listed: 0, hidden: 0, unlistedByDesign: true}]
+  const s = score(judged, protocol, inventory)
+  assert.equal(s.groups.pooled.facts, 0)
+  assert.equal(s.groups.pooled.usefulPercent, null)
+  assert.equal(s.groups.tuned.meetsTarget, false)
+  assert.equal(s.escalation.pooledBelow, true)
+  assert.equal(s.escalation.holdoutEmpty, true)
+  assert.equal(s.escalation.triggered, true)
+  assert.deepEqual(
+    s.perKind.map((k) => [k.kind, k.status, k.outcome]),
+    [
+      ['event-loop-blocking', 'SILENT', 'folds (escalation)'],
+      ['gc-inflated-latency', 'NOT_LISTED', 'not listed by default; judged through the hidden sample']
+    ]
+  )
+})
+
+test('time to first observation keeps the latest row per application on the rerun commit, and names missing ones', () => {
+  const rows = [
+    {app: 'petclinic', bootuiCommit: 'old', seconds: 900},
+    {app: 'petclinic', bootuiCommit: 'c0ffee', seconds: 20},
+    {app: 'timeless', bootuiCommit: 'c0ffee', seconds: 200}
+  ]
+  const t = timeToFirstObservation(rows, protocol, {bootuiCommit: 'c0ffee'})
+  assert.deepEqual(
+    t.rows.map((r) => [r.app, r.seconds]),
+    [
+      ['petclinic', 20],
+      ['timeless', 200]
+    ]
+  )
+  assert.equal(t.problems.length, 5)
 })

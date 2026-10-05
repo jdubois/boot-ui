@@ -8,6 +8,9 @@
 #                             the recorded v2 build. --agent attaches the bootui-agent jar; --compare keeps a run
 #                             summary in a baseline file shared by the application's runs, so the second run
 #                             compares with the first. The run name defaults to "main".
+#   start ... --dev           start it in dev mode (Quarkus dev mode, or Spring Boot DevTools), so a code change
+#                             restarts it in the same JVM
+#   reload [--run <name>]     after a source change, make the dev-mode application restart (recompile, or a request)
 #   prove [--run <name>]      prove a started run uses the recorded build (start does it too)
 #   stop [--run <name>]       stop what the run started, containers included
 #
@@ -21,11 +24,13 @@ command="${2:?usage: run-app.sh <app> build|start|prove|stop [options]}"
 shift 2
 agent=false
 compare=false
+DEV_MODE=false
 run=main
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent) agent=true ;;
     --compare) compare=true ;;
+    --dev) DEV_MODE=true ;;
     --run)
       run="$2"
       shift
@@ -35,6 +40,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+[[ "$run" =~ ^[a-z0-9-]+$ ]] || die "run name '$run' must match ^[a-z0-9-]+\$"
 load_pin "$app"
 load_build
 SRC="$(app_src "$app")"
@@ -115,6 +121,10 @@ case "$command" in
     ;;
   prove)
     prove
+    ;;
+  reload)
+    declare -F app_reload >/dev/null || die "$app has no dev-mode reload"
+    app_reload
     ;;
   stop)
     stop_run "$RUN_DIR"

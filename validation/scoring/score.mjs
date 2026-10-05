@@ -9,8 +9,10 @@
 //        --reviewer r2=r2.csv --adjudication adjudication.csv --recall-judgments recall.csv \
 //        [--investigations investigations.csv] [--ttfo ttfo.jsonl] --out <dir>
 //
-// The registered files must match the registration tag (protocol.json `registrationRef`, created on the commit that
-// registered the protocol); `--registration-ref none` skips that check for tests, and the output says so. The recall
+// The harness must match the registration tag (protocol.json `registration.ref`, an annotated tag on the commit that
+// registered the protocol), and every run's BootUI commit must descend from it; `--registration-ref none` skips that
+// check for tests, and the output says it is not a final score. Time to first observation and the investigations are
+// required; `--partial` scores without them and stamps the output as partial. The recall
 // list is always the registered validation/recall/known-misses.json, and the worksheet is rebuilt from the evidence
 // and must match the one the reviewers judged.
 //
@@ -20,14 +22,14 @@
 // them judged Misleading. Two reviewers who agree are never overruled, Misleading included.
 // Recall file: CSV with `id,outcome,rows,note`; `rows` lists the worksheet ids that support the outcome.
 
-import {execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {parseArgs} from 'node:util'
 import {HONESTY, JUDGMENTS, USEFUL, atLeast, below, parseCsv, percent, toCsv, upperBound95} from './lib.mjs'
-import {buildWorksheet, checkRuns, loadRuns, registeredHashes, validationHome} from './worksheet.mjs'
+import {checkRegistration, harnessHash} from './harness.mjs'
+import {validationHome, worksheetFor} from './worksheet.mjs'
 
 const baseApp = (app) => String(app ?? '').replace(/\+agent$/, '')
 const ROLES = ['tuned', 'holdout', 'agent']
@@ -180,12 +182,13 @@ export function score(judged, protocol, inventory = []) {
     const outcomes = {
       PASS: 'stays listed by default',
       FAIL: 'folds into its panel or stays hidden',
-      UNDER_SAMPLED: 'stays listed, marked as not externally validated',
+      UNDER_SAMPLED: 'hidden, not externally validated: too few facts',
       SILENT: 'stays listed, marked as not externally validated',
       NOT_EXERCISED: 'stays listed, marked as not externally validated: its check never ran',
       NOT_LISTED: 'not listed by default; judged through the hidden sample'
     }
-    // Under escalation, every kind that does not pass its gate folds, the silent and under-sampled ones included.
+    // Under escalation, every kind that does not pass its gate folds, the silent, not-exercised, and under-sampled
+    // ones included (D35, with the maintainer's ruling of 2026-10-05).
     const folds = escalation.triggered && status !== 'PASS' && status !== 'NOT_LISTED'
     return {
       kind,
@@ -346,6 +349,21 @@ export function investigations(rows, protocol) {
   }
 }
 
+/** The latest measurement per registered application, on the rerun's BootUI commit. */
+export function timeToFirstObservation(rows, protocol, worksheet = {}) {
+  const problems = []
+  const commit = worksheet.bootuiCommit
+  const latest = new Map()
+  for (const row of rows) {
+    if (commit && row.bootuiCommit !== commit) continue
+    latest.set(row.app, row)
+  }
+  for (const app of [...protocol.tunedApps, ...protocol.holdoutApps]) {
+    if (!latest.has(app)) problems.push(`no time to first observation for ${app}`)
+  }
+  return {rows: [...latest.values()], problems}
+}
+
 const cell = (v) => (v === null || v === undefined ? '—' : String(v).replace(/\|/g, '\\|').replace(/\n/g, ' '))
 const table = (header, rows) =>
   [
@@ -359,8 +377,25 @@ const yes = (b) => (b ? 'Yes' : 'No')
 export function markdown(result) {
   const {score: s, judged, recall: rc, investigations: inv, ttfo} = result
   const out = []
-  if (result.registration !== result.expectedRegistration) {
-    out.push(`**Not checked against the registration tag (${result.registration}): not a final score.**`, '')
+  if (result.registration.ref !== result.expectedRegistration || !result.registration.sha) {
+    out.push(`**Not checked against the registration tag (${result.registration.ref}): not a final score.**`, '')
+  } else {
+    out.push(`Registered protocol: \`${result.registration.ref}\` at \`${result.registration.sha}\`.`, '')
+  }
+  if (result.missing?.length) out.push(`**Partial score: missing ${result.missing.join(' and ')}.**`, '')
+  if (result.reviewers) {
+    out.push(`Reviewers: ${result.reviewers.map((r) => `${r.id} on ${r.model}`).join(', ')}.`, '')
+  }
+  if (result.holdoutExposure?.length) {
+    out.push(
+      '## Holdout exposure',
+      '',
+      'What the maintainer saw of each holdout before the rerun. It annotates the holdout scores and never removes a',
+      'holdout fact from them or from the gap.',
+      '',
+      ...result.holdoutExposure.map((e) => `- ${e.app} (${e.date}): ${e.seen}`),
+      ''
+    )
   }
   if (result.notes?.length) out.push('## Worksheet notes', '', ...result.notes.map((n) => `- ${n}`), '')
   out.push('## Scores', '')
@@ -566,7 +601,7 @@ export function markdown(result) {
     out.push(
       table(
         ['Application', 'Stack', 'Minutes', 'First row', 'First OBSERVED row, minutes', '≤ 5 minutes'],
-        ttfo.map((t) => [
+        ttfo.rows.map((t) => [
           t.app,
           t.stack,
           (t.seconds / 60).toFixed(1),
@@ -595,7 +630,8 @@ function main() {
       investigations: {type: 'string'},
       ttfo: {type: 'string'},
       out: {type: 'string'},
-      'to-adjudicate': {type: 'boolean', default: false}
+      'to-adjudicate': {type: 'boolean', default: false},
+      partial: {type: 'boolean', default: false}
     }
   })
   if (!values.worksheet || !values.out || values.reviewer.length === 0) {
@@ -607,28 +643,19 @@ function main() {
   const protocol = JSON.parse(readFileSync(join(validationHome, 'protocol.json'), 'utf8'))
   const worksheet = JSON.parse(readFileSync(values.worksheet, 'utf8'))
   const problems = []
-  const current = registeredHashes(protocol)
-  for (const [file, hash] of Object.entries(worksheet.registeredFiles || {})) {
-    if (current[file] !== hash)
-      problems.push(`${file} changed since the worksheet was generated: the protocol is not the registered one`)
+  const current = harnessHash()
+  if (worksheet.harnessSha256 !== current) {
+    problems.push('the harness changed since the worksheet was generated: the protocol is not the registered one')
   }
-  if (!worksheet.registeredFiles) problems.push('the worksheet records no registered-file hashes')
-  const registration = values['registration-ref'] || protocol.registrationRef
-  if (registration !== 'none') {
-    try {
-      execFileSync('git', ['diff', '--quiet', registration, '--', ...protocol.registeredFiles], {
-        cwd: validationHome,
-        stdio: 'ignore'
-      })
-    } catch {
-      problems.push(
-        `the registered files differ from ${registration}, or that tag does not exist: tag the registration commit`
-      )
-    }
-  }
+  const registration = checkRegistration(values['registration-ref'] || protocol.registration.ref)
+  problems.push(...registration.problems)
   if ((worksheet.notes || []).some((n) => n.startsWith('INCOMPLETE'))) {
     problems.push('the worksheet was built from an incomplete run set (--allow-incomplete)')
   }
+  const panel = protocol.reviewers.panel.map((r) => r.id)
+  const given = values.reviewer.map((spec) => spec.split('=')[0])
+  if (given.join() !== panel.join())
+    problems.push(`the reviewers must be the registered ${panel.join(' and ')}, in that order`)
   const inputs = {}
   const reviewers = {}
   for (const spec of values.reviewer) {
@@ -673,20 +700,23 @@ function main() {
   problems.push(...judged.problems)
   if (values.evidence) {
     // The worksheet the reviewers judged must be the one the evidence gives under the registered rules.
-    const loaded = loadRuns(values.evidence)
-    problems.push(...checkRuns(loaded.runs, loaded.superseded, protocol))
-    const rebuilt = buildWorksheet(loaded, protocol, values.evidence, current)
+    const rebuilt = worksheetFor(values.evidence, protocol, registration.ref)
+    problems.push(...rebuilt.problems)
     const shape = (w) => JSON.stringify({rows: w.rows, inventory: w.inventory})
-    if (shape(rebuilt) !== shape(worksheet)) problems.push('the worksheet does not match the one the evidence gives')
+    if (shape(rebuilt.worksheet) !== shape(worksheet))
+      problems.push('the worksheet does not match the one the evidence gives')
     inputs.evidence = values.evidence
   } else {
     problems.push('pass --evidence, so the worksheet can be checked against the evidence')
   }
   const result = {
     protocol: protocol.name,
-    registration,
-    expectedRegistration: protocol.registrationRef,
-    registeredFiles: current,
+    registration: {ref: registration.ref, sha: registration.sha},
+    expectedRegistration: protocol.registration.ref,
+    harnessSha256: current,
+    reviewers: protocol.reviewers.panel,
+    holdoutExposure: protocol.holdoutExposure,
+    missing: [],
     inputs,
     notes: worksheet.notes || [],
     judged,
@@ -704,12 +734,22 @@ function main() {
   if (values.investigations) {
     result.investigations = investigations(parseCsv(readFileSync(values.investigations, 'utf8')), protocol)
     problems.push(...result.investigations.problems)
+  } else {
+    result.missing.push('the agent investigations')
   }
-  if (values.ttfo)
-    result.ttfo = readFileSync(values.ttfo, 'utf8')
+  if (values.ttfo) {
+    const rows = readFileSync(values.ttfo, 'utf8')
       .split('\n')
       .filter(Boolean)
       .map((line) => JSON.parse(line))
+    result.ttfo = timeToFirstObservation(rows, protocol, worksheet)
+    problems.push(...result.ttfo.problems)
+  } else {
+    result.missing.push('the time to first observation')
+  }
+  if (result.missing.length && !values.partial) {
+    problems.push(`missing ${result.missing.join(' and ')}: pass them, or --partial for a score marked partial`)
+  }
   for (const warning of judged.warnings) console.warn(`warning: ${warning}`)
   if (problems.length) {
     for (const problem of problems.slice(0, 50)) console.error(`error: ${problem}`)

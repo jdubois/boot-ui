@@ -85,7 +85,8 @@ const CAUGHT_IN_EXECUTION = /scheduled run|message that recorded it completed|co
  * The hidden-row sample of one application, stratified and seeded. `hidden` holds distinct facts left out of the
  * default list. Strata, in order: the slowest hidden route (by its worst stated latency); up to two exception groups caught in completed scheduled
  * runs or messages; one row for every other (kind, reason) left out; then seeded draws until `size` rows. Mandatory
- * strata are never dropped, so a sample may exceed `size`; with `size` rows or fewer, every hidden row is sampled.
+ * strata are never dropped, so a sample may exceed `size`; with `size` rows or fewer, every hidden row is sampled. Throws
+ * when hidden routes exist but none states a latency, since the slowest-route stratum would vanish.
  */
 export function sampleHidden(hidden, {seed, size = 10}) {
   const rows = [...hidden].sort((a, b) => a.key.localeCompare(b.key))
@@ -100,7 +101,13 @@ export function sampleHidden(hidden, {seed, size = 10}) {
     (best, r) => (worstLatencyMillis(r.sentence) > worstLatencyMillis(best?.sentence) ? r : best),
     null
   )
-  if (slowest && worstLatencyMillis(slowest.sentence) >= 0) take(slowest, 'slowest hidden route')
+  if (routes.length && !(slowest && worstLatencyMillis(slowest.sentence) >= 0)) {
+    // The mandatory stratum must never disappear silently, for instance after a rewording of the sentence.
+    throw new Error(
+      `no hidden route-time-breakdown sentence of ${seed} states a latency, so the slowest route is unknown`
+    )
+  }
+  if (slowest) take(slowest, 'slowest hidden route')
   const caught = shuffle(
     rows.filter((r) => r.kind === 'exception-hotspots' && CAUGHT_IN_EXECUTION.test(r.unlistedReason || '')),
     rng
