@@ -31,6 +31,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DynamicContainer;
 import org.junit.jupiter.api.DynamicNode;
 import org.junit.jupiter.api.DynamicTest;
@@ -288,6 +289,11 @@ class ObservationHonestyHarnessTests {
                 .mapToLong(event -> event.epochMillis() + event.durationNanos() / 1_000_000)
                 .max()
                 .orElse(Long.MIN_VALUE);
+        Set<String> lostThreads = missing.stream()
+                .map(events::get)
+                .filter(event -> event.requestId() != null && event.thread() != null)
+                .map(RuntimeEvent::thread)
+                .collect(Collectors.toSet());
         List<RuntimeEvent> kept = IntStream.range(0, events.size())
                 .filter(index -> !missing.contains(index))
                 .mapToObj(events::get)
@@ -297,10 +303,13 @@ class ObservationHonestyHarnessTests {
                         && event.payload() instanceof LogPayload log
                         && "ERROR".equals(log.level())
                         && reach != Long.MIN_VALUE
-                        && (event.epochMillis() <= reach
-                                || (lostRequestEnd != Long.MIN_VALUE
-                                        && event.epochMillis()
-                                                <= lostRequestEnd + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS)
+                        && ((lostThreads.contains(event.thread())
+                                        && (event.epochMillis() <= reach
+                                                || (lostRequestEnd != Long.MIN_VALUE
+                                                        && event.epochMillis()
+                                                                <= lostRequestEnd
+                                                                        + FrameworkWarningsByRoute
+                                                                                .AFTER_REQUEST_MILLIS)))
                                 || afterLeftOutRequest(event, byThread, incomplete))))
                 .filter(event -> unitOf(event) != null
                         || event.traceId() == null
@@ -372,6 +381,34 @@ class ObservationHonestyHarnessTests {
                     + row.sentence());
         }
         return lines;
+    }
+
+    /**
+     * A startup error on {@code main}, kept in the journal's reserved share, stays in the No request row however much
+     * routine request traffic the ring evicts after it: the loss horizon only leaves out errors on a lost request's
+     * thread.
+     */
+    @TestFactory
+    Stream<DynamicNode> aStartupErrorStaysInTheNoRequestRowWhateverIsEvictedAfterIt() {
+        Fixture fixture = FIXTURES.stream()
+                .filter(candidate -> candidate.name().equals(ObservationFixtures.STARTUP_ERROR))
+                .findFirst()
+                .orElseThrow();
+        return IntStream.range(1, fixture.events().size())
+                .mapToObj(evicted ->
+                        DynamicTest.dynamicTest("evict " + evicted + " events, 50 % reserved for failures", () -> {
+                            Replayed replayed = replayKeepingJournal(fixture, Replay.evicting(evicted, 50));
+                            RuntimeInsightsReportDto report = replayed.report();
+                            assertThat(report.window().evictedEvents()).isEqualTo(evicted);
+                            // The error is the fixture's first event; past the reserved share, it is evicted too.
+                            Assumptions.assumeTrue(replayed.retainedSequences().contains(1L));
+                            assertThat(rows(report, FrameworkWarningsByRoute.KIND))
+                                    .as("the startup error is retained in the reserved share and still listed")
+                                    .anySatisfy(row -> {
+                                        assertThat(row.subject()).isEqualTo(FrameworkWarningsByRoute.NO_REQUEST);
+                                        assertThat(row.status()).isEqualTo("OBSERVED");
+                                    });
+                        }));
     }
 
     /** A seeded case replayed on a stack without its capture is not applicable, never an empty success or a finding. */

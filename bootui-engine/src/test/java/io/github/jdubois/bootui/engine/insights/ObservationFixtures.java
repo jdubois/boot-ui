@@ -55,6 +55,9 @@ final class ObservationFixtures {
 
     static final long MS = 1_000_000L;
 
+    /** The fixture whose startup error must stay in Framework warnings' No request row whatever the ring later loses. */
+    static final String STARTUP_ERROR = "a startup ERROR on main, before routine request traffic";
+
     /** How long an event takes before its recorder marks it slow, in these fixtures. */
     static final long SLOW = 1_000 * MS;
 
@@ -1039,6 +1042,13 @@ final class ObservationFixtures {
                                     log("org.hibernate.orm.deprecation", "WARN", "HHH90000025: dialect is deprecated"));
                             recording.get("/api/orders/{id}");
                         }));
+        fixtures.add(positive(FrameworkWarningsByRoute.KIND, STARTUP_ERROR).seed(recording -> {
+            recording.unowned(log("org.springframework.boot.SpringApplication", "ERROR", "Application run failed")
+                    .onThread("main"));
+            for (int i = 0; i < 3; i++) {
+                recording.get("/api/orders/{id}").children(sql("select * from orders where id = ?"));
+            }
+        }));
         fixtures.add(counterexample(
                         FrameworkWarningsByRoute.KIND,
                         "a container's ERROR on a failed request's thread, logged once its filters returned")
@@ -1603,6 +1613,10 @@ final class ObservationFixtures {
             }
             if (payload instanceof AiPayload ai) {
                 return ai.failed();
+            }
+            if (payload instanceof LogPayload log) {
+                // As the log recorders mark them, so they stay in the reserved share as routine events are evicted.
+                return "ERROR".equals(log.level());
             }
             return payload instanceof FaultTolerancePayload policy && policy.failure();
         }

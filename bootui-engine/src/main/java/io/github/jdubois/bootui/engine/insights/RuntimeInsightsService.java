@@ -688,7 +688,11 @@ public final class RuntimeInsightsService {
      * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
      */
     private VisibleEntries visibleEntries(
-            List<JournalEntry> entries, PanelVisibility visibility, Long lossHorizon, Long lostRequestEnd) {
+            List<JournalEntry> entries,
+            PanelVisibility visibility,
+            Long lossHorizon,
+            Long lostRequestEnd,
+            Predicate<String> lostARequestOn) {
         Set<String> hidden = new HashSet<>();
         Set<String> incomplete = new HashSet<>();
         Map<ProjectedRequest.Kind, Integer> incompleteByKind = new EnumMap<>(ProjectedRequest.Kind.class);
@@ -737,7 +741,8 @@ public final class RuntimeInsightsService {
             }
             if (unit == null
                     && isErrorLog(event)
-                    && ownedByLostWork(event, lossHorizon, lostRequestEnd, requestsByThread, incomplete)) {
+                    && ownedByLostWork(
+                            event, lossHorizon, lostRequestEnd, lostARequestOn, requestsByThread, incomplete)) {
                 // A container logs a request's failure once its id is gone; when the request was left out, the error
                 // would otherwise read as one that no request owned.
                 errorLogsLeftOut++;
@@ -770,22 +775,29 @@ public final class RuntimeInsightsService {
 
     /**
      * Whether an {@code ERROR} log that carried no request id may belong to work the journal lost events of: written at
-     * or before the loss horizon, within {@link FrameworkWarningsByRoute#AFTER_REQUEST_MILLIS} after a request whose HTTP
-     * event was lost ended, or on the thread of a request left out, before that thread served another and within that
-     * time after it ended.
+     * on a thread that ran a request the journal lost events of, at or before the loss horizon or within {@link
+     * FrameworkWarningsByRoute#AFTER_REQUEST_MILLIS} after a request whose HTTP event was lost ended; or on the thread of
+     * a request left out, before that thread served another and within that time after it ended.
      */
     private static boolean ownedByLostWork(
             RuntimeEvent log,
             Long lossHorizon,
             Long lostRequestEnd,
+            Predicate<String> lostARequestOn,
             Map<String, TreeMap<Long, RuntimeEvent>> requestsByThread,
             Set<String> incomplete) {
         if (lossHorizon == null) {
             return false;
         }
-        if (beforeLoss(log, lossHorizon)
-                || (lostRequestEnd != null
-                        && log.epochMillis() <= lostRequestEnd + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS)) {
+        // Only on a thread that ran a lost request, or one that cannot be told apart: a startup error on main, or a
+        // pool
+        // thread's error with no request, stays its own however much later the ring lost events.
+        boolean lostRequestThread = log.thread() == null || log.thread().isBlank() || lostARequestOn.test(log.thread());
+        if (lostRequestThread
+                && (beforeLoss(log, lossHorizon)
+                        || (lostRequestEnd != null
+                                && log.epochMillis()
+                                        <= lostRequestEnd + FrameworkWarningsByRoute.AFTER_REQUEST_MILLIS))) {
             return true;
         }
         TreeMap<Long, RuntimeEvent> requests = log.thread() == null ? null : requestsByThread.get(log.thread());
@@ -874,8 +886,12 @@ public final class RuntimeInsightsService {
         } catch (RuntimeException ex) {
             resolver = RouteTemplateResolver.empty();
         }
-        VisibleEntries projected =
-                visibleEntries(entries, visibility, journal.lossHorizonMillis(), journal.lostRequestEndMillis());
+        VisibleEntries projected = visibleEntries(
+                entries,
+                visibility,
+                journal.lossHorizonMillis(),
+                journal.lostRequestEndMillis(),
+                journal::lostARequestOn);
         InsightsSnapshot snapshot = InsightsSnapshot.of(
                         projected.entries(),
                         status,

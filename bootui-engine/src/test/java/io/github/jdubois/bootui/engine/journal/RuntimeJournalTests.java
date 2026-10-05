@@ -409,6 +409,24 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void itRemembersTheThreadsOfLostRequestsAcrossAClearButNotThoseOfUnownedEvents() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 1_002, 0, null, null, null, "main", null, true, () -> 64));
+        journal.dispatchPending();
+
+        journal.clear();
+        journal.offer(sql(3, false));
+        journal.dispatchPending();
+
+        assertThat(journal.lostARequestOn("http-nio-8080-exec-1")).isTrue();
+        assertThat(journal.lostARequestOn("main"))
+                .as("a startup error carried no request")
+                .isFalse();
+        assertThat(journal.lostARequestOn(null)).isFalse();
+    }
+
+    @Test
     void theLossHorizonNeverMovesPastNow() {
         RuntimeJournal journal = journal(settings(1, 10_000_000, 100, 0, JournalSource.all()), false);
         long future = System.currentTimeMillis() + java.time.Duration.ofDays(1).toMillis();

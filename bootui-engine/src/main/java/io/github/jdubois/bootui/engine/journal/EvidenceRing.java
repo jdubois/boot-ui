@@ -63,6 +63,16 @@ final class EvidenceRing {
      */
     private long lostRequestEndMillis = Long.MIN_VALUE;
 
+    /** The most thread names of requests that lost events remembered. */
+    static final int MAX_LOST_REQUEST_THREADS = 1_024;
+
+    /**
+     * The threads that ran the most recent requests the ring lost events of, so only an error without a request id
+     * written on one of them is taken as possibly that request's, never a startup or pool thread's own error. Kept
+     * across a clear, which loses events too.
+     */
+    private final LinkedHashSet<String> lostRequestThreads = new LinkedHashSet<>();
+
     EvidenceRing(int maxEvents, long maxBytes, int reservedSharePercent, LongSupplier externalBytes) {
         this.maxEvents = Math.max(1, maxEvents);
         this.maxBytes = Math.max(1, maxBytes);
@@ -145,6 +155,15 @@ final class EvidenceRing {
         if (started > lossHorizonMillis) {
             lossHorizonMillis = started;
         }
+        if (event.requestId() != null
+                && event.thread() != null
+                && !event.thread().isBlank()) {
+            lostRequestThreads.remove(event.thread());
+            lostRequestThreads.add(event.thread());
+            if (lostRequestThreads.size() > MAX_LOST_REQUEST_THREADS) {
+                lostRequestThreads.remove(lostRequestThreads.iterator().next());
+            }
+        }
         if (event.source() == JournalSource.HTTP && event.requestId() != null) {
             long ended = Math.min(
                     event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000, System.currentTimeMillis());
@@ -152,6 +171,11 @@ final class EvidenceRing {
                 lostRequestEndMillis = ended;
             }
         }
+    }
+
+    /** Whether a request the ring lost events of ran on {@code thread}, as far as the ring remembers. */
+    synchronized boolean lostARequestOn(String thread) {
+        return thread != null && lostRequestThreads.contains(thread);
     }
 
     /** When the latest request whose HTTP event the ring lost ended, or {@code null} while it lost none. */

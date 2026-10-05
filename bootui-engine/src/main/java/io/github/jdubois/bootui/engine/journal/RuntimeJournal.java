@@ -540,6 +540,15 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return ring.lostRequestEndMillis();
     }
 
+    /**
+     * Whether a request whose events the journal evicted, could not fit, or cleared ran on {@code thread}, as far as it
+     * remembers the most recent {@value EvidenceRing#MAX_LOST_REQUEST_THREADS} such threads: only an error logged without
+     * a request id on such a thread may have been that request's.
+     */
+    public boolean lostARequestOn(String thread) {
+        return ring.lostARequestOn(thread);
+    }
+
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);
