@@ -40,8 +40,23 @@ import org.junit.jupiter.api.Test;
  */
 class CaughtExceptionsVerifierIT {
 
-    /** The jars whose classes are transformed, by file-name prefix. */
-    private static final List<String> TARGETS = List.of(
+    /**
+     * The jars whose classes are transformed by default, by file-name prefix: one of each compiler's and framework's
+     * style, small enough for the Java 17 build's parallel modules. {@code -Dbootui.agent.verifier-stress=full} adds
+     * {@link #FULL}.
+     */
+    private static final List<String> DEFAULT_TARGETS = List.of(
+            "spring-core-",
+            "spring-context-",
+            "spring-webmvc-",
+            "jackson-databind-",
+            "netty-handler-",
+            "vertx-core-",
+            "quarkus-core-",
+            "kotlinx-coroutines-core-");
+
+    /** Every jar of the full run, the one that measured 20,522 classes on JDK 17, 21, and 26. */
+    private static final List<String> FULL = List.of(
             "spring-core-",
             "spring-beans-",
             "spring-context-",
@@ -69,6 +84,8 @@ class CaughtExceptionsVerifierIT {
 
     @Test
     void everyFrameworkClassThatVerifiesWithoutTheVisitVerifiesWithIt() throws Exception {
+        boolean full = "full".equals(System.getProperty("bootui.agent.verifier-stress"));
+        List<String> prefixes = full ? FULL : DEFAULT_TARGETS;
         List<File> targets = new ArrayList<>();
         List<URL> others = new ArrayList<>();
         for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
@@ -79,16 +96,18 @@ class CaughtExceptionsVerifierIT {
                 }
                 continue;
             }
-            if (TARGETS.stream().anyMatch(file.getName()::startsWith)) {
+            if (prefixes.stream().anyMatch(file.getName()::startsWith)) {
                 targets.add(file);
             } else {
                 others.add(file.toURI().toURL());
             }
         }
-        assertThat(targets).as("the frameworks' jars on the test class path").hasSizeGreaterThanOrEqualTo(15);
+        assertThat(targets)
+                .as("the frameworks' jars on the test class path")
+                .hasSizeGreaterThanOrEqualTo(full ? 15 : DEFAULT_TARGETS.size());
 
         Map<String, byte[]> classes = classes(targets);
-        assertThat(classes).as("classes read").hasSizeGreaterThan(10_000);
+        assertThat(classes).as("classes read").hasSizeGreaterThan(full ? 10_000 : 3_000);
         int sitesBefore = CaughtExceptions.siteCount();
 
         Map<String, String> control = link(classes, others, bytes -> bytes);
@@ -107,7 +126,7 @@ class CaughtExceptionsVerifierIT {
         assertThat(broken)
                 .as("classes linking without the visit but not with it")
                 .isEmpty();
-        assertThat(sites).as("handlers instrumented").isGreaterThan(5_000);
+        assertThat(sites).as("handlers instrumented").isGreaterThan(full ? 5_000 : 1_000);
 
         // Beneath an advice checking every frame, as the code paths' does: never a verifier failure, and refusals rare.
         // One transformation per class with the visit; only a class refused with it is transformed without it.

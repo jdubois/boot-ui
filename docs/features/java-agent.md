@@ -821,7 +821,8 @@ fire. A failed self-test removes only this sensor's visit. A class whose transfo
 retransformation the JVM rejects with it, never gets it again and is transformed again with the other sensors' visits.
 A stress test defines every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, Quarkus, and Kotlin's
 standard library and coroutines (compiled by kotlinc) with and without the visit on JDK 17, 21, and 26: each class that
-verifies without it verifies with it, also beneath an advice that checks every frame. Should an application class still
+verifies without it verifies with it, also beneath an advice that checks every frame. CI runs it on a representative
+subset of those jars; `-Dbootui.agent.verifier-stress=full` runs every one. Should an application class still
 fail to load with a `VerifyError` naming `CaughtExceptions`, remove `caught-exceptions` from `bootui.agent.sensors`
 and report the class.
 
