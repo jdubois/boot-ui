@@ -17,8 +17,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `get_exception_detail`. The Live Activity profile drawer and the Exceptions detail gain **Copy for AI**, which
   previews one Markdown document, listing what it omits, before anything is copied; **Copy profile** now copies
   Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
-  ([Investigate one request](docs/AI-AGENTS.md#investigate-one-request), PLAN §3.25).
-
+  ([Investigate one request](docs/AI-AGENTS.md#investigate-one-request), PLAN §3.25,
+  [#1192](https://github.com/jdubois/boot-ui/pull/1192)).
 - **The MySQL panel reads MariaDB reached through MySQL Connector/J, labelled unsupported.** A MariaDB server behind a
   `jdbc:mysql:` datasource is now read on a best-effort basis on Spring MVC, WebFlux, and Quarkus instead of being
   skipped. The report names the flavor `MARIADB`, the datasource carries an Unsupported badge, and an informational
@@ -42,7 +42,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `javax.annotation.Resource` on beans, which neither Spring Framework 7 nor Quarkus 3 recognizes. Both run on Spring
   MVC, Spring WebFlux, and Quarkus, and the field-injection rules no longer report the same fields
   ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
-
 - **Four Database advisor checks (24 → 28).** DB-SCHEMA-010 (LOW) reports MySQL invisible, MariaDB ignored and
   Oracle invisible indexes that every write still maintains; DB-PG-005 (LOW) reports `UNLOGGED` tables and leaf
   partitions; DB-HIB-009 (MEDIUM) reports an explicitly named `@Id` declaring `GenerationType.IDENTITY` whose
@@ -59,7 +58,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   panels state how many records they keep, how many sit in the reserved share, and how many were evicted, and their
   reports, MCP tools, and CLI commands gain an additive `retention` object with the same counts. On Spring, an
   application-provided `HttpExchangeRepository` or recording filter is never replaced and its retention is reported
-  as application-managed ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention)).
+  as application-managed ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention),
+  [#1153](https://github.com/jdubois/boot-ui/pull/1153)).
 - **Architecture, REST API, and Hibernate findings say where the code is.** Each rule result carries
   `sampleLocations`, aligned index-for-index with `sampleViolations`, and each detail page carries `locations`,
   aligned with `violations`, on REST, the report and `get_*_rule_violations` MCP tools, and the CLI. A location names
@@ -70,14 +70,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file are dropped rather than shown wrong. The panels show each location with a **Copy location** action and an
   opt-in, per-browser **Open in** preference for VS Code or IntelliJ IDEA. Violation text, counts, severities,
   dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location
-  (docs/PLAN.md §3.19).
+  (docs/PLAN.md §3.19, [#1149](https://github.com/jdubois/boot-ui/pull/1149)).
 - **Request profiles show the REST client calls and cache accesses a request made.** The Live Activity profile drawer
   and **Copy profile** gain REST client calls, masked exactly as the REST Client panel shows them, and cache accesses,
   which carry only the hashed key, on Spring MVC, Spring WebFlux, and Quarkus (cache on Spring only, since Quarkus has no
   cache-access capture seam). Every section is labelled with the tier that correlated it — trace id, serving thread, or
   time window — the profile is flagged approximate whenever a time window was used, a tier an adapter cannot provide is
   listed as unavailable, and each section shows at most 200 entries with a count of the rest. The
-  `GET /bootui/api/activity/request/{id}` response only gains fields (docs/PLAN.md §3.20a).
+  `GET /bootui/api/activity/request/{id}` response only gains fields
+  (docs/PLAN.md §3.20a, [#1148](https://github.com/jdubois/boot-ui/pull/1148)).
 - **Route performance rankings in HTTP Exchanges.** A route table above the exchange list summarizes the retained
   window per method and route: request count, 2xx/3xx/4xx/5xx counts, average, p50, p95, p99, and maximum duration, and
   share of retained request time, ranked by requests, total time, p95, slowest request, or errors. Routes resolve from
@@ -86,11 +87,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its Live Activity request profile, and the evidence window (retained exchanges, buffer size, evictions, oldest
   exchange, hidden BootUI exchanges) is stated inline. The same rankings are available from
   `GET /bootui/api/http-exchanges/routes`, the `get_http_routes` MCP tool, and `bootui http routes`, on Spring MVC,
-  Spring WebFlux, and Quarkus.
+  Spring WebFlux, and Quarkus ([#1152](https://github.com/jdubois/boot-ui/pull/1152)).
 - **Lightweight PostgreSQL Docker sample profile.** Run the Spring MVC sample with `docker-postgresql`, or the
   dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
   downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
-  readable; the full `docker` profile is unchanged.
+  readable; the full `docker` profile is unchanged ([#1193](https://github.com/jdubois/boot-ui/pull/1193)).
+- **One-command full AI sample demo.** `run-local-ai.sh` starts the Spring MVC sample with its full `docker` profile:
+  Spring AI with Ollama's small `qwen2.5:0.5b` chat model, PostgreSQL as the primary database, Redis, and Kafka. Send a
+  prompt from the sample's welcome page, then inspect it in the AI Framework panel. It uses the isolated `.m2`
+  repository like the other `run-local*.sh` launchers, and Kafka and Ollama bind fixed host ports, so only one
+  instance runs at a time ([sample app](bootui-spring-sample-app/README.md),
+  [#1249](https://github.com/jdubois/boot-ui/pull/1249)).
 
 ### Changed
 
@@ -100,10 +107,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `mysql:9.7.2`. Other Oracle MySQL versions, such as 8.0 or Innovation releases, are read with an informational
   "not a tested server line" diagnostic, and any section the server cannot answer reports its own reason. Other
   compatible flavors are skipped before any statistics query instead of failing the read
-  ([MySQL](docs/features/database.md#mysql)).
+  ([MySQL](docs/features/database.md#mysql), [#1191](https://github.com/jdubois/boot-ui/pull/1191)).
 - **Maven Central releases ship an empty placeholder `-javadoc.jar` instead of generated Javadoc.** Central requires
   the file but not its content, and BootUI's public surface is its HTTP, MCP, and CLI contract rather than a Java API;
-  `-sources.jar` files are still published for IDE navigation. This shrinks uploads and release build time.
+  `-sources.jar` files are still published for IDE navigation. This shrinks uploads and release build time
+  ([#1190](https://github.com/jdubois/boot-ui/pull/1190)).
 - **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
   (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
   `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip
@@ -236,35 +244,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
   fixed 500 ms, so by default an entry that took 500–999 ms is no longer flagged `SLOW` there. A value of `0` now
-  disables slow classification on every stack; Spring MVC previously flagged every request as slow at `0`.
+  disables slow classification on every stack; Spring MVC previously flagged every request as slow at `0`
+  ([#1153](https://github.com/jdubois/boot-ui/pull/1153)).
 - **BootUI's own requests no longer take Spring HTTP exchange slots.** While `bootui.monitoring.exclude-self` is on,
   BootUI's Spring recording filter no longer records BootUI's own requests into BootUI's repository, instead of
   recording them and hiding them when the panel is read, as Quarkus already did. The check uses the decoded path below
   the servlet context path or WebFlux base path and never the query string. Console polling no longer evicts
   application exchanges, `hiddenSelf` now reads `0` on Spring as on Quarkus, and Actuator's `httpexchanges` endpoint,
-  when backed by BootUI's repository, no longer lists them.
+  when backed by BootUI's repository, no longer lists them ([#1153](https://github.com/jdubois/boot-ui/pull/1153)).
 - **Every adapter builds request profiles with one shared engine assembler.** Spring MVC, Spring WebFlux, and Quarkus
   now serve the profile through `ExecutionProfileAssembler`, so identical evidence produces an identical profile. Each
   signal attaches to at most one request: a trace id shared by two captured requests, or a serving thread or time
   window two requests could equally claim, now leaves the signal out of both profiles and counts it in the notes,
   instead of showing it in both. On Spring MVC, exceptions keep their method, path, and window match, within which a
   trace id now settles which request threw them; on Quarkus, a disabled SQL Trace, Exceptions, or Security Logs panel
-  no longer contributes to request profiles, as on Spring.
+  no longer contributes to request profiles, as on Spring ([#1148](https://github.com/jdubois/boot-ui/pull/1148)).
 - **One slowest-request KPI for every stack.** Live Activity's p50/p95 latency and slowest request are now computed once
   in the shared engine, so Spring MVC, Spring WebFlux, and Quarkus report the same figures for the same traffic. The
   slowest request is labelled with its resolved route and links to that route's row in HTTP Exchanges, and the latency
   card states how many requests it covers. Spring MVC now computes these over every retained exchange rather than the
   newest `bootui.activity.max-entries`, and Spring WebFlux and Quarkus now report a 0 ms slowest request instead of
-  none. SQL Trace, Live Activity, and route rankings share one percentile helper; no existing SQL Trace figure changes.
+  none. SQL Trace, Live Activity, and route rankings share one percentile helper; no existing SQL Trace figure changes
+  ([#1152](https://github.com/jdubois/boot-ui/pull/1152)).
 - **Route labels are the same whichever source resolved them.** SQL Trace route attribution now renders a Spring
   framework template the way it renders a declared one, so `/orders/{id:[0-9]+}` reads `/orders/{id}`, while a wildcard
   such as `/**` is kept as declared. A variable's pattern may now contain `?` or `/` without truncating the route.
   When declared mappings are ambiguous, a masked path now also masks every segment they mark as a parameter, and a
   brace-delimited segment on a real request is masked rather than trusted as template syntax.
   On Quarkus, declared JAX-RS routes are now matched under `quarkus.http.root-path` and `quarkus.rest.path`, so SQL
-  Trace attributes requests to their declared route instead of a masked path when the application has a root path.
+  Trace attributes requests to their declared route instead of a masked path when the application has a root path
+  ([#1152](https://github.com/jdubois/boot-ui/pull/1152)).
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
-  newest micro release of the 3.33 LTS stream.
+  newest micro release of the 3.33 LTS stream ([#1135](https://github.com/jdubois/boot-ui/pull/1135)).
 - **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
   1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
   the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
@@ -303,25 +314,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reported when the caller may run without a transaction, the callee starts or suspends a transaction, the transaction
   manager, rollback rules, isolation or timeout differ, the callee also carries another proxy annotation, or the call
   is written inside a lambda or a `try` block ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods),
-  [#1176](https://github.com/jdubois/boot-ui/issues/1176)).
+  [#1176](https://github.com/jdubois/boot-ui/issues/1176), [#1181](https://github.com/jdubois/boot-ui/pull/1181)).
 - **DB-HIB-007 no longer reports "enforcement is unknown" for ordinary PostgreSQL foreign keys.** Enforcement was
   only recorded for `NOT VALID` constraints, so every validated foreign key matching a `@ManyToOne` produced a
   diagnostic and left the Database advisor scan `PARTIAL`. A foreign key absent from a complete, untruncated
   `NOT VALID` catalog read is now known to be validated and enforced; a failed or truncated read still leaves it
-  unknown ([#1174](https://github.com/jdubois/boot-ui/issues/1174)).
+  unknown ([#1174](https://github.com/jdubois/boot-ui/issues/1174),
+  [#1178](https://github.com/jdubois/boot-ui/pull/1178)).
 - **Vulnerabilities no longer scans test-only libraries listed in a CycloneDX SBOM.** The CycloneDX Gradle plugin
   lists test-classpath libraries by default, marked `cdx:maven:package:test=true`; Spring MVC and WebFlux took them as
   application dependencies, so a test-only `freemarker` or a newer test-only `jackson-databind` was reported vulnerable
   although no such JAR shipped. Components marked that way, or with CycloneDX `scope: "excluded"`, and the components
   nested in them, are now left out of the inventory unless the archive census finds their JAR on the classpath, so a
-  mislabeled SBOM still cannot hide a shipped library ([#1177](https://github.com/jdubois/boot-ui/issues/1177)).
+  mislabeled SBOM still cannot hide a shipped library ([#1177](https://github.com/jdubois/boot-ui/issues/1177),
+  [#1180](https://github.com/jdubois/boot-ui/pull/1180)).
 - **ARCH-SPRING-001 no longer reports Kotlin constructor injection as field injection.** Kotlin copies an annotation
   such as `@Value` or `@Autowired` written on a primary-constructor property onto the backing field as well, so
   `class Foo(@Value("\${key}") private val key: String)` was reported as field injection. A field in a Kotlin class
   is now skipped when a constructor parameter of the same type carries the identical annotation; `@Autowired lateinit
   var` and annotated class-body properties are still reported
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-001---classes-should-not-use-field-injection),
-  [#1175](https://github.com/jdubois/boot-ui/issues/1175)).
+  [#1175](https://github.com/jdubois/boot-ui/issues/1175), [#1179](https://github.com/jdubois/boot-ui/pull/1179)).
 - **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
   creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
   header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for
@@ -340,7 +353,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   become final utility classes. `ARCH-MOD-001` reports each internal-package access with its own description and source
   line instead of repeating one class-level line, and `ARCH-SPRING-022` now says that Quarkus 3 also ignores
   `javax.transaction.Transactional` ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
-
 - **Database advisor false positives and hidden findings.** DB-SCHEMA-001 no longer reports the one-row identifier
   tables Hibernate (`<entity>_seq` with a single `next_val` column, the MySQL default for `GenerationType.AUTO`) and
   Spring Batch (`BATCH_*_SEQ`) generate without a primary key. DB-SCHEMA-002 no longer lets an unrelated GIN, partial
@@ -349,12 +361,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
   Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
-
 - **Quarkus Vulnerabilities coverage is no longer reported complete when the dependency model is missing or damaged.**
   A missing or blank build-time model, a malformed entry, or a runtime JAR coordinate the build step could not encode
   now reports `UNAVAILABLE` coverage instead of `COMPLETE`, so the Known-findings score is qualified rather than
   presented as covering the whole application ([#1163](https://github.com/jdubois/boot-ui/pull/1163)).
-
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
   MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be
@@ -364,8 +374,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeps them: `5xx` and slow requests, failed and slow statements, and failed, `4xx`/`5xx`, and slow REST calls. A `4xx`
   request that reached `bootui.activity.request-slow-threshold-ms`, shown as `WARN`, therefore counts as slow, and on
   Spring MVC, Spring WebFlux, and Quarkus the configured threshold drives both the buffer and persistence. Severities
-  are unchanged
-  ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention)).
+  are unchanged ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention),
+  [#1154](https://github.com/jdubois/boot-ui/pull/1154)).
 - **Log Tail and Dev Services container logs follow the value-exposure policy.** Log messages were returned exactly
   as captured on every surface, and Spring's Dev Services container logs verbatim, so a logged password assignment was
   shown in full under the default `MASKED` mode. Both now apply the rule exception messages already follow, through
@@ -376,22 +386,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   retained lines and open streams without a restart. Container logs are masked before the tail is cut and are not read
   at all under `METADATA_ONLY`. `LogLineDto.message` and `DevServiceLogReport.logs` are now nullable, and the additive
   `messageOmitted` and `logsOmitted` flags let the Log Tail and Dev Services panels say a message was omitted by policy
-  instead of showing an empty line. Exception messages are unchanged.
+  instead of showing an empty line. Exception messages are unchanged
+  ([#1150](https://github.com/jdubois/boot-ui/pull/1150)).
 - **Log Tail streams no longer do exposure or encoding work on application logging threads.** Spring WebFlux and
   Quarkus now hand each captured line to dedicated delivery threads, as Spring MVC already did. A line logged on one of
   those threads is never captured, and WebFlux serializes each line there rather than leaving it to Spring's encoder,
   so a stream can no longer feed its own log output, such as framework debug logging, back to itself. Like Spring MVC,
   a WebFlux or Quarkus client that falls 1,000 lines behind is disconnected and reconnects, instead of buffering
-  without bound, and a stream always releases its slot and subscription, even when its delivery task is rejected.
+  without bound, and a stream always releases its slot and subscription, even when its delivery task is rejected
+  ([#1150](https://github.com/jdubois/boot-ui/pull/1150)).
 - **An invalid `bootui.expose-values` or `bootui.mask-secrets` value is reported once rather than on every read, on
   Spring and Quarkus.** On Quarkus an unrecognized `bootui.mask-secrets` value such as a typo now keeps masking on,
   instead of being converted to `false`, and `bootui.expose-values=metadata-only` is accepted for `METADATA_ONLY`, as
-  Spring's relaxed binding already did.
+  Spring's relaxed binding already did ([#1150](https://github.com/jdubois/boot-ui/pull/1150)).
 - **SQL Trace and REST Client show call sites for the sample apps.** BootUI skipped the whole
   `io.github.jdubois.bootui` namespace when looking for the application frame that issued a statement or an
   outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
   always empty, including in statement rankings, N+1 groups, and Live Activity. Only BootUI's own module packages are
-  now skipped, and a test fails if a new BootUI package is added without being classified.
+  now skipped, and a test fails if a new BootUI package is added without being classified
+  ([#1143](https://github.com/jdubois/boot-ui/pull/1143)).
 - **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
   `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
   failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
@@ -400,12 +413,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Use the existing datasource** switch now also checks that the table can be read before it switches, so a
   database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
   Spring MVC, Spring WebFlux, and Quarkus
-  ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
+  ([#1142](https://github.com/jdubois/boot-ui/issues/1142), [#1144](https://github.com/jdubois/boot-ui/pull/1144)).
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could
   stay registered. The container's completion, timeout, or error callback now cancels any pending completion, and a
-  concurrent rejection no longer prevents the session from being released.
+  concurrent rejection no longer prevents the session from being released
+  ([#1120](https://github.com/jdubois/boot-ui/pull/1120)).
+- **Stopping the Spring MVC sample with a PostgreSQL Docker profile no longer logs a `SHUTDOWN` error.** The `docker`
+  and `docker-postgresql` profiles now name the PostgreSQL driver, so DevTools no longer mistakes the Compose-provided
+  datasource for in-memory H2 and sends it H2's `SHUTDOWN` command on stop
+  ([#1195](https://github.com/jdubois/boot-ui/pull/1195)).
 
 ### Security
 
