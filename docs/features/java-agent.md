@@ -563,8 +563,8 @@ A process start is published at once because the hook is rare. Completion is wat
 stage runs on the common ForkJoin pool, then on the agent-owned `bootui-agent-process-exits` executor, so the application process and thread are not pinned. An exit is
 attributed as its start was, carrying the start's time. At most 1,024 exits are watched at once; starts beyond that
 still record that their exit was not watched. On Windows, each watched live process holds a JDK reaper thread. BootUI's own process starts, the agent's threads, BootUI threads whose
-names start `bootui-`, and starts that happen while the agent is transforming a class are ignored. Reentrant starts on
-the same thread record only the outermost hook.
+names start `bootui-`, and starts that happen while the agent is transforming a class are ignored. A start inside a
+process or network hook on the same thread is not recorded; one inside a file operation is.
 
 A start names its owner from the thread's owner slots, which adapter request scopes and executor handoffs push, or,
 when no slot names one, by capturing BootUI's context on the thread: a request, an execution no request owns (a
@@ -572,8 +572,13 @@ scheduled run, a consumed message, a WebSocket message), or neither, when the ro
 family. On Spring WebFlux, the request scope's slot is not yet filled where Reactor restores BootUI's context on another
 scheduler thread; `processes`, a rare hook, captures the context instead, as `files` does for an operation no slot owns.
 
-The Side Effects bridge has its own ring of 1,024 records and string table. A full ring drops and counts records instead
-of blocking application code. The per-thread aggregation table is for the hotter side-effect sensors in later slices,
+The Side Effects bridge has its own ring of 1,024 records and string table of 8,192 strings a run. A full ring drops
+and counts records instead of blocking application code. The table keeps room for every sensor: path patterns,
+environment names, network targets, looked-up names, frames, and command names and thread families are each
+guaranteed part of it (1,024, 512, 512, 512, 1,024, and 512 strings) and borrow beyond only while the others' unused
+part stays free, so one sensor's many distinct strings never leave another's targets unknown. The names of threads no
+owner names have 512 strings that never borrow; past them, a thread is named by its family. The agent's status counts what
+each could not intern (`internRoomRefused`). The per-thread aggregation table is for the hotter side-effect sensors in later slices,
 not for process starts. After 100 internal errors of its own recording, a side-effect sensor switches off for the
 JVM's life, alone, and the report says why; 100 errors in the sensors' shared code switch them all off.
 
@@ -634,8 +639,9 @@ reused when the same address is sent to again; the first send of a target from a
 published at once and its frames remembered, whichever request makes it, and the next ones are counted in the
 thread's table and may lag until that thread's next send. A
 non-blocking connect waiting for its finish is held weakly, swept after a minute, and forgotten when the sensor is
-disabled. Only the outermost hook on a thread records, so a
-resolver's datagram inside a lookup is not counted twice. BootUI's own work, BootUI's and the agent's threads, and
+disabled. A network hook inside another network or process hook on the same thread does not record, so a
+resolver's datagram inside a lookup is not counted twice; one inside a file operation does, so the connects of a
+file system provider (an S3, GCS, or SFTP `Path`) or of the stream `Files.copy(InputStream, Path)` reads still show. BootUI's own work, BootUI's and the agent's threads, and
 BootUI's own JDK `HttpClient`s, which run on a `bootui-http-N` executor, are never recorded. The JDK's own loopback pair
 (`sun.nio.ch.PipeImpl`, a pipe or selector wake-up on Windows) is never recorded; loopback connections to databases,
 brokers, and containers are, as they are what a developer runs locally.
@@ -705,8 +711,9 @@ patterns, never their contents, for the [Side Effects](#side-effects) panel, `ge
 | `Files.copy` | each path argument of its three overloads, as `copy from` and `copy to` |
 | `FileChannel.open` | `(Path, Set, FileAttribute[])`, which its varargs overload reaches: read or write by its options |
 
-Only the outermost hook on a thread records, so `Files.newInputStream`, which reaches `Files.newByteChannel` through
-the file system provider, records once. A path of another file system than the default one (a zip, `jar:`, `nested:`,
+A files hook records only outside every other side-effect hook on the thread, so `Files.newInputStream`, which
+reaches `Files.newByteChannel` through the file system provider, records once, and the hosts file a name lookup reads
+is not the application's. A path of another file system than the default one (a zip, `jar:`, `nested:`,
 or `jrt:` path) is never turned into text.
 
 The agent turns a path into a pattern before anything leaves the hook, so a raw path, and the user name in it, never
@@ -739,16 +746,19 @@ The self-test opens, deletes, moves, and copies paths under a directory that doe
 directory, so every hook runs and nothing is created. JDK retransformation of the hooked classes is checked on JDK 17,
 21, and 26 (`FilesEnvironmentBehaviorsIT`). `FileInputStream.open` and `FileOutputStream.open` are its core hooks: one
 that fails its self-test disables this sensor alone for the JVM's life; any other files hook that fails is left out,
-listed under `hooksLeftOut`, and the sensor keeps recording. A generation keeps at most 3,000 distinct path patterns;
-beyond that a row's target is `(too many distinct paths)`.
+listed under `hooksLeftOut`, and the sensor keeps recording. A generation keeps at most 3,000 distinct path patterns,
+fewer when the string table keeps its room for the other sensors; beyond that a row's target is
+`(too many distinct paths)`. Clear recording counts the quota again from zero, within that room.
 
 The operation's own time (opening, deleting, moving, or copying) is recorded, not the reads and writes that follow.
 `File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
 are not seen.
 
-`files` is opt-in because its overhead is at the edge of the budget (D37): on the agent overhead benchmark's I/O route
-(one outbound connect and one file read per request), the default sensors plus `files` measured 10.0 % and 10.6 % in
-two CI runs of nine pairs, against the 10 % budget. Add `files` to `bootui.agent.sensors` to record it.
+`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget (D37). On the agent overhead
+benchmark's I/O route (one outbound connect and one file read per request), the CI job measured `files`' own share
+against the default sensors at a median of 2.3 % over 15 pairs (pairs from −6.6 to 13.7 %). The default sensors plus
+`files` measured 10.6 % against no agent over 9 pairs (pairs from 6.7 to 23.7 %). Add `files` to
+`bootui.agent.sensors` to record it.
 
 ## The environment sensor
 
@@ -1149,8 +1159,9 @@ A process start is published at once because the hook is rare. Its exit is attri
 start's time, and is watched on an agent-owned `bootui-agent-process-exits` executor so the application process and
 thread are not pinned. At most 1,024 exits are watched at once; further exits are counted as not watched. BootUI's own
 process starts, such as a GitHub panel `gh auth token` call, the agent's threads, BootUI threads whose names start
-`bootui-`, and work done while the agent transforms a class are never recorded. Only the outermost hook on a thread
-records.
+`bootui-`, and work done while the agent transforms a class are never recorded. A file operation or an environment
+read inside another side-effect hook on the same thread is not recorded, nor a process start or network call inside
+a process or network hook; a network call inside a file operation is.
 
 The `files` sensor shows a path pattern per row with its kind (`read`, `write`, `delete`, `move from`, `move to`,
 `copy from`, `copy to`), location, and origin, never the file's contents; class path, JDK, and logging rows, and the

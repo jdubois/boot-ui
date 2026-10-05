@@ -576,4 +576,35 @@ describe('Side Effects panel', () => {
     await flushPromises()
     expect(wrapper.get('.side-effects-state-note').text()).toContain('It is opt-in')
   })
+
+  it('explains that the files sensor is opt-in, and not the processes sensor', async () => {
+    ;({wrapper} = mountPanel({
+      'api/side-effects': summary({
+        sensors: {
+          files: {
+            state: 'not-claimed',
+            reason: "This application's bootui.agent.sensors does not include files."
+          },
+          processes: {
+            state: 'not-claimed',
+            reason: "This application's bootui.agent.sensors does not include processes."
+          }
+        }
+      }),
+      'api/side-effects/sensor?sensor=files&offset=0&limit=50': sensorReport('files', []),
+      'api/side-effects/sensor?sensor=processes&offset=0&limit=50': sensorReport('processes', [])
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Files and processes')
+      .trigger('click')
+    await flushPromises()
+    const notes = wrapper.findAll('.side-effects-state-note').map((note) => note.text())
+    const files = notes.find((note) => note.includes('does not include files'))
+    const processes = notes.find((note) => note.includes('does not include processes'))
+    expect(files).toContain('It is opt-in: add files to bootui.agent.sensors')
+    expect(files).toContain('path patterns')
+    expect(processes).not.toContain('opt-in')
+  })
 })
