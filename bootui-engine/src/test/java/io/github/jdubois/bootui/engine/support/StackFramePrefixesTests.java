@@ -95,6 +95,12 @@ class StackFramePrefixesTests {
                 .isTrue();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.engine.codepaths.CodePathsService"))
                 .isTrue();
+        // The side-effect sensors' bridge and engine side too (PLAN-v2 M5-5a).
+        assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.agent.bridge.SideEffects"))
+                .isTrue();
+        assertThat(StackFramePrefixes.isFrameworkClass(
+                        "io.github.jdubois.bootui.engine.sideeffects.SideEffectsService"))
+                .isTrue();
     }
 
     @Test

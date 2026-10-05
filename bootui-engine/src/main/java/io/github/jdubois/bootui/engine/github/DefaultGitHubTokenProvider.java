@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.github;
 
+import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -41,6 +42,17 @@ public final class DefaultGitHubTokenProvider implements GitHubTokenProvider {
     }
 
     private Token ghCliToken(Duration timeout) {
+        // BootUI's own process: the BootUI agent's processes sensor must not show it as the application's.
+        AgentBridgeAccess agent = AgentBridgeAccess.locate();
+        boolean previous = agent.bootUiWork(true);
+        try {
+            return startGhCli(timeout);
+        } finally {
+            agent.bootUiWork(previous);
+        }
+    }
+
+    private Token startGhCli(Duration timeout) {
         Process process = null;
         try {
             // Resolve the GitHub CLI from the developer's PATH on purpose: BootUI is a localhost-only

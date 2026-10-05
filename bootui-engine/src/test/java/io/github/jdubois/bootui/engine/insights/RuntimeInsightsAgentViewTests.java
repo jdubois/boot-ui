@@ -118,6 +118,26 @@ class RuntimeInsightsAgentViewTests {
     }
 
     @Test
+    void requestsZeroAfterAClearSaysRequestsWereLeftOutRatherThanAskingForTraffic() {
+        RuntimeInsightsReportDto cleared = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", null, null, 12, 0, 0, 0),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(RuntimeInsightsService.leftOutBeforeLoss(2, 0)),
+                List.of(),
+                0);
+
+        assertThat(RuntimeInsightsAgentView.list(cleared, null, null)
+                        .limitations()
+                        .get(0))
+                .contains(RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS, "not proof the run was idle")
+                .doesNotContain("not exercised, not healthy", "send it traffic");
+    }
+
+    @Test
     void theEmptyQueryOmitsRepeatedSelectsUnderTheFloorAndANamedQueryDoesNot() {
         RuntimeObservationDto cheap = observation(
                 1,

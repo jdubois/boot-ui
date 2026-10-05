@@ -108,7 +108,8 @@ class AgentEvidenceTests {
         long fixed = AgentEvidence.Part.CODE_INVENTORY_RECORDS.ceilingBytes()
                 + AgentEvidence.Part.METHOD_PROBES.ceilingBytes();
         long scalable = AgentEvidence.Part.CODE_PATHS_REQUEST_TREES.ceilingBytes()
-                + AgentEvidence.Part.CODE_PATHS_ROUTE_TREES.ceilingBytes();
+                + AgentEvidence.Part.CODE_PATHS_ROUTE_TREES.ceilingBytes()
+                + AgentEvidence.Part.SIDE_EFFECTS_ROWS.ceilingBytes();
         AgentEvidence half = new AgentEvidence(null, fixed + scalable / 2);
         assertThat(half.scale()).isCloseTo(0.5, org.assertj.core.data.Offset.offset(0.001));
         assertThat(half.scaled(100_000, 10)).isCloseTo(50_000, org.assertj.core.data.Offset.offset(10));

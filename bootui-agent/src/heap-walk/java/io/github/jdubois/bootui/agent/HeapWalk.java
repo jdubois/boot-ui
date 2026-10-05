@@ -23,7 +23,8 @@ import java.util.TreeSet;
  * starts with the agent prefix, and from every thread whose name starts with {@code bootui-agent} but the engine's
  * (a thread running a task of a BootUI module beside the agent, as the engine's drain thread); it follows instance
  * fields, array elements, instance-to-class and class-to-loader edges, but never a reference's referent, queue, or
- * pending links, nor the links of the cleaner's list of cleanables, nor the statics of a class outside the prefix
+ * pending links, nor the links of the cleaner's list of cleanables, nor a thread group's links to its threads, subgroups,
+ * and parent, nor the statics of a class outside the prefix
  * (the application's and the JDK's own pins are not the agent's). Each reached copy of the run class reports its static
  * {@code SENTINEL.run}.
  *
@@ -450,7 +451,9 @@ public final class HeapWalk {
      * Whether a reference field is the JDK's reference bookkeeping rather than a strong hold: a reference's referent
      * and its queue and pending links, and the links of the cleaner's list of registered cleanables (a cleanable
      * reached from a jar the agent opened links to every other cleanable in the JVM). A cleanable's own action is
-     * still followed.
+     * still followed. Nor a thread group's links to its threads, subgroups, and parent: any long-lived agent thread's
+     * group reaches every live thread in the JVM through them (until JDK 19), and a live thread is a GC root of its
+     * own, so what it keeps is never the agent's.
      */
     private boolean infrastructure(long declaringClass, String field) {
         if (declaringClass == referenceClass) {
@@ -460,6 +463,9 @@ public final class HeapWalk {
                     || "next".equals(field);
         }
         String owner = classNames.getOrDefault(declaringClass, "");
+        if (owner.equals("java/lang/ThreadGroup")) {
+            return "threads".equals(field) || "groups".equals(field) || "parent".equals(field);
+        }
         return owner.equals("jdk/internal/ref/PhantomCleanable")
                 || owner.startsWith("jdk/internal/ref/CleanerImpl$Cleanable");
     }

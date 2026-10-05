@@ -71,7 +71,13 @@ public final class AgentEvidence implements JournalListener {
          * Method probes (M5-8): 25 probes kept per run at about 512 bytes, each with at most 20 recorded invocations at
          * about 320 bytes, bounded by the probes' own caps.
          */
-        METHOD_PROBES(25L * 512 + 25L * 20 * 320, false);
+        METHOD_PROBES(25L * 512 + 25L * 20 * 320, false),
+        /**
+         * Side Effects' rows (M5-5a): 2,000 rows and an Other row per sensor at about 640 bytes, 10,000 records waiting
+         * for their request's route or execution's label at about 320 bytes, 4,096 such names at about 96 bytes, and,
+         * kept through a clear, 8,192 resolved strings at about 64 bytes and 2,000 method labels at about 96 bytes.
+         */
+        SIDE_EFFECTS_ROWS((2_000L + 9) * 640 + 10_000L * 320 + 4_096L * 96 + 8_192L * 64 + 2_000L * 96, true);
 
         private final long ceilingBytes;
         private final boolean scalable;
@@ -139,7 +145,9 @@ public final class AgentEvidence implements JournalListener {
             "firstCallsWithRequest",
             "firstLoads",
             "probes",
-            "probeHits");
+            "probeHits",
+            "sideEffectRows",
+            "sideEffectsWaiting");
 
     /**
      * What a store holds.

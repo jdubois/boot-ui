@@ -247,6 +247,8 @@ public final class ThreadPropagation {
                 APPLIED[hook].increment();
                 // The thread's code-paths fragment records the node that started it (PLAN-v2 §5.14, design I7).
                 CodePaths.handoff(snapshot.stamp);
+                // The side-effect sensors' owner slot names the submitting request (PLAN-v2 M5-5 design B1).
+                SideEffects.handoff(snapshot.payload, snapshot.generation);
             }
             return handle;
         } catch (Throwable ex) {

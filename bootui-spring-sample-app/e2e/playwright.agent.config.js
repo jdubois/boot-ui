@@ -30,7 +30,8 @@ export default defineConfig({
     'tests/app-shell.spec.js',
     'tests/java-agent.spec.js',
     'tests/code-inventory.spec.js',
-    'tests/code-paths.spec.js'
+    'tests/code-paths.spec.js',
+    'tests/side-effects.spec.js'
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

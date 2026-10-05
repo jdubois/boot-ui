@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.SideEffectsController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
@@ -301,6 +302,7 @@ import tools.jackson.databind.ObjectMapper;
     JavaAgentController.class,
     CodeInventoryController.class,
     CodePathsController.class,
+    SideEffectsController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -373,6 +375,7 @@ public class BootUiReactiveAutoConfiguration {
             JavaAgentController.class.getName(),
             CodeInventoryController.class.getName(),
             CodePathsController.class.getName(),
+            SideEffectsController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
@@ -451,7 +454,8 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<RuntimeInsightsController> runtimeInsights,
                 ObjectProvider<JavaAgentController> javaAgent,
                 ObjectProvider<CodeInventoryController> codeInventory,
-                ObjectProvider<CodePathsController> codePaths) {
+                ObjectProvider<CodePathsController> codePaths,
+                ObjectProvider<SideEffectsController> sideEffects) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -488,7 +492,8 @@ public class BootUiReactiveAutoConfiguration {
                     runtimeInsights,
                     javaAgent,
                     codeInventory,
-                    codePaths);
+                    codePaths,
+                    sideEffects);
         }
 
         @Bean

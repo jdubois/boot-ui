@@ -104,11 +104,42 @@ class SelfTestMutationIT {
         assertThat(output.value("SENSOR_threads")).as(output.toString()).contains("selfTestPassed=false");
     }
 
+    @Test
+    void theProcessesHookPassesWithNothingOmitted() throws Exception {
+        ChildJvm.Output output = run("", "processes");
+
+        assertThat(selfTest(output, "ProcessBuilder.start"))
+                .as(output.toString())
+                .isEqualTo("passed");
+        assertThat(output.value("SENSOR_processes"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true");
+    }
+
+    @Test
+    void aMissingProcessBuilderStartFailsTheProcessesSensorAndRemovesItsTransformer() throws Exception {
+        ChildJvm.Output output = run("ProcessBuilder.start", "processes");
+
+        assertThat(selfTest(output, "ProcessBuilder.start"))
+                .as(output.toString())
+                .isEqualTo("failed");
+        assertThat(output.value("SENSOR_processes"))
+                .as(output.toString())
+                .contains("state=self-test-failed")
+                .contains("selfTestPassed=false")
+                .contains("self-test failed for [ProcessBuilder.start]");
+    }
+
     private static ChildJvm.Output run(String omitted) throws Exception {
+        return run(omitted, "executors,threads");
+    }
+
+    private static ChildJvm.Output run(String omitted, String sensors) throws Exception {
         ChildJvm.Output output = ChildJvm.run(
                 List.of(ChildJvm.javaAgent(ChildJvm.TEST_AGENT), "-Dbootui.agent.it.omit=" + omitted),
                 "self-test",
-                "executors,threads");
+                sensors);
         assertThat(output.exitCode()).as(output.toString()).isZero();
         return output;
     }

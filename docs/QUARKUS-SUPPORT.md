@@ -198,7 +198,7 @@ profile; default H2/Docker-free coverage remains independent.
 The Docker-required selector is `BootUiQuarkusMySqlLiveTest`, isolated under `src/mysql-live/java`.
 See [MySQL](features/database.md#mysql) for partial evidence, permissions, and execution bounds.
 
-### 5.1 Ported as-is — framework-agnostic or same library (25)
+### 5.1 Ported as-is — framework-agnostic or same library (26)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -218,6 +218,8 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Code Inventory`                                      | The shared `CodeInventoryService`: the BootUI agent's inventory sensor, the scan of the application's class files (Quarkus dev mode's `target/classes` through the application class loader), and the run history kept across live reloads. Detector-gated: available while the agent's inventory sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. Declared dependencies come from the build-time application model (`QuarkusDependencyProvider`) |
 | `Code Paths`                                          | The shared `CodePathsService`: route trees from the BootUI agent's code-paths sensor, and method probes, its only actions, refused by `bootui.panels.code-paths.read-only`. Detector-gated: available while the sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. A resource method on a worker that returns a plain value is timed as executed; one on the event loop, one returning `Uni`, `Multi`, `CompletionStage`, or a publisher, and one Quarkus cannot identify are marked assembly only and kept out of `route-time-breakdown`'s handler split. A blocking method's tree starts at its first bean call on the worker. The REST client stamps a call where its request filter runs, on the thread that issues it; Beans at runtime reads ArC's beans and their injection points |
+| `Code Paths`                                          | The shared `CodePathsService`: route trees from the BootUI agent's code-paths sensor. Detector-gated: available while the sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. A resource method on a worker that returns a plain value is timed as executed; one on the event loop, one returning `Uni`, `Multi`, `CompletionStage`, or a publisher, and one Quarkus cannot identify are marked assembly only and kept out of `route-time-breakdown`'s handler split. A blocking method's tree starts at its first bean call on the worker. The REST client stamps a call where its request filter runs, on the thread that issues it; Beans at runtime reads ArC's beans and their injection points |
+| `Side Effects`                                        | The shared `SideEffectsService`: side-effect rows from the BootUI agent's side-effect bridge. Detector-gated like Code Paths: available while the agent is armed for this start and the bridge supports Side Effects, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. M5-5a records only `processes`; the other sensor groups are listed as not available in this version |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
 | `Pentesting`                                          | Shared 77-check engine (see below)                                                |
 | `MCP Server`                                          | **Implemented** — full JSON-RPC bridge (see below)                                |
@@ -243,8 +245,8 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
-no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 82 tools in the Quarkus
-catalog are a subset of the 98 Spring MVC declares, and a running application advertises only those whose backing
+no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 85 tools in the Quarkus
+catalog are a subset of the 101 Spring MVC declares, and a running application advertises only those whose backing
 panel is available, so the catalog a client reads at runtime is authoritative.
 
 **Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured by a static-init
@@ -565,10 +567,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 54 of the 64 panels ship on Quarkus: 28 are statically available and 26 are capability/detector-gated. The
+**Result:** 55 of the 65 panels ship on Quarkus: 28 are statically available and 27 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 54 supported entries comprise 25 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 55 supported entries comprise 26 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Scorecard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -785,6 +787,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
 | Code Inventory      | as-is       | Port    | `CodeInventoryService`           | Available while the BootUI agent's inventory sensor records this start (dev/test) |
 | Code Paths          | as-is       | Port    | `CodePathsService`               | Available while the BootUI agent's code-paths sensor records this start (dev/test); reactive and event-loop endpoints are assembly only |
+| Side Effects        | as-is       | Port    | `SideEffectsService`             | Available while the BootUI agent is armed for this start and the bridge supports Side Effects (dev/test); M5-5a records only processes |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |

@@ -32,8 +32,8 @@ if [[ ",${PR_LABELS:-}," == *",agent,"* ]]; then
 fi
 
 # Paths whose changes can change what the agent legs observe: the agent and its bridge, the engine and adapter code
-# that claims it, drains it, or opens the scopes it reads, the agent-backed panels and their specs, the agent ITs,
-# the build (dependency versions such as Byte Buddy's), and these workflows.
+# that claims it, drains it, or opens the scopes it reads, the agent-backed panels, their sample seeds and specs, the
+# agent ITs, the build (dependency versions such as Byte Buddy's), and these workflows.
 pattern='^('
 pattern+='bootui-agent-bridge/|bootui-agent/'
 pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(javaagent|codepaths|inventory|sideeffects|correlation)/'
@@ -46,6 +46,9 @@ pattern+='|bootui-ui/src/main/frontend/src/views/components/(MethodProbes|Reques
 pattern+='|bootui-spring-sample-app/e2e/(tests-agent|tests-webflux-agent|playwright\.(agent|webflux-agent)\.config)'
 pattern+='|bootui-quarkus-sample-app/e2e/(tests-agent|playwright\.agent\.config)'
 pattern+='|bootui-spring-sample-app/src/test/java/.*Agent'
+pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/SideEffectsResource'
+pattern+='|bootui-(spring-sample-app|spring-webflux-sample-app|quarkus-sample-app)/src/main/java/.*/sideeffects/'
+pattern+='|bootui-(spring|quarkus)-sample-app/e2e/tests[^/]*/side-effects\.spec\.js$'
 pattern+='|pom\.xml$'
 pattern+='|\.github/workflows/(build|jdk-compatibility)\.yml$'
 pattern+='|\.github/scripts/agent-changes\.sh$'

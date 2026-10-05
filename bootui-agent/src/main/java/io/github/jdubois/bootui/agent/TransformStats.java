@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.agent;
 
+import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -53,7 +54,8 @@ final class TransformStats {
         return listenable
                 .with(AgentBuilder.TypeStrategy.Default.DECORATE)
                 .with(new BootstrapFallbackPoolStrategy())
-                .with(new Transformations());
+                .with(new Transformations())
+                .with(new AgentWork());
     }
 
     AgentBuilder.RedefinitionStrategy.Listener redefinitionFailures() {
@@ -127,6 +129,24 @@ final class TransformStats {
                 String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable error) {
             failed.incrementAndGet();
             failure(typeName + ": " + error);
+        }
+    }
+
+    /**
+     * Marks the thread's work as the agent's own while the transformer handles a class, from its discovery to its
+     * completion, which Byte Buddy reports in a {@code finally}: what Byte Buddy does meanwhile, such as reading class
+     * files, is never recorded by the side-effect sensors (PLAN-v2 M5-5 design B3).
+     */
+    static final class AgentWork extends AgentBuilder.Listener.Adapter {
+
+        @Override
+        public void onDiscovery(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
+            SideEffects.agentWork(true);
+        }
+
+        @Override
+        public void onComplete(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
+            SideEffects.agentWork(false);
         }
     }
 

@@ -11,7 +11,7 @@ class DefaultListingTests {
     private static final String SITE = "com.example.OrderReport.getLines(OrderReport.java:24)";
 
     @Test
-    void gcHeapAndNotYetValidatedKindsAreLeftOutWholeWithTheirReason() {
+    void gcAndHeapKindsAreLeftOutWholeAndD29sKindsAreListedOnceTheHarnessPasses() {
         Finding finding = finding("k", List.of("Request", "Call site"), SITE, true);
 
         assertThat(DefaultListing.apply(GcInflatedLatency.KIND, finding, List.of())
@@ -25,9 +25,9 @@ class DefaultListingTests {
                 AfterCommitWrites.KIND,
                 OrmAutoFlush.KIND,
                 LargePersistenceContext.KIND)) {
-            assertThat(DefaultListing.apply(kind, finding, List.of()).unlisted())
-                    .as(kind)
-                    .isEqualTo(DefaultListing.NOT_YET_VALIDATED);
+            assertThat(DefaultListing.apply(kind, finding, List.of()).listed())
+                    .as(kind + " passes ObservationHonestyHarnessTests (M4-18e)")
+                    .isTrue();
         }
         assertThat(DefaultListing.apply(RepeatedSelects.KIND, finding, List.of())
                         .listed())

@@ -189,10 +189,21 @@ class JournalQueueTests {
         JournalQueue queue = new JournalQueue(4, 4, null, null);
         queue.offer(event(1, false), false);
         queue.offer(event(2, false), false);
+        queue.offer(event(3, false), false);
+        List<RuntimeEvent> taken = new ArrayList<>();
+        queue.drainTo(taken, 1);
+        queue.offer(event(4, false), false);
+        queue.offer(event(5, false), false);
 
-        assertThat(queue.detach()).isEqualTo(2);
+        JournalQueue.Detached dropped = queue.detach();
 
-        assertThat(queue.detach()).as("only the first detach drops events").isZero();
+        assertThat(dropped.count()).isEqualTo(4);
+        List<Long> visited = new ArrayList<>();
+        dropped.forEach(event -> visited.add(event.epochMillis()));
+        assertThat(visited).as("what it held, oldest first, across the wrap").containsExactly(2L, 3L, 4L, 5L);
+        assertThat(queue.detach().count())
+                .as("only the first detach drops events")
+                .isZero();
         assertThat(queue.size()).isZero();
         assertThat(queue.offer(event(3, true), true)).isEqualTo(JournalQueue.DETACHED);
         assertThat(queue.drainTo(new ArrayList<>(), 10)).isZero();
@@ -219,7 +230,7 @@ class JournalQueueTests {
         JournalQueue queue = JournalQueue.closed();
 
         assertThat(queue.offer(event(1, true), true)).isEqualTo(JournalQueue.FULL);
-        assertThat(queue.detach()).isZero();
+        assertThat(queue.detach().count()).isZero();
         assertThat(queue.offer(event(2, false), false))
                 .as("never detached, so an offer is never retried forever")
                 .isEqualTo(JournalQueue.FULL);

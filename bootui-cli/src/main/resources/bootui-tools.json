@@ -1167,6 +1167,20 @@
       "example": "bootui sessions copilot"
     },
     {
+      "name": "get_side_effects",
+      "command": "side-effects",
+      "schema": "QUERY_LIMIT",
+      "panel": "side-effects",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts.",
+      "example": "bootui side-effects --query processes --limit 20"
+    },
+    {
       "name": "get_spring_report",
       "command": "spring report",
       "schema": "NONE",

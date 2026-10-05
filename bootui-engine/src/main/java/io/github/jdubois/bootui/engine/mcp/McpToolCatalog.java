@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.mcp;
 import io.github.jdubois.bootui.core.dto.CodeInventoryAgentReport;
 import io.github.jdubois.bootui.core.dto.CodePathsAgentReport;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
+import io.github.jdubois.bootui.core.dto.SideEffectsAgentReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -290,7 +291,8 @@ public final class McpToolCatalog {
             entry("get_code_inventory", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_INVENTORY, false, ALL_STACKS),
             entry("get_code_paths", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_PATHS, false, ALL_STACKS),
             entry("start_method_probe", McpToolSchema.ID, BootUiPanels.CODE_PATHS, true, ALL_STACKS),
-            entry("get_method_probe", McpToolSchema.ID, BootUiPanels.CODE_PATHS, false, ALL_STACKS));
+            entry("get_method_probe", McpToolSchema.ID, BootUiPanels.CODE_PATHS, false, ALL_STACKS),
+            entry("get_side_effects", McpToolSchema.QUERY_LIMIT, BootUiPanels.SIDE_EFFECTS, false, ALL_STACKS));
 
     private static final Map<String, Entry> BY_NAME =
             ENTRIES.stream().collect(Collectors.toUnmodifiableMap(Entry::name, Function.identity()));
@@ -305,7 +307,9 @@ public final class McpToolCatalog {
             "get_code_inventory",
             CodeInventoryAgentReport.DEFAULT_LIMIT,
             "get_code_paths",
-            CodePathsAgentReport.DEFAULT_LIMIT);
+            CodePathsAgentReport.DEFAULT_LIMIT,
+            "get_side_effects",
+            SideEffectsAgentReport.DEFAULT_LIMIT);
 
     private McpToolCatalog() {}
 

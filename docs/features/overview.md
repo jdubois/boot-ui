@@ -433,7 +433,8 @@ dropped. The status is read only when you open it. **Clear recording** drops the
 after a confirmation, and keeps the counts, so drops and evictions stay visible. With the [BootUI agent](java-agent.md)
 attached, the status also reports, as **Agent evidence**, the memory its evidence kept outside the journal uses
 against `bootui.runtime-journal.agent-evidence-max-bytes`, and Clear recording, and **Free BootUI memory**, drop that
-evidence too: Code Paths' request and route trees and Code Inventory's first requests and routes. When the application restarts in the
+evidence too: Code Paths' request and route trees, Code Inventory's first requests and routes, and Side Effects rows.
+The status counts Side Effects as `sideEffectRows` and `sideEffectsWaiting`. When the application restarts in the
 same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a summary of the run that ended, at most
 256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
 why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
@@ -700,9 +701,10 @@ in view when a refresh leaves it out, marks such a row **Not listed by default**
   every request it was written in answered 4xx;
 - every `gc-inflated-latency` and `heap-growth-after-gc` row: garbage collection and heap rows are reached from the
   Memory panel, which counts them beside its link, read from this panel's report each time it loads its own, and whose
-  link opens this panel on the **Memory** theme with every row shown;
-- every `transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` row,
-  until their counterexample fixtures pass across observations.
+  link opens this panel on the **Memory** theme with every row shown.
+
+`transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` are listed
+by default: their counterexample fixtures pass the cross-observation counterexample harness (D29, M4-18e).
 
 Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
 but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented
@@ -749,6 +751,12 @@ they conservatively mark checks that examine consumed messages partial.
 Collection checks and `changed-code-not-executed`, which reads Code Inventory rather than the journal,
 do not read execution completion events and are not made partial by their drops.
 A new drop refreshes the report, coverage, and observation details even before another event is dispatched.
+A drop can hide a finding or make one appear, such as a statement whose transaction or cache access was dropped, so a
+partial finding is never read as a floor. A request or execution that started before an event the journal evicted or
+**Clear recording** removed may be missing some of its own events, so it is left out whole, with a limitation counting
+it, rather than judged on what was left of it. This includes a failed or slow request the journal kept in its reserved
+share after its routine events were evicted: its exception and response stay in Live Activity, but Runtime Insights no
+longer judges it.
 Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
 three exemplar request ids to open in Live Activity, and at most 20 evidence rows. When BootUI changed something during the
 window, the report names it among its limitations, and a finding whose evidence names the logger, cache, or key that a

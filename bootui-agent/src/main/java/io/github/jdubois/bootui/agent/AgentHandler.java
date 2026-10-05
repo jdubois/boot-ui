@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
+import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
@@ -21,7 +22,8 @@ import java.util.function.Function;
  * transition carries a generation from one JVM-wide sequence, and a claim or release older than the last one applied is
  * ignored, as is a refine or disarm of another generation than the current claim's. A claim asking for the
  * {@code executors}, {@code threads}, {@code inventory}, or {@code code-paths} sensor installs it once and self-tests
- * it (PLAN-v2 M5-2, M5-3, M5-4a), and a release removes it; a claim without a sensor installs nothing, unless
+ * it (PLAN-v2 M5-2, M5-3, M5-4a), as does a claim asking for a side-effect sensor such as {@code processes} (M5-5a, one
+ * transformer for every side-effect hook, {@link SideEffectsSensor}), and a release removes it; a claim without a sensor installs nothing, unless
  * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
  * transformer ({@link ApplicationMethodsSensor}): a claim asking for neither removes it, since its advice on every
  * application method would otherwise stay for a claim that never reads it. A {@code method-probe} of the current armed
@@ -43,6 +45,8 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private MethodProbeSensor methodProbes;
     /** The current run's class loaders: the claiming and refining threads' context class loader chains, weakly. */
     private List<WeakReference<ClassLoader>> runLoaders = Collections.emptyList();
+
+    private SideEffectsSensor sideEffects;
     /** Whether the current claim asked for the inventory or code-paths sensor: refines reach them only then. */
     private boolean applicationMethodsClaimed;
 
@@ -81,6 +85,11 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (methodProbes != null) {
                     methodProbes.runLoaders(runLoaders);
                 }
+                // Before any transformer is installed: the transformers' listener marks the agent's work through these
+                // bridge classes, which must never first load inside a transformation (a ClassCircularityError there
+                // would stick to their constant-pool entries for the JVM's life).
+                SideEffects.agentWork(true);
+                SideEffects.agentWork(false);
                 packages = strings(request.get("packages"));
                 claimedSensors = strings(request.get("sensors"));
                 hook.onClaim(Collections.unmodifiableMap(new LinkedHashMap<String, Object>(request)));
@@ -103,6 +112,14 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 } else if (applicationMethods != null) {
                     // Its advice would otherwise stay on every method for a claim that never reads it.
                     applicationMethods.release();
+                }
+                // Computed here: SideEffectsSensor links Byte Buddy, which a claim without a sensor never loads.
+                int sideEffectsMask = sideEffectsMask(claimedSensors);
+                if (sideEffectsMask != 0) {
+                    sideEffects().claimed(sideEffectsMask);
+                } else if (sideEffects != null) {
+                    // Its hooks would otherwise stay on JDK classes for a claim that never reads them.
+                    sideEffects.release();
                 }
                 return answer("ok", null);
             case "refine":
@@ -144,6 +161,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 applicationMethodsClaimed = false;
                 if (applicationMethods != null) {
                     applicationMethods.release();
+                }
+                if (sideEffects != null) {
+                    sideEffects.release();
                 }
                 return answer("ok", null);
             case "method-probe":
@@ -214,6 +234,22 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         return applicationMethods;
     }
 
+    /** The mask bits of the side-effect sensors among {@code sensors}. */
+    static int sideEffectsMask(List<String> sensors) {
+        int bits = 0;
+        for (String sensor : sensors) {
+            bits |= SideEffects.bit(sensor);
+        }
+        return bits;
+    }
+
+    private SideEffectsSensor sideEffects() {
+        if (sideEffects == null) {
+            sideEffects = new SideEffectsSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
+        }
+        return sideEffects;
+    }
+
     private ExecutorSensor executors() {
         if (executors == null) {
             executors = new ExecutorSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
@@ -248,6 +284,11 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         if (applicationMethods != null) {
             sensors.add(active(applicationMethods.inventoryStatus()));
             sensors.add(active(applicationMethods.codePathsStatus()));
+        }
+        if (sideEffects != null) {
+            for (Map<String, Object> row : sideEffects.status()) {
+                sensors.add(active(row));
+            }
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());

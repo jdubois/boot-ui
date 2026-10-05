@@ -370,6 +370,8 @@ class RouteTimeBreakdownTests {
     void afterAClearNoRequestIsReportedAsColdBecauseTheJournalKeptCountingSinceStartup() {
         request("/api/orders/{id}", 400 * MS, new RequestTiming(0, -1, -1, -1));
         journal.clear();
+        // The next requests start well after the cleared one, so none may have lost an event to the clear.
+        requests += 100;
         for (int i = 0; i < 5; i++) {
             request("/api/orders/{id}", 40 * MS, new RequestTiming(clock, 2 * MS, 5 * MS, 35 * MS));
         }

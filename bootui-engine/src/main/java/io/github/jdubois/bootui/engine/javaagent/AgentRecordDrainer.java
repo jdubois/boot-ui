@@ -11,10 +11,12 @@ import java.util.logging.Logger;
 
 /**
  * The engine's one drainer of the BootUI agent for a claim ({@code docs/PLAN-v2.md} §5.13, M5-3, M5-4a): a BootUI daemon,
- * {@value #THREAD_NAME}, drains the agent's transport ring and the code-paths sensor's fragment queue every
+ * {@value #THREAD_NAME}, drains the agent's transport ring, the code-paths sensor's fragment queue, and the side-effect
+ * sensors' ring (M5-5a) every
  * {@value #INTERVAL_MILLIS} ms through the claim's token, and a read drains them once more first ({@link #drainNow()}).
  * Each sensor's service registers its route: a ring record goes to the route of its sensor id ({@link #route}), a
- * code-paths fragment to the fragment route ({@link #routeCodePaths}). The thread marks its work as BootUI's own, so what
+ * code-paths fragment to the fragment route ({@link #routeCodePaths}), a side-effect record to its route
+ * ({@link #routeSideEffects}). The thread marks its work as BootUI's own, so what
  * it loads is not counted as the application's, runs only while a route is registered, and stops for good when the claim
  * ends or {@link #close()} is called, at the latest when the application context closes or Quarkus shuts down; closing
  * forgets every route, so nothing keeps a run's services reachable after it.
@@ -59,8 +61,11 @@ public final class AgentRecordDrainer implements AutoCloseable {
     private final AgentBridgeAccess access;
     private final Map<Integer, Consumer<long[]>> routes = new ConcurrentHashMap<>();
     private volatile Consumer<long[]> codePathsRoute;
+    private volatile Consumer<long[]> sideEffectsRoute;
     private final Consumer<long[]> sink;
     private final Consumer<long[]> blobSink;
+    private final Consumer<long[]> sideEffectsSink;
+    private final AtomicLong sideEffects = new AtomicLong();
     private final AtomicLong drained = new AtomicLong();
     private final AtomicLong fragments = new AtomicLong();
     private final AtomicLong unrouted = new AtomicLong();
@@ -98,6 +103,18 @@ public final class AgentRecordDrainer implements AutoCloseable {
                 log.log(Level.FINE, "BootUI could not route a code-paths fragment", ex);
             }
         };
+        this.sideEffectsSink = record -> {
+            Consumer<long[]> route = sideEffectsRoute;
+            if (route == null) {
+                unrouted.incrementAndGet();
+                return;
+            }
+            try {
+                route.accept(record);
+            } catch (RuntimeException ex) {
+                log.log(Level.FINE, "BootUI could not route a side-effect record", ex);
+            }
+        };
     }
 
     /** Registers {@code route} for the ring records of {@code sensor}, and starts the thread. */
@@ -132,8 +149,26 @@ public final class AgentRecordDrainer implements AutoCloseable {
         stopWhenUnrouted();
     }
 
+    /** Registers {@code route} for the side-effect sensors' records ({@code docs/PLAN-v2.md} M5-5a), and starts the thread. */
+    public void routeSideEffects(Consumer<long[]> route) {
+        if (route != null && !closed) {
+            sideEffectsRoute = route;
+            start();
+        }
+    }
+
+    /** Removes {@code route} if it is the one registered for side effects; the thread stops with the last route. */
+    public void unrouteSideEffects(Consumer<long[]> route) {
+        synchronized (this) {
+            if (sideEffectsRoute == route) {
+                sideEffectsRoute = null;
+            }
+        }
+        stopWhenUnrouted();
+    }
+
     private boolean routed() {
-        return !routes.isEmpty() || codePathsRoute != null;
+        return !routes.isEmpty() || codePathsRoute != null || sideEffectsRoute != null;
     }
 
     /** Starts the drain thread unless it runs, the drainer is closed, nothing is routed, or the claim is not armed. */
@@ -174,6 +209,7 @@ public final class AgentRecordDrainer implements AutoCloseable {
         stopThread();
         routes.clear();
         codePathsRoute = null;
+        sideEffectsRoute = null;
     }
 
     private void stopWhenUnrouted() {
@@ -218,6 +254,11 @@ public final class AgentRecordDrainer implements AutoCloseable {
         return fragments.get();
     }
 
+    /** How many side-effect records were drained. */
+    public long sideEffects() {
+        return sideEffects.get();
+    }
+
     /** How many drained records and fragments had no route. */
     public long unrouted() {
         return unrouted.get();
@@ -257,6 +298,8 @@ public final class AgentRecordDrainer implements AutoCloseable {
         drained.addAndGet(count);
         int blobs = codePathsRoute == null ? 0 : claim.drainCodePaths(blobSink);
         fragments.addAndGet(blobs);
-        return count + blobs;
+        int effects = sideEffectsRoute == null ? 0 : claim.drainSideEffects(sideEffectsSink);
+        sideEffects.addAndGet(effects);
+        return count + blobs + effects;
     }
 }

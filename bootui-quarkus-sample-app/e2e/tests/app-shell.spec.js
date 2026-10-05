@@ -59,6 +59,7 @@ const PANEL_HEADINGS = {
   'java-agent': /Java Agent/,
   'code-paths': /^Code Paths/,
   'code-inventory': /^Code Inventory/,
+  'side-effects': /^Side Effects/,
   'rest-client-trace': /^REST Client/,
   websockets: /^WebSockets/,
   email: /^Email/,
@@ -195,16 +196,19 @@ test.describe('BootUI app shell (Quarkus)', () => {
   test('the Java agent group lists the agent panels whether or not the agent is attached', async ({page}) => {
     await page.goto('/bootui/')
 
-    // Code Paths and Code Inventory need the BootUI agent. Without it they are unavailable, but they stay in the
-    // Java agent group, dimmed with their reason, instead of moving into "Disabled / unavailable".
-    await page.getByRole('button', {name: /Java agent\s+3/}).click()
+    // Code Paths, Code Inventory, and Side Effects need the BootUI agent. Without it they are unavailable, but they
+    // stay in the Java agent group, dimmed with their reason, instead of moving into "Disabled / unavailable".
+    await page.getByRole('button', {name: /Java agent\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Java agent panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Java Agent',
       'Code Paths',
-      'Code Inventory'
+      'Code Inventory',
+      'Side Effects'
     ])
     await expect(
-      page.getByRole('group', {name: 'Disabled / unavailable panels'}).locator('.nav-link', {hasText: /^Code /})
+      page
+        .getByRole('group', {name: 'Disabled / unavailable panels'})
+        .locator('.nav-link', {hasText: /^(Code |Side Effects)/})
     ).toHaveCount(0)
   })
 
