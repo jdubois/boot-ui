@@ -186,6 +186,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                                 String.valueOf(request.get("className")),
                                 String.valueOf(request.get("methodName")),
                                 request.get("descriptor") == null ? null : String.valueOf(request.get("descriptor")),
+                                Boolean.TRUE.equals(request.get("shapes")),
                                 runLoaders));
                 return answer("ok", null);
             case "status":

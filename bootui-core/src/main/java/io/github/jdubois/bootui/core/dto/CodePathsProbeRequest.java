@@ -5,5 +5,12 @@ package io.github.jdubois.bootui.core.dto;
  *
  * @param method {@code binary.Class#name}, with the method's descriptor for an overloaded one, as in
  *     {@code com.example.PriceService#quote(I)J}
+ * @param recordShapes whether the probe also records argument and return shapes (D44); absent means no
  */
-public record CodePathsProbeRequest(String method) {}
+public record CodePathsProbeRequest(String method, Boolean recordShapes) {
+
+    /** A metadata-only probe. */
+    public CodePathsProbeRequest(String method) {
+        this(method, null);
+    }
+}
