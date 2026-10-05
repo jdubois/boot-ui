@@ -189,6 +189,8 @@ public final class AgentBridge {
                 MethodProbes.claimed(next.generation);
                 SideEffects.refresh();
                 CaughtExceptions.refresh();
+                // Request values never outlive the claim they were pushed under (PLAN-v2 M5-6b).
+                RequestValues.refresh();
                 return transition(agent, "claim", next, ARMED);
             }
         }
@@ -237,6 +239,8 @@ public final class AgentBridge {
                 MethodProbes.endAll();
                 SideEffects.refresh();
                 CaughtExceptions.refresh();
+                // Request values never outlive the claim they were pushed under (PLAN-v2 M5-6b).
+                RequestValues.refresh();
                 return transition(agent, "disarm", next, DISARMED);
             }
         }
@@ -266,6 +270,8 @@ public final class AgentBridge {
                 MethodProbes.endAll();
                 SideEffects.refresh();
                 CaughtExceptions.refresh();
+                // Request values never outlive the claim they were pushed under (PLAN-v2 M5-6b).
+                RequestValues.refresh();
                 Map<String, Object> request = new LinkedHashMap<String, Object>();
                 request.put("op", "release");
                 request.put("generation", Long.valueOf(generation));
@@ -345,6 +351,7 @@ public final class AgentBridge {
             }
             map.put("ring", AgentRing.status());
             map.put(MethodProbes.SENSOR, MethodProbes.status());
+            map.put("requestValues", RequestValues.status());
         } catch (Throwable ex) {
             error(ex);
         }
@@ -513,6 +520,7 @@ public final class AgentBridge {
         AgentRing.reset();
         MethodProbes.reset();
         CaughtExceptions.reset();
+        RequestValues.reset();
         inventoryClaimed = false;
     }
 }

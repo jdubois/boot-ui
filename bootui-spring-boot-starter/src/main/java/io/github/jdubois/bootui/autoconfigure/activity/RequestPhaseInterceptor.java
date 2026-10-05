@@ -4,9 +4,14 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.Map;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.ModelAndView;
 
 /**
@@ -26,7 +31,35 @@ public final class RequestPhaseInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         mark(RequestPhase.HANDLER);
+        pushRequestValues(request);
         return true;
+    }
+
+    /**
+     * Hands the request's query and path parameter values to the BootUI agent's request value holder
+     * ({@code docs/PLAN-v2.md} §5.16, M5-6b), only while request-value matching is on: query values are BootUI's own
+     * decoding of {@code getQueryString()}, so no {@code getParameter*} call ever reads a body, and path variables are
+     * the ones the handler mapping published. Only on the request's first dispatch: {@link RequestCorrelationFilter}
+     * removes them where the response completes. Observes only, and never fails the request.
+     */
+    static void pushRequestValues(HttpServletRequest request) {
+        try {
+            if (request.getDispatcherType() != DispatcherType.REQUEST || !AgentRequestValues.active()) {
+                return;
+            }
+            CorrelationContext correlation = BootUiCorrelation.current();
+            if (correlation.bootUi() || correlation.requestId() == null) {
+                return;
+            }
+            AgentRequestValues.Values values = new AgentRequestValues.Values()
+                    .addSingle((Map<?, ?>) request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE))
+                    .addQuery(request.getQueryString());
+            if (!values.isEmpty()) {
+                AgentRequestValues.begin(correlation.requestId(), values);
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Request-value matching is diagnostics only; the request continues untouched.
+        }
     }
 
     @Override

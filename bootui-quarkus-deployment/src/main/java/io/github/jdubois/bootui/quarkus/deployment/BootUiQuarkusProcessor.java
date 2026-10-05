@@ -1284,6 +1284,10 @@ class BootUiQuarkusProcessor {
                                 .orElse(defaults.ringCapacity()),
                         agentBeanClasses(rootIndex, packages))
                 : recorder.release(application, mode);
+        // Request-value matching is opt-in (docs/PLAN-v2.md M5-6b, D37).
+        recorder.requestValues(enabled
+                && config.getOptionalValue("bootui.agent.security-sinks.request-values", Boolean.class)
+                        .orElse(false));
         syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusAgentClaim.class)
                 .scope(Singleton.class)
                 .runtimeValue(claim)
