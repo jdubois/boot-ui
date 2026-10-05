@@ -327,8 +327,9 @@ public final class McpToolDescriptions {
                     "get_side_effects",
                     "Return Side Effects: what the application does outside the JVM, from the BootUI agent's "
                             + "side-effect sensors; this version records the processes it starts, its network: "
-                            + "connects, datagram sends, and host names the JVM resolved, the files it opens, deletes, "
-                            + "moves, and copies, and, opt-in, the environment variables and system properties it reads. "
+                            + "connects, datagram sends, and host names the JVM resolved, and, opt-in, the files it "
+                            + "opens, deletes, moves, and copies and the environment variables and system properties it "
+                            + "reads. "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
