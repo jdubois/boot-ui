@@ -1,7 +1,7 @@
 {
   "name": "BootUI 2.0 validation protocol, registered 2026-10-05 (M4-20a)",
   "registration": {
-    "ref": "m4-20-protocol-1",
+    "ref": "m4-20-protocol-2",
     "kind": "annotated tag (git cat-file -t is tag) on the merged commit, created by the maintainer right before the rerun, after any addition to the known misses, and never moved",
     "excluded": [".work/", "scoring/fixtures/"]
   },
@@ -30,6 +30,11 @@
     "bookstore": {
       "work-after-response": null
     }
+  },
+  "changeRestart": {
+    "stableSeconds": 15,
+    "timeoutSeconds": 300,
+    "_note": "A code-change run sends its after-change traffic only once the new journal run has stayed the same, and the application ready, for stableSeconds; a second new run fails the run (m4-20-protocol-2)"
   },
   "unlistedByDesign": ["gc-inflated-latency", "heap-growth-after-gc"],
   "wholeKindUnlistedReasons": ["Garbage collection and heap rows are reached from the Memory panel"],
@@ -108,5 +113,21 @@
   },
   "investigations": {
     "count": 10
-  }
+  },
+  "amendments": [
+    {
+      "date": "2026-10-05",
+      "tag": "m4-20-protocol-2",
+      "supersedes": "m4-20-protocol-1",
+      "reason": "Under m4-20-protocol-1, the PetClinic code-change agent run failed: apps/petclinic/app.sh compiled change.patch into two classes in two batches, so Spring Boot DevTools restarted the application twice (08:57:43 and 08:57:45), and rerun.sh --change, which sent its after-change traffic at the first new journal run, met the second restart (75 connection errors) and stopped before collecting. A retry would have compared with an intermediate run, and its timing was not deterministic.",
+      "filesChanged": [
+        "apps/petclinic/app.sh (one DevTools restart through spring.devtools.restart.trigger-file, touched once after compiling)",
+        "bin/rerun.sh and bin/await-restart.mjs (traffic only once the new run has stayed the same and ready for changeRestart.stableSeconds; a second new run fails the run)",
+        "bin/await-restart.test.mjs",
+        "protocol.json (registration.ref, changeRestart, amendments)"
+      ],
+      "discarded": "Every run made under m4-20-protocol-1 is discarded wholesale, before any review or scoring: the 7 runs without the agent, the 3 agent runs that completed, the failed PetClinic code-change attempt, and the PetClinic no-change comparison that was stopped mid-run. No time to first observation or investigation was measured under it. The artifacts are kept for audit, not judged.",
+      "operatorSaw": "Build 5c4617cba (engine d48913b3adf55ab2c83610104bdf7c4d1fcf0121773fa0678770d9c0971cbbcd, clean tree). Runs without the agent: petclinic 8,400 requests, jhipster 572, super-heroes 395, webflux-gateway 624, kafka 241, bookstore 1,682, timeless 879, all with 0 unexpected statuses; listed rows 9, 6, 1, 5, 0, 7, and 6. Agent runs: work-after-response EVALUATED with 0 findings on jhipster+agent (573 eligible requests) and bookstore+agent (1,683); changed-code-not-executed OBSERVED on Super Heroes for VillainService and VillainResource. The operator looked at statuses and these counts only; no row was reviewed or judged."
+    }
+  ]
 }

@@ -1,5 +1,5 @@
 {
-  "registered": "2026-10-05, before the rerun (M4-20a). The maintainer may add items before the registration tag m4-20-protocol-1 is created, never after.",
+  "registered": "2026-10-05, before the rerun (M4-20a). The maintainer may add items before the registration tag m4-20-protocol-1 (amended by m4-20-protocol-2, which left this list unchanged) is created, never after.",
   "outcomes": {
     "misses": "found-default (a default-visible fact states it), found-hidden (only a hidden row states it), honest-gap (a check or coverage line says it cannot see it), missed, not-exercised (allowed only for an item registered with \"exercised\": false, since the traffic is fixed now)",
     "counterexamples": "respected (no default-visible fact presents it as a problem to fix), violated (name the facts, which must be adjudicated Misleading)",
