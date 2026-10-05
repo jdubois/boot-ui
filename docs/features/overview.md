@@ -191,7 +191,9 @@ as its source, dashed lines on it mark what can explain a change in traffic, eac
 change made from a BootUI panel (a logger level, a configuration override, a cache clear, a migration, **Clear
 recording**, a heap dump), an availability change, a configuration refresh, or shutdown. A marker names what was
 targeted, never a value. **APP_EVENT** rows list the application events a request published and each listener's run:
-on Spring through BootUI's event multicaster, transactional listeners' deferral, phase, and skips included; on Quarkus
+on Spring through BootUI's event multicaster, transactional listeners' deferral, phase, and skips included; when the
+application defines its own multicaster, as Spring Modulith's event publication registry does, BootUI keeps it and
+records no application event; on Quarkus
 through an interceptor bound at build time to the application's `@Observes` and `@ObservesAsync` methods. Framework
 events are left out, and an event's fields are never recorded. Change impact accepts an event type, such as
 `OrderPlaced`, and lists the routes that published or consumed it. **ORM** rows give each Hibernate session's statements, flushes,
@@ -742,7 +744,11 @@ does not apply to this stack says so with its reason, so an empty list never rea
 **unavailable** when this application's SQL cannot be recorded: BootUI records JDBC statements through a traced
 `DataSource` (and, on Quarkus, Hibernate ORM's statements), never R2DBC or a reactive SQL client, so an R2DBC
 application's SQL checks say so instead of finding nothing; an observation that only optionally reads SQL, such as
-`route-time-breakdown`, runs and names what it could not count. Findings below their minimum are shown as
+`route-time-breakdown`, runs and names what it could not count. Likewise, one that reads application events, such as
+`transactional-listener-skipped` or `after-commit-writes`, is **unavailable** on Spring when the application defines
+its own application event multicaster, as Spring Modulith's event publication registry does: BootUI then backs off
+from installing its own, records no application event, and says so in the report's limitations and in change impact
+and run comparison rather than reading the absence as healthy. Findings below their minimum are shown as
 **insufficient** (**Not enough evidence**), naming what is missing, and a source that dropped events marks its findings
 **partial**. This includes dropped completion events for the visible requests, scheduled runs, consumed messages,
 and WebSocket handlers that an observation examines, but not optional evidence hidden by a disabled panel.

@@ -20,7 +20,9 @@ import java.util.TreeMap;
  * @param dataSources each data source's URL shape, by data source name, sorted by name
  * @param cacheType the cache in use, such as {@code CaffeineCacheManager}, or {@code none}
  * @param tracing whether tracing is on
- * @param journalSources the journal's sources, as {@code bootui.runtime-journal.sources} names them, sorted
+ * @param journalSources the journal's sources, as {@code bootui.runtime-journal.sources} names them, sorted, without
+ *     one the adapter knows this run cannot record, such as {@code app-event} beside the application's own event
+ *     multicaster
  */
 public record ComparabilityFacts(
         List<String> activeProfiles,
