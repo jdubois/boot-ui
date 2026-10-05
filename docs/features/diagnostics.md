@@ -191,6 +191,11 @@ logger. Otherwise the occurrence is unknown, with the first missing piece as its
 hashes of the logged or reported throwable and its causes, never the exception itself. With HTTP Exchanges hidden, rows
 name no route or request; with Log Tail hidden, logs are not consulted and nothing is known not logged.
 
+Known limits: a task queued for longer than the five-second settle window before it starts is not yet followed, so
+what it rethrows or logs later is seen only then; an exception the panel's capture ignores or deduplicates carries no
+identity of its own; and on Spring, `java.util.logging` must be bridged to Logback, as Spring Boot does, or every
+occurrence stays unknown.
+
 ### Exposure and bounds
 
 Exception messages follow the same exposure policy as the rest of BootUI. Under the default `bootui.expose-values=MASKED`

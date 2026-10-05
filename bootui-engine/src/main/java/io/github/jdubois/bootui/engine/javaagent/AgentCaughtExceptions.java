@@ -90,6 +90,9 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
     private final long[] ended = new long[MAX_ENDED];
     private boolean marking;
     private volatile boolean executors;
+    /** When this run's records started being routed, so logged throwables carry marks, by the wall clock. */
+    private volatile long routingSince = Long.MAX_VALUE;
+
     private volatile RuntimeEventSink sink = RuntimeEventSink.NONE;
     private RuntimeJournal listened;
 
@@ -169,12 +172,21 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
             marking = true;
             ThrowableMarks.retain();
         }
+        routingSince = clock.getAsLong();
         sampleLosses();
     }
 
     /** Whether the claim also asked for the executors sensor, so work a request hands over is followed. */
     public boolean executorsRecorded() {
         return executors;
+    }
+
+    /**
+     * Since when this run's records are routed, and logged or reported throwables carry identity marks, by the wall
+     * clock; {@link Long#MAX_VALUE} while they are not.
+     */
+    public long routingSinceMillis() {
+        return routingSince;
     }
 
     /** Whether this run's records are routed into the journal. */

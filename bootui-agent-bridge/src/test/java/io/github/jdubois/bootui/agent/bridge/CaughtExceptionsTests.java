@@ -535,6 +535,27 @@ class CaughtExceptionsTests {
     }
 
     @Test
+    void aSkippedHandlerRecordsNothingOfItsOwnButFindsARethrowItCatchesAgain() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("caughtFirst");
+        int foreign = site("foreignAdvice");
+        CaughtExceptions.siteRead(foreign, CaughtExceptions.FLAG_FOREIGN, 0);
+        IllegalStateException thrown = new IllegalStateException();
+
+        CaughtExceptions.caught(thrown, site);
+        CaughtExceptions.caught(thrown, foreign);
+
+        long[] types = countTypes(token);
+        assertThat(types[CaughtExceptions.TYPE_CAUGHT]).isEqualTo(1L);
+        assertThat(types[CaughtExceptions.TYPE_THROWN])
+                .as("found again by the skipped handler")
+                .isEqualTo(1L);
+        assertThat(CaughtExceptions.status()).containsEntry("skipped", 1L).containsEntry("caught", 1L);
+        assertThat(CaughtExceptions.pending()).isZero();
+    }
+
+    @Test
     void aHandlerThatDiscardsWhatItCaughtIsRecordedButNeverPending() {
         long token = claim();
         context.set(owner(REQUEST, null));

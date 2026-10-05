@@ -17,7 +17,9 @@ import org.springframework.beans.factory.DisposableBean;
  * Whether BootUI's journal appender ({@link RuntimeJournalLogAppender}) sees every {@code WARN}+ log written through
  * Logback ({@code docs/PLAN-v2.md} M5-6): it must still be attached to the root logger, the configuration must not
  * have been reset in the window, and no {@code WARN}-enabled logger may keep its events from the root logger
- * ({@code additivity="false"} with appenders of its own). Read at each outcome read, never on the logging path.
+ * ({@code additivity="false"} with appenders of its own). {@code java.util.logging} must be bridged to SLF4J, as Spring
+ * Boot does with {@code jul-to-slf4j}, and no JDK logger may keep its records from that bridge
+ * ({@code useParentHandlers=false} with handlers of its own). Read at each outcome read, never on the logging path.
  */
 public final class LogbackLogCoverage implements LogCoverage, LoggerContextListener, DisposableBean {
 
@@ -58,10 +60,24 @@ public final class LogbackLogCoverage implements LogCoverage, LoggerContextListe
         if (reset != 0L && reset >= fromMillis) {
             return "the logging configuration was reset during its request";
         }
+        if (!julBridged()) {
+            return "java.util.logging is not bridged to Logback";
+        }
         if (!bypassingLoggers().isEmpty()) {
             return "a logger does not pass WARN logs to the root logger";
         }
         return null;
+    }
+
+    /** Whether the JDK's root logger hands its records to SLF4J, by the bridge's class name, without depending on it. */
+    static boolean julBridged() {
+        for (java.util.logging.Handler handler :
+                java.util.logging.Logger.getLogger("").getHandlers()) {
+            if (handler.getClass().getName().equals("org.slf4j.bridge.SLF4JBridgeHandler")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -84,9 +100,34 @@ public final class LogbackLogCoverage implements LogCoverage, LoggerContextListe
                 break;
             }
         }
+        julBypassing(names);
         cached = List.copyOf(names);
         cachedAt = now;
         return cached;
+    }
+
+    /** Adds the JDK loggers that keep their {@code WARNING} records from the root logger's bridge. */
+    private static void julBypassing(List<String> names) {
+        try {
+            java.util.logging.LogManager manager = java.util.logging.LogManager.getLogManager();
+            for (String name : java.util.Collections.list(manager.getLoggerNames())) {
+                if (names.size() >= MAX_LOGGERS) {
+                    return;
+                }
+                if (name == null || name.isEmpty() || InternalPackageMatcher.BOOTUI.matchesName(name)) {
+                    continue;
+                }
+                java.util.logging.Logger logger = manager.getLogger(name);
+                if (logger != null
+                        && !logger.getUseParentHandlers()
+                        && logger.getHandlers().length > 0
+                        && logger.isLoggable(java.util.logging.Level.WARNING)) {
+                    names.add(name + " (java.util.logging)");
+                }
+            }
+        } catch (RuntimeException ex) {
+            names.add("(the JDK's loggers could not be read)");
+        }
     }
 
     @Override

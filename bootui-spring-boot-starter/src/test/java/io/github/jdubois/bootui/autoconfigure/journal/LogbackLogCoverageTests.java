@@ -44,6 +44,10 @@ class LogbackLogCoverageTests {
         assertThat(coverage.gap(0, Long.MAX_VALUE)).contains("not attached");
 
         appender = RuntimeJournalLogAppender.install(event -> true);
+        assertThat(coverage.gap(0, Long.MAX_VALUE))
+                .isEqualTo(LogbackLogCoverage.julBridged() ? null : "java.util.logging is not bridged to Logback");
+        org.slf4j.bridge.SLF4JBridgeHandler.removeHandlersForRootLogger();
+        org.slf4j.bridge.SLF4JBridgeHandler.install();
         assertThat(coverage.gap(0, Long.MAX_VALUE)).isNull();
         assertThat(coverage.bypassingLoggers()).isEmpty();
 
@@ -63,7 +67,24 @@ class LogbackLogCoverageTests {
     }
 
     @Test
+    void aJdkLoggerKeepingItsRecordsFromTheBridgeBypassesTheRoot() {
+        java.util.logging.Logger jdk = java.util.logging.Logger.getLogger("com.example.jdk");
+        java.util.logging.Handler own = new java.util.logging.ConsoleHandler();
+        jdk.addHandler(own);
+        jdk.setUseParentHandlers(false);
+        try {
+            coverage = (LogbackLogCoverage) LogbackLogCoverage.install();
+            assertThat(coverage.bypassingLoggers()).contains("com.example.jdk (java.util.logging)");
+        } finally {
+            jdk.removeHandler(own);
+            jdk.setUseParentHandlers(true);
+        }
+    }
+
+    @Test
     void aResetDuringTheWindowIsAGap() {
+        org.slf4j.bridge.SLF4JBridgeHandler.removeHandlersForRootLogger();
+        org.slf4j.bridge.SLF4JBridgeHandler.install();
         appender = RuntimeJournalLogAppender.install(event -> true);
         coverage = (LogbackLogCoverage) LogbackLogCoverage.install();
         long before = System.currentTimeMillis() - 1_000;

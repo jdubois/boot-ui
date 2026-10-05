@@ -17,11 +17,9 @@ public final class ThrowableMarks {
     private static final ThrowableMarks NONE = new ThrowableMarks(new int[0]);
 
     /**
-     * Whether marks are taken: only while the caught-exceptions sensor's records are routed into the journal, so an
-     * application without it pays nothing for a logged or reported throwable.
+     * How many routings of the caught-exceptions sensor's records take marks: none, so an application without it pays
+     * nothing for a logged or reported throwable, outside the sensor's run.
      */
-    private static volatile boolean enabled;
-
     private static final java.util.concurrent.atomic.AtomicInteger USERS =
             new java.util.concurrent.atomic.AtomicInteger();
 
@@ -38,7 +36,7 @@ public final class ThrowableMarks {
      * {@link VirtualMachineError}.
      */
     public static ThrowableMarks of(Throwable thrown) {
-        if (thrown == null || !enabled) {
+        if (thrown == null || USERS.get() <= 0) {
             return null;
         }
         return mark(thrown);
@@ -49,17 +47,17 @@ public final class ThrowableMarks {
      * retains it once, so an old run's release during a DevTools restart never stops the new run's marks.
      */
     public static void retain() {
-        enabled = USERS.incrementAndGet() > 0;
+        USERS.incrementAndGet();
     }
 
     /** Releases one {@link #retain()}. */
     public static void release() {
-        enabled = USERS.decrementAndGet() > 0;
+        USERS.decrementAndGet();
     }
 
     /** Whether marks are taken now. */
     public static boolean enabled() {
-        return enabled;
+        return USERS.get() > 0;
     }
 
     /** The marks of {@code thrown}, whether marks are taken or not, for tests. */

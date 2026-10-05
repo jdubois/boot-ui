@@ -288,7 +288,10 @@ public final class CaughtExceptions {
             if (thrown == null || site < 0 || site >= MAX_SITES) {
                 return;
             }
-            if ((SITE_FLAGS[site] & (FLAG_FOREIGN | FLAG_SHARED)) != 0) {
+            // A skipped handler records nothing of its own, but still finds what it catches again below: a rethrow it
+            // catches in the same method never leaves that method.
+            boolean skipped = (SITE_FLAGS[site] & (FLAG_FOREIGN | FLAG_SHARED)) != 0;
+            if (skipped && PENDING.get() == 0) {
                 SKIPPED.increment();
                 return;
             }
@@ -299,7 +302,9 @@ public final class CaughtExceptions {
             if (claim == null || !claim.armed || claim.generation != generation) {
                 return;
             }
-            CAUGHT.increment();
+            if (!skipped) {
+                CAUGHT.increment();
+            }
             long nanos = System.nanoTime();
             Object[] scratch = scratch();
             int[] chain = (int[]) scratch[S_CHAIN];
@@ -319,12 +324,16 @@ public final class CaughtExceptions {
                 Reentrancy.exit();
             }
             boolean owned = owner(claim, owner);
-            if (!owned) {
+            if (!owned && !skipped) {
                 UNOWNED.increment();
             }
             // Found again: a pending identity in the chain was rethrown, wrapped or not, and caught here, under the
             // same request when both name one.
             found(chain, links, THROWN_CAUGHT_AGAIN, site, nanos, owned ? owner[0] : 0L);
+            if (skipped) {
+                SKIPPED.increment();
+                return;
+            }
             if (!owned) {
                 return;
             }
@@ -916,15 +925,17 @@ public final class CaughtExceptions {
 
     /**
      * Every loss the sensor's evidence can suffer, summed, so the engine notices any growth between two reads: records
-     * the ring dropped or lost (any sensor's, as a torn record cannot be told apart), matches given up on, and strings
-     * the intern table had no room for. Never throws.
+     * the ring dropped for this sensor or lost (any sensor's, as a torn record cannot be told apart), matches given up
+     * on, and handlers left uninstrumented past {@value #MAX_SITES} sites, whose catches of a rethrow go unseen. A
+     * string the intern table had no room for is not a loss: the engine judges a record without its thread or class
+     * name unknown on its own. Never throws.
      */
     public static long losses() {
         try {
             return AgentRing.dropped(AgentRing.SENSOR_CAUGHT_EXCEPTIONS)
                     + AgentRing.lost()
-                    + AgentRing.internOverflow()
-                    + MISSED.sum();
+                    + MISSED.sum()
+                    + SITES_OVER_LIMIT.sum();
         } catch (Throwable ex) {
             failed(ex);
             return -1L;

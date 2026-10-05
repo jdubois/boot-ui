@@ -155,6 +155,53 @@ class CaughtOutcomesTests {
         assertUnknown(CaughtOutcomes.REASON_AFTER_RESPONSE, context -> with(context, "forgotten", START + 1));
         assertUnknown("a logger bypasses BootUI", context -> with(context, "logGap", 0));
         assertUnknown("Log Tail is hidden", context -> with(context, "logHidden", 0));
+        assertUnknown(CaughtOutcomes.REASON_REPORTS, context -> with(context, "noReports", 0));
+        assertUnknown(CaughtOutcomes.REASON_BEFORE_MARKS, context -> with(context, "marksSince", START + 1));
+    }
+
+    @Test
+    void aCatchInTheLastMillisecondOfAFastRequestIsNotWorkAfterTheResponse() {
+        // Started at START + 0.9 ms, truncated to START; ran 1.9 ms, rounded down to 1: it really ended at START + 2.8.
+        add(JournalSource.HTTP, START, "fast", "t1", http(200, false), 1_900_000L, true);
+        caught("fast", START + 2, "swallow", EXIT, 1, "x.E", null);
+
+        assertThat(single(resolve(complete())).notRethrownOrLogged()).isEqualTo(1);
+    }
+
+    @Test
+    void anotherRequestsCatchOnASharedThreadNeverEndsTheSameThreadLogWindow() {
+        request("r1", START, 1_000);
+        request("r2", START, 1_000);
+        caught("r1", START + 10, "first", EXIT, 1, "x.E", null);
+        // Another request's catch on the same event loop, then r1's log of the message, without the exception.
+        caught("r2", START + 11, "other", EXIT, 2, "x.E", null);
+        add(JournalSource.LOG, START + 12, "r1", "t1", new LogPayload("app", "WARN", "{}", null, null));
+
+        assertThat(byMethod(resolve(complete())).get("first").logged()).isEqualTo(1);
+    }
+
+    @Test
+    void aRecordWithoutItsThreadOrClassOrWithCountedOccurrencesOfItsRequestIsUnknown() {
+        request("r1", START, 100);
+        add(
+                JournalSource.AGENT_CAUGHT_EXCEPTIONS,
+                START + 10,
+                "r1",
+                null,
+                payload(CaughtExceptionPayload.CAUGHT, "unnamed", EXIT, "x.E", null, 1));
+        request("r2", START, 100);
+        caught("r2", START + 10, "loop", EXIT, 2, "x.E", null);
+        add(
+                JournalSource.AGENT_CAUGHT_EXCEPTIONS,
+                START + 50,
+                "r2",
+                "t1",
+                payload(CaughtExceptionPayload.UNTRACKED, "loop", EXIT, null, null, 0));
+
+        Map<String, CaughtExceptionRowDto> rows = byMethod(resolve(complete()));
+
+        assertThat(rows.get("unnamed").unknownReason()).isEqualTo(CaughtOutcomes.REASON_UNNAMED);
+        assertThat(rows.get("loop").unknownReason()).isEqualTo(CaughtOutcomes.REASON_COUNTED);
     }
 
     @Test
@@ -278,9 +325,8 @@ class CaughtOutcomesTests {
 
         assertThat(row.counted()).isEqualTo(40);
         assertThat(row.occurrences()).isEqualTo(1);
-        assertThat(row.notRethrownOrLogged())
-                .as("an untracked flush is never work after the response")
-                .isEqualTo(1);
+        // Its request's later occurrences were only counted: a final rethrow or log among them would go unseen.
+        assertThat(row.unknownReason()).isEqualTo(CaughtOutcomes.REASON_COUNTED);
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------------
@@ -311,7 +357,9 @@ class CaughtOutcomesTests {
                 (from, to) -> false,
                 null,
                 request -> false,
-                (from, to) -> null);
+                (from, to) -> null,
+                true,
+                Long.MIN_VALUE);
     }
 
     private static CaughtOutcomes.Context with(CaughtOutcomes.Context c, String what, long at) {
@@ -330,7 +378,9 @@ class CaughtOutcomesTests {
                 what.equals("handoffRunning") ? request -> true : c.handoffRunning(),
                 what.equals("logGap")
                         ? (from, to) -> "a logger bypasses BootUI"
-                        : what.equals("logHidden") ? (from, to) -> "Log Tail is hidden" : c.logGap());
+                        : what.equals("logHidden") ? (from, to) -> "Log Tail is hidden" : c.logGap(),
+                !what.equals("noReports") && c.reportsRecorded(),
+                what.equals("marksSince") ? at : c.marksSinceMillis());
     }
 
     private CaughtExceptionsReport resolve(CaughtOutcomes.Context context) {
@@ -402,17 +452,19 @@ class CaughtOutcomesTests {
             String thread,
             RuntimeEventPayload payload,
             long durationMillis) {
-        RuntimeEvent event = new RuntimeEvent(
-                source,
-                time,
-                durationMillis < 0 ? -1 : durationMillis * 1_000_000L,
-                request,
-                null,
-                null,
-                thread,
-                null,
-                false,
-                payload);
+        add(source, time, request, thread, payload, durationMillis < 0 ? -1 : durationMillis * 1_000_000L, true);
+    }
+
+    private void add(
+            JournalSource source,
+            long time,
+            String request,
+            String thread,
+            RuntimeEventPayload payload,
+            long durationNanos,
+            boolean nanos) {
+        RuntimeEvent event =
+                new RuntimeEvent(source, time, durationNanos, request, null, null, thread, null, false, payload);
         entries.add(new JournalEntry(++sequence, event, 100));
     }
 }

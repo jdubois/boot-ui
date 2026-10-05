@@ -106,8 +106,13 @@ public final class CaughtExceptionsReader {
         if (current.lossUnaccounted()) {
             limitations.add("The attached agent does not count its losses: attach the agent of this BootUI version.");
         }
+        if (!journal.records(JournalSource.EXCEPTION)) {
+            limitations.add("The runtime journal does not record exceptions, so none is known not rethrown or logged.");
+        }
         limitations.add("A caught exception wrapping another (ExecutionException, CompletionException) is unknown: its"
                 + " cause may have been logged where it was thrown.");
+        limitations.add("A task queued for longer than the 5 s settle window before it starts is not yet followed: what"
+                + " it rethrows or logs later is seen then.");
         CaughtOutcomes.Context context = new CaughtOutcomes.Context(
                 now,
                 drained,
@@ -129,7 +134,9 @@ public final class CaughtExceptionsReader {
                         return "Log Tail is hidden";
                     }
                     return logs.gap(from, to);
-                });
+                },
+                journal.records(JournalSource.EXCEPTION),
+                current.routingSinceMillis());
         CaughtExceptionsReport report = CaughtOutcomes.resolve(journal.entries(), context, limitations);
         synchronized (this) {
             cachedKey = key;

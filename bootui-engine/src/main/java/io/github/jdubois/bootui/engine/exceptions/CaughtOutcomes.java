@@ -84,6 +84,10 @@ public final class CaughtOutcomes {
     static final String REASON_EXPIRED = "the agent stopped watching it before its request ended";
     static final String REASON_NO_EXIT = "a rethrow from its method is not observable";
     static final String REASON_WRAPPER = "it wraps another exception, which may have been logged";
+    static final String REASON_UNNAMED = "the agent could not name its thread or class";
+    static final String REASON_COUNTED = "occurrences past the agent's per-thread bound were only counted";
+    static final String REASON_BEFORE_MARKS = "its request started before BootUI matched logged exceptions";
+    static final String REASON_REPORTS = "the runtime journal does not record reported exceptions";
 
     enum Outcome {
         RETHROWN,
@@ -114,6 +118,8 @@ public final class CaughtOutcomes {
      * @param handoffsForgottenMillis when the running-handoff registry last forgot one, or {@code null}
      * @param handoffRunning whether a handoff of a request is still running
      * @param logGap why BootUI may not have seen every {@code WARN}+ log between two times, or {@code null}
+     * @param reportsRecorded whether the journal records the exceptions the framework's error handling reported
+     * @param marksSinceMillis since when logged and reported throwables carry identity marks, by the wall clock
      */
     public record Context(
             long nowMillis,
@@ -128,7 +134,9 @@ public final class CaughtOutcomes {
             LostBetween agentLost,
             Long handoffsForgottenMillis,
             Predicate<String> handoffRunning,
-            LogGap logGap) {}
+            LogGap logGap,
+            boolean reportsRecorded,
+            long marksSinceMillis) {}
 
     /** Whether evidence may have been lost between two times, by the wall clock. */
     @FunctionalInterface
@@ -186,13 +194,16 @@ public final class CaughtOutcomes {
         List<Mark> marks = new ArrayList<>();
         Map<String, List<ThreadLog>> threadLogs = new HashMap<>();
         Map<String, List<Long>> threadCatches = new HashMap<>();
+        Set<String> countedOfRequest = new HashSet<>();
 
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             String requestId = event.requestId();
             if (event.source() == JournalSource.HTTP && event.payload() instanceof HttpPayload http) {
                 if (requestId != null) {
-                    long end = event.epochMillis() + Math.max(0L, event.durationNanos()) / 1_000_000L;
+                    // Its start is truncated to the millisecond and its duration rounded down: the end is rounded up,
+                    // so work in its last millisecond is never taken for work after the response.
+                    long end = event.epochMillis() + (Math.max(0L, event.durationNanos()) + 999_999L) / 1_000_000L + 1L;
                     requests.put(
                             requestId,
                             new Request(
@@ -210,7 +221,7 @@ public final class CaughtOutcomes {
                         occurrences.add(new Occurrence(event, caught));
                         if (event.thread() != null) {
                             threadCatches
-                                    .computeIfAbsent(event.thread(), thread -> new ArrayList<>())
+                                    .computeIfAbsent(threadKey(event.thread(), requestId), key -> new ArrayList<>())
                                     .add(event.epochMillis());
                         }
                         stamp(requestId, event.epochMillis(), latestOfRequest, earliestOfRequest);
@@ -224,6 +235,9 @@ public final class CaughtOutcomes {
                         String key = rowKey(null, ownerKind(event), siteKey(caught), null);
                         counted.merge(key, caught.count(), Long::sum);
                         countedSites.putIfAbsent(key, caught);
+                        if (requestId != null) {
+                            countedOfRequest.add(requestId + "\u0000" + siteKey(caught));
+                        }
                     }
                     case CaughtExceptionPayload.EVICTED -> {
                         if (requestId != null) {
@@ -307,7 +321,7 @@ public final class CaughtOutcomes {
                 occurrence.outcome = Outcome.RETRIED;
                 continue;
             }
-            judge(occurrence, requests, evictedRequests, latestOfRequest, context);
+            judge(occurrence, requests, evictedRequests, latestOfRequest, countedOfRequest, context);
         }
         return report(occurrences, requests, counted, countedSites, context, limitations);
     }
@@ -318,6 +332,7 @@ public final class CaughtOutcomes {
             Map<String, Request> requests,
             Set<String> evictedRequests,
             Map<String, Long> latestOfRequest,
+            Set<String> countedOfRequest,
             Context context) {
         String requestId = occurrence.event.requestId();
         if (requestId == null) {
@@ -343,6 +358,10 @@ public final class CaughtOutcomes {
         }
         if (context.clearedAtMillis() != null && request.start() <= context.clearedAtMillis()) {
             unknown(occurrence, REASON_CLEARED);
+            return;
+        }
+        if (request.start() < context.marksSinceMillis()) {
+            unknown(occurrence, REASON_BEFORE_MARKS);
             return;
         }
         if (context.lossUnaccounted()) {
@@ -378,6 +397,18 @@ public final class CaughtOutcomes {
         }
         if (WRAPPERS.contains(occurrence.payload.exceptionClass())) {
             unknown(occurrence, REASON_WRAPPER);
+            return;
+        }
+        if (occurrence.event.thread() == null || occurrence.payload.exceptionClass() == null) {
+            unknown(occurrence, REASON_UNNAMED);
+            return;
+        }
+        if (countedOfRequest.contains(requestId + "\u0000" + occurrence.siteKey)) {
+            unknown(occurrence, REASON_COUNTED);
+            return;
+        }
+        if (!context.reportsRecorded()) {
+            unknown(occurrence, REASON_REPORTS);
             return;
         }
         String gap = context.logGap().between(request.start(), request.end() + SETTLE_MILLIS);
@@ -441,14 +472,18 @@ public final class CaughtOutcomes {
         if (logs == null) {
             return false;
         }
+        String requestId = occurrence.event.requestId();
+        // The thread's next catch in the same request ends the window: another request's catch on a shared event loop
+        // never does, nor any on a thread without a name, as unnamed virtual threads share the empty one.
         long next = Long.MAX_VALUE;
-        for (long time : threadCatches.getOrDefault(thread, List.of())) {
-            if (time > occurrence.time()) {
-                next = time;
-                break;
+        if (!thread.isEmpty()) {
+            for (long time : threadCatches.getOrDefault(threadKey(thread, requestId), List.of())) {
+                if (time > occurrence.time()) {
+                    next = time;
+                    break;
+                }
             }
         }
-        String requestId = occurrence.event.requestId();
         long unowned = request != null ? request.end() : occurrence.time() + SETTLE_MILLIS;
         for (ThreadLog log : logs) {
             if (log.time() < occurrence.time() || log.time() > next) {
@@ -651,6 +686,10 @@ public final class CaughtOutcomes {
     static String siteKey(CaughtExceptionPayload site) {
         return site.siteClass() + "#" + site.siteMethod() + "#" + site.line() + "#"
                 + String.join("|", site.declaredTypes());
+    }
+
+    private static String threadKey(String thread, String requestId) {
+        return thread + "\u0000" + requestId;
     }
 
     private static String thrownKey(String requestId, String siteKey, int identity) {

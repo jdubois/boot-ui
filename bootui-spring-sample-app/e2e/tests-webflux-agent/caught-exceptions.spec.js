@@ -53,6 +53,9 @@ test.describe('Caught in application code', () => {
     const section = page.getByRole('region', {name: 'Caught in application code'})
     await expect(section).toContainText('Not seen rethrown or logged at WARN or above')
     await expect(section).toContainText('StockLookup')
-    await expect(section).not.toContainText(/swallowed/i)
+    // The outcome labels state facts: the seed's route is named /swallowed, its verdict never is.
+    for (const label of await section.locator('.caught-chip-group, .caught-finding').allTextContents()) {
+      expect(label).not.toMatch(/swallowed/i)
+    }
   })
 })
