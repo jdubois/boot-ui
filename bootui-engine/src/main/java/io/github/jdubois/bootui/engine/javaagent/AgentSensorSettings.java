@@ -14,9 +14,8 @@ import java.util.List;
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
  *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment}, and
- *     {@code thread-activity}; the
- *     Side Effects sensors this version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is
- *     rejected
+ *     {@code thread-activity}, and {@code caught-exceptions}; the Side Effects sensors this version does not ship are
+ *     accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -97,6 +96,12 @@ public record AgentSensorSettings(
      */
     public static final String THREAD_LOCALS = "thread-locals";
 
+    /**
+     * The sensor reporting the exceptions application code catches (M5-6a): opt-in until its overhead is measured
+     * against the default sensors' budget (D21, D37).
+     */
+    public static final String CAUGHT_EXCEPTIONS = "caught-exceptions";
+
     /** The Side Effects sensors this version ships. */
     public static final List<String> SIDE_EFFECT_SENSORS =
             List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS);
@@ -113,7 +118,8 @@ public record AgentSensorSettings(
             ENVIRONMENT,
             BLOCKING,
             THREAD_ACTIVITY,
-            THREAD_LOCALS);
+            THREAD_LOCALS,
+            CAUGHT_EXCEPTIONS);
 
     /**
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
@@ -236,6 +242,11 @@ public record AgentSensorSettings(
                 : "bootui.agent.sensors asks for " + String.join(", ", asked)
                         + ", which this version of the BootUI agent does not ship yet: the Side Effects panel reports"
                         + (asked.size() == 1 ? " it" : " them") + " not available.";
+    }
+
+    /** Whether the {@code caught-exceptions} sensor is asked for. */
+    public boolean caughtExceptions() {
+        return sensors.contains(CAUGHT_EXCEPTIONS);
     }
 
     /** Whether the {@code processes} sensor is asked for. */

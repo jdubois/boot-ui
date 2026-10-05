@@ -157,6 +157,14 @@ public final class CodePathsService implements AutoCloseable {
         this.probes = new MethodProbeService(this.access, this.claims, this::unavailableReason, evidence);
     }
 
+    /**
+     * The live exposure policy method probes' argument and return shapes are shown by (M5-8, D44); without one, the
+     * policy's default, {@code MASKED}.
+     */
+    public void setExposure(io.github.jdubois.bootui.spi.ExposurePolicy exposure) {
+        probes.setExposure(exposure);
+    }
+
     /** This run's method probes ({@code docs/PLAN-v2.md} M5-8): part of Code Paths, available when it is. */
     public MethodProbeService probes() {
         return probes;

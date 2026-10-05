@@ -44,6 +44,7 @@ public final class JournalSourcePanels {
             case WEBSOCKET -> List.of(BootUiPanels.WEBSOCKETS);
             case ORM -> List.of(BootUiPanels.HIBERNATE);
             case AGENT_EXECUTORS -> List.of(BootUiPanels.JAVA_AGENT);
+            case AGENT_CAUGHT_EXCEPTIONS -> List.of(BootUiPanels.EXCEPTIONS);
             case APP_EVENT, LIFECYCLE, GC, RESOURCES -> List.of();
         };
     }

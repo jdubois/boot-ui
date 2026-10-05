@@ -1056,28 +1056,30 @@ final class SideEffectsSensor {
                 Runtime.version().feature() < 21
                         ? "unsupported"
                         : ExecutorSensor.step(new ThreadSensor.VirtualStep(), 5));
-        String pool = ExecutorSensor.step(seconds -> {
-            java.util.concurrent.ThreadPoolExecutor executor = new java.util.concurrent.ThreadPoolExecutor(
-                    1,
-                    1,
-                    1,
-                    java.util.concurrent.TimeUnit.SECONDS,
-                    new java.util.concurrent.LinkedBlockingQueue<Runnable>(),
-                    task -> AgentThreads.newThread("bootui-agent-self-test-pool", task, privileged));
-            try {
-                executor.submit(new ExecutorSensor.Noop()).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
-            } finally {
-                executor.shutdown();
-            }
-            executor.awaitTermination(seconds, java.util.concurrent.TimeUnit.SECONDS);
-            new java.util.concurrent.ThreadPoolExecutor(
-                            0,
+        String pool = ExecutorSensor.step(
+                seconds -> {
+                    java.util.concurrent.ThreadPoolExecutor executor = new java.util.concurrent.ThreadPoolExecutor(
+                            1,
                             1,
                             1,
                             java.util.concurrent.TimeUnit.SECONDS,
-                            new java.util.concurrent.LinkedBlockingQueue<Runnable>())
-                    .shutdownNow();
-        }, 5);
+                            new java.util.concurrent.LinkedBlockingQueue<Runnable>(),
+                            task -> AgentThreads.newThread("bootui-agent-self-test-pool", task, privileged));
+                    try {
+                        executor.submit(new ExecutorSensor.Noop()).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+                    } finally {
+                        executor.shutdown();
+                    }
+                    executor.awaitTermination(seconds, java.util.concurrent.TimeUnit.SECONDS);
+                    new java.util.concurrent.ThreadPoolExecutor(
+                                    0,
+                                    1,
+                                    1,
+                                    java.util.concurrent.TimeUnit.SECONDS,
+                                    new java.util.concurrent.LinkedBlockingQueue<Runnable>())
+                            .shutdownNow();
+                },
+                5);
         steps.put("ThreadPoolExecutor.addWorker", pool);
         steps.put("ThreadPoolExecutor.<init>", pool);
         steps.put("ThreadPoolExecutor.shutdown", pool);
@@ -1097,8 +1099,8 @@ final class SideEffectsSensor {
     private static void perTaskStep(boolean privileged, int seconds) throws Exception {
         java.util.concurrent.ThreadFactory factory =
                 task -> AgentThreads.newThread("bootui-agent-self-test-per-task", task, privileged);
-        java.util.concurrent.ExecutorService executor = (java.util.concurrent.ExecutorService)
-                java.util.concurrent.Executors.class
+        java.util.concurrent.ExecutorService executor =
+                (java.util.concurrent.ExecutorService) java.util.concurrent.Executors.class
                         .getMethod("newThreadPerTaskExecutor", java.util.concurrent.ThreadFactory.class)
                         .invoke(null, factory);
         try {

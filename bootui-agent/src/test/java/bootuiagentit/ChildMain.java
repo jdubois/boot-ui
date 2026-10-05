@@ -45,6 +45,7 @@ public final class ChildMain {
             case "inventory-mockito" -> InventoryMockito.main(new String[] {args[1]});
             case "code-paths-behaviors" -> CodePathsBehaviors.main(new String[] {args[1]});
             case "code-paths-mockito" -> CodePathsMockito.main(new String[] {args[1]});
+            case "caught-exceptions-behaviors" -> CaughtExceptionsBehaviors.main(new String[] {args[1]});
             case "hotswap-behaviors" -> HotSwapBehaviors.main(new String[] {args[1]});
             case "probe-behaviors" -> ProbeBehaviors.main(new String[0]);
             case "side-effects-behaviors" -> SideEffectsBehaviors.main(new String[] {args[1]});

@@ -26,6 +26,8 @@ const report = ref(null)
 const loadError = ref(null)
 const busy = ref(false)
 const expanded = ref(new Set())
+// Opt-in per probe (D44): argument and return shapes, never values; off by default.
+const recordShapes = ref(false)
 let timer = null
 let unmounted = false
 
@@ -38,6 +40,10 @@ const probing = computed(() =>
         (probe) => LIVE_STATES.has(probe.state) && (probe.method === props.method || matches(probe, props.method))
       )
     : null
+)
+const shapesAvailable = computed(() => report.value?.shapesAvailable === true)
+const shapesWhy = computed(() =>
+  report.value?.available && !shapesAvailable.value ? (report.value?.shapesUnavailableReason ?? null) : null
 )
 const canStart = computed(
   () =>
@@ -82,13 +88,18 @@ async function start() {
     return
   }
   const bounds = report.value
+  const shapes = recordShapes.value && shapesAvailable.value
   if (
     !(await confirm({
       title: 'Probe this method?',
       message:
         `BootUI's agent retransforms this one method of the running application and records its next ` +
         `${bounds?.maxInvocations ?? 20} invocations, for at most ${bounds?.windowSeconds ?? 60} seconds: ` +
-        'durations, thread kinds, request ids, outcomes, and calling frames, never argument or return values.',
+        (shapes
+          ? 'durations, thread kinds, request ids, outcomes, calling frames, and the shapes of the arguments and the ' +
+            'return value (types, null or not, and sizes, read without running application code), never argument or ' +
+            'return values.'
+          : 'durations, thread kinds, request ids, outcomes, and calling frames, never argument or return values.'),
       resource: props.method,
       confirmLabel: 'Start probe'
     }))
@@ -100,7 +111,7 @@ async function start() {
     const res = await apiFetch('api/code-paths/probes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({method: props.method})
+      body: JSON.stringify(shapes ? {method: props.method, recordShapes: true} : {method: props.method})
     })
     const body = await res.json().catch(() => null)
     if (!res.ok) {
@@ -185,6 +196,62 @@ function duration(hit) {
   return `${formatNumber(Math.round(micros / 100) / 10)} ms`
 }
 
+/** Whether any shape of a probe's hits has a detail the exposure withholds. */
+function withholds(probe) {
+  return probe.hits.some((hit) => [...(hit.arguments ?? []), hit.returned].some((shape) => shape?.withheld))
+}
+
+/** A shape's tooltip, also read out to screen readers, when it says more than its label. */
+function shapeNote(shape) {
+  const title = shapeTitle(shape)
+  return title && title !== (shape.type ?? shape.declaredType) ? title : ''
+}
+
+/** Whether a probe's hits carry shapes this read shows. */
+function showsShapes(probe) {
+  return probe.recordShapes && !probe.shapesHiddenReason
+}
+
+const WITHHELD = 'shown with bootui.expose-values=FULL'
+
+/** A shape as one short phrase: its type, and its size, length, presence, or constant when shown. */
+function shapeLabel(shape) {
+  if (!shape) return ''
+  const type = shortName(shape.type ?? shape.declaredType)
+  switch (shape.kind) {
+    case 'null':
+      return 'null'
+    case 'primitive':
+      return shape.declaredType
+    case 'string':
+      return shape.size == null ? type : `${type} (${formatNumber(shape.size)} chars)`
+    case 'collection':
+    case 'map':
+      return `${type} (size ${formatNumber(shape.size)})`
+    case 'array':
+      return shape.size == null ? type : `${type} (length ${formatNumber(shape.size)})`
+    case 'optional':
+      return `${type} (${shape.present ? 'present' : 'empty'})`
+    case 'enum':
+      return shape.constant ? `${type}.${shape.constant}` : type
+    case 'unknown':
+      return 'lost'
+    default:
+      return type
+  }
+}
+
+/** The full types, and what the exposure withholds, for a shape's tooltip. */
+function shapeTitle(shape) {
+  if (!shape) return ''
+  const parts = [shape.type ?? shape.declaredType]
+  if (shape.type && shape.declaredType && shape.type !== shape.declaredType)
+    parts.push(`declared ${shape.declaredType}`)
+  if (shape.withheld) parts.push(shape.kind === 'enum' ? `constant ${WITHHELD}` : `length ${WITHHELD}`)
+  if (shape.kind === 'unknown') parts.push("lost by the agent's transport or a Clear recording")
+  return parts.filter(Boolean).join(' · ')
+}
+
 function clock(iso) {
   return iso ? formatClockTime(Date.parse(iso)) : '—'
 }
@@ -210,23 +277,39 @@ defineExpose({load})
           <h3 id="code-paths-probes-heading" class="h6 fw-semibold mb-1">Method probes</h3>
           <p class="small text-muted mb-0">
             Record one method's next {{ report?.maxInvocations ?? 20 }} invocations, for at most
-            {{ report?.windowSeconds ?? 60 }} seconds, {{ report?.maxActive ?? 5 }} probes at once: metadata only.
+            {{ report?.windowSeconds ?? 60 }} seconds, {{ report?.maxActive ?? 5 }} probes at once: metadata, and
+            argument and return shapes when you ask for them, never values.
           </p>
         </div>
-        <button
-          v-if="method"
-          type="button"
-          class="btn btn-sm btn-outline-primary code-paths-probe-start"
-          :disabled="!canStart"
-          :aria-describedby="method ? 'code-paths-probe-target' : undefined"
-          @click="start"
-        >
-          <i class="bi bi-crosshair me-1" aria-hidden="true"></i>Probe this method
-        </button>
+        <div v-if="method" class="d-flex flex-wrap align-items-center gap-3">
+          <div class="form-check small mb-0 code-paths-probe-shapes-option">
+            <input
+              id="code-paths-probe-shapes"
+              v-model="recordShapes"
+              class="form-check-input"
+              type="checkbox"
+              :disabled="!shapesAvailable || readOnly"
+              :aria-describedby="shapesWhy ? 'code-paths-probe-shapes-why' : undefined"
+            />
+            <label class="form-check-label" for="code-paths-probe-shapes">Record argument and return shapes</label>
+          </div>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-primary code-paths-probe-start"
+            :disabled="!canStart"
+            :aria-describedby="method ? 'code-paths-probe-target' : undefined"
+            @click="start"
+          >
+            <i class="bi bi-crosshair me-1" aria-hidden="true"></i>Probe this method
+          </button>
+        </div>
       </div>
       <p v-if="method" id="code-paths-probe-target" class="small mb-2">
         <code class="bootui-break-anywhere">{{ method }}</code>
         <span v-if="probing" class="text-muted"> — probe {{ probing.id }} is {{ stateLabel(probing) }}.</span>
+      </p>
+      <p v-if="method && shapesWhy" id="code-paths-probe-shapes-why" class="small text-muted mb-2">
+        {{ report.shapesUnavailableReason }}
       </p>
       <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason"
         >Starting and stopping probes is read-only; a running probe ends by itself within
@@ -263,6 +346,12 @@ defineExpose({load})
             <span v-if="probe.async" class="badge text-bg-secondary" title="Times the result's assembly only"
               >assembly only</span
             >
+            <span
+              v-if="probe.recordShapes"
+              class="badge text-bg-light border code-paths-probe-shapes-badge"
+              title="Records argument and return shapes: types, null or not, and sizes, never values"
+              >shapes</span
+            >
             <button
               v-if="probe.state === 'starting' || probe.state === 'active'"
               type="button"
@@ -281,6 +370,12 @@ defineExpose({load})
             {{ probe.removal }}
           </p>
           <div v-if="expanded.has(probe.id)" :id="`code-paths-probe-${probe.id}`" class="mt-2">
+            <p v-if="probe.recordShapes && probe.shapesHiddenReason" class="small text-muted mb-1">
+              {{ probe.shapesHiddenReason }}
+            </p>
+            <p v-if="probe.shapesDropped" class="small text-warning-emphasis mb-1">
+              {{ formatNumber(probe.shapesDropped) }} shape records were dropped: the agent's transport was full.
+            </p>
             <p v-if="!probe.hits.length" class="small text-muted mb-0">
               No invocation recorded<template v-if="probe.state === 'active'"> yet</template>.
             </p>
@@ -297,6 +392,7 @@ defineExpose({load})
                     <th scope="col">Time</th>
                     <th scope="col" class="text-end">Duration</th>
                     <th scope="col">Outcome</th>
+                    <th v-if="showsShapes(probe)" scope="col">Arguments</th>
                     <th scope="col">Request</th>
                     <th scope="col">Thread</th>
                     <th scope="col">Called from</th>
@@ -311,6 +407,26 @@ defineExpose({load})
                         threw <code>{{ shortName(hit.exceptionType) }}</code>
                       </span>
                       <span v-else>returned</span>
+                      <template v-if="showsShapes(probe) && hit.returned">
+                        <code class="ms-1 code-paths-probe-shape" :title="shapeTitle(hit.returned)">{{
+                          shapeLabel(hit.returned)
+                        }}</code
+                        ><span v-if="shapeNote(hit.returned)" class="visually-hidden">
+                          ({{ shapeNote(hit.returned) }})</span
+                        >
+                      </template>
+                    </td>
+                    <td v-if="showsShapes(probe)" class="small code-paths-probe-arguments">
+                      <span v-if="!hit.arguments?.length" class="text-muted">none</span>
+                      <template v-for="(shape, position) in hit.arguments ?? []" :key="position">
+                        <span v-if="position" class="text-muted">, </span>
+                        <code class="code-paths-probe-shape" :title="shapeTitle(shape)">{{ shapeLabel(shape) }}</code
+                        ><span v-if="shapeNote(shape)" class="visually-hidden"> ({{ shapeNote(shape) }})</span>
+                      </template>
+                      <span v-if="hit.argumentsNotRecorded" class="text-muted">{{
+                        `, +${formatNumber(hit.argumentsNotRecorded)} more`
+                      }}</span>
+                      <span v-if="hit.shapesIncomplete" class="text-warning-emphasis"> (some shapes lost)</span>
                     </td>
                     <td class="small">
                       <router-link v-if="hit.requestId" :to="{path: '/activity', query: {request: hit.requestId}}">
@@ -326,6 +442,12 @@ defineExpose({load})
                   </tr>
                 </tbody>
               </table>
+              <p
+                v-if="showsShapes(probe) && withholds(probe)"
+                class="small text-muted mt-1 mb-0 code-paths-probe-withheld"
+              >
+                String lengths, char[] and byte[] lengths, and enum constants are shown with bootui.expose-values=FULL.
+              </p>
             </div>
           </div>
         </li>

@@ -536,9 +536,17 @@ final class SideEffectsStore {
         String executionId = requestId == null ? record.executionId() : null;
         String key = requestId != null ? requestId : executionId == null ? null : EXECUTION_KEY + executionId;
         if (key != null) {
-            String name = routes.get(key);
-            if (name == null && record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
+            String name;
+            if (record.sensor() == SideEffectsCatalog.RECORD_THREADS
+                    && !SideEffectsCatalog.threadCreation(record.kind())) {
+                // A follow-up lands where its creation did: a creation a long request made before its route was named
+                // counted under the unknown route, and so does its follow-up.
                 name = threadRoutes.get(key);
+                if (name == null) {
+                    name = routes.get(key);
+                }
+            } else {
+                name = routes.get(key);
             }
             if (name != null && !observation.waiting()) {
                 attribute(observation, key, name);
@@ -645,7 +653,8 @@ final class SideEffectsStore {
     private void attribute(Observation observation, String key, String name) {
         if (observation.record().sensor() == SideEffectsCatalog.RECORD_THREADS
                 && SideEffectsCatalog.threadCreation(observation.record().kind())) {
-            threadRoutes.put(key, name);
+            // The first name a creation of this request landed under, kept for its follow-ups.
+            threadRoutes.putIfAbsent(key, name);
         }
         if (key.startsWith(EXECUTION_KEY)) {
             aggregate(observation, SideEffectsRowDto.EXECUTION, name, null);

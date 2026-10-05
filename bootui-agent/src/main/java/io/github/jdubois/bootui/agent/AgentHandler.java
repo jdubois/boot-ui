@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.CaughtExceptions;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
@@ -25,8 +26,8 @@ import java.util.function.Function;
  * it (PLAN-v2 M5-2, M5-3, M5-4a), as does a claim asking for a side-effect sensor such as {@code processes} (M5-5a, one
  * transformer for every side-effect hook, {@link SideEffectsSensor}), and a release removes it; a claim without a sensor installs nothing, unless
  * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
- * transformer ({@link ApplicationMethodsSensor}), as does the {@code blocking} sensor's call-site visit: a claim asking
- * for none of them removes it, since its advice on every
+ * transformer ({@link ApplicationMethodsSensor}) with the {@code caught-exceptions} sensor (M5-6a) and the {@code
+ * blocking} sensor's call-site visit (M5-5c): a claim asking for none of them removes it, since its advice on every
  * application method would otherwise stay for a claim that never reads it. A {@code method-probe} of the current armed
  * generation queues one method probe ({@link MethodProbeSensor}, PLAN-v2 M5-8) for the class loaders of the current run:
  * the context class loader chain of the thread that claimed or refined, held weakly.
@@ -107,9 +108,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 boolean inventory = claimedSensors.contains(CodeInventory.SENSOR);
                 boolean codePaths = claimedSensors.contains(CodePaths.SENSOR);
+                boolean caught = claimedSensors.contains(CaughtExceptions.SENSOR);
                 // The blocking sensor's Thread.sleep and Object.wait call sites are rewritten in application classes.
                 boolean blocking = claimedSensors.contains(SideEffects.BLOCKING);
-                applicationMethodsClaimed = inventory || codePaths || blocking;
+                applicationMethodsClaimed = inventory || codePaths || caught || blocking;
                 if (applicationMethodsClaimed) {
                     applicationMethods()
                             .claimed(
@@ -118,6 +120,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                                     strings(request.get("beanClasses")),
                                     inventory,
                                     codePaths,
+                                    caught,
                                     blocking);
                 } else if (applicationMethods != null) {
                     // Its advice would otherwise stay on every method for a claim that never reads it.
@@ -196,6 +199,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                                 String.valueOf(request.get("className")),
                                 String.valueOf(request.get("methodName")),
                                 request.get("descriptor") == null ? null : String.valueOf(request.get("descriptor")),
+                                Boolean.TRUE.equals(request.get("shapes")),
                                 runLoaders));
                 return answer("ok", null);
             case "status":
@@ -313,6 +317,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         if (applicationMethods != null) {
             sensors.add(active(applicationMethods.inventoryStatus()));
             sensors.add(active(applicationMethods.codePathsStatus()));
+            if (applicationMethods.caughtEver()) {
+                // Opt-in: reported once a claim asked for it, as the other opt-in sensors are.
+                sensors.add(active(applicationMethods.caughtStatus()));
+            }
         }
         if (sideEffects != null) {
             for (Map<String, Object> row : sideEffects.status()) {

@@ -102,6 +102,26 @@ class AgentEvidenceExportRulesTests {
             "CodePathsProbeHitDto.outcome",
             "CodePathsProbeHitDto.exceptionType",
             "CodePathsProbeHitDto.caller",
+            // Argument and return shapes (M5-8, D44): types, nullness, sizes, and presence, read without running
+            // application code; a string's length, a char[] or byte[] length, and an enum constant's name only under
+            // FULL exposure; none under METADATA_ONLY; and never in an agent read (MCP, the CLI), whatever the
+            // exposure.
+            "CodePathsProbesReport.shapesAvailable",
+            "CodePathsProbesReport.shapesUnavailableReason",
+            "CodePathsProbeDto.recordShapes",
+            "CodePathsProbeDto.shapesHiddenReason",
+            "CodePathsProbeDto.shapesDropped",
+            "CodePathsProbeHitDto.arguments",
+            "CodePathsProbeHitDto.argumentsNotRecorded",
+            "CodePathsProbeHitDto.returned",
+            "CodePathsProbeHitDto.shapesIncomplete",
+            "CodePathsValueShapeDto.kind",
+            "CodePathsValueShapeDto.declaredType",
+            "CodePathsValueShapeDto.type",
+            "CodePathsValueShapeDto.size",
+            "CodePathsValueShapeDto.present",
+            "CodePathsValueShapeDto.constant",
+            "CodePathsValueShapeDto.withheld",
             // Side Effects (M5-5a): a command's file name, never its arguments or environment; code identifiers; route
             // templates and thread families; request ids; times; counts; exit statuses; sentences BootUI wrote.
             "SideEffectsAgentReport.available",

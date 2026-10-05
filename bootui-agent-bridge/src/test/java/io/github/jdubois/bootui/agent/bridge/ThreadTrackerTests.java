@@ -59,7 +59,9 @@ class ThreadTrackerTests {
                 assertThat(report.frames).isEqualTo(9L);
                 assertThat(report.get()).as("a report never holds the thread").isNull();
             });
-            assertThat(tracker.size()).as("threads are forgotten at their request's end").isZero();
+            assertThat(tracker.size())
+                    .as("threads are forgotten at their request's end")
+                    .isZero();
             assertThat(tracker.anyWaiting()).isFalse();
         } finally {
             release.countDown();
@@ -75,14 +77,16 @@ class ThreadTrackerTests {
             track(leaked, false, REQUEST);
             track(closed, false, REQUEST);
             tracker.shutdown(closed, false, GENERATION, reports);
-            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                    .isEqualTo(ThreadTracker.EXECUTOR_SHUT_DOWN));
+            assertThat(reports)
+                    .singleElement()
+                    .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_SHUT_DOWN));
             reports.clear();
 
             end(GENERATION, REQUEST);
 
-            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                    .isEqualTo(ThreadTracker.EXECUTOR_LEFT_RUNNING));
+            assertThat(reports)
+                    .singleElement()
+                    .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_LEFT_RUNNING));
             reports.clear();
             tracker.shutdown(leaked, false, GENERATION, reports);
             tracker.shutdown(leaked, false, GENERATION, reports);
@@ -106,20 +110,100 @@ class ThreadTrackerTests {
 
         tracker.shutdown(executor, true, GENERATION, reports);
 
-        assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                .isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
+        assertThat(reports)
+                .singleElement()
+                .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
     }
 
     @Test
     void anUnownedThreadOrOneStartedAfterItsRequestEndedIsNotTracked() throws Exception {
         Thread thread = new Thread(() -> {});
         assertThat(track(thread, true, 0L)).isFalse();
+        // Another request's executor waits, so request ends are written.
+        Object other = new Object();
+        track(other, false, REQUEST + 1);
         end(GENERATION, REQUEST);
-        assertThat(track(thread, true, REQUEST))
-                .as("its request already ended")
-                .isFalse();
+        assertThat(track(thread, true, REQUEST)).as("its request already ended").isFalse();
         assertThat(tracker.afterEnd.sum()).isEqualTo(1L);
         assertThat(reports).isEmpty();
+    }
+
+    @Test
+    void anEndIsNotWrittenWhileNothingWaits() {
+        tracker.ended(REQUEST);
+        track(new Object(), false, REQUEST);
+        end(GENERATION, REQUEST + 1);
+
+        assertThat(tracker.anyWaiting())
+                .as("its request's end was written before anything waited")
+                .isTrue();
+    }
+
+    @Test
+    void executorsNeverShutDownNeverStopThreadsFromBeingTracked() {
+        List<Object> kept = new ArrayList<>();
+        for (int i = 0; i < ThreadTracker.MAX_ENTRIES; i++) {
+            Object executor = new Object();
+            kept.add(executor);
+            track(executor, false, 0L);
+        }
+        Thread thread = new Thread(() -> {});
+        assertThat(track(thread, true, REQUEST))
+                .as("threads have their own budget")
+                .isTrue();
+        assertThat(kept).hasSize(ThreadTracker.MAX_ENTRIES);
+    }
+
+    /** Request ends written by many threads at once are each read once, never torn: every waiting thread is reported. */
+    @Test
+    void concurrentEndsAreEachReadOnce() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        int requests = 200;
+        List<Thread> running = new ArrayList<>();
+        for (int i = 0; i < requests; i++) {
+            Thread thread = new Thread(() -> {
+                try {
+                    release.await();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            thread.start();
+            running.add(thread);
+            track(thread, true, 10_000L + i);
+        }
+        try {
+            List<Thread> enders = new ArrayList<>();
+            for (int w = 0; w < 4; w++) {
+                int first = w;
+                Thread ender = new Thread(() -> {
+                    for (int i = first; i < requests; i += 4) {
+                        tracker.ended(10_000L + i);
+                    }
+                });
+                enders.add(ender);
+                ender.start();
+            }
+            for (int round = 0; round < 50 && reports.size() < requests; round++) {
+                tracker.processEnds(GENERATION, System.nanoTime() + 1, 0L, reports);
+                Thread.sleep(2);
+            }
+            for (Thread ender : enders) {
+                ender.join();
+            }
+            tracker.processEnds(GENERATION, System.nanoTime() + 1, 0L, reports);
+
+            assertThat(reports).hasSize(requests);
+            assertThat(reports.stream().map(report -> report.request).distinct().count())
+                    .isEqualTo(requests);
+            assertThat(tracker.endsLost.sum()).isZero();
+            assertThat(tracker.anyWaiting()).isFalse();
+        } finally {
+            release.countDown();
+            for (Thread thread : running) {
+                thread.join();
+            }
+        }
     }
 
     @Test
@@ -154,8 +238,9 @@ class ThreadTrackerTests {
             assertThat(tracker.anyWaiting()).isTrue();
 
             tracker.processEnds(GENERATION, System.nanoTime() + 120_000_000_000L, 60_000_000_000L, reports);
-            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                    .isEqualTo(ThreadTracker.THREAD_LEFT_RUNNING));
+            assertThat(reports)
+                    .singleElement()
+                    .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.THREAD_LEFT_RUNNING));
         } finally {
             release.countDown();
             running.join();
@@ -213,8 +298,9 @@ class ThreadTrackerTests {
             tracker.expunge(reports);
             Thread.sleep(20);
         }
-        assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                .isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
+        assertThat(reports)
+                .singleElement()
+                .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
         assertThat(tracker.size()).isZero();
         assertThat(tracker.anyWaiting()).isFalse();
     }

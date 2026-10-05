@@ -9,6 +9,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
+  sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
+  that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
+  in another exception. Each becomes an event of the runtime journal's new `agent.caught-exceptions` source, owned by
+  the Exceptions panel, with the handler's class, method, line, and declared types, the exception's class, and its
+  request or execution, never its message. The visit inserts straight-line calls at handler entries and one rethrowing
+  catch-any handler per method, computing no frames and loading no class inside the transformer; the Java Agent panel
+  shows the sensor's two hooks and self-test. A stress test defines every class of Spring Framework, Hibernate ORM,
+  Jackson, Netty, Vert.x, Quarkus, and Kotlin's standard library and coroutines with and without the visit on JDK 17,
+  21, and 26. The Exceptions panel's
+  **Caught in application code** section, `exceptions-caught-in-code` rows, and the decision on its default follow.
+  ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+
 - **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
   `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
   executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of
@@ -73,6 +86,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
   Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
   ([Method probes](docs/features/java-agent.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
+- **Argument and return shapes for method probes.** A probe can also record argument and return types, nullness, and
+  sizes, never values, shown in the panel only ([shapes](docs/features/java-agent.md#argument-and-return-shapes), D44).
 - **The agent evidence contract (M5-11).** Code Paths' request and route trees, Code Inventory's first calls, and Side
   Effects rows, which the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on
   Spring MVC, Spring WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible,
@@ -169,7 +184,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
 - **Thread activity sensor in the BootUI agent.** The opt-in `thread-activity` sensor shows, per route, the threads
   application code starts and the executors it creates, and those still running when the request ended, in Side Effects'
-  **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e).
+  **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e). An async
+  Spring MVC request now ends when its async context completes, so work it handed over can be marked after response.
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their

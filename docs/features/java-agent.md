@@ -135,9 +135,9 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
 [`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
 [`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
-[`files`](#the-files-sensor), [`environment`](#the-environment-sensor), and
-[`thread-activity`](#the-thread-activity-sensor). The agent installs each one once, on its own
-thread, then
+[`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
+[`thread-activity`](#the-thread-activity-sensor), and [`caught-exceptions`](#the-caught-exceptions-sensor). The agent
+installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -873,9 +873,9 @@ two can run together.
 
 The advice runs at the entry and exit of `start`, at the exit of the constructors, and at the entry of the shutdowns:
 never on a thread's run path or its scoped values. M5-2's `executors` and `threads` sensors transform `Thread`,
-`ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and each keeps working
-whichever is installed first (forked-JVM tests claim the three sensors together, and beside the OpenTelemetry agent in
-both orders, on JDK 17, 21, and the newest verified JDK). A fork-join worker, the JDK's `DelayScheduler`, and a thread
+`ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and forked-JVM tests
+claim the three sensors together, and `thread-activity` beside the OpenTelemetry agent in both orders, on JDK 17, 21,
+and the newest verified JDK. A fork-join worker, the JDK's `DelayScheduler`, and a thread
 whose starting frame is in `java.util.concurrent` (the per-task threads `CompletableFuture` falls back to when the
 common pool has fewer than two threads) are pool workers too.
 
@@ -890,13 +890,16 @@ grouped apart in the panel. The JDK's own singletons (an innocuous thread, `proc
 `Common-Cleaner`) are recorded as the JDK's without a walk.
 
 **Left running.** A thread the application's code started for a request, and an executor it created for a request or
-an execution, are tracked weakly, at most 1,024 at a time: nothing the sensor holds keeps a thread, an executor, or a
-class loader alive. Each adapter tells the engine when a request's response is complete (Spring MVC once its async
+an execution, are tracked weakly, at most 1,024 threads and 1,024 executors at a time (the panel says when one was not
+tracked): nothing the sensor holds keeps a thread, an executor, or a class loader alive. Each adapter tells the engine when a request's response is complete (Spring MVC once its async
 context completed, Spring WebFlux when its chain terminates, Quarkus when the response body ended or the connection
-closed); the request's end is written into a lock-free ring, and the agent's drain thread checks it 250 ms later, so a
+closed); while a tracked thread or executor waits for its request's end, the end is written into a lock-free ring, and
+the agent's drain thread checks it 250 ms later, so a
 thread still unwinding as the response completes is not reported: a thread still alive then, or an executor not shut
 down, was so when the response was complete, and is reported once as **left running**. A thread started after its
-request ended is not waited for; one whose request's end never comes stops waiting after 10 minutes, counted. An
+request ended is not waited for, when that end was written; one whose request's end never comes stops waiting after
+10 minutes, counted. A static initializer anywhere on the starting stack, as a lazily created singleton's first use
+inside a request, makes it a singleton, never tracked. An
 executor's shutdown lands on its creation's row with its lifetime; one the collector reclaims without a shutdown, or
 that the JDK's cleaner shuts down because nothing references it (`newSingleThreadExecutor`), is counted as reclaimed.
 
@@ -920,6 +923,59 @@ The sensor does not see threads started or executors created through classes tha
 thread-per-task executor, JBoss Threads' `EnhancedQueueExecutor`, Tomcat's own `ThreadPoolExecutor` copy): their threads'
 `Thread.start` is recorded as a library's. A subclass whose constructor throws after the canonical constructor returned
 leaves a creation recorded. A thread that ends within 250 ms of its request's end is never reported left running.
+
+## The caught-exceptions sensor
+
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
+sensor, which reports the exceptions application code catches and which of them are thrown again. It stays off by
+default until its overhead is measured against the default sensors' 10 % budget. This version records the events in
+the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel; the panel's **Caught in
+application code** section and the `exceptions-caught-in-code` rows follow.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `handler entry` | reports caught exceptions | each exception handler that names a type, in the classes of the claimed packages |
+| `exceptional exit` | sees caught exceptions thrown again | each method with such a handler, except constructors |
+
+**What is instrumented.** The sensor's visit joins the [inventory and code paths' transformer](#the-code-paths-sensor)
+and applies to every class the inventory sensor would instrument, applied last, so it reads each class's own
+exception tables. At the entry of each handler that names a type, after its frame and line number, it inserts one
+call to the agent's bridge with the caught exception and the handler's site: straight-line code adding no branch
+target, so the class's stack map frames stay valid and none is added. `finally` blocks and `synchronized` blocks'
+catch-any handlers are left alone. To each method with such a handler but a constructor it appends one catch-any
+handler covering the method's own code, after the method's own entries so theirs keep precedence: it tells the bridge
+the exception is leaving the method and rethrows it, so an exception thrown again by the method or by a helper it
+calls (`ExceptionUtils.rethrow`, Lombok's `@SneakyThrows`) is seen. That handler's frame lists `this` and the
+declared parameters, as Byte Buddy's advice requires; a parameter the method stores a value of another verification
+kind into is left unknown (`TOP`). Nothing computes frames or resolves a type inside the transformer, so no class is
+loaded there. Classes older than Java 7 are left alone. A handler another agent's inlined advice added (it has no line
+number in its first instructions while its method has some), or that is also a jump target, is skipped at run time.
+
+**What is recorded.** The caught exception's class, its handler's site (class, method, line, and declared types), its
+owner (the request, a request's task, or an execution no request owns, as a scheduled run), its thread, and its
+identity hash, which only joins a later throw to its catch inside BootUI; never its message, stack trace, or fields.
+The identities of the exception and of up to 8 throwables of its cause and suppressed chain stay pending for at most
+60 seconds, in a table of 4,096: a pending one leaving an instrumented method by a throw, wrapped or not, or caught
+again by an instrumented handler, is recorded as thrown, with the owner it was caught under. An entry evicted for room
+is recorded as such, so its fate is never taken as known. On one thread, a site caught more than 16 times for one owner
+is only counted after that, and the count is recorded when the thread's next caught exception has another owner.
+Nothing is recorded without an owner, on BootUI's own threads or work, or before the sensor's self-test passed, which
+runs again whenever the sensor is switched on again or reinstalled.
+
+**Self-test and failure isolation.** A bundled probe class, loaded after the transformer installed, so the JVM verifies
+the visit's output as it defines the class, holds the shapes the visit must keep valid (wide and reassigned parameters,
+a constructor, a lambda, a multi-catch, a `finally`, try-with-resources) and a rethrow through a helper: both hooks must
+fire. A failed self-test removes only this sensor's visit. A class whose transformation fails with it, or whose
+retransformation the JVM rejects with it, never gets it again and is transformed again with the other sensors' visits.
+A stress test defines every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, Quarkus, and Kotlin's
+standard library and coroutines (compiled by kotlinc) with and without the visit on JDK 17, 21, and 26: each class that
+verifies without it verifies with it, also beneath an advice that checks every frame. CI runs it on a representative
+subset of those jars; `-Dbootui.agent.verifier-stress=full` runs every one. Should an application class still
+fail to load with a `VerifyError` naming `CaughtExceptions`, remove `caught-exceptions` from `bootui.agent.sensors`
+and report the class.
+
+**Cost.** None on the normal path: the inserted code runs only when an exception is caught, or leaves a method that
+catches some, where a bridge call is added to the exception's own cost.
 
 ## HotSwap
 
@@ -999,7 +1055,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, and `thread-activity`. The Side Effects sensors this version does not ship (`thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, and `caught-exceptions`. The Side Effects sensors this version does not ship (`thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1137,7 +1193,9 @@ once**:
 - each invocation's duration, thread kind (platform or virtual), request id (a link to Live Activity), outcome
   (returned, or the type of the exception it threw), and calling frame: the first frame of the application's packages
   above the method, past proxies and interceptors, else the frame right above it;
-- **metadata only**: never an argument, a return value, or a field, in any exposure mode.
+- by default, **metadata only**: never an argument, a return value, or a field, in any exposure mode;
+- with **Record argument and return shapes** checked before the start, also the **shapes** of the first nine arguments,
+  taken at entry, and of the return value (see [Argument and return shapes](#argument-and-return-shapes)).
 
 The **Method probes** card lists the run's probes, newest first, with their state (**starting**, **active**,
 **waiting for its class** when this run has not loaded the class yet, **ending** while the agent removes its
@@ -1168,13 +1226,47 @@ invocations, its window, a **Stop**, or the end of the run. The card refreshes e
 | Method and path | Does |
 | --- | --- |
 | `GET /bootui/api/code-paths/probes` | The run's probes with their recorded invocations, the bounds, and the limitations |
-| `POST /bootui/api/code-paths/probes` | Starts a probe on `{"method": "com.example.PriceService#quote(I)J"}`: 400 for a method that cannot be probed, 409 when refused (unavailable, five running, or already probed) |
+| `POST /bootui/api/code-paths/probes` | Starts a probe on `{"method": "com.example.PriceService#quote(I)J"}`, with `"recordShapes": true` for shapes: 400 for a method that cannot be probed, 409 when refused (unavailable, five running, already probed, or shapes unavailable) |
 | `GET /bootui/api/code-paths/probes/{id}` | One probe; 404 when this run has none |
 | `POST /bootui/api/code-paths/probes/{id}/stop`, `DELETE /bootui/api/code-paths/probes/{id}` | Stops a probe |
 
 AI agents start one with `start_method_probe` (`bootui probe start <method>`) and read it with `get_method_probe`
 (`bootui probe show <id>`), only after the user's separate approval; see
-[Did this method run, and how?](../AI-AGENTS.md#did-this-method-run-and-how).
+[Did this method run, and how?](../AI-AGENTS.md#did-this-method-run-and-how). Agents start metadata-only probes and
+never see a shape.
+
+#### Argument and return shapes
+
+A shape says what an argument or the return value looked like without saying what it was: its runtime type, whether it
+was `null`, and, for a short list of JDK types, a size, a length, or a presence. It answers "was this list empty?",
+"did this get `null`?", or "which implementation came in?" without a debugger, and never shows a value.
+
+| Value | Shape | Example |
+| --- | --- | --- |
+| `null` | null | `null` |
+| A primitive parameter or return value | its declared type, never its value | `int` |
+| `String` | its type; its length under `FULL` exposure | `String`, or `String (12 chars)` |
+| `ArrayList`, `LinkedList`, `HashSet`, `List.of(...)`, `HashMap`, `TreeMap`, `ConcurrentHashMap`, ... (exact JDK classes) | its type and size | `ArrayList (size 3)` |
+| An array | its type and length; a `char[]` or `byte[]` length under `FULL` exposure | `int[] (length 4)` |
+| `Optional`, `OptionalInt`, `OptionalLong`, `OptionalDouble` | present or empty | `Optional (present)` |
+| An enum constant | its enum; the constant's name under `FULL` exposure | `Level`, or `Level.HIGH` |
+| Anything else: boxed numbers, booleans, application objects, proxies, custom or wrapped collections | its runtime type only | `Card`, `PersistentBag`, `Integer` |
+
+- **No application code runs.** The agent reads a value's class and, by exact class, `String.length()`, an array's
+  length, `Optional.isPresent()`, `Enum.name()`, and the `size()` of JDK collections and maps that read their own
+  fields. It never calls `toString()`, `hashCode()`, `equals()`, a getter, an iterator, or the `size()` of an
+  application, Hibernate, unmodifiable, synchronized, or sorted-view collection: those show their type only, and a lazy
+  Hibernate collection is never initialized.
+- **Exposure.** `bootui.expose-values` decides what the panel shows, live: under `METADATA_ONLY`, no shape (and a probe
+  cannot be started with them); under `MASKED`, the default, types, nullness, collection, map, and array sizes, and
+  presence; under `FULL` (or `MASKED` with `bootui.mask-secrets=false`), also a string's length, a `char[]`, `byte[]`,
+  `Character[]`, or `Byte[]` length, and an enum constant's name, the details derived from a value. A number or a boolean is never shown.
+- **The panel only.** MCP, the CLI, and exports never return a shape, whatever the exposure: `get_method_probe` says a
+  probe records them (`recordShapes`) and why they are not shown (`shapesHiddenReason`).
+- **Bounds.** Shapes are opt-in per probe and cover the first nine arguments; the rest are counted. A shapes probe uses
+  its own advice, which builds its argument array only for an invocation it records, so the default metadata probes
+  cost what they did. A shape the agent's transport could not take, or one of an invocation running across a
+  **Clear recording**, shows as **lost**.
 
 ## Code Inventory
 
