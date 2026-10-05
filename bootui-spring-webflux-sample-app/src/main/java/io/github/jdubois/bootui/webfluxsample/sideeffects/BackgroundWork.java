@@ -48,8 +48,7 @@ public class BackgroundWork {
      * executor, never shut down.
      */
     public int exportWithOwnPool() throws Exception {
-        ThreadPoolExecutor pool =
-                new ThreadPoolExecutor(1, 1, 2, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 2, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
         pool.allowCoreThreadTimeOut(true);
         return pool.submit(() -> 42).get();
     }

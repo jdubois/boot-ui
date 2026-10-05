@@ -130,8 +130,8 @@ public final class ThreadActivityBehaviors {
         long[] start = await(kind(SideEffects.KIND_THREAD_START));
         settle();
         check(
-                "a thread joined before its request ended is recorded started, never left running ("
-                        + describe(RECORDS) + ")",
+                "a thread joined before its request ended is recorded started, never left running (" + describe(RECORDS)
+                        + ")",
                 start != null && none(kind(SideEffects.KIND_THREAD_LEFT_RUNNING)));
     }
 
@@ -274,8 +274,8 @@ public final class ThreadActivityBehaviors {
         Thread virtual = (Thread) Class.forName("java.lang.Thread$Builder")
                 .getMethod("start", Runnable.class)
                 .invoke(builder, wait);
-        ExecutorService perTask =
-                (ExecutorService) Executors.class.getMethod("newVirtualThreadPerTaskExecutor").invoke(null);
+        ExecutorService perTask = (ExecutorService)
+                Executors.class.getMethod("newVirtualThreadPerTaskExecutor").invoke(null);
         for (int i = 0; i < 5; i++) {
             perTask.submit(() -> 1).get();
         }

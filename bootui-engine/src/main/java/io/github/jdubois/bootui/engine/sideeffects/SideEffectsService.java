@@ -79,17 +79,18 @@ public final class SideEffectsService implements AutoCloseable {
             + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
             + " creates. Thread locals, resources left open, and security sinks are not available in this version.";
 
-    static final String LIMITATION_THREADS = "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
-            + " ForkJoinPool, and thread-per-task executors' constructors, and their shutdown, shutdownNow, and close."
-            + " A pool's own workers are its executor's row, never threads of their own. A thread or an executor is the"
-            + " application's when the first frame outside the JDK that started or created it is in the application's"
-            + " packages, else a library's (a framework's pool, a client, an @Async executor), or the JDK's when the JDK"
-            + " created it, or in a static initializer; only the application's, started or created for a request, are"
-            + " reported left running: still alive, or not shut down, 250 ms after the request's response completed,"
-            + " checked once. An executor nothing references is reclaimed by the collector, or by the JDK's cleaner"
-            + " for newSingleThreadExecutor, without a shutdown. A start no request owns is counted under its starting"
-            + " thread's family with the call site of its first sighting. Never a thread-local, a task, or anything a"
-            + " thread holds.";
+    static final String LIMITATION_THREADS =
+            "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
+                    + " ForkJoinPool, and thread-per-task executors' constructors, and their shutdown, shutdownNow, and close."
+                    + " A pool's own workers are its executor's row, never threads of their own. A thread or an executor is the"
+                    + " application's when the first frame outside the JDK that started or created it is in the application's"
+                    + " packages, else a library's (a framework's pool, a client, an @Async executor), or the JDK's when the JDK"
+                    + " created it, or in a static initializer; only the application's, started or created for a request, are"
+                    + " reported left running: still alive, or not shut down, 250 ms after the request's response completed,"
+                    + " checked once. An executor nothing references is reclaimed by the collector, or by the JDK's cleaner"
+                    + " for newSingleThreadExecutor, without a shutdown. A start no request owns is counted under its starting"
+                    + " thread's family with the call site of its first sighting. Never a thread-local, a task, or anything a"
+                    + " thread holds.";
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"

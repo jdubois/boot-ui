@@ -34,8 +34,7 @@ class ThreadActivityBehaviorsIT {
             "the sensor never keeps an executor",
             "BootUI's own threads and executors are never recorded");
 
-    private static final String VIRTUAL =
-            "a virtual thread a request started is recorded virtual and left running";
+    private static final String VIRTUAL = "a virtual thread a request started is recorded virtual and left running";
 
     @Test
     void theThreadActivityHooksRetransformTheirJdkClassesAndPassTheirSelfTests() throws Exception {
@@ -60,7 +59,10 @@ class ThreadActivityBehaviorsIT {
                             + ", kind=\\w+, type=[^,]+, present=true, transformed=true, selfTest=passed");
         }
         String since21 = Runtime.version().feature() >= 21 ? "passed" : "unsupported";
-        for (String hook : List.of("VirtualThread.start", "ThreadPerTaskExecutor.start", "ThreadPerTaskExecutor.<init>",
+        for (String hook : List.of(
+                "VirtualThread.start",
+                "ThreadPerTaskExecutor.start",
+                "ThreadPerTaskExecutor.<init>",
                 "ThreadPerTaskExecutor.shutdown")) {
             assertThat(selfTest)
                     .as(hook + " in " + output)
@@ -72,8 +74,8 @@ class ThreadActivityBehaviorsIT {
 
     @Test
     void everyThreadActivityBehaviorPasses() throws Exception {
-        assertAllPass(ChildJvm.run(
-                List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "thread-activity-behaviors", "behaviors"));
+        assertAllPass(
+                ChildJvm.run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "thread-activity-behaviors", "behaviors"));
     }
 
     /** M5-2's executors and threads sensors transform Thread and the executors too: both keep working, both orders. */
@@ -102,7 +104,9 @@ class ThreadActivityBehaviorsIT {
 
     private static void assertAllPass(ChildJvm.Output output) {
         assertThat(output.exitCode()).as(output.toString()).isZero();
-        assertThat(output.value("SELF_TEST_thread-activity")).as(output.toString()).startsWith("true null");
+        assertThat(output.value("SELF_TEST_thread-activity"))
+                .as(output.toString())
+                .startsWith("true null");
         assertThat(output.text().lines().filter(line -> line.startsWith("  FAIL")))
                 .as(output.toString())
                 .isEmpty();

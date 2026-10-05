@@ -265,7 +265,9 @@ class SelfTestMutationIT {
     void aMissingOptionalThreadActivityHookIsLeftOutAndTheSensorKeepsRecording() throws Exception {
         ChildJvm.Output output = run("ForkJoinPool.shutdown", "thread-activity");
 
-        assertThat(selfTest(output, "ForkJoinPool.shutdown")).as(output.toString()).isEqualTo("failed");
+        assertThat(selfTest(output, "ForkJoinPool.shutdown"))
+                .as(output.toString())
+                .isEqualTo("failed");
         assertThat(selfTest(output, "ThreadPoolExecutor.shutdown"))
                 .as(output.toString())
                 .isEqualTo("passed");

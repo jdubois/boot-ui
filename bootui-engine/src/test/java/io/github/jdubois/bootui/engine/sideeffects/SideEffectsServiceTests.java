@@ -198,7 +198,8 @@ class SideEffectsServiceTests {
                         "blocking",
                         "security-sinks");
         assertThat(report.sensors())
-                .filteredOn(sensor -> !List.of("processes", "network", "files", "environment", "blocking", "thread-activity")
+                .filteredOn(sensor -> !List.of(
+                                "processes", "network", "files", "environment", "blocking", "thread-activity")
                         .contains(sensor.id()))
                 .allSatisfy(sensor -> {
                     assertThat(sensor.state()).isEqualTo(SideEffectsSensorDto.NOT_AVAILABLE);
@@ -748,7 +749,9 @@ class SideEffectsServiceTests {
                     .filteredOn(row -> row.kind().equals("executor"))
                     .singleElement()
                     .satisfies(row -> {
-                        assertThat(row.count()).as("a shutdown is never a creation").isEqualTo(1L);
+                        assertThat(row.count())
+                                .as("a shutdown is never a creation")
+                                .isEqualTo(1L);
                         assertThat(row.completed()).isEqualTo(1L);
                         assertThat(row.leftRunning()).isEqualTo(1L);
                     });

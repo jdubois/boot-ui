@@ -542,8 +542,7 @@ public final class ThreadActivity {
     /** The owner, as the network sensor reads it: the slot's, else captured unless on an event loop; the family named. */
     private static SideEffects.Owner owner(CodePaths.Frame frame, Claim claim) {
         int family = SideEffects.threadFamilyId(frame, claim.generation);
-        SideEffects.Owner owner =
-                SideEffects.owner(frame, claim, false, frame == null || !frame.sideEffectEventLoop);
+        SideEffects.Owner owner = SideEffects.owner(frame, claim, false, frame == null || !frame.sideEffectEventLoop);
         owner.threadName = family;
         return owner;
     }
@@ -830,7 +829,8 @@ public final class ThreadActivity {
                     }
                 }
             }
-            int origin = creatorJdk || outside == 0 ? ORIGIN_JDK : outsideApplication ? ORIGIN_APPLICATION : ORIGIN_LIBRARY;
+            int origin =
+                    creatorJdk || outside == 0 ? ORIGIN_JDK : outsideApplication ? ORIGIN_APPLICATION : ORIGIN_LIBRARY;
             long packed = ((long) Math.max(0, outside) << 32) | (application & 0xFFFFFFFFL);
             return new long[] {packed, origin, isStatic ? 1L : 0L};
         }

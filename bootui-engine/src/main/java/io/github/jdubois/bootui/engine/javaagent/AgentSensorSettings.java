@@ -111,8 +111,7 @@ public record AgentSensorSettings(
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS =
-            List.of("thread-locals", "resources", "security-sinks");
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("thread-locals", "resources", "security-sinks");
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =

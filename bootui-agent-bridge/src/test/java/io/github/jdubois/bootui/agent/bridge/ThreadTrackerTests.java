@@ -59,7 +59,9 @@ class ThreadTrackerTests {
                 assertThat(report.frames).isEqualTo(9L);
                 assertThat(report.get()).as("a report never holds the thread").isNull();
             });
-            assertThat(tracker.size()).as("threads are forgotten at their request's end").isZero();
+            assertThat(tracker.size())
+                    .as("threads are forgotten at their request's end")
+                    .isZero();
             assertThat(tracker.anyWaiting()).isFalse();
         } finally {
             release.countDown();
@@ -75,14 +77,16 @@ class ThreadTrackerTests {
             track(leaked, false, REQUEST);
             track(closed, false, REQUEST);
             tracker.shutdown(closed, false, GENERATION, reports);
-            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                    .isEqualTo(ThreadTracker.EXECUTOR_SHUT_DOWN));
+            assertThat(reports)
+                    .singleElement()
+                    .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_SHUT_DOWN));
             reports.clear();
 
             end(GENERATION, REQUEST);
 
-            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                    .isEqualTo(ThreadTracker.EXECUTOR_LEFT_RUNNING));
+            assertThat(reports)
+                    .singleElement()
+                    .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_LEFT_RUNNING));
             reports.clear();
             tracker.shutdown(leaked, false, GENERATION, reports);
             tracker.shutdown(leaked, false, GENERATION, reports);
@@ -106,8 +110,9 @@ class ThreadTrackerTests {
 
         tracker.shutdown(executor, true, GENERATION, reports);
 
-        assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                .isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
+        assertThat(reports)
+                .singleElement()
+                .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
     }
 
     @Test
@@ -115,9 +120,7 @@ class ThreadTrackerTests {
         Thread thread = new Thread(() -> {});
         assertThat(track(thread, true, 0L)).isFalse();
         end(GENERATION, REQUEST);
-        assertThat(track(thread, true, REQUEST))
-                .as("its request already ended")
-                .isFalse();
+        assertThat(track(thread, true, REQUEST)).as("its request already ended").isFalse();
         assertThat(tracker.afterEnd.sum()).isEqualTo(1L);
         assertThat(reports).isEmpty();
     }
@@ -154,8 +157,9 @@ class ThreadTrackerTests {
             assertThat(tracker.anyWaiting()).isTrue();
 
             tracker.processEnds(GENERATION, System.nanoTime() + 120_000_000_000L, 60_000_000_000L, reports);
-            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                    .isEqualTo(ThreadTracker.THREAD_LEFT_RUNNING));
+            assertThat(reports)
+                    .singleElement()
+                    .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.THREAD_LEFT_RUNNING));
         } finally {
             release.countDown();
             running.join();
@@ -213,8 +217,9 @@ class ThreadTrackerTests {
             tracker.expunge(reports);
             Thread.sleep(20);
         }
-        assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
-                .isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
+        assertThat(reports)
+                .singleElement()
+                .satisfies(report -> assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_RECLAIMED));
         assertThat(tracker.size()).isZero();
         assertThat(tracker.anyWaiting()).isFalse();
     }
