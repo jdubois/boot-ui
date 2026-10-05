@@ -112,6 +112,9 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
+    /** The request attribute marking a request whose values the BootUI agent's request value holder holds. */
+    static final String REQUEST_VALUES_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".requestValues";
+
     /** The request attribute holding the request's {@link CorrelationContext}, for its async redispatches. */
     public static final String CORRELATION_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".correlation";
 
@@ -179,15 +182,15 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     /**
      * Removes the request's values from the BootUI agent's request value holder where its response really completes
      * ({@code docs/PLAN-v2.md} §5.16, M5-6b): here for a synchronous request, and when the async cycle completes, fails,
-     * or times out for one that started async processing, so no value outlives the response. Only while request-value
-     * matching is configured. Never throws, so neither the fragment's end nor the chain's own exception is lost.
+     * or times out for one that started async processing, so no value outlives the response. Only for a request
+     * whose values were pushed ({@link #REQUEST_VALUES_ATTRIBUTE}), whatever the setting is now. Never throws, so neither the fragment's end nor the chain's own exception is lost.
      */
     static void endRequestValues(HttpServletRequest request, CorrelationContext correlation) {
-        if (!AgentRequestValues.enabled()) {
-            return;
-        }
         String requestId = correlation.requestId();
         try {
+            if (request.getAttribute(REQUEST_VALUES_ATTRIBUTE) == null) {
+                return;
+            }
             if (request.isAsyncStarted()) {
                 request.getAsyncContext().addListener(new RequestValuesEnd(requestId));
                 return;

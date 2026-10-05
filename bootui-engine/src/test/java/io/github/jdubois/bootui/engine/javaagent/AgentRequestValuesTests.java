@@ -132,9 +132,10 @@ class AgentRequestValuesTests {
 
     private static void sensor(boolean on) {
         try {
-            Method sensor = RequestValues.class.getDeclaredMethod("sensor", boolean.class);
+            Method sensor = RequestValues.class.getDeclaredMethod("sensor", boolean.class, long.class);
             sensor.setAccessible(true);
-            sensor.invoke(null, on);
+            Object claim = AgentBridge.status().get("claim");
+            sensor.invoke(null, on, (Long) ((Map<?, ?>) claim).get("generation"));
         } catch (ReflectiveOperationException ex) {
             throw new IllegalStateException(ex);
         }

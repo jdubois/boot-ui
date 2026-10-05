@@ -103,10 +103,44 @@ class RequestValuesMvcTests {
 
         filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
             requestId.set(BootUiCorrelation.current().requestId());
-            assertThat(FakeRequestValues.CALLS).isEmpty();
+            RequestPhaseInterceptor.pushRequestValues(withQuery((MockHttpServletRequest) req));
         });
 
-        assertThat(FakeRequestValues.CALLS).containsExactly("end " + requestId.get());
+        assertThat(FakeRequestValues.CALLS).containsExactly("begin " + requestId.get(), "end " + requestId.get());
+    }
+
+    @Test
+    void aChainThatThrowsStillEndsItsValues() {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/search");
+        AtomicReference<String> requestId = new AtomicReference<>();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+                            requestId.set(BootUiCorrelation.current().requestId());
+                            RequestPhaseInterceptor.pushRequestValues(withQuery((MockHttpServletRequest) req));
+                            throw new IllegalStateException("boom");
+                        }))
+                .hasMessageContaining("boom");
+
+        assertThat(FakeRequestValues.CALLS).containsExactly("begin " + requestId.get(), "end " + requestId.get());
+    }
+
+    @Test
+    void aRequestWhoseValuesWereNeverPushedEndsNothing() throws Exception {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+
+        filter.doFilter(
+                new MockHttpServletRequest("GET", "/api/search"), new MockHttpServletResponse(), (req, res) -> {});
+
+        assertThat(FakeRequestValues.CALLS).isEmpty();
+    }
+
+    private static MockHttpServletRequest withQuery(MockHttpServletRequest request) {
+        request.setQueryString("name=alice");
+        return request;
     }
 
     @Test
@@ -120,15 +154,24 @@ class RequestValuesMvcTests {
 
         filter.doFilter(request, response, (req, res) -> {
             requestId.set(BootUiCorrelation.current().requestId());
+            RequestPhaseInterceptor.pushRequestValues(withQuery((MockHttpServletRequest) req));
             req.startAsync();
         });
 
-        assertThat(FakeRequestValues.CALLS).as("still running").isEmpty();
+        assertThat(FakeRequestValues.CALLS).as("still running").containsExactly("begin " + requestId.get());
         MockAsyncContext async = (MockAsyncContext) request.getAsyncContext();
         for (AsyncListener listener : async.getListeners()) {
+            listener.onTimeout(new AsyncEvent(async));
+            listener.onError(new AsyncEvent(async));
             listener.onComplete(new AsyncEvent(async));
         }
-        assertThat(FakeRequestValues.CALLS).containsExactly("end " + requestId.get());
+        assertThat(FakeRequestValues.CALLS)
+                .as("ended on timeout, error, and completion alike; ending twice is harmless")
+                .containsExactly(
+                        "begin " + requestId.get(),
+                        "end " + requestId.get(),
+                        "end " + requestId.get(),
+                        "end " + requestId.get());
     }
 
     /** A request whose parameters must never be read by BootUI. */

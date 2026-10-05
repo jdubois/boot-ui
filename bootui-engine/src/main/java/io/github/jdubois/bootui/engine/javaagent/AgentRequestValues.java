@@ -93,24 +93,27 @@ public final class AgentRequestValues {
     }
 
     /** Pushes {@code values}' pairs for the request {@code requestId}; see {@link #begin(String, Values, Map, String[])}. */
-    public static void begin(String requestId, Values values) {
-        begin(requestId, values, null, null);
+    public static boolean begin(String requestId, Values values) {
+        return begin(requestId, values, null, null);
     }
 
     /**
      * Pushes {@code values}' pairs for the request {@code requestId}, and {@code late}, a map whose values under
      * {@code lateKeys} that are maps of names to values the bridge reads at the request's first check (WebFlux's path
-     * variables, set after this push). Does nothing unless {@link #active()}. Never throws.
+     * variables, set after this push). Does nothing unless {@link #active()}. Returns whether the holder now holds an
+     * entry for the request, which {@link #end} must then remove. Never throws.
      */
-    public static void begin(String requestId, Values values, Map<?, ?> late, String[] lateKeys) {
+    public static boolean begin(String requestId, Values values, Map<?, ?> late, String[] lateKeys) {
         MethodHandle begin = handles.begin;
         if (begin == null || requestId == null || values == null || !active()) {
-            return;
+            return false;
         }
         try {
-            int ignored = (int) begin.invokeExact(requestId, values.names(), values.values(), late, lateKeys);
+            int held = (int) begin.invokeExact(requestId, values.names(), values.values(), late, lateKeys);
+            return held >= 0;
         } catch (Throwable ex) {
             // The agent never fails a request.
+            return false;
         }
     }
 

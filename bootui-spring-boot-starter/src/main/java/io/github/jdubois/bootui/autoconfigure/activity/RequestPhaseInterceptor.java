@@ -54,8 +54,8 @@ public final class RequestPhaseInterceptor implements HandlerInterceptor {
             AgentRequestValues.Values values = new AgentRequestValues.Values()
                     .addSingle((Map<?, ?>) request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE))
                     .addQuery(request.getQueryString());
-            if (!values.isEmpty()) {
-                AgentRequestValues.begin(correlation.requestId(), values);
+            if (!values.isEmpty() && AgentRequestValues.begin(correlation.requestId(), values)) {
+                request.setAttribute(RequestCorrelationFilter.REQUEST_VALUES_ATTRIBUTE, Boolean.TRUE);
             }
         } catch (RuntimeException | LinkageError ex) {
             // Request-value matching is diagnostics only; the request continues untouched.

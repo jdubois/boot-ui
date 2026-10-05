@@ -59,16 +59,30 @@ class RequestValuesTests {
         assertThat(RequestValues.begin(REQUEST, names("name"), values("alice"), null, null))
                 .isEqualTo(-1);
 
-        RequestValues.sensor(true);
+        RequestValues.sensor(true, claimGeneration());
         assertThat(RequestValues.active()).isTrue();
         assertThat(RequestValues.begin(REQUEST, names("name"), values("alice"), null, null))
                 .isEqualTo(1);
         assertThat(RequestValues.live()).isEqualTo(1);
 
-        RequestValues.sensor(false);
+        RequestValues.sensor(false, 0L);
         assertThat(RequestValues.live())
                 .as("the sensor going off wipes the table")
                 .isZero();
+    }
+
+    @Test
+    void theSensorIsOnOnlyForTheClaimItWasEnabledFor() {
+        on();
+        assertThat(RequestValues.active()).isTrue();
+        claim();
+        assertThat(RequestValues.active())
+                .as("a later claim that did not enable the sensor")
+                .isFalse();
+        assertThat(RequestValues.begin(REQUEST, names("name"), values("alice"), null, null))
+                .isEqualTo(-1);
+        RequestValues.sensor(true, claimGeneration());
+        assertThat(RequestValues.active()).isTrue();
     }
 
     @Test
@@ -193,6 +207,7 @@ class RequestValuesTests {
 
         claim();
         assertThat(RequestValues.live()).as("a newer generation").isZero();
+        RequestValues.sensor(true, claimGeneration());
         RequestValues.begin(REQUEST, names("name"), values("alice"), null, null);
         assertThat(RequestValues.live()).isEqualTo(1);
 
@@ -241,7 +256,14 @@ class RequestValuesTests {
         int mask = RequestValues.match("alpha bravo charlie delta", RequestValues.SINK_COMMAND, null, names);
 
         assertThat(mask).isEqualTo(0b1111);
-        assertThat(Arrays.copyOf(names, 4)).containsExactly("user[name]", "param#2", "param#3", "param#4");
+        assertThat(Arrays.copyOf(names, 4))
+                .containsExactly(
+                        "user[name]",
+                        RequestValues.fallbackName("<script>"),
+                        "param#0000",
+                        RequestValues.fallbackName("x".repeat(65)));
+        assertThat(names[1]).as("stable across requests, never the name itself").startsWith("param#");
+        assertThat(String.join("", names[1], names[3])).doesNotContain("script").doesNotContain("xxxx");
     }
 
     @Test
@@ -266,6 +288,15 @@ class RequestValuesTests {
         assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, null))
                 .isZero();
         assertThat(spans[RequestValues.S_FLAGS]).isEqualTo(RequestValues.F_REPEATED);
+        assertThat(RequestValues.redact("q 'alice'", spans, new String[RequestValues.MAX_VALUES]))
+                .as("a check that compared nothing keeps no text")
+                .isNull();
+        for (int i = 0; i < 2 * RequestValues.MAX_CHECKS; i++) {
+            RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, null);
+        }
+        assertThat(RequestValues.status().get("stopped"))
+                .as("a statement repeated in a loop spends no check")
+                .isEqualTo(0L);
         assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_FILE, spans, null))
                 .as("another kind of sink")
                 .isEqualTo(1);
@@ -295,7 +326,7 @@ class RequestValuesTests {
         String big = "z".repeat(RequestValues.MAX_SCAN);
         int checks = 0;
         while (checks < 20) {
-            RequestValues.match(big + checks, RequestValues.SINK_SQL, spans, null);
+            RequestValues.match(checks + big, RequestValues.SINK_SQL, spans, null);
             if ((spans[RequestValues.S_FLAGS] & RequestValues.F_STOPPED) != 0) {
                 break;
             }
@@ -439,16 +470,53 @@ class RequestValuesTests {
         }
     }
 
+    @Test
+    void anApplicationMapIsNeverReadAsALateSource() {
+        on();
+        context.set(owner(REQUEST, null));
+        Map<String, Object> attributes = new ConcurrentHashMap<>() {
+            @Override
+            public Object get(Object key) {
+                throw new AssertionError("an application map was read");
+            }
+        };
+        RequestValues.begin(REQUEST, names("q"), values("query"), attributes, new String[] {"vars"});
+
+        assertThat(RequestValues.match("query", RequestValues.SINK_URL, null, null))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void aShortSpansArrayMarksTheCheckOverflowedSoNoTextIsKept() {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("name"), values("alice"), null, null);
+        int[] spans = new int[4];
+        String[] names = new String[RequestValues.MAX_VALUES];
+
+        assertThat(RequestValues.match("'alice'", RequestValues.SINK_SQL, spans, names))
+                .isEqualTo(1);
+        assertThat(spans[RequestValues.S_FLAGS] & RequestValues.F_OVERFLOW).isNotZero();
+        assertThat(RequestValues.redact("'alice'", spans, names)).isNull();
+        assertThat(RequestValues.redact("'alice'", new int[] {9, 0, 0, 0, 5}, names))
+                .as("malformed spans never throw")
+                .isNull();
+    }
+
     private void on() {
         claim();
-        RequestValues.sensor(true);
+        RequestValues.sensor(true, claimGeneration());
+    }
+
+    private static long claimGeneration() {
+        return (Long) ((Map<?, ?>) AgentBridge.status().get("claim")).get("generation");
     }
 
     /** A claim with the processes sensor enabled, so adapter scopes and handoffs push owner slots. */
     private void onWithSlots() {
         claim(List.of(SideEffects.PROCESSES));
         SideEffects.enable(SideEffects.MASK_PROCESSES);
-        RequestValues.sensor(true);
+        RequestValues.sensor(true, claimGeneration());
     }
 
     private void claim() {

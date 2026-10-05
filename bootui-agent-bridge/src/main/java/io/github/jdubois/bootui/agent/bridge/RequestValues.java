@@ -129,8 +129,14 @@ public final class RequestValues {
     /** Entries holding a request, so a check returns at once while none does. */
     private static final AtomicInteger LIVE = new AtomicInteger();
 
-    /** Whether the {@code security-sinks} sensor is installed and enabled for the current claim. */
-    private static volatile boolean sensorOn;
+    /**
+     * The claim generation the {@code security-sinks} sensor was enabled for, or {@link Long#MIN_VALUE}: tied to a
+     * generation, so a later claim that does not ask for the sensor never finds it on.
+     */
+    private static volatile long sensorGeneration = Long.MIN_VALUE;
+
+    /** How long {@link #lock} waits for an entry before taking it over, as from a thread that died holding it. */
+    static final long LOCK_WAIT_NANOS = 100_000_000L;
 
     /** The claim generation the table's entries belong to. */
     private static volatile long tableGeneration = Long.MIN_VALUE;
@@ -153,6 +159,7 @@ public final class RequestValues {
     private static final LongAdder BUSY = new LongAdder();
     private static final LongAdder REFUSED_HANDOFF = new LongAdder();
     private static final LongAdder REFUSED_EXECUTION = new LongAdder();
+    private static final LongAdder FORCED = new LongAdder();
     private static final LongAdder ERRORS = new LongAdder();
 
     private RequestValues() {}
@@ -190,20 +197,28 @@ public final class RequestValues {
      * enabled, and a claim is armed. A volatile read and the claim's; never throws.
      */
     public static boolean active() {
-        if (!sensorOn) {
+        long sensor = sensorGeneration;
+        if (sensor == Long.MIN_VALUE) {
             return false;
         }
         Claim claim = AgentBridge.current();
-        return claim != null && claim.armed && claim.generation == tableGeneration;
+        return claim != null && claim.armed && claim.generation == sensor && claim.generation == tableGeneration;
     }
 
-    /** The {@code security-sinks} sensor was enabled or disabled: going off wipes every entry. */
-    static void sensor(boolean on) {
-        sensorOn = on;
-        if (!on) {
-            wipeAll();
+    /**
+     * The {@code security-sinks} sensor was enabled for the claim of {@code generation}, or disabled: going off wipes
+     * every entry. Never throws.
+     */
+    static void sensor(boolean on, long generation) {
+        try {
+            sensorGeneration = on ? generation : Long.MIN_VALUE;
+            if (!on) {
+                wipeAll();
+            }
+            refresh();
+        } catch (Throwable ex) {
+            ERRORS.increment();
         }
-        refresh();
     }
 
     /**
@@ -241,6 +256,10 @@ public final class RequestValues {
             if (request == 0L) {
                 return -1;
             }
+            if (late != null && !jdkType(late)) {
+                // Only a JDK map is ever read later, on a sink's thread: never an application's implementation.
+                late = null;
+            }
             long now = System.nanoTime();
             sweep(now);
             long generation = tableGeneration;
@@ -276,6 +295,11 @@ public final class RequestValues {
                     entry.late = late;
                     entry.lateKeys = lateKeys;
                 }
+                if (entry.generation != tableGeneration || entry.generation != sensorGeneration) {
+                    // A claim change or the sensor going off raced this push: its wipe may have passed this entry.
+                    wipe(index);
+                    return -1;
+                }
                 return entry.count;
             } finally {
                 unlock(index);
@@ -299,6 +323,7 @@ public final class RequestValues {
             if (request == 0L) {
                 return;
             }
+            sweep(System.nanoTime());
             for (int i = 0; i < ENTRIES; i++) {
                 if (REQUESTS.get(i) == request) {
                     lock(i);
@@ -400,9 +425,20 @@ public final class RequestValues {
             return;
         }
         entry.values[entry.count] = value;
-        entry.names[entry.count] = validName(name) ? name : null;
+        entry.names[entry.count] = validName(name) ? name : fallbackName(name);
         entry.count++;
         KEPT.increment();
+    }
+
+    /**
+     * The name shown for a parameter whose own name is not kept: {@code param#} and four hexadecimal digits of the
+     * name's hash, so the same parameter gets the same name in every request without showing it; {@code param#0000}
+     * for a value without a name.
+     */
+    static String fallbackName(String name) {
+        int hash = name == null ? 0 : (name.hashCode() & 0xFFFF);
+        String hex = Integer.toHexString(hash);
+        return "param#" + "0000".substring(hex.length()) + hex;
     }
 
     /** Whether {@code name} is kept for display: 1 to {@value #MAX_NAME} characters of {@code [A-Za-z0-9_.\-\[\]]}. */
@@ -444,7 +480,7 @@ public final class RequestValues {
             spans[S_COUNT] = 0;
             spans[S_FLAGS] = 0;
         }
-        if (LIVE.get() == 0 || text == null || !sensorOn) {
+        if (LIVE.get() == 0 || text == null || sensorGeneration == Long.MIN_VALUE) {
             return 0;
         }
         try {
@@ -452,7 +488,10 @@ public final class RequestValues {
                 return 0;
             }
             Claim claim = AgentBridge.current();
-            if (claim == null || !claim.armed || claim.generation != tableGeneration) {
+            if (claim == null
+                    || !claim.armed
+                    || claim.generation != tableGeneration
+                    || claim.generation != sensorGeneration) {
                 return 0;
             }
             long request = callerRequest(claim);
@@ -472,6 +511,10 @@ public final class RequestValues {
 
     private static int compare(
             int index, long request, long generation, String text, int kind, int[] spans, String[] names) {
+        boolean partial = text.length() > MAX_SCAN;
+        String scanned = partial ? text.substring(0, MAX_SCAN) : text;
+        long hash = textHash(text, scanned, kind);
+        boolean spansFit = spans == null || spans.length >= SPANS_LENGTH;
         if (!tryLock(index)) {
             return busy(spans);
         }
@@ -511,19 +554,17 @@ public final class RequestValues {
             if (entry.stopped) {
                 return flag(spans, F_STOPPED);
             }
-            if (++entry.checks > MAX_CHECKS) {
-                entry.stopped = true;
-                STOPPED.increment();
-                return flag(spans, F_STOPPED);
-            }
-            boolean partial = text.length() > MAX_SCAN;
-            String scanned = partial ? text.substring(0, MAX_SCAN) : text;
-            long hash = ((long) kind << 56) ^ ((long) text.length() << 32) ^ (text.hashCode() & 0xFFFFFFFFL);
+            // Before the budgets: a statement repeated in a loop costs neither a check nor comparisons.
             for (int i = 0; i < entry.hashCount && i < HASHES; i++) {
                 if (entry.hashes[i] == hash) {
                     REPEATED.increment();
                     return flag(spans, F_REPEATED);
                 }
+            }
+            if (++entry.checks > MAX_CHECKS) {
+                entry.stopped = true;
+                STOPPED.increment();
+                return flag(spans, F_STOPPED);
             }
             long cost = (long) scanned.length() * entry.count;
             if (entry.comparisons + cost > MAX_COMPARISONS) {
@@ -537,7 +578,7 @@ public final class RequestValues {
             CHECKS.increment();
             mask = 0;
             int written = 0;
-            int flags = partial ? F_PARTIAL : 0;
+            int flags = (partial ? F_PARTIAL : 0) | (spansFit ? 0 : F_OVERFLOW);
             for (int i = 0; i < entry.count; i++) {
                 String value = entry.values[i];
                 int from = 0;
@@ -584,12 +625,26 @@ public final class RequestValues {
             if (found != null) {
                 for (int i = 0; i < MAX_VALUES && i < names.length; i++) {
                     if ((mask & (1 << i)) != 0) {
-                        names[i] = found[i] != null ? found[i] : "param#" + (i + 1);
+                        names[i] = found[i] != null ? found[i] : fallbackName(null);
                     }
                 }
             }
         }
         return mask;
+    }
+
+    /**
+     * A sink text's repeat key: its kind, its length, and the hash of its scanned prefix (the {@code String}'s own
+     * cached hash when the whole text is scanned), computed outside any lock.
+     */
+    static long textHash(String text, String scanned, int kind) {
+        int hash = scanned.hashCode();
+        return ((long) kind << 56) ^ ((long) text.length() << 32) ^ (hash & 0xFFFFFFFFL);
+    }
+
+    /** Whether {@code value}'s class is the JDK's (loaded by the bootstrap class loader). */
+    private static boolean jdkType(Object value) {
+        return value.getClass().getClassLoader() == null;
     }
 
     private static int busy(int[] spans) {
@@ -610,14 +665,22 @@ public final class RequestValues {
      * holds a map yet.
      */
     private static Object[] pull(Map<?, ?> late, String[] keys) {
-        if (keys == null) {
+        if (keys == null || !Reentrancy.enter()) {
             return null;
         }
+        try {
+            return pullGuarded(late, keys);
+        } finally {
+            Reentrancy.exit();
+        }
+    }
+
+    private static Object[] pullGuarded(Map<?, ?> late, String[] keys) {
         Object[] pairs = null;
         int pairCount = 0;
         for (int k = 0; k < keys.length; k++) {
             Object found = keys[k] == null ? null : late.get(keys[k]);
-            if (!(found instanceof Map)) {
+            if (!(found instanceof Map) || !jdkType(found)) {
                 continue;
             }
             if (pairs == null) {
@@ -686,13 +749,27 @@ public final class RequestValues {
      * the caller keeps no text at all (fails closed). {@code spans} and {@code names} are what {@link #match} wrote.
      */
     public static String redact(String text, int[] spans, String[] names) {
-        if (text == null || spans == null || spans.length <= S_FLAGS) {
+        try {
+            return redactChecked(text, spans, names);
+        } catch (Throwable ex) {
+            ERRORS.increment();
             return null;
         }
-        if ((spans[S_FLAGS] & (F_OVERFLOW | F_PARTIAL)) != 0) {
+    }
+
+    private static String redactChecked(String text, int[] spans, String[] names) {
+        if (text == null || spans == null || spans.length < SPANS_LENGTH) {
             return null;
         }
-        int count = Math.min(spans[S_COUNT], MAX_SPANS);
+        if (spans[S_FLAGS] != 0) {
+            // Partial, overflowed, or not compared at all (stopped, repeated, busy): the spans may not cover every
+            // occurrence, so no text is kept.
+            return null;
+        }
+        int count = spans[S_COUNT];
+        if (count <= 0 || count > MAX_SPANS) {
+            return null;
+        }
         int[] order = new int[count];
         for (int i = 0; i < count; i++) {
             order[i] = i;
@@ -723,9 +800,10 @@ public final class RequestValues {
             if (start >= position) {
                 out.append(text, position, start);
                 String name = names != null && index >= 0 && index < names.length ? names[index] : null;
-                out.append('{')
-                        .append(name != null ? name : "param#" + (index + 1))
-                        .append('}');
+                if (name == null) {
+                    return null;
+                }
+                out.append('{').append(name).append('}');
             }
             position = end;
         }
@@ -782,8 +860,19 @@ public final class RequestValues {
 
     /** Spins for the entry's lock, held only for bounded JDK string work by another thread. */
     private static void lock(int index) {
+        if (LOCKS.compareAndSet(index, FREE, LOCKED)) {
+            return;
+        }
+        long deadline = System.nanoTime() + LOCK_WAIT_NANOS;
         int spins = 0;
         while (!LOCKS.compareAndSet(index, FREE, LOCKED)) {
+            if (System.nanoTime() - deadline > 0L) {
+                // Its holder does bounded string work only: one that held it this long died inside, as of a stack
+                // overflow in its unlock, so the entry is taken over rather than ever blocking a request or a claim.
+                LOCKS.set(index, LOCKED);
+                FORCED.increment();
+                return;
+            }
             if (++spins < 64) {
                 Thread.onSpinWait();
             } else {
@@ -822,6 +911,7 @@ public final class RequestValues {
             map.put("busy", Long.valueOf(BUSY.sum()));
             map.put("refusedHandoff", Long.valueOf(REFUSED_HANDOFF.sum()));
             map.put("refusedExecution", Long.valueOf(REFUSED_EXECUTION.sum()));
+            map.put("lockTakeovers", Long.valueOf(FORCED.sum()));
             map.put("errors", Long.valueOf(ERRORS.sum()));
         } catch (Throwable ex) {
             ERRORS.increment();
@@ -836,7 +926,7 @@ public final class RequestValues {
 
     /** Tests only: every entry wiped, the gate closed, and the counters reset. */
     static void reset() {
-        sensorOn = false;
+        sensorGeneration = Long.MIN_VALUE;
         wipeAll();
         tableGeneration = Long.MIN_VALUE;
         LongAdder[] adders = {
@@ -858,6 +948,7 @@ public final class RequestValues {
             BUSY,
             REFUSED_HANDOFF,
             REFUSED_EXECUTION,
+            FORCED,
             ERRORS
         };
         for (int i = 0; i < adders.length; i++) {
