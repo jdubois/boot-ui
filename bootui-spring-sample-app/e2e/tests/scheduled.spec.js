@@ -8,6 +8,6 @@ test.describe('Scheduled tasks view', () => {
     await expect(page.locator('text=Loading…')).toHaveCount(0)
 
     await expect(page.locator('table tbody tr', {hasText: 'FIXED_RATE'})).toBeVisible()
-    await expect(page.locator('table tbody tr', {hasText: '30 s'})).toBeVisible()
+    await expect(page.locator('table tbody tr', {hasText: '300 s'})).toBeVisible()
   })
 })
