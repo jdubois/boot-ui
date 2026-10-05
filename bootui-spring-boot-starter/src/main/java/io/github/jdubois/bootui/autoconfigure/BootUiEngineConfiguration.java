@@ -576,7 +576,7 @@ public class BootUiEngineConfiguration {
     }
 
     /**
-     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a): routes the agent's side-effect records of this run's claim into
+     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a, M5-5c): routes the agent's side-effect records of this run's claim into
      * bounded rows per sensor, attributed to their request's route through HTTP Exchanges, under the agent evidence
      * contract (M5-11), which gates its reads by its panel and HTTP Exchanges and clears it with the journal. The {@link AgentClaimOwner}
      * starts it once the context refreshed; it is closed with the context.
@@ -590,7 +590,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
             AgentEvidence evidence,
-            org.springframework.core.env.Environment environment) {
+            org.springframework.core.env.Environment environment,
+            org.springframework.context.ApplicationContext applicationContext) {
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -616,7 +617,24 @@ public class BootUiEngineConfiguration {
         service.setNetworkCapture(JournalNetworkCapture.of(journal.getIfAvailable()));
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(environment::getProperty);
+        // Only Spring WebFlux on Reactor Netty serves requests on event loops: elsewhere (Spring MVC, WebFlux on a
+        // servlet container, no web server) the blocking sensor is not applicable until a WebClient's Reactor Netty
+        // loop
+        // is registered (M5-5c). Asked on each read, as the server starts after this lazy bean may be created.
+        service.setServerEventLoops(() -> nettyServer(applicationContext));
         return service;
+    }
+
+    /** Whether the application's web server is Reactor Netty's, which runs event loops; an unknown one counts as one. */
+    static boolean nettyServer(org.springframework.context.ApplicationContext applicationContext) {
+        if (!(applicationContext instanceof ReactiveWebApplicationContext)) {
+            return false;
+        }
+        if (applicationContext instanceof org.springframework.boot.web.server.context.WebServerApplicationContext web) {
+            org.springframework.boot.web.server.WebServer server = web.getWebServer();
+            return server == null || server.getClass().getName().contains("Netty");
+        }
+        return true;
     }
 
     /**
