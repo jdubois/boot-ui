@@ -16,6 +16,15 @@ public final class ThrowableMarks {
 
     private static final ThrowableMarks NONE = new ThrowableMarks(new int[0]);
 
+    /**
+     * Whether marks are taken: only while the caught-exceptions sensor's records are routed into the journal, so an
+     * application without it pays nothing for a logged or reported throwable.
+     */
+    private static volatile boolean enabled;
+
+    private static final java.util.concurrent.atomic.AtomicInteger USERS =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     private final int[] identities;
 
     private ThrowableMarks(int[] identities) {
@@ -25,12 +34,36 @@ public final class ThrowableMarks {
     /**
      * The marks of {@code thrown}, breadth first over causes and suppressed throwables as the agent walks them, cycles
      * cut by identity; {@code null} for a {@code null} throwable. A {@code getCause()} or {@code getSuppressed()} that
-     * throws ends its branch. Never throws.
+     * throws ends its branch. {@code null} too while marks are not taken ({@link #enable}). Never throws but a
+     * {@link VirtualMachineError}.
      */
     public static ThrowableMarks of(Throwable thrown) {
-        if (thrown == null) {
+        if (thrown == null || !enabled) {
             return null;
         }
+        return mark(thrown);
+    }
+
+    /**
+     * Takes marks from now on, until every caller released it: each routing of the caught-exceptions sensor's records
+     * retains it once, so an old run's release during a DevTools restart never stops the new run's marks.
+     */
+    public static void retain() {
+        enabled = USERS.incrementAndGet() > 0;
+    }
+
+    /** Releases one {@link #retain()}. */
+    public static void release() {
+        enabled = USERS.decrementAndGet() > 0;
+    }
+
+    /** Whether marks are taken now. */
+    public static boolean enabled() {
+        return enabled;
+    }
+
+    /** The marks of {@code thrown}, whether marks are taken or not, for tests. */
+    static ThrowableMarks mark(Throwable thrown) {
         Throwable[] seen = new Throwable[MAX];
         Throwable[] queue = new Throwable[MAX];
         int[] marks = new int[MAX];
@@ -60,7 +93,9 @@ public final class ThrowableMarks {
                         queue[tail++] = suppressed[i];
                     }
                 }
-            } catch (RuntimeException | LinkageError ex) {
+            } catch (VirtualMachineError ex) {
+                throw ex;
+            } catch (Throwable ex) {
                 // An application's throwable whose chain cannot be read: its branch ends here.
             }
         }

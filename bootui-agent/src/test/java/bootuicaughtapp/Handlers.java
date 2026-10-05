@@ -208,6 +208,73 @@ public class Handlers {
         return kept.getMessage().length();
     }
 
+    /** Replaced by another exception that does not keep it as its cause. */
+    public int replaced() {
+        try {
+            throw new IOException("replaced");
+        } catch (IOException ex) {
+            throw new IllegalStateException("replaced by another");
+        }
+    }
+
+    /** Replaced only on one branch: the other returns, so the handler is not read as replacing it. */
+    public int replacedSometimes(boolean strict) {
+        try {
+            throw new IOException("sometimes");
+        } catch (IOException ex) {
+            if (strict) {
+                throw new IllegalStateException("strict");
+            }
+            return 13;
+        }
+    }
+
+    /** A nested try inside the handler jumps over its own handler before handing the exception on. */
+    public java.util.concurrent.CompletableFuture<Integer> nestedThenHandsOn() {
+        java.util.concurrent.CompletableFuture<Integer> result = new java.util.concurrent.CompletableFuture<>();
+        try {
+            throw new IOException("nested then handed on");
+        } catch (IOException ex) {
+            try {
+                counter++;
+            } catch (RuntimeException ignored) {
+                counter--;
+            }
+            result.completeExceptionally(ex);
+        }
+        return result;
+    }
+
+    /** Hands the exception on through an emitter of the application's own, matched by its method's name. */
+    public int emitted(Emitter emitter) {
+        try {
+            throw new IOException("emitted");
+        } catch (IOException ex) {
+            emitter.completeWithError(ex);
+            return 14;
+        }
+    }
+
+    /** Logs through a logger-like type: logging is never read as handing the exception on. */
+    public int logged(AuditLogger audit) {
+        try {
+            throw new IOException("logged");
+        } catch (IOException ex) {
+            audit.error("failed", ex);
+            return 15;
+        }
+    }
+
+    /** An application emitter. */
+    public static class Emitter {
+        public void completeWithError(Throwable failure) {}
+    }
+
+    /** An application logger. */
+    public static class AuditLogger {
+        public void error(String message, Throwable failure) {}
+    }
+
     static void fail(String message) {
         throw new IllegalStateException(message);
     }

@@ -228,7 +228,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                                 phases == null ? null : phases.operationOf(requestId),
                                 status,
                                 resources,
-                                RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+                                RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)),
+                                !threw && request.isAsyncStarted())));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the request it observes.
             }

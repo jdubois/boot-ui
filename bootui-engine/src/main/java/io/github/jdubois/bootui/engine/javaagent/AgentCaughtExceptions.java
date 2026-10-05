@@ -8,9 +8,12 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.ThrowableMarks;
 import io.github.jdubois.bootui.spi.ThreadKind;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,6 +32,11 @@ import java.util.function.Supplier;
  * <p>Framework-neutral; each adapter creates one and starts it once its claim is armed. It starts nothing when the
  * claim did not ask for the sensor or the attached agent predates it. Records of another claim generation, as one
  * still queued from before a DevTools restart or a live reload, are dropped and counted.</p>
+ *
+ * <p>It also listens to the journal for the outcome reads (M5-6a2): each batch's ended requests are passed to the
+ * agent, which then lets their pending exceptions go once they settled; and every loss the evidence suffers, in the
+ * agent or here, is remembered as a time interval, so a read never calls a caught exception "not rethrown or logged"
+ * over a window it may have lost records of.</p>
  */
 public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consumer<long[]>, AutoCloseable {
 
@@ -63,7 +71,25 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
     private final AgentBridgeAccess access;
     private final Supplier<AgentClaim> claims;
     private final LongSupplier clock;
+    /** The most loss intervals remembered; past it, the oldest two merge, so a loss is never forgotten. */
+    static final int MAX_LOSSES = 64;
+
+    /** How often a batch samples the agent's loss count at most. */
+    static final long LOSS_SAMPLE_MILLIS = 200L;
+
+    /** The most ended requests passed to the agent per batch. */
+    static final int MAX_ENDED = RuntimeJournal.BATCH_SIZE;
+
     private final ClearWatermark watermark = new ClearWatermark();
+    /** Loss intervals {@code [from, to]}, by the wall clock, oldest first; guarded by itself. */
+    private final Deque<long[]> losses = new ArrayDeque<>();
+
+    private long lastLossCount = Long.MIN_VALUE;
+    private long lastLossSample = Long.MIN_VALUE;
+    private volatile boolean lossUnaccounted;
+    private final long[] ended = new long[MAX_ENDED];
+    private boolean marking;
+    private volatile boolean executors;
     private volatile RuntimeEventSink sink = RuntimeEventSink.NONE;
     private RuntimeJournal listened;
 
@@ -73,7 +99,7 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
     private final AtomicLong unpublished = new AtomicLong();
     private final AtomicLong unresolved = new AtomicLong();
 
-    private AgentRecordDrainer drainer;
+    private volatile AgentRecordDrainer drainer;
     /** Whether {@link #start()} was asked for before a journal was installed, so the installation starts routing. */
     private boolean startWaiting;
 
@@ -136,8 +162,37 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
             return;
         }
         generation = current.generation();
+        executors = current.sensors().executors();
         drainer = routed;
         routed.route(AgentRecordDrainer.SENSOR_CAUGHT_EXCEPTIONS, this);
+        if (!marking) {
+            marking = true;
+            ThrowableMarks.retain();
+        }
+        sampleLosses();
+    }
+
+    /** Whether the claim also asked for the executors sensor, so work a request hands over is followed. */
+    public boolean executorsRecorded() {
+        return executors;
+    }
+
+    /** Whether this run's records are routed into the journal. */
+    public boolean routing() {
+        return drainer != null;
+    }
+
+    /**
+     * Drains what the agent recorded so far on the calling thread, as before a read: whether a drain ran, false while
+     * nothing is routed.
+     */
+    public boolean drainNow() {
+        AgentRecordDrainer current = drainer;
+        if (current == null) {
+            return false;
+        }
+        current.drainNow();
+        return true;
     }
 
     /** Stops routing. Idempotent. */
@@ -146,6 +201,10 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
         if (drainer != null) {
             drainer.unroute(AgentRecordDrainer.SENSOR_CAUGHT_EXCEPTIONS, this);
             drainer = null;
+        }
+        if (marking) {
+            marking = false;
+            ThrowableMarks.release();
         }
         if (listened != null) {
             listened.removeListener(watermark);
@@ -171,12 +230,14 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
         }
         if (event == null) {
             unresolved.incrementAndGet();
+            lost(record[TIME], record[TIME]);
             return;
         }
         RuntimeEventSink journal = sink;
         // Published from BootUI's drain thread for the application thread that recorded it.
         if (!journal.records(JournalSource.AGENT_CAUGHT_EXCEPTIONS) || !journal.offerAgentRecord(event)) {
             unpublished.incrementAndGet();
+            lost(record[TIME], record[TIME]);
             return;
         }
         published.incrementAndGet();
@@ -359,17 +420,128 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
                 "unresolved", unresolved.get());
     }
 
-    /** Remembers when the journal was last cleared, so records made before it are never published after it. */
+    // ---- losses -----------------------------------------------------------------------------------------------------
+
+    /**
+     * Samples the agent's loss count: a growth since the last sample is a loss somewhere between the two samples. A
+     * bridge that cannot count its losses makes every window unaccounted.
+     */
+    public void sampleLosses() {
+        long now = clock.getAsLong();
+        long count = access.caughtLosses();
+        synchronized (losses) {
+            if (count < 0L) {
+                lossUnaccounted = true;
+                lastLossSample = now;
+                return;
+            }
+            if (lastLossCount != Long.MIN_VALUE && count > lastLossCount) {
+                addLoss(lastLossSample == Long.MIN_VALUE ? now : lastLossSample, now);
+            } else if (lastLossCount == Long.MIN_VALUE && count > 0L) {
+                // Lost before the first sample: since an unknown time.
+                addLoss(Long.MIN_VALUE, now);
+            }
+            lastLossCount = count;
+            lastLossSample = now;
+        }
+    }
+
+    private void lost(long from, long to) {
+        synchronized (losses) {
+            addLoss(from, to);
+        }
+    }
+
+    private void addLoss(long from, long to) {
+        long[] last = losses.peekLast();
+        if (last != null && from <= last[1]) {
+            last[0] = Math.min(last[0], from);
+            last[1] = Math.max(last[1], to);
+            return;
+        }
+        losses.addLast(new long[] {from, to});
+        if (losses.size() > MAX_LOSSES) {
+            long[] oldest = losses.pollFirst();
+            long[] next = losses.peekFirst();
+            next[0] = Math.min(next[0], oldest[0]);
+        }
+    }
+
+    /**
+     * Whether the sensor's evidence may have lost records between {@code from} and {@code to}, by the wall clock, or
+     * cannot tell, as with an agent that does not count its losses.
+     */
+    public boolean lostBetween(long from, long to) {
+        if (lossUnaccounted) {
+            return true;
+        }
+        synchronized (losses) {
+            for (long[] loss : losses) {
+                if (loss[0] <= to && loss[1] >= from) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Whether the attached agent cannot count its losses, so no window is known complete. */
+    public boolean lossUnaccounted() {
+        return lossUnaccounted;
+    }
+
+    /** When the journal was last cleared, by the wall clock, or {@code null} while it was not. */
+    public Long clearedAtMillis() {
+        long at = watermark.clearedAt;
+        return at == Long.MIN_VALUE ? null : at;
+    }
+
+    /**
+     * Listens to the journal: remembers when it was last cleared, so records made before it are never published after
+     * it; passes each batch's ended requests to the agent and lets it sweep; and samples its losses.
+     */
     final class ClearWatermark implements JournalListener {
 
         volatile long clearedAt = Long.MIN_VALUE;
 
         @Override
-        public void onEntries(List<JournalEntry> entries) {}
+        public void onEntries(List<JournalEntry> entries) {
+            if (!routing()) {
+                return;
+            }
+            int count = 0;
+            for (JournalEntry entry : entries) {
+                RuntimeEvent event = entry.event();
+                if (event.source() == JournalSource.HTTP && count < MAX_ENDED) {
+                    long bits = requestBits(event.requestId());
+                    if (bits != 0L) {
+                        ended[count++] = bits;
+                    }
+                }
+            }
+            access.caughtRequestsEnded(ended, count);
+            access.caughtSweep();
+            long now = clock.getAsLong();
+            if (lastLossSample == Long.MIN_VALUE || now - lastLossSample >= LOSS_SAMPLE_MILLIS) {
+                sampleLosses();
+            }
+        }
 
         @Override
         public void onClear() {
             clearedAt = clock.getAsLong();
+        }
+    }
+
+    /** The agent's bits of a request id written as 16 hexadecimal digits, or 0 when it is not one. */
+    static long requestBits(String id) {
+        if (id == null || id.length() != 16) {
+            return 0L;
+        }
+        try {
+            return Long.parseUnsignedLong(id, 16);
+        } catch (NumberFormatException ex) {
+            return 0L;
         }
     }
 }

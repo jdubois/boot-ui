@@ -11,6 +11,9 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
  * @param resources the request's measured resources ({@code docs/PLAN-v2.md} §5.11), or {@code null} when the
  *     {@code resources} source is off
  * @param timing its monotonic start and phases ({@code docs/PLAN-v2.md} §5.5), or {@code null} when unknown
+ * @param asyncStarted whether the request went asynchronous before this event was published, as a Spring MVC
+ *     request whose handler returned a {@code DeferredResult} or a {@code CompletableFuture}: its work outlived the
+ *     event
  */
 public record HttpPayload(
         String method,
@@ -19,8 +22,21 @@ public record HttpPayload(
         String operation,
         int status,
         ResourceUsage resources,
-        RequestTiming timing)
+        RequestTiming timing,
+        boolean asyncStarted)
         implements RuntimeEventPayload {
+
+    /** A synchronous exchange. */
+    public HttpPayload(
+            String method,
+            String path,
+            String routeTemplate,
+            String operation,
+            int status,
+            ResourceUsage resources,
+            RequestTiming timing) {
+        this(method, path, routeTemplate, operation, status, resources, timing, false);
+    }
 
     /** An exchange without its timing. */
     public HttpPayload(
@@ -47,7 +63,8 @@ public record HttpPayload(
                 dictionary.shared(operation),
                 status,
                 resources,
-                timing);
+                timing,
+                asyncStarted);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */

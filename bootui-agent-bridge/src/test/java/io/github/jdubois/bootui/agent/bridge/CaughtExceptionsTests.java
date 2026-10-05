@@ -469,8 +469,13 @@ class CaughtExceptionsTests {
         // A second phase: fillers past the table's size, rethrowers, and claims starting new generations, racing.
         java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
         Thread claimer = new Thread(() -> {
+            long[] ended = new long[1];
             while (!stop.get()) {
                 claim();
+                // The engine's per-batch calls, racing the hooks: request ends and the sweep.
+                ended[0] = REQUEST_BITS;
+                CaughtExceptions.requestsEnded(ended, 1);
+                CaughtExceptions.sweep(System.nanoTime() + CaughtExceptions.ENDED_KEEP_NANOS + 1L);
                 Thread.onSpinWait();
             }
         });
@@ -502,6 +507,44 @@ class CaughtExceptionsTests {
         assertThat(CaughtExceptions.status()).containsEntry("errors", 0L);
         assertThat(kept).hasSize(threads / 2 * rounds * 4);
         assertThat(thrown.get()).isEqualTo((long) threads / 2 * rounds * 4);
+    }
+
+    @Test
+    void anEndedRequestsEntriesStayPendingForTheirKeepThenTheSweepFreesThem() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("ended");
+        IllegalStateException late = new IllegalStateException();
+        IllegalStateException never = new IllegalStateException();
+        CaughtExceptions.caught(late, site);
+        CaughtExceptions.caught(never, site("endedToo"));
+
+        CaughtExceptions.requestsEnded(new long[] {0x99L, REQUEST_BITS}, 2);
+
+        assertThat(CaughtExceptions.endedPending(REQUEST_BITS)).isTrue();
+        assertThat(CaughtExceptions.status()).containsEntry("requestEnded", 2L);
+        // Work the request started still rethrows after its end: recorded, so the engine sees it outlived it.
+        CaughtExceptions.leaving(late, site);
+        assertThat(countTypes(token)[CaughtExceptions.TYPE_THROWN]).isEqualTo(1L);
+        assertThat(CaughtExceptions.pending()).isEqualTo(1);
+        CaughtExceptions.sweep(System.nanoTime());
+        assertThat(CaughtExceptions.pending()).as("kept until its time").isEqualTo(1);
+        CaughtExceptions.sweep(System.nanoTime() + CaughtExceptions.ENDED_KEEP_NANOS + 1_000_000L);
+        assertThat(CaughtExceptions.pending()).isZero();
+        assertThat(CaughtExceptions.liveEntries()).isZero();
+    }
+
+    @Test
+    void aHandlerThatDiscardsWhatItCaughtIsRecordedButNeverPending() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("discards");
+        CaughtExceptions.siteRead(site, CaughtExceptions.SHAPE_DISCARDS, 7);
+
+        CaughtExceptions.caught(new IllegalStateException(), site);
+
+        assertThat(countTypes(token)[CaughtExceptions.TYPE_CAUGHT]).isEqualTo(1L);
+        assertThat(CaughtExceptions.pending()).isZero();
     }
 
     @Test

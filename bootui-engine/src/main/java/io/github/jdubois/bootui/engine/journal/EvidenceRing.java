@@ -63,6 +63,13 @@ final class EvidenceRing {
      */
     private long lostRequestEndMillis = Long.MIN_VALUE;
 
+    /**
+     * Per source, the latest start of any event the ring lost, by the wall clock; {@link Long#MIN_VALUE} while it lost
+     * none of that source. Unlike the loss horizon, it counts events of no unit of work too, such as a log written
+     * outside any request.
+     */
+    private final long[] lostBySource = lostBySource();
+
     /** The most thread names of requests that lost events remembered. */
     static final int MAX_LOST_REQUEST_THREADS = 1_024;
 
@@ -146,7 +153,15 @@ final class EvidenceRing {
 
     /** Moves the loss horizon past {@code event} when it belonged to a request, an execution, or a trace. */
     synchronized void lost(RuntimeEvent event) {
-        if (event == null || (event.requestId() == null && event.executionId() == null && event.traceId() == null)) {
+        if (event == null) {
+            return;
+        }
+        long anyStarted = Math.min(event.epochMillis(), System.currentTimeMillis());
+        int source = event.source().ordinal();
+        if (anyStarted > lostBySource[source]) {
+            lostBySource[source] = anyStarted;
+        }
+        if (event.requestId() == null && event.executionId() == null && event.traceId() == null) {
             return;
         }
         // Never past now: a span from a skewed clock, or a wall clock stepped back, would otherwise hide every request
@@ -189,6 +204,18 @@ final class EvidenceRing {
      */
     synchronized Long lossHorizonMillis() {
         return lossHorizonMillis == Long.MIN_VALUE ? null : lossHorizonMillis;
+    }
+
+    /** The latest start of an event of {@code source} the ring lost, or {@code null} while it lost none. */
+    synchronized Long lostMillis(JournalSource source) {
+        long lost = lostBySource[source.ordinal()];
+        return lost == Long.MIN_VALUE ? null : lost;
+    }
+
+    private static long[] lostBySource() {
+        long[] lost = new long[JournalSource.values().length];
+        java.util.Arrays.fill(lost, Long.MIN_VALUE);
+        return lost;
     }
 
     /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */

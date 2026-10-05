@@ -142,9 +142,20 @@ class CaughtExceptionsVisitTests {
         Map<String, String[]> sites = sites();
 
         assertThat(shapes(sites, "swallowed()I#0#java/io/IOException")).isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        // Straight-line code ending by a throw: a rethrow or a wrap shows it too, and is recorded as rethrown first.
         assertThat(shapes(sites, "rethrows()I#0#java/lang/IllegalStateException"))
+                .isEqualTo(CaughtExceptions.SHAPE_THROWS_NEW);
+        assertThat(shapes(sites, "wraps()I#0#java/io/IOException")).isEqualTo(CaughtExceptions.SHAPE_THROWS_NEW);
+        assertThat(shapes(sites, "replaced()I#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS | CaughtExceptions.SHAPE_THROWS_NEW);
+        assertThat(shapes(sites, "replacedSometimes(Z)I#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        assertThat(shapes(sites, "nestedThenHandsOn()Ljava/util/concurrent/CompletableFuture;#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+        assertThat(shapes(sites, "emitted(Lbootuicaughtapp/Handlers$Emitter;)I#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+        assertThat(shapes(sites, "logged(Lbootuicaughtapp/Handlers$AuditLogger;)I#0#java/io/IOException"))
                 .isZero();
-        assertThat(shapes(sites, "wraps()I#0#java/io/IOException")).isZero();
         assertThat(shapes(sites, "printed()I#0#java/lang/IllegalStateException"))
                 .isEqualTo(CaughtExceptions.SHAPE_PRINTS_STACK_TRACE);
         assertThat(shapes(sites, "interrupted()I#0#java/lang/InterruptedException"))
@@ -161,7 +172,8 @@ class CaughtExceptionsVisitTests {
                 & (CaughtExceptions.SHAPE_DISCARDS
                         | CaughtExceptions.SHAPE_PRINTS_STACK_TRACE
                         | CaughtExceptions.SHAPE_REINTERRUPTS
-                        | CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+                        | CaughtExceptions.SHAPE_PASSES_AS_VALUE
+                        | CaughtExceptions.SHAPE_THROWS_NEW);
     }
 
     @Test

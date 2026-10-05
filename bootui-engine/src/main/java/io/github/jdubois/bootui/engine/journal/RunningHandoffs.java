@@ -27,6 +27,8 @@ public final class RunningHandoffs {
     private final int max;
     private final AtomicLong keys = new AtomicLong();
     private final Map<Long, Running> running = new ConcurrentHashMap<>();
+    /** When the registry last forgot a running handoff to stay bounded, by the wall clock; 0 while it forgot none. */
+    private volatile long forgottenAt;
 
     public RunningHandoffs(int max) {
         this.max = Math.max(1, max);
@@ -69,6 +71,28 @@ public final class RunningHandoffs {
         return running.size();
     }
 
+    /** Whether a handoff of request {@code requestId} is running now, as far as the registry remembers. */
+    public boolean runningFor(String requestId) {
+        if (requestId == null) {
+            return false;
+        }
+        for (Running handoff : running.values()) {
+            if (requestId.equals(handoff.requestId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * When the registry last forgot a running handoff to stay within {@link #MAX_RUNNING}, by the wall clock, or
+     * {@code null} while it forgot none: a reader that judges a request's work over cannot tell after then.
+     */
+    public Long forgottenMillis() {
+        long at = forgottenAt;
+        return at == 0L ? null : at;
+    }
+
     private void forgetOldest() {
         while (running.size() > max) {
             long oldest = Long.MAX_VALUE;
@@ -78,7 +102,9 @@ public final class RunningHandoffs {
             if (oldest == Long.MAX_VALUE) {
                 return;
             }
-            running.remove(oldest);
+            if (running.remove(oldest) != null) {
+                forgottenAt = System.currentTimeMillis();
+            }
         }
     }
 

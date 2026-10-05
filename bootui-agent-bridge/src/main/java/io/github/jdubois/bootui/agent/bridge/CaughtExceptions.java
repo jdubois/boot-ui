@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.agent.bridge;
 
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -88,6 +89,12 @@ public final class CaughtExceptions {
     /** It hands the exception on as an error value: a failed future, an error signal, a failed response. */
     public static final int SHAPE_PASSES_AS_VALUE = 256;
 
+    /**
+     * Site shape: the handler's straight-line code ends by throwing, with no branch on the way, so the caught exception
+     * is replaced by another one (one that keeps it as its cause is seen as a rethrow).
+     */
+    public static final int SHAPE_THROWS_NEW = 512;
+
     /** Class families ({@code CAUGHT} records, payload long 3, bits 0–1). */
     public static final int FAMILY_NONE = 0;
 
@@ -115,6 +122,14 @@ public final class CaughtExceptions {
     static final long SWEEP_MILLIS = 1_000L;
 
     static final long SWEEP_NANOS = SWEEP_MILLIS * 1_000_000L;
+
+    /**
+     * How long an entry stays pending once its request ended: work the request started may still rethrow it, and
+     * that rethrow tells the engine the request's work outlived it.
+     */
+    public static final long ENDED_KEEP_MILLIS = 30_000L;
+
+    static final long ENDED_KEEP_NANOS = ENDED_KEEP_MILLIS * 1_000_000L;
 
     /** Attempts to claim a pending entry another thread briefly owns. */
     static final int OWN_ATTEMPTS = 64;
@@ -170,6 +185,8 @@ public final class CaughtExceptions {
      * entry pending nor expires it early.
      */
     private static final long[] P_NANOS = new long[STRIPES * STRIPE];
+    /** When the entry's request ended, from {@link System#nanoTime()}; {@code 0} while it has not. */
+    private static final long[] P_ENDED = new long[STRIPES * STRIPE];
 
     /** Entries in use: read first by {@link #leaving}, so a throw with nothing pending costs one volatile read. */
     private static final AtomicInteger PENDING = new AtomicInteger();
@@ -219,7 +236,7 @@ public final class CaughtExceptions {
     private static final LongAdder LEAVING = new LongAdder();
     private static final LongAdder APPLICATION_ERRORS = new LongAdder();
     private static final LongAdder SITES_OVER_LIMIT = new LongAdder();
-    /** Pending entries freed because their request ended. */
+    /** Pending entries marked as their request ended. */
     private static final LongAdder ENDED = new LongAdder();
 
     /** Pending matches given up on because another thread held the entry: a rethrow possibly unrecorded. */
@@ -284,7 +301,6 @@ public final class CaughtExceptions {
             }
             CAUGHT.increment();
             long nanos = System.nanoTime();
-            sweep(nanos);
             Object[] scratch = scratch();
             int[] chain = (int[]) scratch[S_CHAIN];
             long[] owner = (long[]) scratch[S_OWNER];
@@ -319,7 +335,10 @@ public final class CaughtExceptions {
             long className = intern(thrown.getClass().getName());
             long threadName = counts[C_THREAD_NAME];
             int identity = chain[0];
-            pend(identity, chain[1], site, owner, claim.generation, nanos);
+            if ((SITE_FLAGS[site] & SHAPE_DISCARDS) == 0) {
+                // A handler that never loads what it caught cannot throw it again: nothing to wait for.
+                pend(identity, chain[1], site, owner, claim.generation, nanos);
+            }
             boolean published = AgentRing.publish(
                     AgentRing.SENSOR_CAUGHT_EXCEPTIONS,
                     TYPE_CAUGHT,
@@ -357,7 +376,6 @@ public final class CaughtExceptions {
                 return;
             }
             long nanos = System.nanoTime();
-            sweep(nanos);
             LEAVING.increment();
             Object[] scratch = scratch();
             int[] chain = (int[]) scratch[S_CHAIN];
@@ -621,7 +639,7 @@ public final class CaughtExceptions {
      */
     public static void flushThread() {
         try {
-            if (!claimedOnce) {
+            if (!active) {
                 return;
             }
             long[] counts = COUNTS.get();
@@ -695,6 +713,7 @@ public final class CaughtExceptions {
         P_KIND[slot] = (int) owner[2];
         P_GENERATION[slot] = current;
         P_NANOS[slot] = nanos;
+        P_ENDED[slot] = 0L;
         if (!evicted) {
             PENDING.incrementAndGet();
         }
@@ -800,14 +819,28 @@ public final class CaughtExceptions {
 
     /** Whether entry {@code i} is of another claim generation than {@code current}, or pending past its time. */
     private static boolean stale(int i, long current, long nanos) {
-        return P_GENERATION[i] != current || nanos - P_NANOS[i] > PENDING_NANOS;
+        long ended = P_ENDED[i];
+        return P_GENERATION[i] != current
+                || nanos - P_NANOS[i] > PENDING_NANOS
+                || (ended != 0L && nanos - ended > ENDED_KEEP_NANOS);
     }
 
     /**
-     * At most once a second, from the hooks: frees every entry of another generation or pending past its time, so a
-     * handled exception does not stay pending, keeping {@link #leaving} on its one-read fast path once nothing is.
+     * At most once a second, called by the engine as it reads the journal: frees every entry of another generation,
+     * pending past its time, or kept past its request's end, so a handled exception does not stay pending, keeping
+     * {@link #leaving} on its one-read fast path once nothing is. Never throws.
      */
-    private static void sweep(long nanos) {
+    public static void sweep() {
+        try {
+            if (PENDING.get() != 0) {
+                sweep(System.nanoTime());
+            }
+        } catch (Throwable ex) {
+            failed(ex);
+        }
+    }
+
+    static void sweep(long nanos) {
         long last = lastSweep;
         if ((last != Long.MIN_VALUE && nanos - last < SWEEP_NANOS) || !SWEEPING.compareAndSet(false, true)) {
             return;
@@ -836,28 +869,65 @@ public final class CaughtExceptions {
     }
 
     /**
-     * The request {@code request} ended, as its adapter published its outcome: its pending identities are freed, since
-     * a throw after its end is no longer its own. Called by the engine. Scans the table only while something is
-     * pending. Never throws.
+     * The first {@code count} requests of {@code requests} ended, as their adapters published their outcome: their
+     * pending entries are marked, and freed {@value #ENDED_KEEP_MILLIS} ms later by {@link #sweep()}. Until then a
+     * rethrow is still recorded, which tells the engine the request's work outlived it. Called by the engine once
+     * per batch of journal events; sorts the array. Scans the table only while something is pending. Never throws.
      */
-    public static void requestEnded(long request) {
+    public static void requestsEnded(long[] requests, int count) {
         try {
-            if (request == 0L || PENDING.get() == 0) {
+            if (requests == null || count <= 0 || PENDING.get() == 0) {
                 return;
             }
+            int n = Math.min(count, requests.length);
+            Arrays.sort(requests, 0, n);
+            long nanos = System.nanoTime();
+            long stamp = nanos == 0L ? 1L : nanos;
             for (int i = 0; i < STRIPES * STRIPE; i++) {
-                if (P_STATE.get(i) == LIVE && P_REQUEST[i] == request && P_STATE.compareAndSet(i, LIVE, OWNED)) {
-                    if (P_REQUEST[i] == request) {
+                if (P_STATE.get(i) != LIVE || P_ENDED[i] != 0L) {
+                    continue;
+                }
+                long request = P_REQUEST[i];
+                if (request == 0L || Arrays.binarySearch(requests, 0, n, request) < 0) {
+                    continue;
+                }
+                if (P_STATE.compareAndSet(i, LIVE, OWNED)) {
+                    if (P_REQUEST[i] == request && P_ENDED[i] == 0L) {
                         ENDED.increment();
-                        PENDING.decrementAndGet();
-                        P_STATE.set(i, FREE);
-                    } else {
-                        P_STATE.set(i, LIVE);
+                        P_ENDED[i] = stamp;
                     }
+                    P_STATE.set(i, LIVE);
                 }
             }
         } catch (Throwable ex) {
             failed(ex);
+        }
+    }
+
+    /** Tests only: whether a live entry of {@code request} is marked as ended. */
+    static boolean endedPending(long request) {
+        for (int i = 0; i < STRIPES * STRIPE; i++) {
+            if (P_STATE.get(i) == LIVE && P_REQUEST[i] == request && P_ENDED[i] != 0L) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Every loss the sensor's evidence can suffer, summed, so the engine notices any growth between two reads: records
+     * the ring dropped or lost (any sensor's, as a torn record cannot be told apart), matches given up on, and strings
+     * the intern table had no room for. Never throws.
+     */
+    public static long losses() {
+        try {
+            return AgentRing.dropped(AgentRing.SENSOR_CAUGHT_EXCEPTIONS)
+                    + AgentRing.lost()
+                    + AgentRing.internOverflow()
+                    + MISSED.sum();
+        } catch (Throwable ex) {
+            failed(ex);
+            return -1L;
         }
     }
 
@@ -1141,6 +1211,7 @@ public final class CaughtExceptions {
         SCRATCH.remove();
         for (int i = 0; i < P_NANOS.length; i++) {
             P_STATE.set(i, FREE);
+            P_ENDED[i] = 0L;
         }
         PENDING.set(0);
         COUNTS.remove();
@@ -1156,7 +1227,8 @@ public final class CaughtExceptions {
             LEAVING,
             APPLICATION_ERRORS,
             SITES_OVER_LIMIT,
-            MISSED
+            MISSED,
+            ENDED
         }) {
             adder.reset();
         }

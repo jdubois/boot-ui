@@ -94,6 +94,31 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         {"io/grpc/stub/StreamObserver", "onError"}
     };
 
+    /**
+     * Method names that hand an exception on as an error value whatever their owner, when their descriptor takes a
+     * {@code Throwable} or an {@code Exception}: subtypes and wrappers of the APIs above ({@code SseEmitter}'s
+     * {@code completeWithError}, a {@code CompletableFuture} subclass, a {@code Sinks.Many} subtype), Micrometer's
+     * {@code Observation.error}, a span's {@code recordException}, Guava's {@code setException}, kotlinx's
+     * {@code completeExceptionally}. Matched by name only, so the visit never resolves a type.
+     */
+    static final String[] PASSES_AS_VALUE_NAMES = {
+        "error",
+        "tryEmitError",
+        "emitError",
+        "completeExceptionally",
+        "failedFuture",
+        "failedStage",
+        "failure",
+        "fail",
+        "setErrorResult",
+        "resume",
+        "onError",
+        "completeWithError",
+        "setException",
+        "recordException",
+        "obtrudeException"
+    };
+
     /** Loads what the visit uses, before the transformer can call it inside class loading. */
     static void warm() {
         MethodVisit visit = new MethodVisit(null, "warm/Up", Opcodes.ACC_STATIC, "up", "(JLjava/lang/String;D)V");
@@ -177,8 +202,18 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         int firstOpcode = -1;
         /** The local its first instruction stores to or loads, or -1. */
         int firstVar = -1;
-        /** Whether its own code is being read: from its label to its first {@code athrow}, return, or {@code goto}. */
+        /**
+         * Whether its straight-line code is being read: from its label to its first {@code athrow}, return, or
+         * {@code goto}.
+         */
         boolean inExtent;
+        /** Whether a branch or switch was read in its straight-line code. */
+        boolean branched;
+        /**
+         * Whether its reach is being read: from its label to its first {@code athrow} or return, or the method's end,
+         * so a nested try's {@code goto} does not hide a call that hands the exception on.
+         */
+        boolean inReach;
         /** The shapes its own code showed ({@code CaughtExceptions.SHAPE_*} but {@code SHAPE_DISCARDS}). */
         int shapes;
 
@@ -353,6 +388,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                 site.counted = 0;
                 site.awaitingFirst = true;
                 site.inExtent = true;
+                site.inReach = true;
             }
             super.visitLabel(label);
         }
@@ -385,17 +421,33 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
          */
         private void instruction(int opcode, int var) {
             beforeCode();
-            boolean ends = opcode == Opcodes.ATHROW
-                    || opcode == Opcodes.GOTO
-                    || (opcode >= Opcodes.IRETURN && opcode <= Opcodes.RETURN);
+            boolean leaves = opcode == Opcodes.ATHROW || (opcode >= Opcodes.IRETURN && opcode <= Opcodes.RETURN);
+            boolean branches = (opcode >= Opcodes.IFEQ && opcode <= Opcodes.IF_ACMPNE)
+                    || opcode == Opcodes.IFNULL
+                    || opcode == Opcodes.IFNONNULL
+                    || opcode == Opcodes.TABLESWITCH
+                    || opcode == Opcodes.LOOKUPSWITCH
+                    || opcode == Opcodes.JSR
+                    || opcode == Opcodes.RET;
             for (Site site : sites) {
                 if (site.awaitingFirst) {
                     site.awaitingFirst = false;
                     site.firstOpcode = opcode;
                     site.firstVar = var;
                 }
-                if (ends) {
+                if (site.inExtent) {
+                    if (branches) {
+                        site.branched = true;
+                    } else if (opcode == Opcodes.ATHROW && !site.branched) {
+                        // Straight-line code that ends by throwing: what it caught is replaced, or rethrown.
+                        site.shapes |= CaughtExceptions.SHAPE_THROWS_NEW;
+                    }
+                }
+                if (leaves || opcode == Opcodes.GOTO) {
                     site.inExtent = false;
+                }
+                if (leaves) {
+                    site.inReach = false;
                 }
             }
             if (opcode == Opcodes.ALOAD && var >= 0) {
@@ -454,7 +506,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
             int shape = shape(methodOwner, methodName, methodDescriptor);
             if (shape != 0) {
                 for (Site site : sites) {
-                    if (site.inExtent) {
+                    if (site.inReach) {
                         site.shapes |= shape;
                     }
                 }
@@ -656,7 +708,30 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                     return CaughtExceptions.SHAPE_PASSES_AS_VALUE;
                 }
             }
+            if ("java/lang/Throwable".equals(owner) || logger(owner) || !takesThrowable(descriptor)) {
+                return 0;
+            }
+            for (String candidate : PASSES_AS_VALUE_NAMES) {
+                if (candidate.equals(name)) {
+                    return CaughtExceptions.SHAPE_PASSES_AS_VALUE;
+                }
+            }
             return 0;
+        }
+
+        /** Whether the descriptor's parameters take a {@code Throwable} or an {@code Exception}. */
+        static boolean takesThrowable(String descriptor) {
+            int end = descriptor.indexOf(')');
+            if (end < 0) {
+                return false;
+            }
+            String parameters = descriptor.substring(0, end);
+            return parameters.contains("Ljava/lang/Throwable;") || parameters.contains("Ljava/lang/Exception;");
+        }
+
+        /** Whether the owner looks like a logger: {@code log.error(message, e)} logs, it hands nothing on. */
+        static boolean logger(String owner) {
+            return owner.endsWith("Logger") || owner.endsWith("/Log") || owner.endsWith("Log");
         }
 
         /**
