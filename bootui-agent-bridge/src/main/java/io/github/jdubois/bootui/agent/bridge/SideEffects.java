@@ -57,12 +57,24 @@ import java.util.stream.Stream;
  * executor, whose one thread the agent starts through its own thread factory, so nothing of the application is pinned;
  * at most {@value #MAX_PENDING_EXITS} exits are watched at once, the others counted as not watched.
  *
+ * <p><b>Network</b> (M5-5b). Connects ({@code Socket.connect}, {@code SocketChannelImpl.connect}, {@code
+ * blockingConnect}, and a non-blocking connect's {@code finishConnect}) and name lookups the JVM's address cache
+ * missed ({@code InetAddress.getAddressesFromNameService}) are rare hooks, published at once with the first frame
+ * outside the socket plumbing (the client, which the engine recognizes), the summary's frames, and the thread's family,
+ * digit runs folded. Datagram sends are hot: the first of a target from a call site is published at once and its frames
+ * remembered, the next ones counted in the thread's table. A target is the remote's host string and port, never
+ * resolved, never a byte of what is sent; at most {@value #MAX_NETWORK_TARGETS} distinct ones per generation. The JDK's
+ * own loopback pair ({@code sun.nio.ch.PipeImpl}) is never recorded.
+ *
  * <p>JDK types only; every entry point catches everything.
  */
 public final class SideEffects {
 
     /** The processes sensor's id, as {@code bootui.agent.sensors} names it. */
     public static final String PROCESSES = "processes";
+
+    /** The network sensor's id (M5-5b). */
+    public static final String NETWORK = "network";
 
     /** The files sensor's id (M5-5d). */
     public static final String FILES = "files";
@@ -73,34 +85,54 @@ public final class SideEffects {
     /** Sensor ids in records and bit positions in the mask: 0 is unused. */
     public static final int SENSOR_PROCESSES = 1;
 
-    public static final int SENSOR_FILES = 2;
-    public static final int SENSOR_ENVIRONMENT = 3;
+    public static final int SENSOR_NETWORK = 2;
+    public static final int SENSOR_FILES = 3;
+    public static final int SENSOR_ENVIRONMENT = 4;
 
-    static final String[] SENSOR_NAMES = {"other", PROCESSES, FILES, ENVIRONMENT};
+    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK, FILES, ENVIRONMENT};
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
+    public static final int MASK_NETWORK = 1 << SENSOR_NETWORK;
     public static final int MASK_FILES = 1 << SENSOR_FILES;
     public static final int MASK_ENVIRONMENT = 1 << SENSOR_ENVIRONMENT;
+
+    /** The sensors with a hot hook, which read their owner from the thread's slot only. */
+    static final int HOT_SENSORS = MASK_NETWORK;
 
     /** Hooks, by index: their ids, as the agent reports them, and their sensors. */
     public static final int HOOK_PROCESS_START = 0;
 
-    public static final int HOOK_FILE_INPUT_STREAM = 1;
-    public static final int HOOK_FILE_OUTPUT_STREAM = 2;
-    public static final int HOOK_RANDOM_ACCESS_FILE = 3;
-    public static final int HOOK_NEW_BYTE_CHANNEL = 4;
-    public static final int HOOK_NEW_INPUT_STREAM = 5;
-    public static final int HOOK_NEW_OUTPUT_STREAM = 6;
-    public static final int HOOK_DELETE = 7;
-    public static final int HOOK_DELETE_IF_EXISTS = 8;
-    public static final int HOOK_MOVE = 9;
-    public static final int HOOK_COPY = 10;
-    public static final int HOOK_FILE_CHANNEL = 11;
-    public static final int HOOK_GETENV = 12;
-    public static final int HOOK_GET_PROPERTY = 13;
+    public static final int HOOK_SOCKET_CONNECT = 1;
+    public static final int HOOK_CHANNEL_CONNECT = 2;
+    public static final int HOOK_CHANNEL_BLOCKING_CONNECT = 3;
+    public static final int HOOK_CHANNEL_FINISH_CONNECT = 4;
+    public static final int HOOK_DATAGRAM_CHANNEL_SEND = 5;
+    public static final int HOOK_DATAGRAM_SOCKET_SEND = 6;
+    public static final int HOOK_LOOKUP = 7;
+    public static final int HOOK_FILE_INPUT_STREAM = 8;
+    public static final int HOOK_FILE_OUTPUT_STREAM = 9;
+    public static final int HOOK_RANDOM_ACCESS_FILE = 10;
+    public static final int HOOK_NEW_BYTE_CHANNEL = 11;
+    public static final int HOOK_NEW_INPUT_STREAM = 12;
+    public static final int HOOK_NEW_OUTPUT_STREAM = 13;
+    public static final int HOOK_DELETE = 14;
+    public static final int HOOK_DELETE_IF_EXISTS = 15;
+    public static final int HOOK_MOVE = 16;
+    public static final int HOOK_COPY = 17;
+    public static final int HOOK_FILE_CHANNEL = 18;
+    public static final int HOOK_GETENV = 19;
+    public static final int HOOK_GETENV_ALL = 20;
+    public static final int HOOK_GET_PROPERTY = 21;
 
     static final String[] HOOKS = {
         "ProcessBuilder.start",
+        "Socket.connect",
+        "SocketChannel.connect",
+        "SocketChannel.blockingConnect",
+        "SocketChannel.finishConnect",
+        "DatagramChannel.send",
+        "DatagramSocket.send",
+        "InetAddress.lookup",
         "FileInputStream.open",
         "FileOutputStream.open",
         "RandomAccessFile.open",
@@ -113,10 +145,18 @@ public final class SideEffects {
         "Files.copy",
         "FileChannel.open",
         "System.getenv",
+        "System.getenvAll",
         "System.getProperty"
     };
     static final int[] HOOK_SENSORS = {
         SENSOR_PROCESSES,
+        SENSOR_NETWORK,
+        SENSOR_NETWORK,
+        SENSOR_NETWORK,
+        SENSOR_NETWORK,
+        SENSOR_NETWORK,
+        SENSOR_NETWORK,
+        SENSOR_NETWORK,
         SENSOR_FILES,
         SENSOR_FILES,
         SENSOR_FILES,
@@ -129,6 +169,7 @@ public final class SideEffects {
         SENSOR_FILES,
         SENSOR_FILES,
         SENSOR_ENVIRONMENT,
+        SENSOR_ENVIRONMENT,
         SENSOR_ENVIRONMENT
     };
 
@@ -137,22 +178,34 @@ public final class SideEffects {
 
     public static final int KIND_PROCESS_EXIT = 2;
 
+    /** A connect: blocking, with its time, or non-blocking, {@link #OUTCOME_PENDING} until its finish record. */
+    public static final int KIND_CONNECT = 3;
+
+    /** A non-blocking connect finished: its outcome and the time since the connect started, carrying its owner. */
+    public static final int KIND_CONNECT_FINISH = 4;
+
+    /** A datagram sent to an address. */
+    public static final int KIND_DATAGRAM = 5;
+
+    /** A host name the JVM resolved, its address cache missing it. */
+    public static final int KIND_LOOKUP = 6;
+
     /** A file opened for reading. */
-    public static final int KIND_FILE_READ = 3;
+    public static final int KIND_FILE_READ = 7;
 
     /** A file opened for writing, created, truncated, or appended to. */
-    public static final int KIND_FILE_WRITE = 4;
+    public static final int KIND_FILE_WRITE = 8;
 
-    public static final int KIND_FILE_DELETE = 5;
-    public static final int KIND_FILE_MOVE_FROM = 6;
-    public static final int KIND_FILE_MOVE_TO = 7;
-    public static final int KIND_FILE_COPY_FROM = 8;
-    public static final int KIND_FILE_COPY_TO = 9;
+    public static final int KIND_FILE_DELETE = 9;
+    public static final int KIND_FILE_MOVE_FROM = 10;
+    public static final int KIND_FILE_MOVE_TO = 11;
+    public static final int KIND_FILE_COPY_FROM = 12;
+    public static final int KIND_FILE_COPY_TO = 13;
 
     /** An environment variable read by name, or every variable through {@code System.getenv()}. */
-    public static final int KIND_ENVIRONMENT_VARIABLE = 10;
+    public static final int KIND_ENVIRONMENT_VARIABLE = 14;
 
-    public static final int KIND_SYSTEM_PROPERTY = 11;
+    public static final int KIND_SYSTEM_PROPERTY = 15;
 
     /** Outcomes. */
     public static final int OUTCOME_STARTED = 1;
@@ -160,9 +213,14 @@ public final class SideEffects {
     public static final int OUTCOME_IO_ERROR = 2;
     public static final int OUTCOME_ERROR = 3;
     public static final int OUTCOME_EXITED = 4;
+    public static final int OUTCOME_CONNECTED = 5;
+    public static final int OUTCOME_PENDING = 6;
+    public static final int OUTCOME_SENT = 7;
+    public static final int OUTCOME_RESOLVED = 8;
+    public static final int OUTCOME_UNKNOWN_HOST = 9;
 
     /** A file operation or an environment read that returned normally. */
-    public static final int OUTCOME_DONE = 5;
+    public static final int OUTCOME_DONE = 10;
 
     /**
      * The JDK context of a file operation or an environment read, from its frame summary, in {@link #R_FLAGS} bits
@@ -240,9 +298,10 @@ public final class SideEffects {
     public static final int R_TARGET = 8;
 
     /**
-     * Outcome (bits 0–7), thread kind (8–11), execution kind (12–15), the interned thread name of an unowned record
-     * (16–31), and a process's exit status (32–63), or a file operation's or an environment read's JDK context
-     * ({@link #CONTEXT_NONE}, 32–39).
+     * Outcome (bits 0–7), thread kind (8–11), execution kind (12–15), the interned thread name of an unowned record,
+     * or of every network record, as its family, digit runs folded (16–31), and a process's exit status or a network
+     * record's interned client frame (32–63), or a file operation's or an environment read's JDK context ({@link
+     * #CONTEXT_NONE}, 32–39).
      */
     public static final int R_FLAGS = 9;
 
@@ -275,6 +334,28 @@ public final class SideEffects {
     /** The longest target kept, in characters. */
     static final int MAX_TARGET = 128;
 
+    /** Frames walked for a network record at most: a Netty connect's stack is deep. */
+    static final int MAX_NETWORK_FRAMES = 128;
+
+    /** Distinct network targets interned per claim generation; the others share {@value #OTHER_HOSTS}. */
+    static final int MAX_NETWORK_TARGETS = 1_024;
+
+    static final String OTHER_HOSTS = "(other hosts)";
+
+    /** Distinct walks remembered per claim generation, with their frames: datagrams, connects, and lookups. */
+    static final int MAX_DATAGRAM_MEMO = 2_048;
+
+    /** Distinct frames whose interned id a walk reuses, per claim generation. */
+    static final int MAX_FRAME_IDS = 4_096;
+
+    /** Non-blocking connects waiting for their finish at most, and how long one waits. */
+    static final int MAX_PENDING_CONNECTS = 1_024;
+
+    static final long PENDING_CONNECT_NANOS = 60_000_000_000L;
+
+    /** An open side-effect hook older than this is stale: its exit never ran. */
+    static final long STALE_DEPTH_NANOS = 600_000_000_000L;
+
     private static final long FLUSH_NANOS = FLUSH_MILLIS * 1_000_000L;
 
     private static final AgentRing.Counters COUNTERS = new AgentRing.Counters();
@@ -305,8 +386,18 @@ public final class SideEffects {
     private static final LongAdder EXITS_DROPPED = new LongAdder();
     private static final LongAdder APPLICATION_ERRORS = new LongAdder();
     private static final LongAdder SLOT_MISMATCHES = new LongAdder();
+    private static final LongAdder STALE_DEPTHS = new LongAdder();
+    private static final LongAdder NETWORK_TARGETS_OVERFLOW = new LongAdder();
+    private static final LongAdder CONNECTS_UNPAIRED = new LongAdder();
+    private static final LongAdder JDK_LOOPBACK_SKIPPED = new LongAdder();
+    private static final AtomicReference<Network> NETWORK_STATE = new AtomicReference<Network>();
     private static final AtomicInteger PENDING_EXITS = new AtomicInteger();
     private static final AtomicLong ERROR_COUNT = new AtomicLong();
+    /** Internal errors per sensor: a sensor past its own budget is switched off alone. */
+    private static final AtomicLong[] SENSOR_ERRORS = longs(SENSOR_NAMES.length);
+    /** The sensors switched off for the JVM's life by their own error budget. */
+    private static volatile int budgetOff;
+
     private static final String[] DISABLED_REASONS = new String[SENSOR_NAMES.length];
 
     private static final LongAdder[] BUCKET_COUNTS = adders(BUCKETS.length);
@@ -321,9 +412,7 @@ public final class SideEffects {
 
     private static final Sightings SIGHTINGS = new Sightings();
     /** The interned targets of the files and environment sensors in the current intern table's generation. */
-    private static final AtomicInteger[] INTERNED = {
-        new AtomicInteger(), new AtomicInteger(), new AtomicInteger(), new AtomicInteger()
-    };
+    private static final AtomicInteger[] INTERNED = atomics(SENSOR_NAMES.length);
 
     /** The directories path patterns are relative to, read by {@link #warm()} on the agent's own thread. */
     private static volatile Places places = Places.NONE;
@@ -359,29 +448,43 @@ public final class SideEffects {
      * thread). Never throws.
      */
     public static long processStarting() {
+        return starting(HOOK_PROCESS_START, MASK_PROCESSES);
+    }
+
+    /**
+     * A hook's entry: a token for its exit, from {@link System#nanoTime()}, 0 when nothing is recorded for the call (the
+     * sensor is off, the thread's work is skipped, or a side-effect hook is already open on the thread). On the
+     * self-test's thread, counts the hook and records nothing. Never throws.
+     */
+    private static long starting(int hook, int bit) {
         try {
+            Thread current = Thread.currentThread();
             Thread self = selfTestThread;
-            if (self != null && self == Thread.currentThread()) {
-                SELF_TEST_HITS[HOOK_PROCESS_START].increment();
+            if (self != null && self == current) {
+                SELF_TEST_HITS[hook].increment();
                 return 0L;
             }
-            if ((mask & MASK_PROCESSES) == 0) {
+            if ((mask & bit) == 0) {
                 return 0L;
             }
-            if (Reentrancy.sideEffectsSkipped()
-                    || Thread.currentThread().getName().startsWith("bootui-")) {
+            if (Reentrancy.sideEffectsSkipped() || current.getName().startsWith("bootui-")) {
                 SKIPPED.increment();
                 return 0L;
             }
             CodePaths.Frame frame = CodePaths.frame();
+            long now = System.nanoTime();
             if (frame.sideEffectDepth != 0) {
-                return 0L;
+                if (now - frame.sideEffectSince < STALE_DEPTH_NANOS) {
+                    return 0L;
+                }
+                // An exit that never ran, as when calling it overflowed the stack: the thread records again.
+                STALE_DEPTHS.increment();
             }
             frame.sideEffectDepth = 1;
-            long now = System.nanoTime();
+            frame.sideEffectSince = now;
             return now == 0L ? 1L : now;
         } catch (Throwable ex) {
-            failed(ex);
+            failed(hook >= 0 && hook < HOOK_SENSORS.length ? HOOK_SENSORS[hook] : 0, ex);
             return 0L;
         }
     }
@@ -419,7 +522,7 @@ public final class SideEffects {
                 watchExit(process, owner, target, stamp, frames, token, startMillis);
             }
         } catch (Throwable ex) {
-            failed(ex);
+            failed(SENSOR_PROCESSES, ex);
         } finally {
             if (frame != null) {
                 frame.sideEffectDepth = 0;
@@ -536,6 +639,817 @@ public final class SideEffects {
         }
     }
 
+    // ---- the network sensor's advice (M5-5b) -----------------------------------------------------------------------
+
+    /** A network hook's entry, {@code hook} indexing {@link #HOOKS}: a token for its exit, 0 when nothing is recorded. */
+    public static long networkStarting(int hook) {
+        return starting(hook, MASK_NETWORK);
+    }
+
+    /**
+     * A connect's exit, normal or not: {@code Socket.connect(SocketAddress,int)} and {@code
+     * SocketChannelImpl.blockingConnect} with no channel and {@code finished} true unless it threw; {@code
+     * SocketChannelImpl.connect(SocketAddress)} with its channel, used only as an identity key, never called, and its
+     * result, false being a non-blocking connect started: recorded as pending, and paired with its {@link
+     * #connectFinished finish}. Records the remote's host string and port, never resolving or reverse-resolving it, and
+     * never a byte the connection carries. Never throws.
+     */
+    public static void connected(
+            long token, int hook, Object channel, Object remote, boolean finished, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        CodePaths.Frame frame = null;
+        try {
+            frame = CodePaths.FRAME.get();
+            long nanos = System.nanoTime() - token;
+            Claim claim = AgentBridge.current();
+            if (!recording(claim, MASK_NETWORK)) {
+                return;
+            }
+            RECORDED[hook].increment();
+            int target = networkTarget(describe(remote));
+            long stamp = CodePaths.stamp();
+            Owner owner = networkOwner(frame, claim, true);
+            long[] walked = memoizedFrames(claim, KIND_CONNECT, target, stamp, owner.threadName);
+            if (walked == null) {
+                JDK_LOOPBACK_SKIPPED.increment();
+                return;
+            }
+            int outcome = thrown != null ? failure(thrown) : finished ? OUTCOME_CONNECTED : OUTCOME_PENDING;
+            long startMillis = System.currentTimeMillis() - nanos / 1_000_000L;
+            int client = (int) walked[1];
+            // A rare hook: published at once. A pending connect's time is its finish's.
+            publishOne(
+                    owner,
+                    SENSOR_NETWORK,
+                    KIND_CONNECT,
+                    target,
+                    outcome,
+                    client,
+                    stamp,
+                    walked[0],
+                    outcome == OUTCOME_PENDING ? 0L : nanos,
+                    startMillis);
+            if (outcome == OUTCOME_PENDING && channel != null) {
+                pendingConnect(channel, owner, target, client, stamp, walked[0], token, startMillis);
+            }
+        } catch (Throwable ex) {
+            failed(SENSOR_NETWORK, ex);
+        } finally {
+            if (frame != null) {
+                frame.sideEffectDepth = 0;
+            }
+        }
+    }
+
+    /**
+     * {@code SocketChannelImpl.finishConnect()}'s exit: a non-blocking connect this sensor recorded as pending finished,
+     * or failed, on whichever thread finishes it; published with the connect's owner, target, client, stamp, and
+     * frames, and the time since it started. A finish still pending, or of a connect not recorded, records nothing.
+     * Never throws.
+     */
+    public static void connectFinished(long token, Object channel, boolean finished, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        CodePaths.Frame frame = null;
+        try {
+            frame = CodePaths.FRAME.get();
+            Network state = NETWORK_STATE.get();
+            if (state == null || channel == null || (!finished && thrown == null) || state.pending.isEmpty()) {
+                return;
+            }
+            PendingConnect pending = state.pending.remove(Identity.of(channel));
+            Claim claim = AgentBridge.current();
+            if (pending == null || !recording(claim, MASK_NETWORK) || pending.owner.generation != claim.generation) {
+                return;
+            }
+            RECORDED[HOOK_CHANNEL_FINISH_CONNECT].increment();
+            long nanos = System.nanoTime() - pending.startNanos;
+            int outcome = thrown == null ? OUTCOME_CONNECTED : failure(thrown);
+            long[] values = new long[RECORD];
+            values[R_SENSOR] = SENSOR_NETWORK;
+            values[R_KIND] = KIND_CONNECT_FINISH;
+            values[R_GENERATION] = pending.owner.generation;
+            // The connect's time: the engine decides a finish as it decided its connect.
+            values[R_FIRST_MILLIS] = pending.startMillis;
+            values[R_LAST_MILLIS] = System.currentTimeMillis();
+            values[R_REQUEST] = pending.owner.request;
+            values[R_EXECUTION] = pending.owner.execution;
+            values[R_STAMP] = pending.stamp;
+            values[R_TARGET] = pending.target;
+            values[R_FLAGS] = flags(outcome, pending.owner, pending.client);
+            values[R_COUNT] = 1L;
+            values[R_NANOS] = nanos;
+            values[R_MAX_NANOS] = nanos;
+            values[R_FRAMES] = pending.frames;
+            publish(SENSOR_NETWORK, values);
+        } catch (Throwable ex) {
+            failed(SENSOR_NETWORK, ex);
+        } finally {
+            if (frame != null) {
+                frame.sideEffectDepth = 0;
+            }
+        }
+    }
+
+    /**
+     * A datagram send's exit: {@code DatagramChannelImpl.send(ByteBuffer,SocketAddress)} with its address, {@code
+     * DatagramSocket.send(DatagramPacket)} with its packet, whose address and port only are read, never its data. A
+     * hot hook: the first send of a target from a call site is published at once with its frames, which a bounded memo
+     * keeps; the next ones reuse them and count in the thread's table. Never throws.
+     */
+    public static void datagramSent(long token, int hook, Object target, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        CodePaths.Frame frame = null;
+        try {
+            frame = CodePaths.FRAME.get();
+            long nanos = System.nanoTime() - token;
+            Claim claim = AgentBridge.current();
+            Network state = NETWORK_STATE.get();
+            if (!recording(claim, MASK_NETWORK) || state == null || frame == null) {
+                return;
+            }
+            RECORDED[hook].increment();
+            int outcome = thrown == null ? OUTCOME_SENT : failure(thrown);
+            long stamp = CodePaths.stamp();
+            int targetId = datagramTarget(frame, target, claim.generation);
+            // A hot hook: the owner from the thread's slot only, never captured.
+            Owner owner = networkOwner(frame, claim, false);
+            long now = System.currentTimeMillis();
+            Table table = frame.sideEffects;
+            int index = table == null ? -1 : table.known(SENSOR_NETWORK, KIND_DATAGRAM, targetId, outcome, stamp);
+            long frames;
+            int client;
+            if (index >= 0) {
+                frames = table.frames[index];
+                client = table.detail[index];
+            } else {
+                // The call site without the request's fragment sequence, and the thread's family: the frames of a send
+                // depend on where it is made, never on which request made it.
+                Memo key = new Memo(targetId, site(stamp), KIND_DATAGRAM, owner.threadName);
+                long[] known = state.memo.get(key);
+                if (known == null) {
+                    long[] walked = networkFrames(claim);
+                    if (walked == null) {
+                        JDK_LOOPBACK_SKIPPED.increment();
+                        return;
+                    }
+                    if (state.memo.size() < MAX_DATAGRAM_MEMO) {
+                        state.memo.putIfAbsent(key, walked);
+                    }
+                    // A first sighting: published at once, so its row shows before the thread's table is flushed.
+                    publishOne(
+                            owner,
+                            SENSOR_NETWORK,
+                            KIND_DATAGRAM,
+                            targetId,
+                            outcome,
+                            (int) walked[1],
+                            stamp,
+                            walked[0],
+                            nanos,
+                            now - nanos / 1_000_000L);
+                    return;
+                }
+                frames = known[0];
+                client = (int) known[1];
+            }
+            if (table == null) {
+                table = new Table();
+                frame.sideEffects = table;
+            }
+            table.add(owner, SENSOR_NETWORK, KIND_DATAGRAM, targetId, outcome, client, stamp, frames, nanos, now);
+        } catch (Throwable ex) {
+            failed(SENSOR_NETWORK, ex);
+        } finally {
+            if (frame != null) {
+                frame.sideEffectDepth = 0;
+            }
+        }
+    }
+
+    /**
+     * {@code InetAddress.getAddressesFromNameService(String, …)}'s exit: the JVM resolved {@code host}, its address
+     * cache missing it, so the time is the name service's. A cached answer never reaches it. Never throws.
+     */
+    public static void lookedUp(long token, String host, Object addresses, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        CodePaths.Frame frame = null;
+        try {
+            frame = CodePaths.FRAME.get();
+            long nanos = System.nanoTime() - token;
+            Claim claim = AgentBridge.current();
+            if (!recording(claim, MASK_NETWORK)) {
+                return;
+            }
+            RECORDED[HOOK_LOOKUP].increment();
+            int target = lookupTarget(hostName(host));
+            long stamp = CodePaths.stamp();
+            Owner owner = networkOwner(frame, claim, true);
+            long[] walked = memoizedFrames(claim, KIND_LOOKUP, target, stamp, owner.threadName);
+            if (walked == null) {
+                JDK_LOOPBACK_SKIPPED.increment();
+                return;
+            }
+            int outcome;
+            if (thrown == null) {
+                // A statically mocked lookup may answer null.
+                outcome = addresses == null ? OUTCOME_ERROR : OUTCOME_RESOLVED;
+            } else {
+                outcome = thrown instanceof java.net.UnknownHostException ? OUTCOME_UNKNOWN_HOST : failure(thrown);
+            }
+            publishOne(
+                    owner,
+                    SENSOR_NETWORK,
+                    KIND_LOOKUP,
+                    target,
+                    outcome,
+                    (int) walked[1],
+                    stamp,
+                    walked[0],
+                    nanos,
+                    System.currentTimeMillis() - nanos / 1_000_000L);
+        } catch (Throwable ex) {
+            failed(SENSOR_NETWORK, ex);
+        } finally {
+            if (frame != null) {
+                frame.sideEffectDepth = 0;
+            }
+        }
+    }
+
+    private static boolean recording(Claim claim, int bit) {
+        return claim != null && claim.armed && claim.generation == generation && (mask & bit) != 0;
+    }
+
+    private static int failure(Throwable thrown) {
+        return thrown instanceof java.io.IOException ? OUTCOME_IO_ERROR : OUTCOME_ERROR;
+    }
+
+    /**
+     * The record's owner with the thread's family interned on every network record: the thread's slot's, else, when
+     * {@code capture} and the thread is no Netty or Vert.x event loop, captured; an event loop's connect never pays for
+     * a capture, which could only name the request its loop happened to serve last.
+     */
+    private static Owner networkOwner(CodePaths.Frame frame, Claim claim, boolean capture) {
+        int family = threadFamilyId(frame, claim.generation);
+        Owner owner = owner(frame, claim, false, capture && (frame == null || !frame.sideEffectEventLoop));
+        owner.threadName = family;
+        return owner;
+    }
+
+    /** The calling thread's family, digit runs folded, interned once per thread name and generation. */
+    private static int threadFamilyId(CodePaths.Frame frame, long current) {
+        Thread thread = Thread.currentThread();
+        String name = thread.getName();
+        if (frame != null && frame.sideEffectThreadGeneration == current && name.equals(frame.sideEffectThreadName)) {
+            return frame.sideEffectThreadId;
+        }
+        int id = intern(threadFamily(name));
+        if (frame != null) {
+            frame.sideEffectThreadName = name;
+            frame.sideEffectThreadId = id;
+            frame.sideEffectThreadGeneration = current;
+            frame.sideEffectEventLoop = eventLoop(thread, name);
+        }
+        return id;
+    }
+
+    /** Whether {@code thread} is a Netty or Vert.x event loop, by its class or name. */
+    static boolean eventLoop(Thread thread, String name) {
+        String type = thread.getClass().getName();
+        return type.startsWith("io.netty.")
+                || name.startsWith("vert.x-eventloop-")
+                || name.startsWith("reactor-http-")
+                || name.startsWith("reactor-tcp-")
+                || name.startsWith("lettuce-");
+    }
+
+    /** A code-paths stamp's call site: its node and method, without the request's fragment sequence; as is when none. */
+    static long site(long stamp) {
+        return stamp > 0L ? stamp & SITE_MASK : stamp;
+    }
+
+    /**
+     * The frames of a connect or a lookup of {@code target}, remembered per {@code (kind, target, call site, thread
+     * family)} once a code-paths stamp names the call site, and walked otherwise: {@code null} on the JDK's own
+     * loopback pair.
+     */
+    static long[] memoizedFrames(Claim claim, int kind, int target, long stamp, int thread) {
+        Network state = NETWORK_STATE.get();
+        if (state == null || stamp <= 0L) {
+            return networkFrames(claim);
+        }
+        Memo key = new Memo(target, site(stamp), kind, thread);
+        long[] known = state.memo.get(key);
+        if (known != null) {
+            return known;
+        }
+        long[] walked = networkFrames(claim);
+        if (walked != null && state.memo.size() < MAX_DATAGRAM_MEMO) {
+            state.memo.putIfAbsent(key, walked);
+        }
+        return walked;
+    }
+
+    /**
+     * A datagram's target id: the thread's last one when the same address object and port are sent to again, so a
+     * repeated send never builds or looks its target up.
+     */
+    private static int datagramTarget(CodePaths.Frame frame, Object target, long current) {
+        Object address = target;
+        int port = -1;
+        if (target instanceof java.net.DatagramPacket) {
+            java.net.DatagramPacket packet = (java.net.DatagramPacket) target;
+            address = packet.getAddress();
+            port = packet.getPort();
+        }
+        if (address != null
+                && frame.sideEffectTargetGeneration == current
+                && frame.sideEffectAddress == address
+                && frame.sideEffectPort == port) {
+            return frame.sideEffectTarget;
+        }
+        int id = networkTarget(describe(
+                target instanceof java.net.DatagramPacket ? packetAddress((java.net.DatagramPacket) target) : target));
+        frame.sideEffectAddress = address;
+        frame.sideEffectPort = port;
+        frame.sideEffectTarget = id;
+        frame.sideEffectTargetGeneration = current;
+        return id;
+    }
+
+    /** A thread name's family: each run of digits becomes {@code {n}}, so pools never fill the string table. */
+    static String threadFamily(String name) {
+        if (name == null) {
+            return null;
+        }
+        name = withoutSecrets(name);
+        int length = Math.min(name.length(), MAX_THREAD_FAMILY);
+        StringBuilder family = new StringBuilder(length + 8);
+        boolean digits = false;
+        for (int i = 0; i < length; i++) {
+            char c = name.charAt(i);
+            if (c >= '0' && c <= '9') {
+                if (!digits) {
+                    family.append("{n}");
+                    digits = true;
+                }
+            } else {
+                // A thread name may carry anything, as OkHttp's names its URL: only safe characters are kept.
+                boolean kept = (c >= 'a' && c <= 'z')
+                        || (c >= 'A' && c <= 'Z')
+                        || c == '.'
+                        || c == '_'
+                        || c == '-'
+                        || c == ':'
+                        || c == '/'
+                        || c == ' '
+                        || c == '['
+                        || c == ']';
+                family.append(kept ? c : '?');
+                digits = false;
+            }
+        }
+        return family.toString();
+    }
+
+    /** The longest thread family kept, in characters. */
+    static final int MAX_THREAD_FAMILY = 64;
+
+    /**
+     * A thread name without what could be a secret, as OkHttp names its threads after a URL: a URL's user information
+     * is dropped, and the name is cut at its first {@code ?}, {@code #}, or {@code @}.
+     */
+    static String withoutSecrets(String name) {
+        String text = name;
+        int scheme = text.indexOf("://");
+        if (scheme >= 0) {
+            int authority = scheme + 3;
+            int end = authority;
+            while (end < text.length()
+                    && text.charAt(end) != '/'
+                    && text.charAt(end) != '?'
+                    && text.charAt(end) != '#') {
+                end++;
+            }
+            int at = text.lastIndexOf('@', end - 1);
+            if (at >= authority) {
+                text = text.substring(0, authority) + text.substring(at + 1);
+            }
+        }
+        int cut = text.length();
+        for (char stop : new char[] {'?', '#', '@'}) {
+            int index = text.indexOf(stop);
+            if (index >= 0 && index < cut) {
+                cut = index;
+            }
+        }
+        return text.substring(0, cut);
+    }
+
+    /**
+     * A socket address as a target: {@code host:port} from {@code InetSocketAddress.getHostString()}, which never
+     * resolves, IPv6 bracketed, anything up to an {@code @} dropped; {@code unix:} and its path; a marker otherwise.
+     */
+    static String describe(Object address) {
+        if (address instanceof java.net.InetSocketAddress) {
+            java.net.InetSocketAddress socket = (java.net.InetSocketAddress) address;
+            String host = hostName(socket.getHostString());
+            if (host.indexOf(':') >= 0 && !host.startsWith("[")) {
+                host = "[" + host + "]";
+            }
+            return host + ":" + socket.getPort();
+        }
+        if (address instanceof java.net.UnixDomainSocketAddress) {
+            return "unix:"
+                    + sanitize(((java.net.UnixDomainSocketAddress) address)
+                            .getPath()
+                            .toString());
+        }
+        if (address instanceof String) {
+            return (String) address;
+        }
+        return address == null ? "(none)" : "(other)";
+    }
+
+    /** A host name, as a target: after its last {@code @}, so no user information, sanitized. */
+    static String hostName(String host) {
+        if (host == null || host.isEmpty()) {
+            return "(unknown)";
+        }
+        int at = host.lastIndexOf('@');
+        String name = at >= 0 ? host.substring(at + 1) : host;
+        return name.isEmpty() ? "(unknown)" : sanitize(name);
+    }
+
+    /** At most {@value #MAX_TARGET} characters, every one but letters, digits, and {@code . _ - : [ ] / ~} as {@code ?}. */
+    static String sanitize(String text) {
+        int length = Math.min(text.length(), MAX_TARGET);
+        StringBuilder kept = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            char c = text.charAt(i);
+            boolean ok = (c >= 'a' && c <= 'z')
+                    || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9')
+                    || c == '.'
+                    || c == '_'
+                    || c == '-'
+                    || c == ':'
+                    || c == '['
+                    || c == ']'
+                    || c == '/'
+                    || c == '~';
+            kept.append(ok ? c : '?');
+        }
+        return kept.toString();
+    }
+
+    /** A datagram packet's address, never its data: {@code (connected)} when it names none. */
+    private static Object packetAddress(java.net.DatagramPacket packet) {
+        java.net.InetAddress address = packet.getAddress();
+        if (address == null) {
+            return "(connected)";
+        }
+        int port = packet.getPort();
+        // A packet given an address but no port: the send fails, and the target is no host and port.
+        return port < 0 || port > 0xFFFF ? "(other)" : new java.net.InetSocketAddress(address, port);
+    }
+
+    /** A network target interned, at most {@value #MAX_NETWORK_TARGETS} distinct ones per generation. */
+    static int networkTarget(String text) {
+        Network state = NETWORK_STATE.get();
+        return state == null ? intern(text) : quota(state.targets, text);
+    }
+
+    /** A looked-up name interned, at most {@value #MAX_NETWORK_TARGETS} distinct ones, apart from the targets. */
+    static int lookupTarget(String text) {
+        Network state = NETWORK_STATE.get();
+        return state == null ? intern(text) : quota(state.lookups, text);
+    }
+
+    private static int quota(java.util.concurrent.ConcurrentHashMap<String, Integer> known, String text) {
+        Integer id = known.get(text);
+        if (id != null) {
+            return id.intValue();
+        }
+        if (known.size() >= MAX_NETWORK_TARGETS) {
+            NETWORK_TARGETS_OVERFLOW.increment();
+            return intern(OTHER_HOSTS);
+        }
+        int interned = intern(text);
+        if (interned != 0) {
+            known.putIfAbsent(text, Integer.valueOf(interned));
+        }
+        return interned;
+    }
+
+    private static void pendingConnect(
+            Object channel,
+            Owner owner,
+            int target,
+            int client,
+            long stamp,
+            long frames,
+            long startNanos,
+            long startMillis) {
+        Network state = NETWORK_STATE.get();
+        if (state == null) {
+            return;
+        }
+        if (state.pending.size() >= MAX_PENDING_CONNECTS || (state.puts.incrementAndGet() & 63) == 0) {
+            // Connects closed or timed out without a finish are swept, never left to fill the map.
+            state.sweep(System.nanoTime());
+            if (state.pending.size() >= MAX_PENDING_CONNECTS) {
+                CONNECTS_UNPAIRED.increment();
+                return;
+            }
+        }
+        state.pending.put(
+                Identity.stored(channel),
+                new PendingConnect(owner, target, client, stamp, frames, startNanos, startMillis));
+    }
+
+    /** The first frame outside the socket plumbing, then the summary's frames: {@code null} for the JDK's own loopback. */
+    static long[] networkFrames(Claim claim) {
+        return WALKER.walk(new NetworkFrames(claim));
+    }
+
+    /**
+     * Socket plumbing: the JDK's socket and channel code, the agent, the shared transports (Netty, Vert.x's core, Reactor
+     * and Reactor Netty's transport), and the frames between them and their caller, never a client. The JDK's own
+     * clients, {@code jdk.internal.net.http} and {@code sun.net.www}, are not plumbing.
+     */
+    static boolean plumbing(String className) {
+        return className.startsWith("java.")
+                || className.startsWith("javax.net.")
+                || className.startsWith("sun.nio.")
+                || className.startsWith("sun.security.ssl.")
+                || className.startsWith("jdk.internal.misc.")
+                || className.startsWith("jdk.internal.reflect.")
+                || className.startsWith("jdk.internal.loader.")
+                || className.startsWith("jdk.jfr.")
+                || className.startsWith("io.netty.")
+                || className.startsWith("io.vertx.core.")
+                || className.startsWith("reactor.core.")
+                || className.startsWith("reactor.netty.transport.")
+                || className.startsWith("reactor.netty.resources.")
+                || className.startsWith("io.github.jdubois.bootui.agent.");
+    }
+
+    /**
+     * Walks at most {@value #MAX_NETWORK_FRAMES} frames: {@code {packed outside and application frames, client
+     * frame}}, or {@code null} on the JDK's own loopback pair ({@code sun.nio.ch.PipeImpl}, a pipe or selector
+     * wake-up on Windows).
+     */
+    static final class NetworkFrames implements Function<Stream<StackWalker.StackFrame>, long[]> {
+
+        private final Claim claim;
+
+        NetworkFrames(Claim claim) {
+            this.claim = claim;
+        }
+
+        @Override
+        public long[] apply(Stream<StackWalker.StackFrame> frames) {
+            Iterator<StackWalker.StackFrame> iterator = frames.iterator();
+            Network state = NETWORK_STATE.get();
+            int client = 0;
+            int outside = 0;
+            int application = 0;
+            int infrastructure = 0;
+            for (int i = 0; i < MAX_NETWORK_FRAMES && iterator.hasNext() && application == 0; i++) {
+                StackWalker.StackFrame frame = iterator.next();
+                String className = frame.getClassName();
+                if (className.startsWith("sun.nio.ch.PipeImpl")) {
+                    return null;
+                }
+                if ((className.equals("java.lang.Thread") || className.equals("java.lang.VirtualThread"))
+                        && "run".equals(frame.getMethodName())) {
+                    // A thread's bottom: nothing below names a client.
+                    break;
+                }
+                boolean plumbing = plumbing(className);
+                if (!plumbing && infrastructure(className)) {
+                    // The outermost infrastructure frame: an exporter or a container tool, whose transport is a client.
+                    infrastructure = frameId(state, className, frame.getMethodName());
+                }
+                if (client == 0 && !plumbing) {
+                    client = frameId(state, className, frame.getMethodName());
+                }
+                if (jdkOrAgent(className)) {
+                    continue;
+                }
+                if (outside == 0) {
+                    outside = frameId(state, className, frame.getMethodName());
+                }
+                if (claim != null && ThreadPropagation.inPackages(className, claim)) {
+                    application = frameId(state, className, frame.getMethodName());
+                }
+            }
+            return new long[] {
+                ((long) outside << 32) | (application & 0xFFFFFFFFL), infrastructure != 0 ? infrastructure : client
+            };
+        }
+    }
+
+    /**
+     * Infrastructure a connection is made for, whose transport (OkHttp, the JDK's own clients) is no client of the
+     * application's: telemetry exporters, metrics and log shippers, and container tooling.
+     */
+    static boolean infrastructure(String className) {
+        // OpenTelemetry's exporters and SDK only: its instrumentation, agent, context, and API sit in the application's
+        // own stacks, an interceptor around the application's REST call or a DataSource wrapper around its JDBC one.
+        return className.startsWith("io.opentelemetry.exporter.")
+                || className.startsWith("io.opentelemetry.sdk.")
+                || className.startsWith("zipkin2.")
+                || className.startsWith("io.micrometer.registry.")
+                || className.startsWith("io.micrometer.statsd.")
+                || className.startsWith("io.prometheus.")
+                || className.startsWith("org.springframework.boot.docker.compose.")
+                || className.startsWith("org.springframework.boot.testcontainers.")
+                || className.startsWith("org.testcontainers.")
+                || className.startsWith("com.github.dockerjava.")
+                || className.startsWith("io.quarkus.devservices.")
+                || className.startsWith("ch.qos.logback.")
+                || className.startsWith("org.apache.logging.log4j.");
+    }
+
+    /** A frame's interned {@code Class#method}, remembered per generation so a walk concatenates nothing it saw before. */
+    static int frameId(Network state, String className, String method) {
+        if (state == null) {
+            return intern(className + "#" + method);
+        }
+        java.util.concurrent.ConcurrentHashMap<String, Integer> methods = state.frames.get(className);
+        if (methods != null) {
+            Integer id = methods.get(method);
+            if (id != null) {
+                return id.intValue();
+            }
+        }
+        int id = intern(className + "#" + method);
+        if (id != 0 && state.frameIds.get() < MAX_FRAME_IDS) {
+            if (methods == null) {
+                java.util.concurrent.ConcurrentHashMap<String, Integer> created =
+                        new java.util.concurrent.ConcurrentHashMap<String, Integer>();
+                methods = state.frames.putIfAbsent(className, created);
+                if (methods == null) {
+                    methods = created;
+                }
+            }
+            if (methods.putIfAbsent(method, Integer.valueOf(id)) == null) {
+                state.frameIds.incrementAndGet();
+            }
+        }
+        return id;
+    }
+
+    /** The network sensor's state for one claim generation: its targets, datagram memo, and pending connects. */
+    static final class Network {
+
+        final long generation;
+        final java.util.concurrent.ConcurrentHashMap<String, Integer> targets =
+                new java.util.concurrent.ConcurrentHashMap<String, Integer>();
+        final java.util.concurrent.ConcurrentHashMap<Memo, long[]> memo =
+                new java.util.concurrent.ConcurrentHashMap<Memo, long[]>();
+        final java.util.concurrent.ConcurrentHashMap<Identity, PendingConnect> pending =
+                new java.util.concurrent.ConcurrentHashMap<Identity, PendingConnect>();
+        final java.util.concurrent.ConcurrentHashMap<String, Integer> lookups =
+                new java.util.concurrent.ConcurrentHashMap<String, Integer>();
+        final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, Integer>>
+                frames = new java.util.concurrent.ConcurrentHashMap<
+                        String, java.util.concurrent.ConcurrentHashMap<String, Integer>>();
+        final AtomicInteger frameIds = new AtomicInteger();
+        final AtomicLong puts = new AtomicLong();
+
+        Network(long generation) {
+            this.generation = generation;
+        }
+
+        /** Drops the pending connects older than {@value #PENDING_CONNECT_NANOS} ns: their channel never finished. */
+        void sweep(long now) {
+            Iterator<Map.Entry<Identity, PendingConnect>> iterator =
+                    pending.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<Identity, PendingConnect> entry = iterator.next();
+                if (entry.getKey().value() == null || now - entry.getValue().startNanos > PENDING_CONNECT_NANOS) {
+                    iterator.remove();
+                    CONNECTS_UNPAIRED.increment();
+                }
+            }
+        }
+    }
+
+    /** A code-paths stamp's node and method bits, without the fragment's sequence. */
+    static final long SITE_MASK = (1L << (CodePaths.STAMP_NODE_BITS + CodePaths.STAMP_METHOD_BITS)) - 1;
+
+    /** A remembered walk's key: its target, call site, record kind, and thread family. */
+    static final class Memo {
+
+        final int target;
+        final long site;
+        final int outcome;
+        final int thread;
+
+        Memo(int target, long site, int outcome, int thread) {
+            this.target = target;
+            this.site = site;
+            this.outcome = outcome;
+            this.thread = thread;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof Memo)) {
+                return false;
+            }
+            Memo that = (Memo) other;
+            return target == that.target && site == that.site && outcome == that.outcome && thread == that.thread;
+        }
+
+        @Override
+        public int hashCode() {
+            return ((31 * target + (int) (site ^ (site >>> 32))) * 31 + outcome) * 31 + thread;
+        }
+    }
+
+    /**
+     * A channel as a key by identity, held weakly once stored, so a channel the application closed without finishing
+     * its connect is never kept: none of its methods, not even {@code hashCode}, is ever called.
+     */
+    static final class Identity {
+
+        private final int hash;
+        private final Object strong;
+        private final java.lang.ref.WeakReference<Object> weak;
+
+        private Identity(Object value, boolean stored) {
+            this.hash = System.identityHashCode(value);
+            this.strong = stored ? null : value;
+            this.weak = stored ? new java.lang.ref.WeakReference<Object>(value) : null;
+        }
+
+        /** A key to look a channel up with. */
+        static Identity of(Object value) {
+            return new Identity(value, false);
+        }
+
+        /** A key to store, holding the channel weakly. */
+        static Identity stored(Object value) {
+            return new Identity(value, true);
+        }
+
+        Object value() {
+            return strong != null ? strong : weak.get();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (other == this) {
+                return true;
+            }
+            if (!(other instanceof Identity)) {
+                return false;
+            }
+            Object mine = value();
+            return mine != null && mine == ((Identity) other).value();
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+    }
+
+    /** A non-blocking connect waiting for its finish. */
+    static final class PendingConnect {
+
+        final Owner owner;
+        final int target;
+        final int client;
+        final long stamp;
+        final long frames;
+        final long startNanos;
+        final long startMillis;
+
+        PendingConnect(
+                Owner owner, int target, int client, long stamp, long frames, long startNanos, long startMillis) {
+            this.owner = owner;
+            this.target = target;
+            this.client = client;
+            this.stamp = stamp;
+            this.frames = frames;
+            this.startNanos = startNanos;
+            this.startMillis = startMillis;
+        }
+    }
+
     // ---- the files and environment sensors' advice (M5-5d) ------------------------------------------------------
 
     /**
@@ -553,31 +1467,7 @@ public final class SideEffects {
      * file operations records). The self-test's thread is counted per hook and records nothing. Never throws.
      */
     public static long fileOpening(int hook) {
-        try {
-            Thread current = Thread.currentThread();
-            Thread self = selfTestThread;
-            if (self != null && self == current) {
-                SELF_TEST_HITS[hook].increment();
-                return 0L;
-            }
-            if ((mask & MASK_FILES) == 0) {
-                return 0L;
-            }
-            if (Reentrancy.sideEffectsSkipped() || current.getName().startsWith("bootui-")) {
-                SKIPPED.increment();
-                return 0L;
-            }
-            CodePaths.Frame frame = CodePaths.frame();
-            if (frame.sideEffectDepth != 0) {
-                return 0L;
-            }
-            frame.sideEffectDepth = 1;
-            long now = System.nanoTime();
-            return now == 0L ? 1L : now;
-        } catch (Throwable ex) {
-            failed(ex);
-            return 0L;
-        }
+        return starting(hook, MASK_FILES);
     }
 
     /**
@@ -667,7 +1557,7 @@ public final class SideEffects {
             frame = CodePaths.FRAME.get();
             long nanos = System.nanoTime() - token;
             Claim claim = AgentBridge.current();
-            if (claim == null || !claim.armed || claim.generation != generation || (mask & MASK_FILES) == 0) {
+            if (!recording(claim, MASK_FILES)) {
                 return;
             }
             int outcome = thrown == null
@@ -680,7 +1570,7 @@ public final class SideEffects {
                 recordFile(frame, claim, hook, secondKind, second, outcome, nanos);
             }
         } catch (Throwable ex) {
-            failed(ex);
+            failed(SENSOR_FILES, ex);
         } finally {
             if (frame != null) {
                 frame.sideEffectDepth = 0;
@@ -756,11 +1646,18 @@ public final class SideEffects {
                 return;
             }
             CodePaths.Frame candidate = CodePaths.frame();
+            long since = System.nanoTime();
             if (candidate.sideEffectDepth != 0) {
-                return;
+                if (since - candidate.sideEffectSince < STALE_DEPTH_NANOS) {
+                    return;
+                }
+                // An exit that never ran, as when calling it overflowed the stack: the thread records again.
+                STALE_DEPTHS.increment();
             }
             frame = candidate;
             frame.sideEffectDepth = 1;
+            // Stamped as every hook's entry does, so a depth left open by an exit that never ran is recovered from.
+            frame.sideEffectSince = since;
             long now = generation;
             boolean slotted = slotted(frame, now);
             int top = frame.slots - 1;
@@ -806,7 +1703,7 @@ public final class SideEffects {
             Owner owner = owner(frame, claim);
             record(frame, owner, SENSOR_ENVIRONMENT, kind, id, OUTCOME_DONE, (int) summary[1], stamp, summary[0], 0L);
         } catch (Throwable ex) {
-            failed(ex);
+            failed(SENSOR_ENVIRONMENT, ex);
         } finally {
             if (frame != null) {
                 frame.sideEffectDepth = 0;
@@ -864,6 +1761,27 @@ public final class SideEffects {
             }
         } catch (Throwable ex) {
             failed(ex);
+        }
+    }
+
+    /**
+     * The owner of a scope an adapter opens while code paths does not capture it, when a sensor with a hot hook, as
+     * {@code network}'s datagram sends, records: those hooks read only the slot, so the scope captures once for them.
+     * {@code null} otherwise. Never throws.
+     */
+    static long[] scopeOwner() {
+        try {
+            if ((mask & HOT_SENSORS) == 0 || Reentrancy.bootUiWork()) {
+                return null;
+            }
+            Claim claim = AgentBridge.current();
+            if (claim == null || !claim.armed || claim.generation != generation) {
+                return null;
+            }
+            return CodePaths.captureOwner(claim);
+        } catch (Throwable ex) {
+            failed(ex);
+            return null;
         }
     }
 
@@ -971,6 +1889,16 @@ public final class SideEffects {
 
     /** The record's owner: the slot's, or, for a rare hook with an empty slot, captured. */
     private static Owner owner(CodePaths.Frame frame, Claim claim) {
+        return owner(frame, claim, true);
+    }
+
+    /** As {@link #owner(CodePaths.Frame, Claim)}, naming an unowned record's thread only when {@code threadName}. */
+    private static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName) {
+        return owner(frame, claim, threadName, true);
+    }
+
+    /** As {@link #owner(CodePaths.Frame, Claim, boolean)}, capturing an owner the slot does not name only when asked. */
+    private static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
         Owner owner = new Owner();
         Thread thread = Thread.currentThread();
         owner.threadKind = ThreadPropagation.isVirtual(thread) ? THREAD_VIRTUAL : THREAD_PLATFORM;
@@ -983,7 +1911,7 @@ public final class SideEffects {
             owner.slot = true;
             return owner;
         }
-        if (!ownerOf(CodePaths.capture(claim), owner)) {
+        if ((!capture || !ownerOf(CodePaths.capture(claim), owner)) && threadName) {
             owner.threadName = intern(thread.getName());
         }
         return owner;
@@ -1865,8 +2793,7 @@ public final class SideEffects {
 
     /**
      * Records one occurrence of a hot hook: aggregated in the thread's table while its owner comes from the slot, else
-     * published at once; {@code exitStatus} carries a file operation's or an environment read's JDK context, which the
-     * table keys too. {@code processes} publishes every start at once, never through here.
+     * published at once. No M5-5a sensor is hot; {@code processes} publishes every start at once.
      */
     static void record(
             CodePaths.Frame frame,
@@ -1984,8 +2911,8 @@ public final class SideEffects {
 
     /**
      * A thread's aggregation table: up to {@value #TABLE} entries of one owner, keyed by {@code (sensor, kind, target,
-     * outcome, extra, stamp, frames)}, {@code extra} being the JDK context of {@link #R_FLAGS} bits 32 onwards, with
-     * their count, total and longest durations, and first and last times.
+     * outcome, detail, stamp, frames)}, with their count, total and longest durations, and first and last times. The
+     * owner includes the thread's family for a network record, and the detail is a network record's client frame.
      */
     static final class Table {
 
@@ -1994,6 +2921,7 @@ public final class SideEffects {
         long execution;
         int executionKind;
         int threadKind;
+        int threadName;
         int size;
         long oldestNanos;
 
@@ -2001,7 +2929,7 @@ public final class SideEffects {
         final int[] kind = new int[TABLE];
         final int[] target = new int[TABLE];
         final int[] outcome = new int[TABLE];
-        final int[] extra = new int[TABLE];
+        final int[] detail = new int[TABLE];
         final long[] stamp = new long[TABLE];
         final long[] frames = new long[TABLE];
         final long[] count = new long[TABLE];
@@ -2017,7 +2945,7 @@ public final class SideEffects {
                 int entryKind,
                 int entryTarget,
                 int entryOutcome,
-                int entryExtra,
+                int entryDetail,
                 long entryStamp,
                 long entryFrames,
                 long entryNanos,
@@ -2027,6 +2955,7 @@ public final class SideEffects {
                     && (generation != owner.generation
                             || request != owner.request
                             || execution != owner.execution
+                            || threadName != owner.threadName
                             || nowNanos - oldestNanos > FLUSH_NANOS)) {
                 if (generation == owner.generation) {
                     flush();
@@ -2041,6 +2970,7 @@ public final class SideEffects {
                 execution = owner.execution;
                 executionKind = owner.executionKind;
                 threadKind = owner.threadKind;
+                threadName = owner.threadName;
                 oldestNanos = nowNanos;
             }
             for (int i = 0; i < size; i++) {
@@ -2048,7 +2978,7 @@ public final class SideEffects {
                         && kind[i] == entryKind
                         && target[i] == entryTarget
                         && outcome[i] == entryOutcome
-                        && extra[i] == entryExtra
+                        && detail[i] == entryDetail
                         && stamp[i] == entryStamp
                         && frames[i] == entryFrames) {
                     count[i]++;
@@ -2065,6 +2995,7 @@ public final class SideEffects {
                 execution = owner.execution;
                 executionKind = owner.executionKind;
                 threadKind = owner.threadKind;
+                threadName = owner.threadName;
                 oldestNanos = nowNanos;
             }
             int i = size++;
@@ -2072,7 +3003,7 @@ public final class SideEffects {
             kind[i] = entryKind;
             target[i] = entryTarget;
             outcome[i] = entryOutcome;
-            extra[i] = entryExtra;
+            detail[i] = entryDetail;
             stamp[i] = entryStamp;
             frames[i] = entryFrames;
             count[i] = 1L;
@@ -2080,6 +3011,20 @@ public final class SideEffects {
             maxNanos[i] = entryNanos;
             firstMillis[i] = now;
             lastMillis[i] = now;
+        }
+
+        /** The index of an entry recorded for this key, whose frames and detail a repeat reuses, or -1. */
+        int known(int entrySensor, int entryKind, int entryTarget, int entryOutcome, long entryStamp) {
+            for (int i = 0; i < size; i++) {
+                if (sensor[i] == entrySensor
+                        && kind[i] == entryKind
+                        && target[i] == entryTarget
+                        && outcome[i] == entryOutcome
+                        && stamp[i] == entryStamp) {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         void flush() {
@@ -2100,7 +3045,8 @@ public final class SideEffects {
                 values[R_FLAGS] = (outcome[i] & 0xFFL)
                         | ((long) (threadKind & 0xF) << 8)
                         | ((long) (executionKind & 0xF) << 12)
-                        | ((long) extra[i] << 32);
+                        | ((long) (threadName & 0xFFFF) << 16)
+                        | ((long) detail[i] << 32);
                 values[R_COUNT] = count[i];
                 values[R_NANOS] = nanos[i];
                 values[R_MAX_NANOS] = maxNanos[i];
@@ -2184,7 +3130,7 @@ public final class SideEffects {
                 publish(SENSOR_PROCESSES, values);
                 EXITS_RECORDED.increment();
             } catch (Throwable ex) {
-                failed(ex);
+                failed(SENSOR_PROCESSES, ex);
             }
         }
     }
@@ -2222,7 +3168,7 @@ public final class SideEffects {
                     try {
                         task.run();
                     } catch (Throwable ex) {
-                        failed(ex);
+                        failed(SENSOR_PROCESSES, ex);
                     }
                 }
             } finally {
@@ -2386,6 +3332,15 @@ public final class SideEffects {
             if (claim.generation > generation) {
                 generation = claim.generation;
             }
+            while (true) {
+                Network current = NETWORK_STATE.get();
+                if (current != null && current.generation >= claim.generation) {
+                    break;
+                }
+                if (NETWORK_STATE.compareAndSet(current, new Network(claim.generation))) {
+                    break;
+                }
+            }
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -2396,7 +3351,7 @@ public final class SideEffects {
         try {
             Claim claim = AgentBridge.current();
             mask = claim != null && claim.armed && claim.generation == generation && !off
-                    ? claimedMask(claim) & enabled
+                    ? claimedMask(claim) & enabled & ~budgetOff
                     : 0;
             updateGate();
         } catch (Throwable ex) {
@@ -2421,7 +3376,7 @@ public final class SideEffects {
     public static void enable(int bits) {
         enabled |= bits;
         for (int i = 1; i < SENSOR_NAMES.length; i++) {
-            if ((bits & (1 << i)) != 0) {
+            if ((bits & (1 << i)) != 0 && (budgetOff & (1 << i)) == 0) {
                 DISABLED_REASONS[i] = null;
             }
         }
@@ -2431,6 +3386,14 @@ public final class SideEffects {
     /** The agent disables the sensors of {@code bits}: their self-test failed, or their transformer was removed. */
     public static void disable(int bits, String reason) {
         enabled &= ~bits;
+        if ((bits & MASK_NETWORK) != 0) {
+            // Never kept past the sensor's life: the channels still waiting and the datagram frames remembered.
+            Network network = NETWORK_STATE.get();
+            if (network != null) {
+                network.pending.clear();
+                network.memo.clear();
+            }
+        }
         for (int i = 1; i < SENSOR_NAMES.length; i++) {
             if ((bits & (1 << i)) != 0) {
                 DISABLED_REASONS[i] = reason;
@@ -2470,7 +3433,49 @@ public final class SideEffects {
             Reentrancy.sideEffectsSkipped();
             new AgentRing.Interns(-1L, 1, new LongAdder()).intern("warm");
             CompletableFuture.completedFuture(null).getClass();
+            // The network hooks' path, never resolving a name: an unresolved address and the loopback literal.
+            describe(java.net.InetSocketAddress.createUnresolved("warm.invalid", 1));
+            describe(new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 1));
+            describe(new java.net.InetSocketAddress(java.net.InetAddress.getByAddress(new byte[16]), 1));
+            describe(java.net.UnixDomainSocketAddress.of("warm"));
+            describe("(connected)");
+            describe(null);
+            packetAddress(new java.net.DatagramPacket(new byte[0], 0));
+            hostName("user@warm");
+            threadFamily("warm-1");
+            withoutSecrets("http://u@warm/?q");
+            plumbing("warm");
+            failure(new java.io.IOException("warm"));
+            new java.net.UnknownHostException("warm").getClass();
+            recording(null, 0);
+            WALKER.walk(new NetworkFrames(null)).getClass();
+            Network network = new Network(-1L);
+            network.targets.putIfAbsent("warm", Integer.valueOf(0));
+            network.targets.get("warm");
+            network.memo.putIfAbsent(new Memo(0, 0L, 0, 0), new long[2]);
+            network.memo.get(new Memo(0, 0L, 0, 0));
+            network.frameIds.get();
+            network.pending.put(Identity.stored(network), new PendingConnect(owner, 0, 0, 0L, 0L, 0L, 0L));
+            network.puts.incrementAndGet();
+            network.sweep(Long.MAX_VALUE);
+            network.pending.remove(Identity.of(network));
+            network.pending.isEmpty();
+            quota(network.lookups, "warm");
+            table.known(0, 0, 0, 0, 0L);
+            frameId(network, "warm", "warm");
+            CodePaths.Frame warmFrame = new CodePaths.Frame();
+            datagramTarget(
+                    warmFrame, new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 1), -2L);
+            datagramTarget(
+                    warmFrame,
+                    new java.net.DatagramPacket(new byte[0], 0, java.net.InetAddress.getLoopbackAddress(), 1),
+                    -2L);
+            infrastructure("warm");
+            site(1L);
+            eventLoop(Thread.currentThread(), "warm");
+            packetAddress(new java.net.DatagramPacket(new byte[0], 0, java.net.InetAddress.getLoopbackAddress(), 1));
             status(PROCESSES);
+            status(NETWORK);
             // The files and environment sensors: their places, read here, on the agent's own thread, never in a hook,
             // and every class their hooks link, so a hook inside class loading loads nothing.
             places = Places.read();
@@ -2525,6 +3530,15 @@ public final class SideEffects {
         updateGate();
     }
 
+    /**
+     * Moves the self-test to {@code thread}, as the agent does for a step it runs on a helper thread of its own with a
+     * bounded wait, such as a name lookup; {@code null} counts nothing until the next call. Never throws.
+     */
+    public static void selfTestOn(Thread thread) {
+        selfTestThread = thread;
+        updateGate();
+    }
+
     /** Ends the self-test: the hooks it ran, by hook id, with how often each fired. */
     public static Map<String, Object> endSelfTest() {
         selfTestThread = null;
@@ -2537,6 +3551,36 @@ public final class SideEffects {
     }
 
     // ---- errors and status ---------------------------------------------------------------------------------------
+
+    /**
+     * An internal error of sensor {@code sensor}'s own recording: counted against its budget, which switches that sensor
+     * alone off for the JVM's life, so a fault storm in one sensor never stops another. Never throws.
+     */
+    private static void failed(int sensor, Throwable ex) {
+        try {
+            if (ex instanceof VirtualMachineError) {
+                APPLICATION_ERRORS.increment();
+                return;
+            }
+            int index = sensor > 0 && sensor < SENSOR_NAMES.length ? sensor : 0;
+            if (index == 0) {
+                failed(ex);
+                return;
+            }
+            long errors = SENSOR_ERRORS[index].incrementAndGet();
+            AgentBridge.error(ex);
+            int bit = 1 << index;
+            if (errors >= MAX_ERRORS && (budgetOff & bit) == 0) {
+                budgetOff |= bit;
+                String reason = "switched off after " + MAX_ERRORS + " internal errors, the last: " + ex;
+                DISABLED_REASONS[index] = reason;
+                refresh();
+                AgentBridge.message("the side-effect sensor " + SENSOR_NAMES[index] + " was " + reason);
+            }
+        } catch (Throwable ignored) {
+            // Never throw from the error path.
+        }
+    }
 
     private static void failed(Throwable ex) {
         try {
@@ -2582,6 +3626,16 @@ public final class SideEffects {
             map.put("skipped", Long.valueOf(SKIPPED.sum()));
             map.put("tableFlushes", Long.valueOf(TABLE_FLUSHES.sum()));
             map.put("slotMismatches", Long.valueOf(SLOT_MISMATCHES.sum()));
+            map.put("staleDepths", Long.valueOf(STALE_DEPTHS.sum()));
+            if (sensor == SENSOR_NETWORK) {
+                Network network = NETWORK_STATE.get();
+                map.put("targets", Integer.valueOf(network == null ? 0 : network.targets.size()));
+                map.put("targetsOverflow", Long.valueOf(NETWORK_TARGETS_OVERFLOW.sum()));
+                map.put("pendingConnects", Integer.valueOf(network == null ? 0 : network.pending.size()));
+                map.put("connectsUnpaired", Long.valueOf(CONNECTS_UNPAIRED.sum()));
+                map.put("datagramMemo", Integer.valueOf(network == null ? 0 : network.memo.size()));
+                map.put("jdkLoopbackSkipped", Long.valueOf(JDK_LOOPBACK_SKIPPED.sum()));
+            }
             if (sensor == SENSOR_FILES) {
                 Map<String, Object> buckets = new LinkedHashMap<String, Object>();
                 for (int i = 0; i < BUCKETS.length; i++) {
@@ -2619,9 +3673,10 @@ public final class SideEffects {
             AgentRing.Interns interns = INTERNS.get();
             map.put("interned", Integer.valueOf(interns == null ? 0 : interns.size()));
             map.put("internOverflow", Long.valueOf(COUNTERS.internOverflow.sum()));
-            map.put("errors", Long.valueOf(ERROR_COUNT.get()));
+            map.put("errors", Long.valueOf(ERROR_COUNT.get() + SENSOR_ERRORS[sensor].get()));
             map.put("applicationErrors", Long.valueOf(APPLICATION_ERRORS.sum()));
-            map.put("off", Boolean.valueOf(off));
+            boolean sensorOff = sensor != 0 && (budgetOff & (1 << sensor)) != 0;
+            map.put("off", Boolean.valueOf(off || sensorOff));
             map.put("disabledReason", off ? offReason : DISABLED_REASONS[sensor]);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
@@ -2657,6 +3712,11 @@ public final class SideEffects {
         EXITS_DROPPED.reset();
         APPLICATION_ERRORS.reset();
         SLOT_MISMATCHES.reset();
+        STALE_DEPTHS.reset();
+        NETWORK_TARGETS_OVERFLOW.reset();
+        CONNECTS_UNPAIRED.reset();
+        JDK_LOOPBACK_SKIPPED.reset();
+        NETWORK_STATE.set(null);
         PENDING_EXITS.set(0);
         ERROR_COUNT.set(0);
         resetAll(BUCKET_COUNTS);
@@ -2669,6 +3729,10 @@ public final class SideEffects {
         for (AtomicInteger interned : INTERNED) {
             interned.set(0);
         }
+        for (AtomicLong errors : SENSOR_ERRORS) {
+            errors.set(0);
+        }
+        budgetOff = 0;
         for (int i = 0; i < DISABLED_REASONS.length; i++) {
             DISABLED_REASONS[i] = null;
         }
@@ -2685,6 +3749,9 @@ public final class SideEffects {
             frame.slots = 0;
             frame.sideEffects = null;
             frame.sideEffectDepth = 0;
+            frame.sideEffectSince = 0L;
+            frame.sideEffectThreadName = null;
+            frame.sideEffectThreadGeneration = -1L;
             frame.environmentSeen = null;
         }
     }
@@ -2697,6 +3764,22 @@ public final class SideEffects {
     /** Tests only: whether the exits' worker is marked running, as a test that runs exits by hand sets. */
     static void exitWorkerRunning(boolean running) {
         exitWorkerRunning = running;
+    }
+
+    private static AtomicInteger[] atomics(int count) {
+        AtomicInteger[] atomics = new AtomicInteger[count];
+        for (int i = 0; i < count; i++) {
+            atomics[i] = new AtomicInteger();
+        }
+        return atomics;
+    }
+
+    private static AtomicLong[] longs(int count) {
+        AtomicLong[] longs = new AtomicLong[count];
+        for (int i = 0; i < count; i++) {
+            longs[i] = new AtomicLong();
+        }
+        return longs;
     }
 
     private static LongAdder[] adders(int count) {

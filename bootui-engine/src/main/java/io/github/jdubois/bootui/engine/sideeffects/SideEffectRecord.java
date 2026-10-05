@@ -18,8 +18,9 @@ package io.github.jdubois.bootui.engine.sideeffects;
  * @param executionKind the execution's kind: 1 an agent-propagated task of a request, 2 a managed task of a request, 3 an
  *     execution no request owns ({@link #EXECUTION_OWN}), 0 none
  * @param threadName the thread name's string id, for a record without request or execution
- * @param exitStatus a process's exit status, or, for a file operation or an environment read, the JDK context of its
- *     frame summary in its low byte ({@link #context()})
+ * @param exitStatus a process's exit status, a network record's client frame string id ({@link #clientFrame()}), or,
+ *     for a file operation or an environment read, the JDK context of its frame summary in its low byte ({@link
+ *     #context()})
  * @param count its occurrences
  * @param nanos their total duration
  * @param maxNanos the longest
@@ -82,6 +83,11 @@ record SideEffectRecord(
                 (int) frames);
     }
 
+    /** A network record's client frame: the string id of the first frame outside the socket plumbing, 0 when none. */
+    int clientFrame() {
+        return sensor == SideEffectsCatalog.RECORD_NETWORK ? exitStatus : 0;
+    }
+
     /** The bridge's JDK contexts of a file operation's or an environment read's frame summary. */
     static final int CONTEXT_NONE = 0;
 
@@ -89,9 +95,11 @@ record SideEffectRecord(
     static final int CONTEXT_CLASS_LOADING = 2;
     static final int CONTEXT_JDK_ONLY = 3;
 
-    /** A file operation's or an environment read's JDK context ({@link #CONTEXT_NONE} and the others). */
+    /** A file operation's or an environment read's JDK context ({@link #CONTEXT_NONE} and the others), 0 otherwise. */
     int context() {
-        return exitStatus & 0xFF;
+        return sensor == SideEffectsCatalog.RECORD_FILES || sensor == SideEffectsCatalog.RECORD_ENVIRONMENT
+                ? exitStatus & 0xFF
+                : 0;
     }
 
     /** The request id as BootUI writes it, 16 hexadecimal digits, or {@code null}. */

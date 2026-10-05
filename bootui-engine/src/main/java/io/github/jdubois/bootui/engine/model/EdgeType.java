@@ -25,8 +25,10 @@ public enum EdgeType {
      */
     INVOKES,
     /**
-     * An execution opened, deleted, moved, or copied files of a path pattern, as the BootUI agent's Side Effects observed
-     * it in this run ({@code docs/PLAN-v2.md} §5.16, M5-5d). Not part of change impact's closure.
+     * A route, a scheduled job, or a bean opened connections to, or sent datagrams to, a host, as the BootUI agent's
+     * {@code network} sensor observed it ({@code docs/PLAN-v2.md} §5.16, M5-5b), or an execution opened, deleted, moved,
+     * or copied files of a path pattern, as its {@code files} sensor observed it (M5-5d). Not part of change impact's
+     * closure.
      */
     OPENS
 }

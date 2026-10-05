@@ -131,6 +131,10 @@ public class RuntimeInsightsResource {
         models.setInvocations(
                 () -> codePaths.isResolvable() ? codePaths.get().invocations() : List.of(),
                 () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
+        // The hosts Side Effects' network sensor saw routes, jobs, and beans open (docs/PLAN-v2.md §5.16, M5-5b).
+        models.setHostOpens(
+                () -> sideEffects.isResolvable() ? sideEffects.get().hostOpens() : List.of(),
+                () -> sideEffects.isResolvable() ? sideEffects.get().hostOpensFingerprint() : 0L);
         // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
         models.setSideEffects(
                 () -> sideEffects.isResolvable() ? sideEffects.get().modelAccesses() : List.of(),

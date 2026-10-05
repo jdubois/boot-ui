@@ -17,22 +17,29 @@ public final class SideEffectsCatalog {
     /** The bridge's sensor ids in records. */
     static final int RECORD_PROCESSES = 1;
 
-    static final int RECORD_FILES = 2;
-    static final int RECORD_ENVIRONMENT = 3;
+    /** The bridge's sensor id of {@code network} in records (M5-5b). */
+    static final int RECORD_NETWORK = 2;
+
+    static final int RECORD_FILES = 3;
+    static final int RECORD_ENVIRONMENT = 4;
 
     /** The bridge's record kinds. */
     static final int KIND_PROCESS_START = 1;
 
     static final int KIND_PROCESS_EXIT = 2;
-    static final int KIND_FILE_READ = 3;
-    static final int KIND_FILE_WRITE = 4;
-    static final int KIND_FILE_DELETE = 5;
-    static final int KIND_FILE_MOVE_FROM = 6;
-    static final int KIND_FILE_MOVE_TO = 7;
-    static final int KIND_FILE_COPY_FROM = 8;
-    static final int KIND_FILE_COPY_TO = 9;
-    static final int KIND_ENVIRONMENT_VARIABLE = 10;
-    static final int KIND_SYSTEM_PROPERTY = 11;
+    static final int KIND_CONNECT = 3;
+    static final int KIND_CONNECT_FINISH = 4;
+    static final int KIND_DATAGRAM = 5;
+    static final int KIND_LOOKUP = 6;
+    static final int KIND_FILE_READ = 7;
+    static final int KIND_FILE_WRITE = 8;
+    static final int KIND_FILE_DELETE = 9;
+    static final int KIND_FILE_MOVE_FROM = 10;
+    static final int KIND_FILE_MOVE_TO = 11;
+    static final int KIND_FILE_COPY_FROM = 12;
+    static final int KIND_FILE_COPY_TO = 13;
+    static final int KIND_ENVIRONMENT_VARIABLE = 14;
+    static final int KIND_SYSTEM_PROPERTY = 15;
 
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
@@ -40,7 +47,21 @@ public final class SideEffectsCatalog {
     static final int OUTCOME_IO_ERROR = 2;
     static final int OUTCOME_ERROR = 3;
     static final int OUTCOME_EXITED = 4;
-    static final int OUTCOME_DONE = 5;
+    static final int OUTCOME_CONNECTED = 5;
+    static final int OUTCOME_PENDING = 6;
+    static final int OUTCOME_SENT = 7;
+    static final int OUTCOME_RESOLVED = 8;
+    static final int OUTCOME_UNKNOWN_HOST = 9;
+
+    /** The network sensor's id. */
+    static final String NETWORK_ID = "network";
+
+    /** What a network row's kind says. */
+    static final String CONNECT = "connect";
+
+    static final String DATAGRAM = "datagram";
+    static final String LOOKUP = "lookup";
+    static final int OUTCOME_DONE = 10;
 
     /** What a file row did, as rows name it. */
     public static final String READ = "read";
@@ -84,7 +105,7 @@ public final class SideEffectsCatalog {
 
     /** Every sensor, in tab order. */
     public static final List<Sensor> SENSORS = List.of(
-            new Sensor("network", NETWORK, "Hosts the application connects to", false, 0),
+            new Sensor("network", NETWORK, "Hosts the application connects to", true, RECORD_NETWORK),
             new Sensor("files", FILES_AND_PROCESSES, "Files the application reads and writes", true, RECORD_FILES),
             new Sensor("processes", FILES_AND_PROCESSES, "Processes the application starts", true, RECORD_PROCESSES),
             new Sensor(
@@ -126,6 +147,14 @@ public final class SideEffectsCatalog {
         if (recordId == RECORD_PROCESSES) {
             return "process";
         }
+        if (recordId == RECORD_NETWORK) {
+            return switch (kind) {
+                case KIND_CONNECT, KIND_CONNECT_FINISH -> CONNECT;
+                case KIND_DATAGRAM -> DATAGRAM;
+                case KIND_LOOKUP -> LOOKUP;
+                default -> "operation";
+            };
+        }
         return switch (kind) {
             case KIND_FILE_READ -> READ;
             case KIND_FILE_WRITE -> WRITE;
@@ -143,5 +172,10 @@ public final class SideEffectsCatalog {
     /** Whether a file row's kind writes: anything but a read or the source of a copy. */
     public static boolean writes(String kind) {
         return kind != null && !READ.equals(kind) && !COPY_FROM.equals(kind);
+    }
+
+    /** Whether an outcome is a failure. */
+    static boolean failed(int outcome) {
+        return outcome == OUTCOME_IO_ERROR || outcome == OUTCOME_ERROR || outcome == OUTCOME_UNKNOWN_HOST;
     }
 }

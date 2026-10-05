@@ -130,8 +130,18 @@ public class RuntimeInsightsController {
                     CodePathsService paths = codePaths.getIfUnique();
                     return paths == null ? 0L : paths.routeTreesFingerprint();
                 });
-        // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
+        // The hosts Side Effects' network sensor saw routes, jobs, and beans open (docs/PLAN-v2.md §5.16, M5-5b).
         ObjectProvider<SideEffectsService> sideEffects = context.getBeanProvider(SideEffectsService.class);
+        models.setHostOpens(
+                () -> {
+                    SideEffectsService effects = sideEffects.getIfUnique();
+                    return effects == null ? List.of() : effects.hostOpens();
+                },
+                () -> {
+                    SideEffectsService effects = sideEffects.getIfUnique();
+                    return effects == null ? 0L : effects.hostOpensFingerprint();
+                });
+        // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
         models.setSideEffects(
                 () -> {
                     SideEffectsService service = sideEffects.getIfUnique();

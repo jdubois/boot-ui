@@ -13,8 +13,8 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     and {@code files}, and the opt-in {@code threads} and {@code environment}; the Side Effects sensors this version
- *     does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
+ *     {@code network}, and {@code files}, and the opt-in {@code threads} and {@code environment}; the Side Effects
+ *     sensors this version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -52,6 +52,13 @@ public record AgentSensorSettings(
     public static final String PROCESSES = "processes";
 
     /**
+     * The Side Effects sensor recording the hosts the application connects to, the datagrams it sends, and the names the
+     * JVM resolves (M5-5b, §5.16), on by default: rare hooks on connects and cache-missing lookups, datagram sends
+     * counted per thread; never a byte sent or received.
+     */
+    public static final String NETWORK = "network";
+
+    /**
      * The Side Effects sensor recording the files the application reads and writes (M5-5d, §5.16), on by default: path
      * patterns, never contents, with class loading, the JDK's own files, and logging appenders grouped apart.
      */
@@ -65,21 +72,22 @@ public record AgentSensorSettings(
     public static final String ENVIRONMENT = "environment";
 
     /** The Side Effects sensors this version ships. */
-    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES, FILES, ENVIRONMENT);
+    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS =
-            List.of(EXECUTORS, THREADS, INVENTORY, CODE_PATHS, PROCESSES, FILES, ENVIRONMENT);
+            List.of(EXECUTORS, THREADS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES, ENVIRONMENT);
 
     /**
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
     public static final List<String> NOT_AVAILABLE_SENSORS =
-            List.of("network", "thread-activity", "thread-locals", "resources", "blocking", "security-sinks");
+            List.of("thread-activity", "thread-locals", "resources", "blocking", "security-sinks");
 
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, FILES);
+    public static final List<String> DEFAULT_SENSORS =
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES);
 
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;
@@ -197,6 +205,11 @@ public record AgentSensorSettings(
     /** Whether the {@code processes} sensor is asked for. */
     public boolean processes() {
         return sensors.contains(PROCESSES);
+    }
+
+    /** Whether the {@code network} sensor is asked for. */
+    public boolean network() {
+        return sensors.contains(NETWORK);
     }
 
     /** Whether the {@code files} sensor is asked for. */

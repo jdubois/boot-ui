@@ -128,6 +128,52 @@ class RuntimeModelProjectionTests {
     }
 
     /**
+     * M5-5b: the hosts Side Effects' network sensor saw a route, a scheduled job, and an application class open become
+     * observed {@code OPENS} edges to host nodes; a class of no single bean makes no edge, and change impact never walks
+     * them.
+     */
+    @Test
+    void hostsTheNetworkSensorSawOpenedBecomeOpensEdges() {
+        StructureSnapshot structure = new StructureSnapshot(
+                "run-1",
+                List.of(),
+                List.of(
+                        new StructureSnapshot.Bean("licenseClient", "com.example.LicenseClient", false, List.of()),
+                        new StructureSnapshot.Bean("twinA", "com.example.Twin", false, List.of()),
+                        new StructureSnapshot.Bean("twinB", "com.example.Twin", false, List.of())));
+        List<HostOpen> opens = List.of(
+                new HostOpen(HostOpen.ROUTE, "GET /sdk", "localhost:9000", 2),
+                new HostOpen(HostOpen.SCHEDULED_JOB, "ReportJob.run", "smtp.example.com:25", 1),
+                new HostOpen(HostOpen.CLASS, "com.example.LicenseClient", "localhost:9000", 2),
+                new HostOpen(HostOpen.CLASS, "com.example.Twin", "localhost:9000", 1));
+
+        RuntimeModel model = RuntimeModelProjection.project(
+                List.of(),
+                RouteTemplateResolver.empty(),
+                structure,
+                0,
+                new AtomicLong()::get,
+                RuntimeModelProjection.READ_BUDGET_NANOS,
+                traceId -> false,
+                List.of(),
+                opens);
+
+        assertThat(model.edges())
+                .filteredOn(edge -> edge.type() == EdgeType.OPENS)
+                .extracting(edge -> model.node(edge.from()).type() + ":"
+                        + model.node(edge.from()).key() + ">"
+                        + model.node(edge.to()).type() + ":"
+                        + model.node(edge.to()).key() + ":" + edge.count())
+                .containsExactlyInAnyOrder(
+                        "ROUTE:GET /sdk>HOST:localhost:9000:2",
+                        "SCHEDULED_JOB:ReportJob.run>HOST:smtp.example.com:25:1",
+                        "BEAN:licenseClient>HOST:localhost:9000:2");
+        int host = model.node(NodeType.HOST, "localhost:9000").orElseThrow().id();
+        assertThat(ReverseClosure.of(model, host, io.github.jdubois.bootui.engine.insights.ChangeImpactService.CODE, 5))
+                .isEmpty();
+    }
+
+    /**
      * M5-4c: the calls Code Paths observed between application classes become observed {@code INVOKES} edges between
      * their beans, with their counts; a proxy class reads as its user class, a self-call or a class of no single bean
      * makes no edge, and change impact's code closure never walks them (design I8).

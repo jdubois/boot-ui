@@ -43,6 +43,26 @@ public final class SideEffectsNormalizer {
         return normalized.length() > MAX_LENGTH ? normalized.substring(0, MAX_LENGTH) + "…" : normalized;
     }
 
+    /**
+     * A network target normalized: a host and port keep their digits, which are the information (an address, a port);
+     * only UUIDs and long hexadecimal runs are folded, and the home directory of a {@code unix:} path.
+     */
+    public String networkTarget(String text) {
+        if (text == null) {
+            return null;
+        }
+        String normalized = text;
+        if (normalized.startsWith("unix:")) {
+            String path = normalized.substring(5);
+            if (home != null && (path.equals(home) || path.startsWith(home + "/") || path.startsWith(home + "\\"))) {
+                normalized = "unix:~" + path.substring(home.length());
+            }
+        }
+        normalized = UUID.matcher(normalized).replaceAll("{uuid}");
+        normalized = HEX.matcher(normalized).replaceAll("{hex}");
+        return normalized.length() > MAX_LENGTH ? normalized.substring(0, MAX_LENGTH) + "…" : normalized;
+    }
+
     /** A thread name's family: its digit runs collapsed, as {@code pool-{n}-thread-{n}}. */
     public String threadFamily(String name) {
         if (name == null || name.isBlank()) {

@@ -40,7 +40,8 @@ class FilesEnvironmentBehaviorsIT {
             "Files.copy",
             "FileChannel.open");
 
-    private static final List<String> ENVIRONMENT_HOOKS = List.of("System.getenv", "System.getProperty");
+    private static final List<String> ENVIRONMENT_HOOKS =
+            List.of("System.getenv", "System.getenvAll", "System.getProperty");
 
     private static final List<String> REQUIRED = List.of(
             "a report written outside the temporary directory records its pattern, a write, under its request",

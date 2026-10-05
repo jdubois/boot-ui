@@ -66,7 +66,7 @@ class SpringAgentScenarioIT {
                 "--bootui.overrides-file=" + directory.resolve("overrides.properties"),
                 "--bootui.activity.feed-source=journal",
                 // The default sensors and the opt-in environment sensor, for the Side Effects seeds (M5-5d).
-                "--bootui.agent.sensors=executors,inventory,code-paths,processes,files,environment",
+                "--bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment",
                 "--management.tracing.export.enabled=false"));
         process = new ProcessBuilder(command)
                 .redirectErrorStream(true)

@@ -85,12 +85,14 @@ const GROUPED_APART = new Set(['class-path', 'jdk', 'logging'])
 
 const SENSOR_COLUMNS = {
   processes: {target: 'Command', count: 'Starts', failed: true, exits: true, time: 'Lifetime (total / max ms)'},
+  network: {target: 'Host / name', count: 'Count', failed: true, network: true, time: 'Time (total / max ms)'},
   files: {target: 'Path pattern', count: 'Operations', failed: true, origin: true, time: 'Time (total / max ms)'},
   environment: {target: 'Name', count: 'Reads', origin: true}
 }
 
 const EMPTY_TEXT = {
   processes: 'No process started yet in this run.',
+  network: 'No connection, datagram, or name lookup recorded yet in this run.',
   files: 'No file has been opened yet in this run.',
   environment: 'No environment variable or system property has been read yet in this run.'
 }
@@ -250,6 +252,8 @@ function rowKey(row) {
     row.insideMethod,
     row.origin,
     row.location,
+    row.client,
+    row.capture,
     row.firstSeen
   ].join('|')
 }
@@ -270,7 +274,14 @@ function columnsOf(sensor) {
 
 function columnCount(sensor) {
   const columns = columnsOf(sensor)
-  return 5 + (columns.failed ? 1 : 0) + (columns.exits ? 1 : 0) + (columns.time ? 1 : 0) + (columns.origin ? 1 : 0)
+  return (
+    5 +
+    (columns.failed ? 1 : 0) +
+    (columns.exits ? 1 : 0) +
+    (columns.time ? 1 : 0) +
+    (columns.origin ? 1 : 0) +
+    (columns.network ? 3 : 0)
+  )
 }
 
 function groupedApart(row) {
@@ -318,6 +329,29 @@ function formatSeen(epochMillis) {
 
 function formatLifetime(row) {
   return `${formatMillis(row.totalMillis)} / ${formatMillis(row.maxMillis)}`
+}
+
+const CAPTURE = {
+  captured: {label: 'Captured', badge: 'text-bg-success'},
+  'not-captured': {label: 'Not captured by any panel', badge: 'text-bg-warning'},
+  infrastructure: {label: 'Infrastructure', badge: 'text-bg-secondary'}
+}
+
+const PANEL_ROUTES = {
+  'rest-client-trace': {path: '/rest-client-trace', label: 'REST Client Trace'},
+  'sql-trace': {path: '/sql-trace', label: 'SQL Trace'},
+  kafka: {path: '/kafka', label: 'Kafka'},
+  rabbitmq: {path: '/rabbitmq', label: 'RabbitMQ'},
+  jms: {path: '/jms', label: 'JMS'},
+  email: {path: '/email', label: 'Email'}
+}
+
+function captureOf(row) {
+  return CAPTURE[row.capture] ?? null
+}
+
+function capturingPanel(row) {
+  return PANEL_ROUTES[row.capturedBy] ?? (row.capturedBy ? {path: null, label: row.capturedBy} : null)
 }
 
 function hookStatus(value, label) {
@@ -370,8 +404,8 @@ function hookStatus(value, label) {
           </h3>
           <p class="text-muted small mb-0">
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
-            executable name, file rows a path pattern, and environment rows a name: arguments, file contents, and values
-            are never recorded.
+            executable name, network rows a host and port, file rows a path pattern, and environment rows a name:
+            arguments, bytes sent or received, file contents, and values are never recorded.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>
@@ -494,11 +528,16 @@ function hookStatus(value, label) {
                         <tr>
                           <th scope="col">Attribution</th>
                           <th scope="col">{{ columnsOf(sensor).target }}</th>
+                          <template v-if="columnsOf(sensor).network">
+                            <th scope="col">Client</th>
+                            <th scope="col">Captured</th>
+                          </template>
                           <th scope="col">Call site</th>
                           <th v-if="columnsOf(sensor).origin" scope="col">Origin</th>
                           <th scope="col" class="text-end">{{ columnsOf(sensor).count }}</th>
                           <th v-if="columnsOf(sensor).failed" scope="col" class="text-end">Failed</th>
                           <th v-if="columnsOf(sensor).exits" scope="col" class="text-end">Exits</th>
+                          <th v-if="columnsOf(sensor).network" scope="col" class="text-end">Connected</th>
                           <th v-if="columnsOf(sensor).time" scope="col" class="text-end">
                             {{ columnsOf(sensor).time }}
                           </th>
@@ -533,6 +572,26 @@ function hookStatus(value, label) {
                               }}</span>
                             </div>
                           </td>
+                          <template v-if="columnsOf(sensor).network">
+                            <td>
+                              <span v-if="row.client">{{ row.client }}</span>
+                              <span v-else class="text-muted">unrecognized</span>
+                            </td>
+                            <td>
+                              <template v-if="captureOf(row)">
+                                <span :class="['badge', captureOf(row).badge, 'side-effects-capture']">{{
+                                  captureOf(row).label
+                                }}</span>
+                                <div v-if="capturingPanel(row)" class="small mt-1">
+                                  <router-link v-if="capturingPanel(row).path" :to="capturingPanel(row).path">{{
+                                    capturingPanel(row).label
+                                  }}</router-link>
+                                  <span v-else>{{ capturingPanel(row).label }}</span>
+                                </div>
+                              </template>
+                              <span v-else class="text-muted">—</span>
+                            </td>
+                          </template>
                           <td>
                             <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
                             <span v-else class="text-muted">—</span>
@@ -556,6 +615,9 @@ function hookStatus(value, label) {
                                 last {{ row.lastExitStatus }}</span
                               >
                             </div>
+                          </td>
+                          <td v-if="columnsOf(sensor).network" class="text-end">
+                            {{ row.kind === 'connect' ? formatNumber(row.completed) : '—' }}
                           </td>
                           <td v-if="columnsOf(sensor).time" class="text-end">{{ formatLifetime(row) }}</td>
                           <td>

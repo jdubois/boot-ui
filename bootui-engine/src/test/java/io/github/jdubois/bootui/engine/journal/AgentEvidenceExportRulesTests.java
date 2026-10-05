@@ -122,8 +122,13 @@ class AgentEvidenceExportRulesTests {
             "SideEffectsReport.limitations",
             "SideEffectsReport.sensors",
             "SideEffectsReport.unavailableReason",
+            // Network (M5-5b): a host and port or a looked-up name, never a byte; a client label BootUI wrote; how a
+            // panel captures it and that panel's id.
             "SideEffectsRowDto.attribution",
             "SideEffectsRowDto.callSite",
+            "SideEffectsRowDto.capture",
+            "SideEffectsRowDto.capturedBy",
+            "SideEffectsRowDto.client",
             "SideEffectsRowDto.completed",
             "SideEffectsRowDto.count",
             "SideEffectsRowDto.exemplarRequestIds",
