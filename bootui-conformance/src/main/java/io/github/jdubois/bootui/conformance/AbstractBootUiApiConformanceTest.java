@@ -1995,7 +1995,12 @@ public abstract class AbstractBootUiApiConformanceTest {
                         "blocking",
                         "security-sinks");
         report.path("sensors").forEach(sensor -> {
-            if (!"processes".equals(sensor.path("id").asText())) {
+            if (List.of("processes", "files", "environment")
+                    .contains(sensor.path("id").asText())) {
+                // Shipped sensors (M5-5a, M5-5d): unavailable with the Java Agent panel's reason without the agent.
+                assertThat(sensor.path("state").asText()).isEqualTo("unavailable");
+                assertThat(sensor.path("reason").asText()).startsWith("Requires the BootUI agent");
+            } else {
                 assertThat(sensor.path("state").asText()).isEqualTo("not-available");
                 assertThat(sensor.path("reason").asText()).isEqualTo("Not available in this version.");
             }
