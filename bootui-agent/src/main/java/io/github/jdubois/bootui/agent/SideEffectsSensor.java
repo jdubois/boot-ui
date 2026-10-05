@@ -506,8 +506,12 @@ final class SideEffectsSensor {
      * files hook runs and fails before anything is created.
      */
     static String filesStep() {
-        File missing =
-                new File(System.getProperty("java.io.tmpdir"), "bootui-agent-self-test-missing-" + System.nanoTime());
+        String temporary = System.getProperty("java.io.tmpdir");
+        return withoutTemporaryDirectory(filesStep(temporary), temporary);
+    }
+
+    private static String filesStep(String temporary) {
+        File missing = new File(temporary, "bootui-agent-self-test-missing-" + System.nanoTime());
         if (missing.exists()) {
             return "error: " + missing + " exists";
         }
@@ -544,6 +548,42 @@ final class SideEffectsSensor {
             unexpected.add(missing + " was created");
         }
         return unexpected.isEmpty() ? "ok" : "error: " + unexpected;
+    }
+
+    /**
+     * {@code text}, a self-test result reported by the Java Agent panel, MCP, and the log, with the temporary
+     * directory, which holds a user name on Windows and macOS, as {@code $TMPDIR}, in every form a path or an
+     * exception message may name it.
+     */
+    static String withoutTemporaryDirectory(String text, String temporary) {
+        if (text == null || temporary == null || temporary.isEmpty()) {
+            return text;
+        }
+        List<String> forms = new ArrayList<String>();
+        forms.add(temporary);
+        try {
+            forms.add(new File(temporary).getCanonicalPath());
+            forms.add(new File(temporary).getAbsolutePath());
+        } catch (IOException | RuntimeException ex) {
+            // The literal form only.
+        }
+        String result = text;
+        for (String form : new ArrayList<String>(forms)) {
+            forms.add(form.replace('\\', '/'));
+            forms.add(form.replace('/', '\\'));
+        }
+        // The longest first, so /private/var/... is replaced whole before /var/....
+        forms.sort((a, b) -> b.length() - a.length());
+        for (String form : forms) {
+            String trimmed = form;
+            while (trimmed.length() > 1 && (trimmed.endsWith("/") || trimmed.endsWith("\\"))) {
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+            if (trimmed.length() > 1) {
+                result = result.replace(trimmed, "$TMPDIR");
+            }
+        }
+        return result;
     }
 
     interface FileStep {

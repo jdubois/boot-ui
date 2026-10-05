@@ -152,8 +152,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   application code opens, deletes, moves, and copies through `FileInputStream`, `FileOutputStream`,
   `RandomAccessFile`, the `Files` methods, and `FileChannel.open`, as path patterns built inside the agent (`./` for the
   working directory, `$TMPDIR`, `~`, another user's home as `*`, ids and digits as `{n}`, `{hex}`, `{uuid}`, `{id}`,
-  and `{token}`), never contents, with each row's kind, location, and origin; class files, archives, Java's home, and
-  class path directories are counted in buckets, and class loading, the JDK's own files, and logging appenders are
+  and `{token}`), never contents, with each row's kind, location, and origin; class files, archives, Java's home,
+  class path directories, and other files class loaders read are counted in buckets, and class loading, the JDK's own files, and logging appenders are
   grouped apart from the application's files. A new opt-in `environment` sensor records the names of the environment
   variables and system properties application code reads directly through `System.getenv` and `System.getProperty`,
   never their values or defaults, skipping the JDK's own reads. A report written outside the temporary directory shows

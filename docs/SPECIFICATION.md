@@ -815,8 +815,10 @@ Features:
   `Files` methods that open (`newByteChannel`, `newInputStream`, `newOutputStream`), delete, move, and copy, and
   `FileChannel.open`. The agent turns each path into a pattern before it leaves the hook: the working directory as `.`,
   the temporary directory as `$TMPDIR`, the home as `~`, another user's home as `*`, ids collapsed to `{token}`,
-  `{uuid}`, `{id}`, `{hex}`, and `{n}`; BootUI masks a segment that looks like a secret value. Class files, archives,
-  archive file systems, Java's home, and class path directories are counted in buckets. Each row has a kind (`read`,
+  `{uuid}`, `{hex}`, `{id}` (12 or more characters mixing letters and digits, or 24 or more letters mixing cases), and
+  `{n}`; the engine masks a segment its secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL).
+  Class files, archives, archive file systems, Java's home, class path directories, and any other file a class loader
+  reads are counted in buckets. Each row has a kind (`read`,
   `write`, `delete`, `move from`, `move to`, `copy from`, `copy to`), a location (`working-directory`,
   `temporary-directory`, `home`, `system`, `elsewhere`), and an origin (`application`, `library`, `class-path`, `jdk`,
   `logging`, `unknown`); class path, JDK, and logging rows are grouped apart. Never contents.
@@ -824,7 +826,7 @@ Features:
   a thread reads it for a request or execution, drops reads whose immediate caller is the JDK, and never records a
   value or a default.
 - The runtime model gains `FILE_PATTERN` and `ENVIRONMENT_VARIABLE` nodes and `OPENS` and `READS` edges from routes,
-  GraphQL operations, and scheduled jobs, for application and library rows, while Side Effects is visible; change
+  GraphQL operations, and scheduled jobs, for application rows, while Side Effects is visible; change
   impact's closure and its route reads and writes ignore them.
 - BootUI's own process starts, agent threads, BootUI threads, reentrant inner hooks, and starts during class
   transformation are not recorded. A failed self-test disables the sensor and removes its transformer. After 100

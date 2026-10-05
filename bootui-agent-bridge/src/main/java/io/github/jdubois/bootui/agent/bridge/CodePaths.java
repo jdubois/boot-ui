@@ -1177,12 +1177,6 @@ public final class CodePaths {
 
         /** The names the environment sensor recorded for the thread's current owner, created at its first read. */
         SideEffects.Seen environmentSeen;
-
-        /**
-         * The frame summaries the files sensor walked for the thread's current owner, for operations no code-paths
-         * method stamps, created at the first one.
-         */
-        SideEffects.Seen fileSightings;
     }
 
     /**

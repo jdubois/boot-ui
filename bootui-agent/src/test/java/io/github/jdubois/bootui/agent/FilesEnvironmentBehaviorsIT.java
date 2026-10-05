@@ -49,7 +49,7 @@ class FilesEnvironmentBehaviorsIT {
             "a file operation nested in another records once",
             "inside a scope, operations aggregate under the scope's owner and flush at its end",
             "class files, archives, and Java's home are counted in buckets, never recorded or interned",
-            "a resource a class loader reads is class loading",
+            "a resource a class loader reads is class loading, counted and never recorded or interned",
             "a JDK logging handler's file is JDK logging",
             "a logging framework's file names the framework as its first frame outside the JDK",
             "a property read records its name once per owner, never its value or default",

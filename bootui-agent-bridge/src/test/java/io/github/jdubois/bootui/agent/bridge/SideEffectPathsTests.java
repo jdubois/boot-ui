@@ -69,6 +69,13 @@ class SideEffectPathsTests {
         assertThat(pattern("/home/bob/secrets.txt", UNIX)).isEqualTo("/home/*/secrets.txt");
         assertThat(pattern("/Users/carol/Documents/x.pdf", UNIX)).isEqualTo("/Users/*/Documents/x.pdf");
         assertThat(pattern("D:\\Users\\dave\\notes.txt", WINDOWS)).isEqualTo("D:/Users/*/notes.txt");
+        assertThat(pattern("\\\\srv\\Users\\erin\\notes.txt", WINDOWS)).isEqualTo("/srv/Users/*/notes.txt");
+        assertThat(pattern("\\\\?\\D:\\Users\\frank\\notes.txt", WINDOWS)).isEqualTo("/?/D:/Users/*/notes.txt");
+        assertThat(pattern("/var/home/grace/notes.txt", UNIX)).isEqualTo("/var/home/*/notes.txt");
+        assertThat(pattern("/export/home/heidi/notes.txt", UNIX)).isEqualTo("/export/home/*/notes.txt");
+        assertThat(pattern("/srv/site/home/index.html", UNIX))
+                .as("a directory named home deeper in a path is not a home")
+                .isEqualTo("/srv/site/home/index.html");
     }
 
     @Test
@@ -91,6 +98,12 @@ class SideEffectPathsTests {
                 .isEqualTo("/t/{token}/x");
         assertThat(SideEffects.collapse("/v2/release-17.txt")).isEqualTo("/v{n}/release-{n}.txt");
         assertThat(SideEffects.collapse("/plain/name.txt")).isEqualTo("/plain/name.txt");
+        assertThat(SideEffects.collapse("/k/aB3dE5fG7hJ9kL1m.key")).isEqualTo("/k/{id}.key");
+        assertThat(SideEffects.collapse("/k/report2026q.csv")).isEqualTo("/k/report{n}q.csv");
+        assertThat(SideEffects.collapse("/k/QwErTyUiOpAsDfGhJkLzXcVbNm.txt")).isEqualTo("/k/{id}.txt");
+        assertThat(SideEffects.collapse("/k/applicationconfigurationfile.txt"))
+                .as("a long lower-case word is kept")
+                .isEqualTo("/k/applicationconfigurationfile.txt");
     }
 
     @Test

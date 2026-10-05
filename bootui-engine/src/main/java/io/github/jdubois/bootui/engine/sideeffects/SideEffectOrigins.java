@@ -55,7 +55,9 @@ public final class SideEffectOrigins {
             "org.slf4j.",
             "org.tinylog.",
             "org.apache.catalina.valves.",
-            "io.quarkus.bootstrap.logging.");
+            "io.quarkus.bootstrap.logging.",
+            "io.quarkus.vertx.http.runtime.filters.accesslog.",
+            "net.logstash.logback.");
 
     /** Class loaders and class-path scanners outside the JDK. */
     static final List<String> CLASS_PATH_PACKAGES = List.of(
@@ -64,7 +66,9 @@ public final class SideEffectOrigins {
             "org.jboss.modules.",
             "org.apache.catalina.loader.",
             "org.apache.tomcat.util.scan.",
-            "org.apache.tomcat.util.descriptor.");
+            "org.apache.tomcat.util.descriptor.",
+            // Quarkus dev mode compiling and watching the sources, as its javac reads src/main/java.
+            "io.quarkus.deployment.dev.");
 
     private SideEffectOrigins() {}
 

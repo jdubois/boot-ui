@@ -184,7 +184,11 @@ public final class SideEffects {
     public static final int BUCKET_JAVA_HOME = 3;
     public static final int BUCKET_CLASS_PATH_DIRECTORIES = 4;
 
-    static final String[] BUCKETS = {"classFiles", "archives", "archiveFileSystems", "javaHome", "classPathDirectories"
+    /** Any other file a class loader read, as a resource outside the class path's directories (Quarkus dev mode). */
+    public static final int BUCKET_CLASS_LOADING = 5;
+
+    static final String[] BUCKETS = {
+        "classFiles", "archives", "archiveFileSystems", "javaHome", "classPathDirectories", "classLoading"
     };
 
     /** Interned targets per claim generation, at most, for the files and environment sensors. */
@@ -716,11 +720,17 @@ public final class SideEffects {
             BUCKET_COUNTS[bucket].increment();
             return;
         }
-        RECORDED[hook].increment();
-        int id = internQuota(pattern(absolute, where), SENSOR_FILES);
+        String pattern = pattern(absolute, where);
         long stamp = CodePaths.stamp();
+        // The summary first: a file a class loader reads is a bucket, never interned, owned, or recorded (design B2).
+        long[] summary = summary(claim, hook, pattern.hashCode(), stamp, false);
+        if (summary[1] == CONTEXT_CLASS_LOADING) {
+            BUCKET_COUNTS[BUCKET_CLASS_LOADING].increment();
+            return;
+        }
+        RECORDED[hook].increment();
+        int id = internQuota(pattern, SENSOR_FILES);
         Owner owner = owner(frame, claim);
-        long[] summary = summary(frame, claim, owner, hook, id, stamp, false);
         record(frame, owner, SENSOR_FILES, kind, id, outcome, (int) summary[1], stamp, summary[0], nanos);
     }
 
@@ -780,7 +790,7 @@ public final class SideEffects {
             long stamp = CodePaths.stamp();
             // Walked before the name is interned, its cache keyed by the name's hash: an indirect read, never
             // recorded, takes nothing of the generation's table.
-            long[] summary = summary(frame, claim, null, hook, target.hashCode() | 1, stamp, true);
+            long[] summary = summary(claim, hook, target.hashCode(), stamp, true);
             if (summary[1] == INDIRECT_FRAMEWORK) {
                 // A configuration framework resolving its own property, as SmallRye Config or Spring's Environment.
                 FRAMEWORK_READS.increment();
@@ -1062,54 +1072,31 @@ public final class SideEffects {
     // ---- the files and environment sensors' frame summaries, caches, and path patterns (M5-5d) ------------------
 
     /**
-     * The frame summary and JDK context of an operation, {@code {frames, context}}, the context -1 for an environment
-     * read whose immediate caller is the JDK's: walked once per {@code (hook, target, method)} in the generation when a
-     * code-paths stamp names the method ({@code stamp > 0}, PLAN-v2 M5-5 design B3), else once per {@code (hook,
-     * target)} for the thread's current owner for a file operation, and for every first read of an owner for an
-     * environment read, whose own per-thread cache bounds it. Without room in the generation's cache, nothing is walked.
+     * The frame summary and JDK context of an operation, {@code {frames, context}}, the context -1 or {@link
+     * #INDIRECT_FRAMEWORK} for an environment read that is not direct: walked once per {@code (hook, code-paths method,
+     * target)} in the generation (PLAN-v2 M5-5 design B3), a file operation no method stamps once per {@code (hook,
+     * target)}, so a call site's summary is walked once, not once per request; an environment read no method stamps is
+     * walked at each first read of an owner, which its per-thread cache bounds. The target is its pattern's or name's
+     * 32-bit hash, so two targets of one hook and method may rarely share a summary. Without room in the generation's
+     * cache, nothing is walked.
      */
-    static long[] summary(CodePaths.Frame frame, Claim claim, Owner owner, int hook, int id, long stamp, boolean env) {
+    static long[] summary(Claim claim, int hook, int targetHash, long stamp, boolean env) {
         int method = stamp > 0L ? CodePaths.stampMethod(stamp) : -1;
-        if (method >= 0 && (env ? id != 0 : id > 0)) {
-            long key = ((long) (hook + 1) << 56) | ((long) (id & 0xFFFFFF) << 32) | (method & 0xFFFFFFFFL);
-            long[] found = new long[2];
-            int result = SIGHTINGS.find(generation, key, found);
-            if (result == Sightings.FOUND) {
-                return found;
-            }
-            if (result == Sightings.FULL) {
-                SIGHTINGS_FULL.increment();
-                return new long[] {0L, CONTEXT_NONE};
-            }
-            long[] walked = walk(claim, env);
-            SIGHTINGS.put(generation, key, walked[0], (int) walked[1]);
-            return walked;
+        if (env && method < 0) {
+            return walk(claim, true);
         }
-        if (!env && id <= 0) {
-            // Past the quota: no pattern to cache the summary under, so none is walked, as with a full cache.
+        long key = ((long) (hook + 1) << 56) | ((long) ((method + 1) & 0xFFFFFF) << 32) | (targetHash & 0xFFFFFFFFL);
+        long[] found = new long[2];
+        int result = SIGHTINGS.find(generation, key, found);
+        if (result == Sightings.FOUND) {
+            return found;
+        }
+        if (result == Sightings.FULL) {
+            SIGHTINGS_FULL.increment();
             return new long[] {0L, CONTEXT_NONE};
         }
-        if (env || frame == null || owner == null) {
-            return walk(claim, env);
-        }
-        Seen seen = frame.fileSightings;
-        if (seen == null) {
-            seen = new Seen(false);
-            frame.fileSightings = seen;
-        }
-        seen.own(
-                owner.generation,
-                owner.request,
-                owner.execution,
-                owner.slot,
-                owner.slot ? 0L : System.currentTimeMillis());
-        long key = Seen.key(hook, 0, id);
-        int index = seen.find(key, null);
-        if (index >= 0) {
-            return new long[] {seen.frames[index], seen.contexts[index]};
-        }
-        long[] walked = walk(claim, false);
-        seen.put(key, null, walked[0], (int) walked[1]);
+        long[] walked = walk(claim, env);
+        SIGHTINGS.put(generation, key, walked[0], (int) walked[1]);
         return walked;
     }
 
@@ -1118,6 +1105,25 @@ public final class SideEffects {
         StackWalker walker = classWalker;
         long[] walked = (walker == null ? WALKER : walker).walk(new ContextSummary(claim, environment));
         return walked == null ? new long[] {0L, CONTEXT_NONE} : walked;
+    }
+
+    /**
+     * Whether a frame outside the JDK is a class loader's: a {@code ClassLoader} subclass, when the walker retains
+     * classes, or one of the class loaders of Quarkus, Spring Boot, JBoss Modules, and Tomcat by name.
+     */
+    static boolean loader(StackWalker.StackFrame frame, String className) {
+        if (className.startsWith("io.quarkus.bootstrap.classloading.")
+                || className.startsWith("org.springframework.boot.loader.")
+                || className.startsWith("org.jboss.modules.")
+                || className.startsWith("org.apache.catalina.loader.")) {
+            return true;
+        }
+        try {
+            return ClassLoader.class.isAssignableFrom(frame.getDeclaringClass());
+        } catch (UnsupportedOperationException ex) {
+            // The plain walker: by name only.
+            return false;
+        }
     }
 
     /** JDK classes whose frames make an operation class loading's. */
@@ -1269,6 +1275,10 @@ public final class SideEffects {
                     }
                     continue;
                 }
+                if (outside == 0 && !environment && loader(frame, className)) {
+                    // A class loader outside the JDK, as Quarkus' or Spring Boot's, reading a resource: never interned.
+                    return new long[] {0L, CONTEXT_CLASS_LOADING};
+                }
                 if (outside == 0) {
                     outside = intern(className + "#" + frame.getMethodName());
                 }
@@ -1377,8 +1387,7 @@ public final class SideEffects {
     }
 
     /**
-     * A thread's small cache for one owner: the environment names it recorded ({@code named}), or the frame summaries of
-     * its file operations no method stamps. {@value #SIZE} entries, at most {@value #PROBES} probes, then the home entry
+     * A thread's small cache for one owner: the environment names it recorded ({@code named}), or, unnamed, keys only. {@value #SIZE} entries, at most {@value #PROBES} probes, then the home entry
      * is overwritten, so a lookup is bounded. Valid for the owner it was filled for, and, for a thread no slot owns,
      * {@value #UNOWNED_SEEN_MILLIS} ms; any other owner clears it.
      */
@@ -1726,40 +1735,43 @@ public final class SideEffects {
         return pattern.length() > MAX_PATTERN ? pattern.substring(0, MAX_PATTERN) : pattern;
     }
 
-    /** The end of the user name in another user's home directory, {@code /Users/x}, {@code /home/x}, or {@code C:/Users/x}; -1. */
+    /**
+     * The end of the user name in another user's home directory, -1 when the path is in none: a segment {@code Users}
+     * (any case) among the first five, as {@code /Users/x}, {@code C:/Users/x}, a UNC {@code //server/Users/x}, or
+     * {@code //?/C:/Users/x}, or {@code home} as the first segment or after {@code var} or {@code export}, as {@code
+     * /home/x}, {@code /var/home/x}, or {@code /export/home/x}, followed by the user's segment.
+     */
     static int otherHome(String absolute) {
-        int start;
-        if (absolute.startsWith("/Users/")) {
-            start = 7;
-        } else if (absolute.startsWith("/home/")) {
-            start = 6;
-        } else if (absolute.length() > 9
-                && absolute.charAt(1) == ':'
-                && absolute.regionMatches(true, 2, "/Users/", 0, 7)) {
-            start = 9;
-        } else {
-            return -1;
+        int start = 0;
+        int index = 0;
+        String previous = null;
+        while (start < absolute.length() && index <= 5) {
+            int end = absolute.indexOf('/', start);
+            end = end < 0 ? absolute.length() : end;
+            String segment = absolute.substring(start, end);
+            boolean users = segment.equalsIgnoreCase("Users") && index <= 4;
+            boolean home = segment.equals("home")
+                    && (index == 1 || (index == 2 && ("var".equals(previous) || "export".equals(previous))));
+            if ((users || home) && end < absolute.length()) {
+                int userEnd = absolute.indexOf('/', end + 1);
+                userEnd = userEnd < 0 ? absolute.length() : userEnd;
+                return userEnd > end + 1 ? userEnd : -1;
+            }
+            previous = segment;
+            start = end + 1;
+            index++;
         }
-        int end = absolute.indexOf('/', start);
-        end = end < 0 ? absolute.length() : end;
-        return end > start ? end : -1;
+        return -1;
     }
 
     /**
      * Ids collapsed in {@code text}: a JWT-like segment ({@code eyJ…} with a dot) becomes {@code {token}}, a UUID
-     * {@code {uuid}}, an alphanumeric run of 20 or more characters holding letters and digits {@code {id}}, a run of 8
-     * or more hexadecimal characters holding a digit {@code {hex}}, and any other run of digits {@code {n}}.
+     * {@code {uuid}}, a run of 8 or more hexadecimal characters holding a digit {@code {hex}}, an alphanumeric run of 12
+     * or more characters mixing letters and digits, or of 24 or more letters mixing upper and lower case, {@code {id}},
+     * and any other run of digits {@code {n}}; a shorter run of letters is kept.
      */
     static String collapse(String text) {
         int length = text.length();
-        boolean digit = false;
-        for (int i = 0; i < length && !digit; i++) {
-            char c = text.charAt(i);
-            digit = (c >= '0' && c <= '9') || c == '.';
-        }
-        if (!digit) {
-            return text;
-        }
         StringBuilder out = new StringBuilder(length);
         int i = 0;
         while (i < length) {
@@ -1786,12 +1798,16 @@ public final class SideEffects {
                 boolean letters = false;
                 boolean digits = false;
                 boolean hex = true;
+                boolean upper = false;
+                boolean lower = false;
                 while (end < length && alphanumeric(text.charAt(end))) {
                     char d = text.charAt(end);
                     if (d >= '0' && d <= '9') {
                         digits = true;
                     } else {
                         letters = true;
+                        upper |= d >= 'A' && d <= 'Z';
+                        lower |= d >= 'a' && d <= 'z';
                         hex &= (d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F');
                     }
                     end++;
@@ -1799,10 +1815,10 @@ public final class SideEffects {
                 int run = end - i;
                 if (digits && !letters) {
                     out.append("{n}");
-                } else if (digits && run >= 20) {
-                    out.append("{id}");
                 } else if (digits && hex && run >= 8) {
                     out.append("{hex}");
+                } else if ((digits && run >= 12) || (!digits && upper && lower && run >= 24)) {
+                    out.append("{id}");
                 } else if (digits) {
                     for (int j = i; j < end; j++) {
                         char d = text.charAt(j);
@@ -2276,6 +2292,24 @@ public final class SideEffects {
     }
 
     /**
+     * The engine cleared the recording of claim generation {@code requested} (M5-11): the files and environment
+     * sensors' intern quotas count again from zero, so a run that hit them records new targets again, within the
+     * generation's table. Never throws.
+     */
+    public static void recordingCleared(long requested) {
+        try {
+            AgentRing.Interns interns = INTERNS.get();
+            if (interns != null && interns.generation == requested) {
+                for (AtomicInteger interned : INTERNED) {
+                    interned.set(0);
+                }
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /**
      * Drains the published records in order, at most one ring's worth, into {@code sink}, which receives one reused
      * {@code long[]} of {@value #RECORD} longs per record and must copy what it keeps. Only the current claim's token
      * drains, one caller at a time; the drain stops at the first record of a newer claim generation. Never throws.
@@ -2652,7 +2686,6 @@ public final class SideEffects {
             frame.sideEffects = null;
             frame.sideEffectDepth = 0;
             frame.environmentSeen = null;
-            frame.fileSightings = null;
         }
     }
 

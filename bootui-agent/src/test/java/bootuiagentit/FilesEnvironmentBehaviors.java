@@ -300,23 +300,32 @@ public final class FilesEnvironmentBehaviors {
                         && (Long) after.get("javaHome") > (Long) before.get("javaHome"));
     }
 
+    @SuppressWarnings("unchecked")
     static void classLoadingIsGroupedApart() throws Exception {
         RECORDS.clear();
+        long before = (Long) ((Map<String, Object>) files().get("buckets")).get("classLoading");
         Path resources = work.resolve("plugin");
         Files.createDirectories(resources);
         Files.writeString(resources.resolve("plugin.properties"), "name=plugin");
         drain();
         RECORDS.clear();
+        // Measured after the application wrote the file, whose pattern it interned.
+        int interned = interned().size();
         CONTEXT.set(REQUEST);
         try (URLClassLoader loader =
                 new URLClassLoader(new URL[] {resources.toUri().toURL()}, null)) {
             loader.getResourceAsStream("plugin.properties").close();
         }
         CONTEXT.remove();
-        long[] read = await(target(SideEffects.KIND_FILE_READ, "/plugin/plugin.properties"));
+        Thread.sleep(100);
+        drain();
+        long after = (Long) ((Map<String, Object>) files().get("buckets")).get("classLoading");
         check(
-                "a resource a class loader reads is class loading (" + describe(RECORDS) + ")",
-                read != null && context(read) == SideEffects.CONTEXT_CLASS_LOADING && read[SideEffects.R_FRAMES] == 0L);
+                "a resource a class loader reads is class loading, counted and never recorded or interned (" + before
+                        + " -> " + after + " " + describe(RECORDS) + ")",
+                after > before
+                        && find(SideEffects.KIND_FILE_READ, "/plugin/plugin.properties") == null
+                        && interned().size() == interned);
     }
 
     static void jdkLoggingIsGroupedApart() throws Exception {

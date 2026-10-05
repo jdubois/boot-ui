@@ -604,14 +604,19 @@ The agent turns a path into a pattern before anything leaves the hook, so a raw 
 reaches BootUI's tables: a relative path is resolved against the working directory without touching the file system;
 the working directory becomes `.`, the temporary directory `$TMPDIR`, and the home `~`, each as the JVM names it and in
 its canonical form (macOS's `/var` and `/private/var`); another user's home becomes `/Users/*`, `/home/*`, or
-`C:/Users/*`; a JWT-like segment becomes `{token}`, a UUID `{uuid}`, an alphanumeric run of 20 or more characters with
-digits `{id}`, a run of 8 or more hexadecimal characters with a digit `{hex}`, and any other run of digits `{n}`. A
+`C:/Users/*` (also a UNC `//server/Users/*`, `//?/C:/Users/*`, `/var/home/*`, and `/export/home/*`); a JWT-like
+segment becomes `{token}`, a UUID `{uuid}`, a run of 8 or more hexadecimal characters with a digit `{hex}`, an
+alphanumeric run of 12 or more characters mixing letters and digits, or of 24 or more letters mixing upper and lower
+case, `{id}`, and any other run of digits `{n}`; a shorter run of letters is kept. A
 report written as `report-2026-10-05.csv` in the working directory's `target/reports` is
-`./target/reports/report-{n}-{n}-{n}.csv`. BootUI masks a segment that looks like a secret value (an AWS key, a
-credential URL) as `******`, whatever `bootui.expose-values` says.
+`./target/reports/report-{n}-{n}-{n}.csv`. The engine also masks, as `******` and whatever `bootui.expose-values`
+says, a segment its secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL); a secret that matches
+none of these rules and is shorter than them, such as a short all-lower-case token, is kept.
 
 Class files, JAR, WAR, and JMOD files, paths in archive file systems, files under Java's home, and files under a
-directory of the class path are counted in buckets, never recorded per route, interned, or walked, so class loading costs
+directory of the class path are counted in buckets, never recorded per route, interned, or walked, as is any other file
+a class loader reads (a JDK class loader, a `ClassLoader` subclass, or Quarkus', Spring Boot's, JBoss Modules', or
+Tomcat's), whose frame summary is walked once per call site first; so class loading costs
 a counter. Other operations carry where they came from, from a frame summary walked once per path pattern and code-paths
 method (or once per owner when no method is stamped): a JDK logging handler (`java.util.logging`) is **logging**; a
 class loader, a module, a service loader, or a `jar:` URL is **class path**; no frame outside the JDK is **JDK**; the
@@ -649,7 +654,8 @@ or SSL factory looking up its own property, is not recorded, nor is a read whose
 framework resolving its own properties (SmallRye Config, MicroProfile Config, Quarkus' configuration, Spring's
 `Environment` and `SpringProperties`), which reads thousands of names at startup. Spring's `Environment` reads the whole maps once, so a
 property it resolves from them is not seen, and `System.getProperties()` is not hooked. A generation keeps at most
-1,000 distinct names; a name that looks like a secret value is masked.
+1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
+masked.
 
 `environment` is opt-in until its overhead is reviewed (D37): with it recording, `System.getProperty` takes about 23 to
 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to

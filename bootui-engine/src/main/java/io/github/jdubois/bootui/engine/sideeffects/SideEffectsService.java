@@ -78,12 +78,16 @@ public final class SideEffectsService implements AutoCloseable {
             + " stage runs on the common ForkJoin pool before BootUI's own thread records the exit. On Windows, the JDK waits"
             + " for each watched live process on a reaper thread of its own, so up to 1,024 such threads. A file row shows a"
             + " path pattern, never the file's contents: the working directory as ./, the temporary directory as $TMPDIR,"
-            + " the home as ~, ids and digits collapsed ({n}, {hex}, {uuid}, {id}), and a segment that looks like a"
-            + " secret masked. An environment row shows the name read, never its value or a default.";
+            + " the home as ~, ids and digits collapsed ({n}, {hex}, {uuid}, {id}, {token}), and a segment the secret"
+            + " detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) masked; a short secret matching none"
+            + " of these rules is kept. An environment row shows the name read, never its value or a default.";
 
     static final String LIMITATION_FILES = "Files: class files, JAR, WAR, and JMOD files, paths in archive file"
-            + " systems, Java's home, and the class path's directories are counted, not recorded per route; class"
-            + " loading, the JDK's own files, and logging appenders are grouped apart from the application's files."
+            + " systems, Java's home, the class path's directories, and any other file a class loader reads are counted,"
+            + " not recorded per route; the JDK's own files and logging appenders are grouped apart from the"
+            + " application's files, and a library's files are shown but left out of the runtime model."
+            + " A call site's frames are read once per run and file pattern, so two call sites of one pattern share the"
+            + " first one's."
             + " File.delete, File.renameTo, File.createNewFile, AsynchronousFileChannel, memory-mapped access after the"
             + " open, and native code are not seen. A move or a copy records its source and its destination.";
 
@@ -428,6 +432,7 @@ public final class SideEffectsService implements AutoCloseable {
         labels.put("archiveFileSystems", "(paths in archive file systems)");
         labels.put("classPathDirectories", "(files in class path directories)");
         labels.put("javaHome", "(files in Java's home)");
+        labels.put("classLoading", "(other files class loaders read)");
         return labels;
     }
 
@@ -476,8 +481,8 @@ public final class SideEffectsService implements AutoCloseable {
     /**
      * The runtime model's edges from this run's files and environment rows ({@code docs/PLAN-v2.md} §5.4, §5.16):
      * {@link EdgeType#OPENS} from a route, GraphQL operation, or scheduled job to a {@link NodeType#FILE_PATTERN}, and
-     * {@link EdgeType#READS} to an {@link NodeType#ENVIRONMENT_VARIABLE}, for the application's and its libraries' own
-     * rows only, never class loading, the JDK's, or logging; empty while Side Effects is hidden. Route rows only while
+     * {@link EdgeType#READS} to an {@link NodeType#ENVIRONMENT_VARIABLE}, for the application's own rows only, never a
+     * library's, class loading, the JDK's, or logging; empty while Side Effects is hidden. Route rows only while
      * HTTP Exchanges is visible too. Never starts a drain.
      */
     public List<SideEffectAccess> modelAccesses() {
@@ -531,7 +536,8 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     private static SideEffectAccess access(SideEffectsRowDto row) {
-        if (!SideEffectOrigins.APPLICATION.equals(row.origin()) && !SideEffectOrigins.LIBRARY.equals(row.origin())) {
+        if (!SideEffectOrigins.APPLICATION.equals(row.origin())) {
+            // A library's own files, as a pool's or a server's work directory, are infrastructure, not the route's.
             return null;
         }
         NodeType from;
@@ -800,6 +806,7 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 int rows = current.store.rowCount();
                 current.store.clear();
+                current.claim.sideEffectsRecordingCleared();
                 // Buckets are the bridge's counters since the claim: counted from now on.
                 current.bucketBaseline = new HashMap<>(
                         coverage(SideEffectsCatalog.FILES_ID, null).buckets());
