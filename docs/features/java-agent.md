@@ -133,9 +133,9 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), and [`network`](#the-network-sensor), the
-defaults, and the opt-in
-[`threads`](#the-threads-sensor) and [`caught-exceptions`](#the-caught-exceptions-sensor). The agent installs each one once, on its own thread, then
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), and [`network`](#the-network-sensor),
+the defaults, and the opt-in [`threads`](#the-threads-sensor), [`files`](#the-files-sensor),
+[`environment`](#the-environment-sensor), and [`caught-exceptions`](#the-caught-exceptions-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -570,8 +570,7 @@ A start names its owner from the thread's owner slots, which adapter request sco
 when no slot names one, by capturing BootUI's context on the thread: a request, an execution no request owns (a
 scheduled run, a consumed message, a WebSocket message), or neither, when the row falls to startup or the thread's
 family. On Spring WebFlux, the request scope's slot is not yet filled where Reactor restores BootUI's context on another
-scheduler thread; the hot sensors of later slices need that, while `processes`, a rare hook, captures the context
-instead.
+scheduler thread; `processes`, a rare hook, captures the context instead, as `files` does for an operation no slot owns.
 
 The Side Effects bridge has its own ring of 1,024 records and string table. A full ring drops and counts records instead
 of blocking application code. The per-thread aggregation table is for the hotter side-effect sensors in later slices,
@@ -581,6 +580,7 @@ JVM's life, alone, and the report says why; 100 errors in the sensors' shared co
 In the report, the sensor's side-effect coverage is `recording` when this application's armed claim includes it and the
 bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason. The Side Effects sensors not
 shipped yet are listed as `not-available` with reason `Not available in this version.`
+
 
 ## The network sensor
 
@@ -686,6 +686,95 @@ datagram channel's writes, and native code are not seen; a lookup the JVM's cach
 scope names no owner; a BootUI `HttpClient`'s connect retried on its selector thread, or a
 redirect it follows there, is recorded as the application's; a mocked `Socket` whose mock maker transformed `Socket`
 before the agent is recorded as connected.
+
+## The files sensor
+
+The `files` sensor, opt-in, records the files application code opens, deletes, moves, and copies, as path
+patterns, never their contents, for the [Side Effects](#side-effects) panel, `get_side_effects`, and
+`bootui side-effects`.
+
+| Hook | Records |
+| --- | --- |
+| `FileInputStream.open` | the private `open(String)` every `FileInputStream` constructor reaches: a read |
+| `FileOutputStream.open` | the private `open(String, boolean)` every `FileOutputStream` constructor reaches, as `FileWriter` and `PrintWriter(String)` do: a write |
+| `RandomAccessFile.open` | the private `open(String, int)`: a read for mode `r`, else a write |
+| `Files.newByteChannel` | `(Path, Set, FileAttribute[])`, which its varargs overload, `readAllBytes`, `readString`, and `lines` reach: a write when the options hold `WRITE` or `APPEND`, else a read |
+| `Files.newInputStream`, `Files.newOutputStream` | a read, a write; `newBufferedReader`, `write`, `writeString`, and `newBufferedWriter` reach them |
+| `Files.delete`, `Files.deleteIfExists` | a delete |
+| `Files.move` | the source as `move from` and the destination as `move to` |
+| `Files.copy` | each path argument of its three overloads, as `copy from` and `copy to` |
+| `FileChannel.open` | `(Path, Set, FileAttribute[])`, which its varargs overload reaches: read or write by its options |
+
+Only the outermost hook on a thread records, so `Files.newInputStream`, which reaches `Files.newByteChannel` through
+the file system provider, records once. A path of another file system than the default one (a zip, `jar:`, `nested:`,
+or `jrt:` path) is never turned into text.
+
+The agent turns a path into a pattern before anything leaves the hook, so a raw path, and the user name in it, never
+reaches BootUI's tables: a relative path is resolved against the working directory without touching the file system;
+the working directory becomes `.`, the temporary directory `$TMPDIR`, and the home `~`, each as the JVM names it and in
+its canonical form (macOS's `/var` and `/private/var`); another user's home becomes `/Users/*`, `/home/*`, or
+`C:/Users/*` (also a UNC `//server/Users/*`, `//?/C:/Users/*`, `/var/home/*`, and `/export/home/*`); a JWT-like
+segment becomes `{token}`, a UUID `{uuid}`, a run of 8 or more hexadecimal characters with a digit `{hex}`, an
+alphanumeric run of 12 or more characters mixing letters and digits, or of 24 or more letters mixing upper and lower
+case, `{id}`, and any other run of digits `{n}`; a shorter run of letters is kept. A
+report written as `report-2026-10-05.csv` in the working directory's `target/reports` is
+`./target/reports/report-{n}-{n}-{n}.csv`. The engine also masks, as `******` and whatever `bootui.expose-values`
+says, a segment its secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL); a secret that matches
+none of these rules and is shorter than them, such as a short all-lower-case token, is kept.
+
+Class files, JAR, WAR, and JMOD files, paths in archive file systems, files under Java's home, and files under a
+directory of the class path are counted in buckets, never recorded per route, interned, or walked, as is any other file
+a class loader reads (a JDK class loader, a `ClassLoader` subclass, or Quarkus', Spring Boot's, JBoss Modules', or
+Tomcat's), whose frame summary is walked once per call site first; so class loading costs
+a counter. Other operations carry where they came from, from a frame summary walked once per path pattern and code-paths
+method (or once per owner when no method is stamped): a JDK logging handler (`java.util.logging`) is **logging**; a
+class loader, a module, a service loader, or a `jar:` URL is **class path**; no frame outside the JDK is **JDK**; the
+first frame outside the JDK in Logback, Log4j, JBoss LogManager, SLF4J, tinylog, or Tomcat's access log valve is
+**logging**, and in Spring Boot's loader, Quarkus' bootstrap, JBoss Modules, or Tomcat's class loader and scanner,
+**class path**; otherwise the row is **application** when a frame in the application's packages called it, else
+**library**. Rows of class path, the JDK, and logging are grouped apart. Each row's location is the working directory,
+the temporary directory, the home, `system` (`/proc`, `/sys`, `/dev`), or elsewhere.
+
+The self-test opens, deletes, moves, and copies paths under a directory that does not exist in the temporary
+directory, so every hook runs and nothing is created. JDK retransformation of the hooked classes is checked on JDK 17,
+21, and 26 (`FilesEnvironmentBehaviorsIT`). `FileInputStream.open` and `FileOutputStream.open` are its core hooks: one
+that fails its self-test disables this sensor alone for the JVM's life; any other files hook that fails is left out,
+listed under `hooksLeftOut`, and the sensor keeps recording. A generation keeps at most 3,000 distinct path patterns;
+beyond that a row's target is `(too many distinct paths)`.
+
+The operation's own time (opening, deleting, moving, or copying) is recorded, not the reads and writes that follow.
+`File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
+are not seen.
+
+`files` is opt-in because its overhead is at the edge of the budget (D37): on the agent overhead benchmark's I/O route
+(one outbound connect and one file read per request), the default sensors plus `files` measured 10.0 % and 10.6 % in
+two CI runs of nine pairs, against the 10 % budget. Add `files` to `bootui.agent.sensors` to record it.
+
+## The environment sensor
+
+The `environment` sensor, opt-in, records the names of the environment variables and system properties application
+code reads directly, never their values:
+
+| Hook | Records |
+| --- | --- |
+| `System.getenv` | `getenv(String)`, the variable's name |
+| `System.getenvAll` | `getenv()`, as `(all variables)` |
+| `System.getProperty` | `getProperty(String)` and `getProperty(String, String)`, the property's name; never the default |
+
+The advice runs at the method's entry and passes only the name to the bridge. A read is recorded the first time a thread
+reads the name for a request or an execution: on a thread no request scope owns, again once a second has passed. A
+row's count is therefore the requests and threads that read it, not the calls. A read whose immediate caller, past
+`System` and the `Boolean.getBoolean`, `Integer.getInteger`, and `Long.getLong` lookups, is a JDK class, such as an XML
+or SSL factory looking up its own property, is not recorded, nor is a read whose immediate caller is a configuration
+framework resolving its own properties (SmallRye Config, MicroProfile Config, Quarkus' configuration, Spring's
+`Environment` and `SpringProperties`), which reads thousands of names at startup. Spring's `Environment` reads the whole maps once, so a
+property it resolves from them is not seen, and `System.getProperties()` is not hooked. A generation keeps at most
+1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
+masked.
+
+`environment` is opt-in until its overhead is reviewed (D37): with it recording, `System.getProperty` takes about 23 to
+28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
+`bootui.agent.sensors` to record it. Its three hooks are core: one that fails its self-test disables the sensor alone.
 
 ## The caught-exceptions sensor
 
@@ -817,7 +906,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `network`, and the opt-in `threads` and `caught-exceptions`. The Side Effects sensors this version does not ship (`files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `network`, and the opt-in `threads`, `files`, `environment`, and `caught-exceptions`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1088,8 +1177,8 @@ The panel has one tab per sensor group:
 | Tab | Sensors | State in this version |
 | --- | --- | --- |
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
-| Files and processes | `files`, `processes` | `processes` records; `files` is `not-available`: Not available in this version. |
-| Environment | `environment` | `not-available`: Not available in this version. |
+| Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in. |
+| Environment | `environment` | Records when `bootui.agent.sensors` opts in; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
 | Blocking | `blocking` | `not-available`: Not available in this version. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |
@@ -1115,9 +1204,22 @@ process starts, such as a GitHub panel `gh auth token` call, the agent's threads
 `bootui-`, and work done while the agent transforms a class are never recorded. Only the outermost hook on a thread
 records.
 
-Rows are bounded by the agent evidence contract. The agent writes process and network records to a Side Effects ring
-of 1,024 records and a string table separate from other sensors. A full ring drops and counts records; application work
-never blocks on the panel. The per-thread aggregation table counts the network sensor's repeated datagram sends.
+The `files` sensor shows a path pattern per row with its kind (`read`, `write`, `delete`, `move from`, `move to`,
+`copy from`, `copy to`), location, and origin, never the file's contents; class path, JDK, and logging rows, and the
+files counted in buckets, are grouped apart in a collapsed table under the application's rows. The `environment` sensor
+shows a variable's or a property's name, never its value. See [The files sensor](#the-files-sensor) and
+[The environment sensor](#the-environment-sensor).
+
+Rows are bounded by the agent evidence contract. The agent writes Side Effects records to a ring of 1,024 records and a
+string table separate from other sensors. A full ring drops and counts records; application work never blocks on the
+panel. The per-thread aggregation table counts the network sensor's repeated datagram sends and the file operations
+and environment reads inside a request scope, flushed when the scope ends; the bridge captures the scope's owner once
+when the `code-paths` sensor did not.
+
+The runtime model gains **file pattern** and **environment variable** nodes: a route, GraphQL operation, or scheduled
+job **opens** the file patterns and **reads** the environment variables and system properties its application rows
+name, while Side Effects is visible (and HTTP Exchanges, for routes), beside the hosts the network sensor's rows
+**open**. Change impact keeps listing only tables and caches as a route's reads and writes.
 
 How rows are named:
 
@@ -1179,3 +1281,10 @@ with the agent a `connect` row to `localhost:<port>` from `LicenseSdkClient#chec
 and the license header it sends never appears; the counterexample `GET /api/side-effects/rest-call` asks the same
 application through the recorded REST client (`RestClient` on Spring MVC, `WebClient` on WebFlux, the MicroProfile REST
 client on Quarkus), and no row of its route is ever not captured.
+
+The three samples also seed files and environment: `GET /api/side-effects/report` reads the `sample.report.title`
+system property and writes a dated report under `target/bootui-side-effects` in the working directory, a `write` of
+`./target/bootui-side-effects/report-{n}-{n}-{n}.csv` outside the temporary directory, and a read of
+`sample.report.title` (with `environment` opted in). The counterexamples: `GET /api/side-effects/scratch` writes and
+deletes a temporary file, under `$TMPDIR`, and `GET /api/side-effects/log` writes through a JDK logging file handler,
+grouped apart as logging; class loading shows only in the buckets. No file contents or property value appears.

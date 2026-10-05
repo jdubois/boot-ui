@@ -40,6 +40,8 @@ public final class RuntimeModelService {
     private LongSupplier invocationsFingerprint = () -> 0L;
     private Supplier<List<HostOpen>> opens = List::of;
     private LongSupplier opensFingerprint = () -> 0L;
+    private Supplier<List<SideEffectAccess>> accesses = List::of;
+    private LongSupplier accessesFingerprint = () -> 0L;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -81,6 +83,37 @@ public final class RuntimeModelService {
         this.cachedVisible = null;
     }
 
+    /**
+     * Installs the files and environment variables Side Effects observed executions access, such as {@code
+     * SideEffectsService::modelAccesses}, which the model shows as {@link EdgeType#OPENS} and {@link EdgeType#READS}
+     * edges ({@code docs/PLAN-v2.md} §5.16, M5-5d), with a cheap fingerprint of them, such as {@code
+     * SideEffectsService::modelFingerprint}, since they change without a journal event. They are Side Effects' evidence:
+     * the supplier itself returns none while that panel is hidden.
+     */
+    public synchronized void setSideEffects(Supplier<List<SideEffectAccess>> accesses, LongSupplier fingerprint) {
+        this.accesses = accesses == null ? List::of : accesses;
+        this.accessesFingerprint = fingerprint == null ? () -> 0L : fingerprint;
+        this.cached = null;
+        this.cachedVisible = null;
+    }
+
+    private long accessesFingerprint() {
+        try {
+            return accessesFingerprint.getAsLong();
+        } catch (RuntimeException ex) {
+            return 0L;
+        }
+    }
+
+    private List<SideEffectAccess> accesses() {
+        try {
+            List<SideEffectAccess> observed = accesses.get();
+            return observed == null ? List.of() : observed;
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
+    }
+
     private long invocationsFingerprint() {
         try {
             return invocationsFingerprint.getAsLong() * 31 + opensFingerprint.getAsLong();
@@ -116,7 +149,7 @@ public final class RuntimeModelService {
 
         JournalStatus status = journal.status();
         long evicted = status.evictedByCount() + status.evictedByBytes();
-        long fingerprint = invocationsFingerprint();
+        long fingerprint = invocationsFingerprint() * 31 + accessesFingerprint();
         if (cached != null
                 && cachedWatermark == status.lastSequence()
                 && cachedEvicted == evicted
@@ -146,7 +179,8 @@ public final class RuntimeModelService {
                 RuntimeModelProjection.READ_BUDGET_NANOS,
                 journal::evictedARequestOf,
                 invocations(),
-                opens());
+                opens(),
+                accesses());
         cachedInvocations = fingerprint;
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
@@ -170,7 +204,8 @@ public final class RuntimeModelService {
         }
         boolean codePaths = visibility.getOrDefault(CODE_PATHS_PANEL, false);
         boolean sideEffects = visibility.getOrDefault(SIDE_EFFECTS_PANEL, false);
-        long fingerprint = codePaths || sideEffects ? invocationsFingerprint() : 0L;
+        long fingerprint = (codePaths || sideEffects ? invocationsFingerprint() : 0L) * 31
+                + (sideEffects ? accessesFingerprint() : 0L);
         if (cachedVisible != null
                 && cachedVisibleInvocations == fingerprint
                 && cachedVisibleWatermark == status.lastSequence()
@@ -199,7 +234,8 @@ public final class RuntimeModelService {
                 RuntimeModelProjection.READ_BUDGET_NANOS,
                 traceId -> false,
                 codePaths ? invocations() : List.of(),
-                sideEffects ? opens() : List.of());
+                sideEffects ? opens() : List.of(),
+                sideEffects ? accesses() : List.of());
         cachedVisibleInvocations = fingerprint;
         cachedVisibility = Map.copyOf(visibility);
         cachedVisibleSnapshot = snapshot;
@@ -213,7 +249,10 @@ public final class RuntimeModelService {
     /** The panel whose evidence the {@link EdgeType#INVOKES} edges are: hidden with it. */
     static final String CODE_PATHS_PANEL = "code-paths";
 
-    /** The panel whose evidence the {@link EdgeType#OPENS} edges are: hidden with it. */
+    /**
+     * The panel whose evidence the {@link EdgeType#OPENS} edges and the environment variables' {@link EdgeType#READS}
+     * edges are: hidden with it.
+     */
     static final String SIDE_EFFECTS_PANEL = "side-effects";
 
     /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */

@@ -305,7 +305,13 @@ public final class JavaAgentService {
                         hooks,
                         dropped);
             }
-            return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped);
+            Map<String, Long> buckets = new LinkedHashMap<>();
+            AgentBridgeAccess.map(counters, "buckets").forEach((bucket, value) -> {
+                if (value instanceof Number number) {
+                    buckets.put(bucket, number.longValue());
+                }
+            });
+            return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped, buckets);
         } catch (RuntimeException ex) {
             return new SideEffectsCoverage(
                     SideEffectsSensorDto.UNAVAILABLE, SIDE_EFFECTS_REQUIREMENT + ".", List.of(), 0L);
@@ -319,11 +325,21 @@ public final class JavaAgentService {
      * @param reason why it does not record, or {@code null}
      * @param hooks its hooks
      * @param dropped records the bridge dropped for it because its ring was full
+     * @param buckets for the files sensor, the operations the bridge counted in buckets rather than recorded, by bucket
+     *     ({@code classFiles}, {@code archives}, {@code archiveFileSystems}, {@code javaHome},
+     *     {@code classPathDirectories}), since the claim; empty otherwise
      */
-    public record SideEffectsCoverage(String state, String reason, List<SideEffectsHookDto> hooks, long dropped) {
+    public record SideEffectsCoverage(
+            String state, String reason, List<SideEffectsHookDto> hooks, long dropped, Map<String, Long> buckets) {
 
         public SideEffectsCoverage {
             hooks = hooks == null ? List.of() : List.copyOf(hooks);
+            buckets = buckets == null ? Map.of() : Map.copyOf(buckets);
+        }
+
+        /** A coverage without buckets. */
+        public SideEffectsCoverage(String state, String reason, List<SideEffectsHookDto> hooks, long dropped) {
+            this(state, reason, hooks, dropped, Map.of());
         }
     }
 

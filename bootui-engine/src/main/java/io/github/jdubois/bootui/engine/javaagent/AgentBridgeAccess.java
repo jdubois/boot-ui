@@ -522,6 +522,21 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Tells the bridge the recording of claim {@code generation} was cleared, so the files and environment sensors'
+     * intern quotas count again; does nothing with a bridge from before M5-5d.
+     */
+    public void sideEffectsRecordingCleared(long generation) {
+        if (!sideEffectsSupported() || sideEffects.recordingCleared() == null) {
+            return;
+        }
+        try {
+            sideEffects.recordingCleared().invoke(generation);
+        } catch (Throwable ex) {
+            // The quotas stay as they were.
+        }
+    }
+
+    /**
      * The strings the side-effect records of claim {@code generation} refer to, from id {@code from}, or {@code null}
      * when their table belongs to another generation or without the sensors' bridge.
      */
@@ -650,7 +665,7 @@ public final class AgentBridgeAccess {
     }
 
     /** The side-effect sensors' bridge entry points, bound once; {@code null} when the bridge has none. */
-    private record SideEffectsHandles(MethodHandle drain, MethodHandle interned) {
+    private record SideEffectsHandles(MethodHandle drain, MethodHandle interned, MethodHandle recordingCleared) {
 
         static SideEffectsHandles bind(Class<?> bridge) {
             try {
@@ -660,9 +675,20 @@ public final class AgentBridgeAccess {
                         lookup.findStatic(
                                 sideEffects, "drain", MethodType.methodType(int.class, long.class, Consumer.class)),
                         lookup.findStatic(
-                                sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)));
+                                sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)),
+                        recordingCleared(lookup, sideEffects));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-5a: no side-effect sensors.
+                return null;
+            }
+        }
+
+        /** {@code SideEffects.recordingCleared(long)}, or {@code null} for a bridge from before M5-5d. */
+        private static MethodHandle recordingCleared(MethodHandles.Lookup lookup, Class<?> sideEffects) {
+            try {
+                return lookup.findStatic(
+                        sideEffects, "recordingCleared", MethodType.methodType(void.class, long.class));
+            } catch (ReflectiveOperationException ex) {
                 return null;
             }
         }

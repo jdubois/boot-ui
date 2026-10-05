@@ -85,12 +85,13 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - **Code Paths**: route trees, component-boundary timing, and the handler split of `route-time-breakdown`;
 - change impact by method, and a run comparison led by code changes;
 - metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
-- runtime reach in the Vulnerabilities panel.
+- runtime reach in the Vulnerabilities panel;
+- the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors.
 
 **Planned, may not be in 2.0:**
 
-- the **Side Effects** panel and its sensors: hosts, files, processes, environment variables, threads, thread locals,
-  and leaked streams, with `thread-local-left-set`;
+- the remaining Side Effects sensors: hosts, threads, thread locals, blocking calls, and leaked streams, with
+  `thread-local-left-set`;
 - caught exceptions and security sinks: `exceptions-caught-in-code` and `request-input-in-sink`;
 - side effects in change impact and run comparison, and methods no longer executed on routes exercised in both runs;
 - argument and return shapes in method probes;

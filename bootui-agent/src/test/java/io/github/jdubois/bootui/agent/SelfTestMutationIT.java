@@ -157,10 +157,60 @@ class SelfTestMutationIT {
                 .contains("state=installed")
                 .contains("selfTestPassed=true")
                 .contains("hooksLeftOut=[InetAddress.lookup]");
+    }
+
+    @Test
+    void theFilesAndEnvironmentHooksPassWithNothingOmitted() throws Exception {
+        ChildJvm.Output output = run("", "files,environment");
+
+        assertThat(selfTest(output, "FileInputStream.open"))
+                .as(output.toString())
+                .isEqualTo("passed");
+        assertThat(selfTest(output, "System.getProperty")).as(output.toString()).isEqualTo("passed");
+        assertThat(output.value("SENSOR_files")).as(output.toString()).contains("selfTestPassed=true");
+        assertThat(output.value("SENSOR_environment")).as(output.toString()).contains("selfTestPassed=true");
+    }
+
+    /**
+     * A files hook failing its self-test stops the files sensor alone, for the JVM's life: the transformer is
+     * reinstalled with the environment sensor's hooks, which pass and record (PLAN-v2 M5-5d review R5).
+     */
+    @Test
+    void aMissingFilesHookFailsTheFilesSensorAloneAndTheOthersAreReinstalled() throws Exception {
+        ChildJvm.Output output = run("FileInputStream.open", "files,environment,processes");
+
+        assertThat(selfTest(output, "FileInputStream.open"))
+                .as(output.toString())
+                .isEqualTo("failed");
+        assertThat(output.value("SENSOR_files"))
+                .as(output.toString())
+                .contains("state=self-test-failed")
+                .contains("selfTestPassed=false")
+                .contains("self-test failed for [FileInputStream.open]");
+        assertThat(output.value("SENSOR_environment"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true");
         assertThat(output.value("SENSOR_processes"))
                 .as(output.toString())
                 .contains("state=installed")
                 .contains("selfTestPassed=true");
+    }
+
+    /** M5-5d: an optional files hook that fails is left out, and the files sensor keeps recording with the others. */
+    @Test
+    void aMissingOptionalFilesHookIsLeftOutAndTheFilesSensorKeepsRecording() throws Exception {
+        ChildJvm.Output output = run("Files.copy", "files");
+
+        assertThat(selfTest(output, "Files.copy")).as(output.toString()).isEqualTo("failed");
+        assertThat(selfTest(output, "FileOutputStream.open"))
+                .as(output.toString())
+                .isEqualTo("passed");
+        assertThat(output.value("SENSOR_files"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true")
+                .contains("hooksLeftOut=[Files.copy]");
     }
 
     /** M5-5b: a core hook that fails takes its own sensor down, never another one. */

@@ -6,7 +6,7 @@ public enum EdgeType {
     DEPENDS_ON,
     /** A route is handled by a bean. */
     HANDLED_BY,
-    /** An execution read a table or a cache. */
+    /** An execution read a table, a cache, or, from Side Effects, an environment variable or a system property. */
     READS,
     /** An execution wrote a table or a cache. */
     WRITES,
@@ -26,7 +26,9 @@ public enum EdgeType {
     INVOKES,
     /**
      * A route, a scheduled job, or a bean opened connections to, or sent datagrams to, a host, as the BootUI agent's
-     * {@code network} sensor observed it ({@code docs/PLAN-v2.md} §5.16, M5-5b). Not part of change impact's closure.
+     * {@code network} sensor observed it ({@code docs/PLAN-v2.md} §5.16, M5-5b), or an execution opened, deleted, moved,
+     * or copied files of a path pattern, as its {@code files} sensor observed it (M5-5d). Not part of change impact's
+     * closure.
      */
     OPENS
 }

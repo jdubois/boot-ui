@@ -11,6 +11,17 @@ public final class Launcher {
 
     private Launcher() {}
 
+    /** A file written, as the files sensor's advice on {@code FileOutputStream.open(String, boolean)} reports it. */
+    public static void writeFile(String name) {
+        long token = SideEffects.fileOpening(SideEffects.HOOK_FILE_OUTPUT_STREAM);
+        SideEffects.fileOpened(token, SideEffects.HOOK_FILE_OUTPUT_STREAM, SideEffects.KIND_FILE_WRITE, name, null);
+    }
+
+    /** A system property read, as the environment sensor's advice on {@code System.getProperty} reports it. */
+    public static void readProperty(String name) {
+        SideEffects.environmentRead(SideEffects.HOOK_GET_PROPERTY, SideEffects.KIND_SYSTEM_PROPERTY, name);
+    }
+
     /** A start of {@code command} that fails, as a command that cannot be found does. */
     public static void failedStart(String... command) {
         ProcessBuilder builder = new ProcessBuilder(command);

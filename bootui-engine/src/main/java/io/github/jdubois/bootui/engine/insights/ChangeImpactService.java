@@ -1101,6 +1101,10 @@ public final class ChangeImpactService {
         List<String> writes = new ArrayList<>();
         for (ModelEdge edge : model.outgoing(node.id())) {
             ModelNode target = model.node(edge.to());
+            if (!RESOURCES.contains(target.type())) {
+                // An environment variable a route read (Side Effects, M5-5d) is not one of its data reads.
+                continue;
+            }
             if (edge.type() == EdgeType.READS) {
                 reads.add(label(target));
             } else if (edge.type() == EdgeType.WRITES) {
