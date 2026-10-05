@@ -573,8 +573,8 @@ instead.
 
 The Side Effects bridge has its own ring of 1,024 records and string table. A full ring drops and counts records instead
 of blocking application code. The per-thread aggregation table is for the hotter side-effect sensors in later slices,
-not for process starts. After 100 internal sensor errors, the side-effect sensors switch off for the JVM's life and the
-report says why.
+not for process starts. After 100 internal errors of its own recording, a side-effect sensor switches off for the
+JVM's life, alone, and the report says why; 100 errors in the sensors' shared code switch them all off.
 
 In the report, the sensor's side-effect coverage is `recording` when this application's armed claim includes it and the
 bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason. The Side Effects sensors not
@@ -619,10 +619,17 @@ targets, and apart from them 1,024 looked-up names, are kept per run; the others
 not known.
 
 Connects and lookups are rare and published at once, with the first frame outside the socket plumbing (the JDK's
-socket code, Netty, Vert.x's core, and Reactor's transport), the first frame outside the JDK, the first application
-frame, and the thread's family, digits folded, read from a stack walk of at most 128 frames. Datagram sends are hot: the
-first send of a target from a call site and thread family is published at once and its frames remembered, whichever
-request makes it, the next ones are counted in the thread's table and may lag until that thread's next send. A
+socket code, Netty, Vert.x's core, and Reactor's transport), or, when the stack holds one, the outermost frame of a
+telemetry exporter, a metrics or log shipper, or container tooling, whose transport is itself an HTTP client; the first
+frame outside the JDK; the first application frame; and the thread's family, digits folded and characters other than
+safe ones replaced, read from a stack walk of at most 128 frames that stops at the thread's `run`. Once a code-paths
+stamp names the call site, a connect's and a lookup's frames are remembered per target, call site, and thread family,
+and walked again only for a new one. A connect or a lookup takes its owner from the thread's slot, else captures it,
+except on a Netty or Vert.x event loop, which never captures. Datagram sends are hot: their owner comes from the
+thread's slot only, which an adapter's request scope fills even without code paths; the thread's last target is
+reused when the same address is sent to again; the first send of a target from a call site and thread family is
+published at once and its frames remembered, whichever request makes it, and the next ones are counted in the
+thread's table and may lag until that thread's next send. A
 non-blocking connect waiting for its finish is held weakly, swept after a minute, and forgotten when the sensor is
 disabled. Only the outermost hook on a thread records, so a
 resolver's datagram inside a lookup is not counted twice. BootUI's own work, BootUI's and the agent's threads, and
@@ -630,13 +637,16 @@ BootUI's own JDK `HttpClient`s, which run on a `bootui-http-N` executor, are nev
 (`sun.nio.ch.PipeImpl`, a pipe or selector wake-up on Windows) is never recorded; loopback connections to databases,
 brokers, and containers are, as they are what a developer runs locally.
 
-The client is recognized in the engine from those frames, then from the thread's family when a Netty event loop's
-connect carries no frame of the library that asked for it: JDBC drivers, R2DBC, and Vert.x SQL clients; Kafka,
+The client is recognized in the engine, infrastructure first: by its frames, an OpenTelemetry exporter's thread
+(`BatchSpanProcessor`, `PeriodicMetricReader`, or an OkHttp thread named after an OTLP `/v1/traces`, `/metrics`, or
+`/logs` URL), or a well-known port (4317 and 4318 OTLP, 9411 Zipkin, 14250 and 14268 Jaeger, 3100 Loki, 8125 StatsD,
+12201 GELF, 53 DNS). Then from the frames, then from the thread's family when a Netty event loop's connect carries no
+frame of the library that asked for it: JDBC drivers, R2DBC, and Vert.x SQL clients; Kafka,
 RabbitMQ, ActiveMQ, AMQP JMS, and IBM MQ clients; Jakarta Mail; the JDK `HttpClient` and `HttpURLConnection`, Apache
 HttpClient, OkHttp, Jetty, Reactor Netty, Vert.x, Spring's and Quarkus's REST clients; Lettuce, Jedis, Redisson,
 MongoDB, Cassandra, Elasticsearch, gRPC, and the AWS, Azure, and Google Cloud SDKs; and infrastructure clients: DNS
-resolvers (and any datagram to port 53), OpenTelemetry and Zipkin exporters, metrics registries, log appenders,
-Testcontainers, docker-java, DevTools, and Dev Services.
+resolvers, OpenTelemetry and Zipkin exporters, metrics registries, log appenders, Spring Boot Docker Compose's and
+Testcontainers' readiness checks, Testcontainers, docker-java, DevTools, and Dev Services.
 
 A connection or a datagram is **not captured by any panel** when no visible panel shows its work:
 
@@ -646,22 +656,27 @@ A connection or a datagram is **not captured by any panel** when no visible pane
 - Any other connection is captured by REST Client Trace when a REST client call of the same request or execution, or,
   for a connection no request or execution owns, one running at the same time (a second either side), names its host
   and port, or the host alone when the call named no port and the connection's is 80 or 443, or a configured proxy
-  (`http.proxyHost`, `https.proxyHost`, `socksProxyHost`). It waits for that until its request ended and 2 more
-  seconds, or, for unowned work, 10 seconds, or 60 for a recognized HTTP client, whose call is recorded once it
-  completes, then is not captured. A non-blocking connect's finish is decided as its connect was.
+  (`http.proxyHost`, `https.proxyHost`, `socksProxyHost`; a `ProxySelector`, an `HttpClient.Builder` proxy, a Reactor
+  Netty proxy, or `HTTPS_PROXY` is not detected, so a call through one reads as not captured). A request's connection
+  waits for that until 2 seconds after its request was named, once it ended, or after the connect when later; an
+  execution's, which any of its events may name while it still runs, 60 seconds; unowned work's 10 seconds, or 60 for a
+  recognized HTTP client, whose call is recorded once it completes; then it is not captured. A non-blocking connect's
+  finish is decided as its connect was.
 - Infrastructure clients are `infrastructure`: no panel is meant to show them.
 - A name lookup is not a connection and has no capture.
 
 These rows are the `hidden-outbound-calls` evidence of PLAN-v2 D36: Side Effects rows, not a Runtime Insights kind.
 `get_side_effects` with `query` `not captured` lists them.
 
-The runtime model gains observed `OPENS` edges from routes, scheduled jobs, and the one bean of a call site's class to
+The runtime model gains observed `OPENS` edges from routes, scheduled jobs, and the one bean of an application call
+site's class (never a library's frame) to
 `HOST` nodes keyed `host:port`, hidden with the Side Effects panel (and route edges with HTTP Exchanges); change impact
 never walks them.
 
 Known limits: a non-blocking connect's time is known once it finishes; asynchronous socket channels, a connected
 datagram channel's writes, and native code are not seen; a lookup the JVM's cache answered is not counted
-(`networkaddress.cache.ttl`, 30 seconds by default); a BootUI `HttpClient`'s connect retried on its selector thread, or a
+(`networkaddress.cache.ttl`, 30 seconds by default); a connect a Netty or Vert.x event loop makes outside a request
+scope names no owner; a BootUI `HttpClient`'s connect retried on its selector thread, or a
 redirect it follows there, is recorded as the application's; a mocked `Socket` whose mock maker transformed `Socket`
 before the agent is recorded as connected.
 

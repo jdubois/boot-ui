@@ -33,6 +33,8 @@ public class BenchmarkIo {
                 "sample.benchmark.stub-port",
                 environment.getProperty("local.server.port", environment.getProperty("server.port", "8080")));
         try (Socket socket = new Socket()) {
+            // Closed with a reset, so a thousand connections a second never exhaust the ephemeral ports in TIME_WAIT.
+            socket.setSoLinger(true, 0);
             socket.connect(new InetSocketAddress("127.0.0.1", Integer.parseInt(port)), 2_000);
         } catch (IOException ex) {
             throw new UncheckedIOException("the benchmark stub at port " + port + " refused the connection", ex);

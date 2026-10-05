@@ -289,8 +289,8 @@ class AgentOverheadBenchmarkIT {
             Thread acceptor = new Thread(
                     () -> {
                         while (!server.isClosed()) {
-                            try {
-                                server.accept().close();
+                            try (java.net.Socket accepted = server.accept()) {
+                                accepted.setSoLinger(true, 0);
                             } catch (java.io.IOException closed) {
                                 // Closed with the test, or a client that went away.
                             }

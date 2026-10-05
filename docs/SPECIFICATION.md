@@ -816,8 +816,9 @@ Features:
   `finishConnect`, `DatagramChannelImpl.send`, `DatagramSocket.send`, and `InetAddress.getAddressesFromNameService`
   (a JVM address-cache miss). It records a host string and port, never resolved, without user information, sanitized,
   at most 128 characters and 1,024 distinct targets a run, or a looked-up name; connect, send, and resolution time; the
-  outcome; and the client recognized in the engine from the first frame outside the socket plumbing, the call site's
-  frames, and the thread family. It never reads a byte sent or received. Connects and lookups are published at once; a
+  outcome; and the client recognized in the engine, infrastructure first (an exporter's, shipper's, or container
+  tool's frame, exporter thread, or well-known port), then from the first frame outside the socket plumbing, the call
+  site's frames, and the thread family. It never reads a byte sent or received. Connects and lookups are published at once; a
   non-blocking connect is pending until its `finishConnect` record, which carries its owner and time; a datagram's
   first send per target and call site is published at once and the next ones counted in the thread's table.
 - A network connection or datagram row is `captured` (with the panel id), `not-captured` (no visible panel shows the
@@ -825,8 +826,9 @@ Features:
   JDBC, messaging, or mail client's is captured while SQL Trace, the broker's panel, or Email is available and enabled,
   decided on read. Any other is captured when a REST client call of the same request or execution, or, unowned,
   at the same time with a second of slack, names its host and port, or a configured proxy; it waits for that until its
-  request ended plus 2 seconds, or, unowned, 10 seconds, 60 for a recognized HTTP client; a finish record is decided as
-  its connect was. The runtime model gains observed `OPENS` edges from routes,
+  request was named plus 2 seconds (or the connect, when later), an execution's 60 seconds, unowned 10 seconds, 60 for a
+  recognized HTTP client; a finish record is decided as its connect was. A datagram's owner comes from the thread's
+  slot only, which a request scope fills even without code paths; an event loop never captures an owner. The runtime model gains observed `OPENS` edges from routes,
   scheduled jobs, and beans to `HOST` nodes keyed `host:port`, hidden with the panel; change impact never walks them.
 - BootUI's own process starts and connections (its JDK `HttpClient`s run on a `bootui-http-N` executor), agent
   threads, BootUI threads, reentrant inner hooks, and work during class transformation are not recorded, nor is the
