@@ -35,6 +35,12 @@ const SENSOR_ORDER = [
   'security-sinks'
 ]
 
+/** The opt-in sensors, with what each records once added to bootui.agent.sensors. */
+const OPT_IN = {
+  files: 'the path patterns of the files the application opens, deletes, moves, and copies',
+  environment: 'the names read'
+}
+
 const STATE = {
   recording: {label: 'Recording', badge: 'text-bg-success'},
   installing: {label: 'Installing', badge: 'text-bg-info'},
@@ -477,9 +483,9 @@ function hookStatus(value, label) {
             <div v-if="sensor.state !== 'recording'" class="alert alert-secondary small py-2 side-effects-state-note">
               <strong>{{ stateOf(sensor).label }}.</strong>
               {{ sensor.reason || 'This sensor is not recording rows right now.' }}
-              <template v-if="sensor.id === 'environment' && sensor.state === 'not-claimed'">
-                It is opt-in: add <code>environment</code> to <code>bootui.agent.sensors</code> to record the names
-                read.
+              <template v-if="OPT_IN[sensor.id] && sensor.state === 'not-claimed'">
+                It is opt-in: add <code>{{ sensor.id }}</code> to <code>bootui.agent.sensors</code> to record
+                {{ OPT_IN[sensor.id] }}.
               </template>
             </div>
 

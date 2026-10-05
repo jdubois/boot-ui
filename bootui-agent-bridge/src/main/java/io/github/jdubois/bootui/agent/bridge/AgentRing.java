@@ -561,6 +561,11 @@ public final class AgentRing {
         }
 
         int intern(String text) {
+            return intern(text, null);
+        }
+
+        /** {@link #intern(String)}, counting in {@code used}, when given, each entry of the table it takes. */
+        int intern(String text, AtomicInteger used) {
             Integer known = ids.get(text);
             if (known != null) {
                 return known.intValue();
@@ -573,6 +578,9 @@ public final class AgentRing {
             if (id > max) {
                 overflow.increment();
                 return 0;
+            }
+            if (used != null) {
+                used.incrementAndGet();
             }
             strings.set(id, text);
             Integer raced = ids.putIfAbsent(text, Integer.valueOf(id));

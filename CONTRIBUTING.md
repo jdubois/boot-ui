@@ -334,7 +334,8 @@ and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
 CI runs it in `build.yml`'s `agent-overhead` job with five pairs on a four-processor runner, then on the I/O route with
 nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual
 runs, and pull requests labelled `agent` only, every default sensor against the same agent without `network`
-(`spring-mvc-network-ab`). The load generator
+(`spring-mvc-network-ab`), the default sensors plus the opt-in `files` against the default sensors, fifteen pairs
+(`spring-mvc-files-ab`), and the default sensors plus `files` against no agent (`spring-mvc-agent-io-files`). The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
 summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail
