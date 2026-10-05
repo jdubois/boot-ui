@@ -73,6 +73,21 @@ public final class CaughtExceptions {
     /** The flags set once the agent read the whole method. */
     public static final int FLAG_COMPLETE = 16;
 
+    /**
+     * Handler shapes, read from the handler's own code (its label to its first {@code athrow}, return, or {@code goto}):
+     * it never reads the exception it caught.
+     */
+    public static final int SHAPE_DISCARDS = 32;
+
+    /** It prints the exception's stack trace. */
+    public static final int SHAPE_PRINTS_STACK_TRACE = 64;
+
+    /** It interrupts the current thread again, as for an {@code InterruptedException}. */
+    public static final int SHAPE_REINTERRUPTS = 128;
+
+    /** It hands the exception on as an error value: a failed future, an error signal, a failed response. */
+    public static final int SHAPE_PASSES_AS_VALUE = 256;
+
     /** Class families ({@code CAUGHT} records, payload long 3, bits 0–1). */
     public static final int FAMILY_NONE = 0;
 
@@ -204,6 +219,9 @@ public final class CaughtExceptions {
     private static final LongAdder LEAVING = new LongAdder();
     private static final LongAdder APPLICATION_ERRORS = new LongAdder();
     private static final LongAdder SITES_OVER_LIMIT = new LongAdder();
+    /** Pending entries freed because their request ended. */
+    private static final LongAdder ENDED = new LongAdder();
+
     /** Pending matches given up on because another thread held the entry: a rethrow possibly unrecorded. */
     private static final LongAdder MISSED = new LongAdder();
 
@@ -598,11 +616,14 @@ public final class CaughtExceptions {
     }
 
     /**
-     * Publishes the counts the calling thread holds for its current owner, as when its work for that owner ends.
-     * Never throws.
+     * Publishes the counts the calling thread holds for its current owner, as when its work for that owner ends: the
+     * end of an adapter's scope or of a propagated task ({@code SideEffects}). Never throws.
      */
     public static void flushThread() {
         try {
+            if (!claimedOnce) {
+                return;
+            }
             long[] counts = COUNTS.get();
             if (counts != null) {
                 flushUntracked(counts);
@@ -811,6 +832,32 @@ public final class CaughtExceptions {
                     P_STATE.set(i, LIVE);
                 }
             }
+        }
+    }
+
+    /**
+     * The request {@code request} ended, as its adapter published its outcome: its pending identities are freed, since
+     * a throw after its end is no longer its own. Called by the engine. Scans the table only while something is
+     * pending. Never throws.
+     */
+    public static void requestEnded(long request) {
+        try {
+            if (request == 0L || PENDING.get() == 0) {
+                return;
+            }
+            for (int i = 0; i < STRIPES * STRIPE; i++) {
+                if (P_STATE.get(i) == LIVE && P_REQUEST[i] == request && P_STATE.compareAndSet(i, LIVE, OWNED)) {
+                    if (P_REQUEST[i] == request) {
+                        ENDED.increment();
+                        PENDING.decrementAndGet();
+                        P_STATE.set(i, FREE);
+                    } else {
+                        P_STATE.set(i, LIVE);
+                    }
+                }
+            }
+        } catch (Throwable ex) {
+            failed(ex);
         }
     }
 
@@ -1055,6 +1102,7 @@ public final class CaughtExceptions {
             map.put("sites", Integer.valueOf(siteCount()));
             map.put("sitesOverLimit", Long.valueOf(SITES_OVER_LIMIT.sum()));
             map.put("missed", Long.valueOf(MISSED.sum()));
+            map.put("requestEnded", Long.valueOf(ENDED.sum()));
             map.put("dropped", Long.valueOf(AgentRing.dropped(AgentRing.SENSOR_CAUGHT_EXCEPTIONS)));
             map.put("errors", Long.valueOf(ERROR_COUNT.get()));
             map.put("applicationErrors", Long.valueOf(APPLICATION_ERRORS.sum()));

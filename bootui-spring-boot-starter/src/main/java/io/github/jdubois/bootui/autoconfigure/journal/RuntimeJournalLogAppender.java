@@ -5,12 +5,14 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
+import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.AppenderBase;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.ThrowableMarks;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -75,7 +77,10 @@ public final class RuntimeJournalLogAppender extends AppenderBase<ILoggingEvent>
                             logger,
                             event.getLevel().toString(),
                             event.getMessage(),
-                            throwable == null ? null : throwable.getClassName())));
+                            throwable == null ? null : throwable.getClassName(),
+                            throwable instanceof ThrowableProxy proxy
+                                    ? ThrowableMarks.of(proxy.getThrowable())
+                                    : null)));
         } catch (RuntimeException ex) {
             // Recording never disturbs the application's logging.
         }

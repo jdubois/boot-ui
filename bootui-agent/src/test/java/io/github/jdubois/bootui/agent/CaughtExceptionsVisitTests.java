@@ -100,7 +100,10 @@ class CaughtExceptionsVisitTests {
         String[] swallowed = sites.get("bootuicaughtapp/Handlers#swallowed()I#0#java/io/IOException");
         assertThat(swallowed).isNotNull();
         assertThat(Integer.parseInt(swallowed[2])).as("line").isPositive();
-        assertThat(flags(swallowed)).isEqualTo(CaughtExceptions.FLAG_EXIT_HANDLER | CaughtExceptions.FLAG_COMPLETE);
+        assertThat(flags(swallowed))
+                .isEqualTo(CaughtExceptions.FLAG_EXIT_HANDLER
+                        | CaughtExceptions.FLAG_COMPLETE
+                        | CaughtExceptions.SHAPE_DISCARDS);
 
         String[] multi = sites.get("bootuicaughtapp/Handlers#multi(I)I#0#java/lang/IllegalStateException|"
                 + "java/lang/UnsupportedOperationException");
@@ -131,6 +134,34 @@ class CaughtExceptionsVisitTests {
                 .isNotEmpty()
                 .allSatisfy(site -> assertThat(flags(site) & CaughtExceptions.FLAG_EXIT_HANDLER)
                         .isNotZero());
+    }
+
+    @Test
+    void handlerShapesAreReadFromTheHandlersOwnCode() throws Exception {
+        visitAlone(original("bootuicaughtapp.Handlers"));
+        Map<String, String[]> sites = sites();
+
+        assertThat(shapes(sites, "swallowed()I#0#java/io/IOException")).isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        assertThat(shapes(sites, "rethrows()I#0#java/lang/IllegalStateException"))
+                .isZero();
+        assertThat(shapes(sites, "wraps()I#0#java/io/IOException")).isZero();
+        assertThat(shapes(sites, "printed()I#0#java/lang/IllegalStateException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PRINTS_STACK_TRACE);
+        assertThat(shapes(sites, "interrupted()I#0#java/lang/InterruptedException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS | CaughtExceptions.SHAPE_REINTERRUPTS);
+        assertThat(shapes(sites, "handedOn()Ljava/util/concurrent/CompletableFuture;#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+        assertThat(shapes(sites, "readsLater()I#0#java/io/IOException")).isZero();
+    }
+
+    private static int shapes(Map<String, String[]> sites, String key) {
+        String[] site = sites.get("bootuicaughtapp/Handlers#" + key);
+        assertThat(site).as("%s in %s", key, sites.keySet()).isNotNull();
+        return flags(site)
+                & (CaughtExceptions.SHAPE_DISCARDS
+                        | CaughtExceptions.SHAPE_PRINTS_STACK_TRACE
+                        | CaughtExceptions.SHAPE_REINTERRUPTS
+                        | CaughtExceptions.SHAPE_PASSES_AS_VALUE);
     }
 
     @Test

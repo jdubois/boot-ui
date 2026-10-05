@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.ThrowableMarks;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -180,7 +181,8 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                 path,
                 handler,
                 source,
-                traceId);
+                traceId,
+                ThrowableMarks.of(throwable));
     }
 
     /**
@@ -212,7 +214,8 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String path,
             String handler,
             String source,
-            String traceId) {
+            String traceId,
+            ThrowableMarks marks) {
         String className = exceptionClassName == null ? "java.lang.Throwable" : exceptionClassName;
         List<Frame> safeFrames = frames == null ? List.of() : frames;
         List<Cause> safeCauses = causes == null ? List.of() : causes;
@@ -256,7 +259,13 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                     thread,
                     null,
                     true,
-                    new ExceptionPayload(fingerprint, className, signature(className, safeFrames), types)));
+                    new ExceptionPayload(
+                            fingerprint,
+                            className,
+                            signature(className, safeFrames),
+                            types,
+                            marks,
+                            "log".equals(source))));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the exception's capture.
         }

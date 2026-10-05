@@ -1900,6 +1900,8 @@ public final class SideEffects {
         } catch (Throwable ex) {
             failed(ex);
         }
+        // The caught exceptions counted, not published one by one, for the scope's owner (PLAN-v2 M5-6a).
+        CaughtExceptions.flushThread();
     }
 
     /**
@@ -1946,6 +1948,7 @@ public final class SideEffects {
         } catch (Throwable ex) {
             failed(ex);
         }
+        CaughtExceptions.flushThread();
     }
 
     private static void push(

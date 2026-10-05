@@ -165,6 +165,49 @@ public class Handlers {
         return new Defaults() {}.parse("10");
     }
 
+    /** Prints the stack trace: not a log. */
+    public int printed() {
+        try {
+            throw new IllegalStateException("printed");
+        } catch (IllegalStateException ex) {
+            ex.printStackTrace(new java.io.PrintStream(java.io.OutputStream.nullOutputStream()));
+            ex.printStackTrace();
+            return 11;
+        }
+    }
+
+    /** Restores the interrupt, as an InterruptedException's handler should. */
+    public int interrupted() {
+        try {
+            throw new InterruptedException("interrupted");
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return 12;
+        }
+    }
+
+    /** Hands the exception on as a failed future. */
+    public java.util.concurrent.CompletableFuture<Integer> handedOn() {
+        java.util.concurrent.CompletableFuture<Integer> result = new java.util.concurrent.CompletableFuture<>();
+        try {
+            throw new IOException("handed on");
+        } catch (IOException ex) {
+            result.completeExceptionally(ex);
+        }
+        return result;
+    }
+
+    /** Reads the exception after the handler's own code jumped back: the slot is loaded, so it is not discarded. */
+    public int readsLater() {
+        Exception kept;
+        try {
+            throw new IOException("kept");
+        } catch (IOException ex) {
+            kept = ex;
+        }
+        return kept.getMessage().length();
+    }
+
     static void fail(String message) {
         throw new IllegalStateException(message);
     }

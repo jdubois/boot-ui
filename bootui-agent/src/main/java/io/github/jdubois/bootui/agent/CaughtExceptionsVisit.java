@@ -62,6 +62,38 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
     /** The stack depth the inserted code needs: the exception, its copy, and the site. */
     static final int STACK = 3;
 
+    /**
+     * The calls that hand a caught exception on as an error value ({@code owner, name[, a type its descriptor takes]}):
+     * Reactor's error signals and sinks, failed futures, Mutiny's failures, Vert.x's failed promises and futures, Spring
+     * MVC's deferred error result, JAX-RS's resumed failure, and gRPC's error.
+     */
+    static final String[][] PASSES_AS_VALUE = {
+        {"reactor/core/publisher/Mono", "error"},
+        {"reactor/core/publisher/Flux", "error"},
+        {"reactor/core/publisher/MonoSink", "error"},
+        {"reactor/core/publisher/FluxSink", "error"},
+        {"reactor/core/publisher/SynchronousSink", "error"},
+        {"reactor/core/publisher/Sinks$One", "tryEmitError"},
+        {"reactor/core/publisher/Sinks$One", "emitError"},
+        {"reactor/core/publisher/Sinks$Many", "tryEmitError"},
+        {"reactor/core/publisher/Sinks$Many", "emitError"},
+        {"reactor/core/publisher/Sinks$Empty", "tryEmitError"},
+        {"reactor/core/publisher/Sinks$Empty", "emitError"},
+        {"java/util/concurrent/CompletableFuture", "completeExceptionally"},
+        {"java/util/concurrent/CompletableFuture", "failedFuture"},
+        {"java/util/concurrent/CompletableFuture", "failedStage"},
+        {"io/smallrye/mutiny/groups/UniCreate", "failure"},
+        {"io/smallrye/mutiny/groups/MultiCreate", "failure"},
+        {"io/smallrye/mutiny/subscription/UniEmitter", "fail"},
+        {"io/smallrye/mutiny/subscription/MultiEmitter", "fail"},
+        {"io/vertx/core/Promise", "fail"},
+        {"io/vertx/core/Future", "failedFuture"},
+        {"io/vertx/ext/web/RoutingContext", "fail", "Ljava/lang/Throwable;"},
+        {"org/springframework/web/context/request/async/DeferredResult", "setErrorResult"},
+        {"jakarta/ws/rs/container/AsyncResponse", "resume", "Ljava/lang/Throwable;"},
+        {"io/grpc/stub/StreamObserver", "onError"}
+    };
+
     /** Loads what the visit uses, before the transformer can call it inside class loading. */
     static void warm() {
         MethodVisit visit = new MethodVisit(null, "warm/Up", Opcodes.ACC_STATIC, "up", "(JLjava/lang/String;D)V");
@@ -145,6 +177,10 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         int firstOpcode = -1;
         /** The local its first instruction stores to or loads, or -1. */
         int firstVar = -1;
+        /** Whether its own code is being read: from its label to its first {@code athrow}, return, or {@code goto}. */
+        boolean inExtent;
+        /** The shapes its own code showed ({@code CaughtExceptions.SHAPE_*} but {@code SHAPE_DISCARDS}). */
+        int shapes;
 
         Site(Label label) {
             this.label = label;
@@ -180,6 +216,9 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         private final List<Site> sites = new ArrayList<Site>();
         private final List<Label> jumpTargets = new ArrayList<Label>();
+        /** The local variable slots the method loads anywhere: a handler storing into another discards its exception. */
+        private final List<Integer> loadedSlots = new ArrayList<Integer>();
+
         /** The local variable slots the method's LocalVariableTable names, and whether it has one. */
         private final List<Integer> namedSlots = new ArrayList<Integer>();
 
@@ -313,6 +352,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                 hook = site;
                 site.counted = 0;
                 site.awaitingFirst = true;
+                site.inExtent = true;
             }
             super.visitLabel(label);
         }
@@ -345,12 +385,21 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
          */
         private void instruction(int opcode, int var) {
             beforeCode();
+            boolean ends = opcode == Opcodes.ATHROW
+                    || opcode == Opcodes.GOTO
+                    || (opcode >= Opcodes.IRETURN && opcode <= Opcodes.RETURN);
             for (Site site : sites) {
                 if (site.awaitingFirst) {
                     site.awaitingFirst = false;
                     site.firstOpcode = opcode;
                     site.firstVar = var;
                 }
+                if (ends) {
+                    site.inExtent = false;
+                }
+            }
+            if (opcode == Opcodes.ALOAD && var >= 0) {
+                loadedSlots.add(Integer.valueOf(var));
             }
             if (hook != null) {
                 Site site = hook;
@@ -402,6 +451,14 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         public void visitMethodInsn(
                 int opcode, String methodOwner, String methodName, String methodDescriptor, boolean isInterface) {
             instruction(opcode, -1);
+            int shape = shape(methodOwner, methodName, methodDescriptor);
+            if (shape != 0) {
+                for (Site site : sites) {
+                    if (site.inExtent) {
+                        site.shapes |= shape;
+                    }
+                }
+            }
             super.visitMethodInsn(opcode, methodOwner, methodName, methodDescriptor, isInterface);
         }
 
@@ -539,6 +596,10 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                 if (foreign(site)) {
                     flags |= CaughtExceptions.FLAG_FOREIGN;
                 }
+                flags |= site.shapes;
+                if (discards(site)) {
+                    flags |= CaughtExceptions.SHAPE_DISCARDS;
+                }
                 if (jumpTargets.contains(site.label)) {
                     flags |= CaughtExceptions.FLAG_SHARED;
                 }
@@ -570,6 +631,32 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                     && localVariableTable
                     && namedSlots.contains(Integer.valueOf(site.firstVar));
             return !namedStore;
+        }
+
+        /**
+         * Whether the handler never reads the exception it caught: its first instruction pops it, or stores it into a
+         * local the method loads nowhere. Only a store and the method's every load are read, so a handler that reads
+         * its exception, even through another variable reusing the slot, is never taken to discard it.
+         */
+        boolean discards(Site site) {
+            return site.firstOpcode == Opcodes.POP
+                    || (site.firstOpcode == Opcodes.ASTORE && !loadedSlots.contains(Integer.valueOf(site.firstVar)));
+        }
+
+        /** The shape a call inside a handler shows, by its owner and name only, never resolving a type; 0 for none. */
+        static int shape(String owner, String name, String descriptor) {
+            if ("printStackTrace".equals(name) && "()V".equals(descriptor)) {
+                return CaughtExceptions.SHAPE_PRINTS_STACK_TRACE;
+            }
+            if ("java/lang/Thread".equals(owner) && "interrupt".equals(name)) {
+                return CaughtExceptions.SHAPE_REINTERRUPTS;
+            }
+            for (String[] api : PASSES_AS_VALUE) {
+                if (api[0].equals(owner) && api[1].equals(name) && (api.length < 3 || descriptor.contains(api[2]))) {
+                    return CaughtExceptions.SHAPE_PASSES_AS_VALUE;
+                }
+            }
+            return 0;
         }
 
         /**
