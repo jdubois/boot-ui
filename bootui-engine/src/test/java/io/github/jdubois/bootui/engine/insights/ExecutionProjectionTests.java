@@ -88,6 +88,7 @@ class ExecutionProjectionTests {
         }
 
         RuntimeInsightsService service = service();
+        service.assumeValidated();
         RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(service.report(), null, null);
 
         assertThat(service.report().window().requests()).isZero();

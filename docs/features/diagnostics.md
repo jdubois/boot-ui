@@ -125,6 +125,10 @@ withheld its message.
 The Exceptions panel captures exceptions thrown by the running application and groups repeated failures into one entry
 with an occurrence count.
 
+Exception groups per route, which Runtime Insights no longer lists by default since `exception-hotspots` did not pass its external
+validation ([overview](overview.md#runtime-insights), M4-20), are linked from this panel: the link opens Runtime
+Insights with every row shown.
+
 Grouping uses a stable fingerprint derived from the exception type and the top stack frames, so a recurring error
 collapses into a single row. That row shows the type, the latest message, first and last seen times, the originating
 location, and a total count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain

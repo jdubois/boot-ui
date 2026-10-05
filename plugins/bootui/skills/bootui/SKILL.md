@@ -343,11 +343,12 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work ran that
    `requests` does not count. A run-level observation with no exemplar does not. Then read `checksNotRun` and
    `limitations`, then each observation's sentence, `verify` line, and exemplar request. The empty query is the default
-   list the panel shows: a route's time breakdown only when prominent (a warm median of 20 ms or more, or heavy
-   authorization), exceptions behind a 5xx, a failed run, a redirect, or new, no garbage collection or heap rows, and no
-   insufficient repeated SELECT under 50 ms that ran fewer than 10 times in any request. A limitation counts what it
+   list the panel shows: only the kinds that passed their external validation (`errors-behind-2xx`,
+   `changed-code-not-executed`) or stayed silent on it, so no time breakdown, exception hotspot, repeated SELECT,
+   connection, AI, garbage collection, or heap row. A limitation names the kinds of the rows returned that are not
+   externally validated: verify such a row against the code before acting on it. Another counts what the default list
    left out per kind; `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
-   cheap repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
+   repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
    kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
 3. Follow `next`: every insights answer, an unknown id included, names at most three follow-up calls, each with the
    `command` to run and the MCP `tool` and `arguments`, restricted to tools this application advertises.
@@ -367,9 +368,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
 3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
    (`get_runtime_run_comparison`, optional `id`), and stop. With the BootUI agent, its `codeChanges` come first: read
-   any changed method still `NEVER_EXECUTED` before anything else. The default list keeps a sufficient repeated SELECT,
-   including a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times
-   in any request, so that query shows whether a weak cheap repeat is gone. Omitted `id` or `previous` selects the
+   any changed method still `NEVER_EXECUTED` before anything else. The default list leaves repeated SELECTs out, so
+   that query is how to see whether a repeat is gone; a statement repeated after the handler returned is reported by
+   `--query lazy-sql-after-handler` instead, with its cause. Omitted `id` or `previous` selects the
    newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint
    or a higher statement count per request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and
    `NOT_COMPARABLE` are not passes, never edit from a latency row, and a missing observation is not proof that a

@@ -693,10 +693,11 @@ function tableCell(value) {
  * checks to run before editing anything, and its evidence, built only from the detail the panel already shows.
  *
  * @param {any} detail the observation detail from `GET /runtime-insights/insights/{id}`
- * @param {{title?: string, checkReason?: string}} [context] the check's title and why it ran partially, if it did
+ * @param {{title?: string, checkReason?: string, validation?: string}} [context] the check's title, why it ran
+ *   partially, if it did, and its kind's external validation when the kind did not pass it (docs/PLAN-v2.md M4-20)
  * @returns {{markdown: string, omissions: string[]}}
  */
-export function insightMarkdown(detail, {title, checkReason} = {}) {
+export function insightMarkdown(detail, {title, checkReason, validation} = {}) {
   const doc = newDocument()
   const observation = detail?.observation
   if (!detail?.available || !observation) {
@@ -717,6 +718,9 @@ export function insightMarkdown(detail, {title, checkReason} = {}) {
       bullet('Linked by', escapeMarkdown(observation.minimumTier)),
       observation.listed === false
         ? bullet('Not listed by default', escapeMarkdown(observation.unlistedReason || 'Left out of the default list.'))
+        : null,
+      validation && validation !== observation.unlistedReason
+        ? bullet('External validation', escapeMarkdown(validation))
         : null,
       checkReason ? bullet('Check', escapeMarkdown(checkReason)) : null
     ]

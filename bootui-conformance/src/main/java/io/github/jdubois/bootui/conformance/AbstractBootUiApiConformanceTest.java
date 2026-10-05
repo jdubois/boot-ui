@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1794,6 +1795,21 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
                 .isEqualTo(23);
+        // Each kind's external validation (docs/PLAN-v2.md M4-20), from the engine's one registry, on every stack.
+        Map<String, String> validation = new HashMap<>();
+        for (JsonNode check : report.path("checks")) {
+            assertThat(check.path("validation").asText())
+                    .as("check %s says how its external validation went", check.path("kind"))
+                    .isIn("PASSED", "NOT_VALIDATED", "FAILED", "UNDER_SAMPLED", "NOT_LISTED", "NOT_JUDGED");
+            assertThat(check.path("validationReason").asText()).isNotBlank();
+            validation.put(check.path("kind").asText(), check.path("validation").asText());
+        }
+        assertThat(validation)
+                .containsEntry("route-time-breakdown", "FAILED")
+                .containsEntry("exception-hotspots", "FAILED")
+                .containsEntry("errors-behind-2xx", "PASSED")
+                .containsEntry("repeated-selects", "UNDER_SAMPLED")
+                .containsEntry("safe-method-dml", "NOT_VALIDATED");
         for (JsonNode observation : report.path("observations")) {
             // The default list (docs/PLAN-v2.md M4-19): every row says whether it is listed, and why when it is not.
             assertThat(observation.path("listed").isBoolean())
@@ -1802,6 +1818,12 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(observation.path("unlistedReason").isTextual())
                     .as("observation %s says why it is left out exactly when it is", observation.path("id"))
                     .isEqualTo(!observation.path("listed").asBoolean());
+            String outcome = validation.get(observation.path("kind").asText());
+            if (!"PASSED".equals(outcome) && !"NOT_VALIDATED".equals(outcome)) {
+                assertThat(observation.path("listed").asBoolean())
+                        .as("observation %s of a kind that is not listed by default (M4-20)", observation.path("id"))
+                        .isFalse();
+            }
         }
         boolean httpCovered = false;
         for (JsonNode coverage : report.path("coverage")) {
