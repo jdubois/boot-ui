@@ -28,7 +28,10 @@ test.describe('Work after the response', () => {
 
     const requests = await (await page.request.get('/bootui/api/activity?source=journal&type=REQUEST&limit=200')).json()
     const seed = requests.entries.find((entry) => entry.path === SEED)
-    const journal = await (await page.request.get(`/bootui/api/activity/request/${seed.id}/journal`)).json()
+    // Another request's after-response work can satisfy the poll above, so this request's own handoff is waited for.
+    const journalOf = async () => (await page.request.get(`/bootui/api/activity/request/${seed.id}/journal`)).json()
+    await expect.poll(async () => (await journalOf()).handoffs?.[0]?.sqlCount ?? 0, {timeout: 15_000}).toBe(1)
+    const journal = await journalOf()
     expect(journal.handoffs).toHaveLength(1)
     expect(journal.handoffs[0]).toMatchObject({afterResponse: true, sqlCount: 1, failed: false})
     const profile = await (await page.request.get(`/bootui/api/activity/request/${seed.id}`)).json()
