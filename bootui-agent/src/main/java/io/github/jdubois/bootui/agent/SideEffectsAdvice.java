@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.Blocking;
+import io.github.jdubois.bootui.agent.bridge.SecuritySinks;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.net.DatagramPacket;
 import java.net.SocketAddress;
@@ -462,6 +463,77 @@ final class SideEffectsAdvice {
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
         static void exit(@Advice.Enter long token, @Advice.Thrown Throwable thrown) {
             Blocking.parked(token, thrown);
+        }
+    }
+
+    /**
+     * {@code MessageDigest.getInstance}, every overload: the algorithm only, at entry, so a digest the JDK refuses is
+     * seen as asked for.
+     */
+    static final class DigestGetInstance {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter(@Advice.Argument(0) String algorithm) {
+            SecuritySinks.digest(algorithm);
+        }
+    }
+
+    /** {@code Cipher.getInstance(String)} and {@code getInstance(String, Provider)}: the transformation, at entry. */
+    static final class CipherGetInstance {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter(@Advice.Argument(0) String transformation) {
+            SecuritySinks.cipher(transformation);
+        }
+    }
+
+    /** {@code ObjectInputStream.readObject()}: the stream at entry, for its filter; the outermost call ends at exit. */
+    static final class ReadObject {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static long enter(@Advice.This java.io.ObjectInputStream stream) {
+            return SecuritySinks.reading(stream);
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+        static void exit(@Advice.Enter long token, @Advice.Thrown Throwable thrown) {
+            SecuritySinks.read(token, thrown);
+        }
+    }
+
+    /** {@code ObjectInputStream.resolveClass}: the class it resolved, on a normal return only. */
+    static final class ResolveClass {
+
+        @Advice.OnMethodExit(suppress = Throwable.class)
+        static void exit(@Advice.Return Class<?> resolved) {
+            SecuritySinks.resolved(resolved);
+        }
+    }
+
+    /** {@code SSLContext.init}: the trust managers, at entry, never called. */
+    static final class SslContextInit {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter(@Advice.Argument(1) Object[] managers) {
+            SecuritySinks.sslInit(managers);
+        }
+    }
+
+    /** {@code HttpsURLConnection.setDefaultHostnameVerifier}: the verifier, at entry, never called. */
+    static final class DefaultHostnameVerifier {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter(@Advice.Argument(0) Object verifier) {
+            SecuritySinks.defaultVerifier(verifier);
+        }
+    }
+
+    /** {@code HttpsURLConnection.setDefaultSSLSocketFactory}: the factory, at entry, never called. */
+    static final class DefaultSocketFactory {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter(@Advice.Argument(0) Object factory) {
+            SecuritySinks.defaultFactory(factory);
         }
     }
 }

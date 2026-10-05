@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.SecuritySinks;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -86,6 +87,11 @@ final class SideEffectsSensor {
     static final String FILE_CHANNEL = "java.nio.channels.FileChannel";
     static final String SYSTEM = "java.lang.System";
     static final String LOCK_SUPPORT = "java.util.concurrent.locks.LockSupport";
+    static final String MESSAGE_DIGEST = "java.security.MessageDigest";
+    static final String CIPHER = "javax.crypto.Cipher";
+    static final String OBJECT_INPUT_STREAM = "java.io.ObjectInputStream";
+    static final String SSL_CONTEXT = "javax.net.ssl.SSLContext";
+    static final String HTTPS_URL_CONNECTION = "javax.net.ssl.HttpsURLConnection";
 
     static final String CORE = "core";
     static final String OPTIONAL = "optional";
@@ -114,12 +120,52 @@ final class SideEffectsSensor {
         {"System.getenv", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getenvAll", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
-        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE}
+        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE},
+        // The security-sinks sensor's JDK checks are optional to the sensor, whose request-value matching needs none of
+        // them: a group whose core hook fails is switched off alone (CHECK_GROUPS).
+        {"MessageDigest.getInstance", MESSAGE_DIGEST, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"Cipher.getInstance", CIPHER, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"ObjectInputStream.readObject", OBJECT_INPUT_STREAM, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"ObjectInputStream.resolveClass", OBJECT_INPUT_STREAM, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"SSLContext.init", SSL_CONTEXT, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {
+            "HttpsURLConnection.setDefaultHostnameVerifier",
+            HTTPS_URL_CONNECTION,
+            "record",
+            SideEffects.SECURITY_SINKS,
+            OPTIONAL
+        },
+        {
+            "HttpsURLConnection.setDefaultSSLSocketFactory",
+            HTTPS_URL_CONNECTION,
+            "record",
+            SideEffects.SECURITY_SINKS,
+            OPTIONAL
+        }
+    };
+
+    /**
+     * The security-sinks sensor's check groups ({@link SecuritySinks#GROUP_IDS}, by bit index): each group's core hooks,
+     * whose self-test failure switches that group off alone, and its other hooks, left out with it.
+     */
+    static final String[][] CHECK_CORE = {
+        {"ObjectInputStream.readObject"}, {"MessageDigest.getInstance", "Cipher.getInstance"}, {"SSLContext.init"}
+    };
+
+    static final String[][] CHECK_OPTIONAL = {
+        {"ObjectInputStream.resolveClass"},
+        {},
+        {"HttpsURLConnection.setDefaultHostnameVerifier", "HttpsURLConnection.setDefaultSSLSocketFactory"}
     };
 
     /** The side-effect sensors, in status order. */
     static final String[] SENSORS = {
-        SideEffects.PROCESSES, SideEffects.NETWORK, SideEffects.FILES, SideEffects.ENVIRONMENT, SideEffects.BLOCKING
+        SideEffects.PROCESSES,
+        SideEffects.NETWORK,
+        SideEffects.FILES,
+        SideEffects.ENVIRONMENT,
+        SideEffects.BLOCKING,
+        SideEffects.SECURITY_SINKS
     };
 
     /** The variable and property the environment self-test reads, which no one sets. */
@@ -161,6 +207,8 @@ final class SideEffectsSensor {
     private final Set<String> failedHooks = new LinkedHashSet<String>();
     /** Why each failed sensor failed. */
     private final Map<String, String> sensorErrors = new LinkedHashMap<String, String>();
+    /** Why each hook that failed its self-test failed: its result and its step's outcome. */
+    private final Map<String, String> hookErrors = new LinkedHashMap<String, String>();
 
     private volatile String state = "off";
     private volatile long installMillis = -1;
@@ -537,6 +585,9 @@ final class SideEffectsSensor {
                                             .and(ElementMatchers.isPublic())
                                             .and(ElementMatchers.isStatic()))));
         }
+        if ((mask & SideEffects.MASK_SECURITY_SINKS) != 0) {
+            securitySinksVisits(types, visits, left);
+        }
         AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
@@ -544,6 +595,75 @@ final class SideEffectsSensor {
             builder = builder.type(ElementMatchers.named(types.get(i))).transform(visits.get(i));
         }
         return builder;
+    }
+
+    /**
+     * The security-sinks sensor's JDK checks (M5-6b2): {@code MessageDigest.getInstance}, every overload; {@code
+     * Cipher.getInstance(String)} and {@code (String, Provider)}, not {@code (String, String)}, which calls the latter
+     * on JDK 17 to 26, so a request is seen once; {@code ObjectInputStream.readObject()} and {@code resolveClass};
+     * {@code SSLContext.init}; and the two static defaults of {@code HttpsURLConnection}.
+     */
+    private static void securitySinksVisits(List<String> types, List<ExecutorSensor.Visit> visits, Set<String> left) {
+        types.add(MESSAGE_DIGEST);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "MessageDigest.getInstance",
+                        Advice.to(SideEffectsAdvice.DigestGetInstance.class)
+                                .on(ElementMatchers.named("getInstance")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArgument(0, String.class))
+                                        .and(ElementMatchers.takesArguments(1)
+                                                .or(ElementMatchers.takesArguments(String.class, String.class))
+                                                .or(ElementMatchers.takesArguments(
+                                                        String.class, java.security.Provider.class))))));
+        types.add(CIPHER);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "Cipher.getInstance",
+                        Advice.to(SideEffectsAdvice.CipherGetInstance.class)
+                                .on(ElementMatchers.named("getInstance")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArguments(String.class)
+                                                .or(ElementMatchers.takesArguments(
+                                                        String.class, java.security.Provider.class))))));
+        types.add(OBJECT_INPUT_STREAM);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ObjectInputStream.readObject",
+                        Advice.to(SideEffectsAdvice.ReadObject.class)
+                                .on(ElementMatchers.named("readObject")
+                                        .and(ElementMatchers.isPublic())
+                                        .and(ElementMatchers.isFinal())
+                                        .and(ElementMatchers.takesArguments(0))))
+                .and(
+                        "ObjectInputStream.resolveClass",
+                        Advice.to(SideEffectsAdvice.ResolveClass.class)
+                                .on(ElementMatchers.named("resolveClass")
+                                        .and(ElementMatchers.takesArguments(java.io.ObjectStreamClass.class)))));
+        types.add(SSL_CONTEXT);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "SSLContext.init",
+                        Advice.to(SideEffectsAdvice.SslContextInit.class)
+                                .on(ElementMatchers.named("init")
+                                        .and(ElementMatchers.takesArguments(
+                                                javax.net.ssl.KeyManager[].class,
+                                                javax.net.ssl.TrustManager[].class,
+                                                java.security.SecureRandom.class)))));
+        types.add(HTTPS_URL_CONNECTION);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "HttpsURLConnection.setDefaultHostnameVerifier",
+                        Advice.to(SideEffectsAdvice.DefaultHostnameVerifier.class)
+                                .on(ElementMatchers.named("setDefaultHostnameVerifier")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArguments(1))))
+                .and(
+                        "HttpsURLConnection.setDefaultSSLSocketFactory",
+                        Advice.to(SideEffectsAdvice.DefaultSocketFactory.class)
+                                .on(ElementMatchers.named("setDefaultSSLSocketFactory")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArguments(1)))));
     }
 
     // ---- self-test -----------------------------------------------------------------------------------------------
@@ -572,6 +692,9 @@ final class SideEffectsSensor {
             if ((mask & SideEffects.MASK_BLOCKING) != 0) {
                 steps.put(SideEffects.BLOCKING, parkStep());
             }
+            if ((mask & SideEffects.MASK_SECURITY_SINKS) != 0) {
+                securitySinksSteps(steps, privileged);
+            }
         } finally {
             hits = SideEffects.endSelfTest();
         }
@@ -596,6 +719,9 @@ final class SideEffectsSensor {
             }
         }
         if (failed.isEmpty()) {
+            if ((mask & SideEffects.MASK_SECURITY_SINKS) != 0) {
+                checkGroups(results, left);
+            }
             SideEffects.enable(mask);
             state = "installed";
             selfTestPassed = true;
@@ -605,6 +731,10 @@ final class SideEffectsSensor {
         String error = "self-test failed for " + failed + " " + steps;
         synchronized (this) {
             failedHooks.addAll(failed);
+            for (String hook : failed) {
+                String step = steps.get(hook);
+                hookErrors.put(hook, results.get(hook) + (step == null ? "" : " (" + step + ")"));
+            }
             failedSensors |= failedNow;
             for (String id : SENSORS) {
                 if ((failedNow & SideEffects.bit(id)) != 0) {
@@ -649,6 +779,181 @@ final class SideEffectsSensor {
             SideEffects.disable(remaining, error);
         }
         state = "self-test-failed";
+    }
+
+    /**
+     * Switches the security-sinks sensor's check groups: on when every core hook of the group passed its self-test, off
+     * with the failure otherwise, alone, so request-value matching and the other groups still run.
+     */
+    private void checkGroups(Map<String, String> results, Set<String> left) {
+        int on = 0;
+        String[] reasons = new String[CHECK_CORE.length];
+        for (int group = 0; group < CHECK_CORE.length; group++) {
+            List<String> failed = new ArrayList<String>();
+            for (String hook : CHECK_CORE[group]) {
+                if (left.contains(hook) || !"passed".equals(results.get(hook))) {
+                    String error;
+                    synchronized (this) {
+                        error = hookErrors.get(hook);
+                    }
+                    failed.add(hook + ": " + (error != null ? error : results.getOrDefault(hook, "not-run")));
+                }
+            }
+            if (failed.isEmpty()) {
+                on |= 1 << group;
+            } else {
+                reasons[group] = "self-test failed for " + failed;
+                AgentBridge.message("the BootUI agent switched the security-sinks checks "
+                        + SecuritySinks.GROUP_IDS[group] + " off: " + reasons[group]);
+            }
+        }
+        SecuritySinks.groups(on, reasons);
+    }
+
+    /**
+     * The security-sinks sensor's JDK checks, each hook run once without I/O and without changing any JVM-wide state:
+     * a digest and a cipher asked for by a null or empty name, which the JDK refuses before reading any configuration;
+     * {@code init} on an {@code SSLContext} of the agent's own whose engine does nothing; each {@code HttpsURLConnection}
+     * default set to null, which the JDK refuses before setting anything; and {@code readObject} and {@code
+     * resolveClass} on a stream no constructor ran for ({@link #deserializationStep}).
+     */
+    static void securitySinksSteps(Map<String, String> steps, boolean privileged) {
+        steps.put("MessageDigest.getInstance", expectRefused(() -> {
+            try {
+                java.security.MessageDigest.getInstance((String) null);
+            } finally {
+                try {
+                    java.security.MessageDigest.getInstance(null, "SUN");
+                } catch (Exception expected) {
+                    // Refused before the provider is looked up.
+                }
+                try {
+                    java.security.MessageDigest.getInstance(null, (java.security.Provider) null);
+                } catch (Exception expected) {
+                    // Refused before the provider is read.
+                }
+            }
+        }));
+        steps.put("Cipher.getInstance", expectRefused(() -> {
+            try {
+                javax.crypto.Cipher.getInstance("");
+            } finally {
+                try {
+                    javax.crypto.Cipher.getInstance("", (java.security.Provider) null);
+                } catch (Exception expected) {
+                    // Refused before the provider is read.
+                }
+            }
+        }));
+        steps.put("SSLContext.init", sslContextStep());
+        steps.put("HttpsURLConnection.setDefaultHostnameVerifier", expectRefused(() -> {
+            javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier(null);
+        }));
+        steps.put("HttpsURLConnection.setDefaultSSLSocketFactory", expectRefused(() -> {
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(null);
+        }));
+        String deserialization = deserializationStep(privileged);
+        steps.put("ObjectInputStream.readObject", deserialization);
+        steps.put("ObjectInputStream.resolveClass", deserialization);
+    }
+
+    /** {@code init} on the agent's own {@code SSLContext}, whose engine does nothing: no provider, no random source. */
+    static String sslContextStep() {
+        try {
+            new javax.net.ssl.SSLContext(new NoOpSslContextSpi(), null, "TLS") {}.init(null, null, null);
+            return "ok";
+        } catch (Throwable ex) {
+            return "error: " + ex;
+        }
+    }
+
+    /**
+     * Runs {@code readObject} and {@code resolveClass} on an {@code ObjectInputStream} no constructor ran for. Building
+     * any {@code ObjectInputStream} fixes the JVM-wide deserialization filter factory for the JVM's life (JDK 17 to 26:
+     * both constructors call {@code ObjectInputFilter.Config.getSerialFilterFactorySingleton()}), after which an
+     * application's own {@code Config.setSerialFilterFactory} would throw: so the stream is allocated through {@code
+     * sun.reflect.ReflectionFactory}, running only {@code Object}'s constructor, as serialization libraries do. Its
+     * fields are null: {@code readObject} throws once its advice ran, and {@code resolveClass} reads none of them.
+     */
+    static String deserializationStep(boolean privileged) {
+        PrivilegedAction<String> action = () -> {
+            try {
+                Class<?> factoryType = Class.forName("sun.reflect.ReflectionFactory");
+                Object factory = factoryType.getMethod("getReflectionFactory").invoke(null);
+                java.lang.reflect.Constructor<?> constructor = (java.lang.reflect.Constructor<?>) factoryType
+                        .getMethod("newConstructorForSerialization", Class.class, java.lang.reflect.Constructor.class)
+                        .invoke(factory, SelfTestStream.class, Object.class.getDeclaredConstructor());
+                SelfTestStream stream = (SelfTestStream) constructor.newInstance();
+                try {
+                    stream.readObject();
+                    return "error: readObject read from a stream without input";
+                } catch (Exception | Error expected) {
+                    // The stream has no input: the hook ran first.
+                }
+                if (stream.resolve(java.io.ObjectStreamClass.lookup(Integer.class)) != Integer.class) {
+                    return "error: resolveClass did not resolve java.lang.Integer";
+                }
+                return "ok";
+            } catch (Throwable ex) {
+                return "not-exercised: no ObjectInputStream could be made without fixing the JVM's filter factory: "
+                        + ex;
+            }
+        };
+        return privileged ? (String) AgentThreads.privileged(action) : action.run();
+    }
+
+    /** The deserialization self-test's stream: its constructor never runs ({@link #deserializationStep}). */
+    static final class SelfTestStream extends java.io.ObjectInputStream {
+
+        SelfTestStream() throws IOException {
+            super();
+        }
+
+        Class<?> resolve(java.io.ObjectStreamClass description) throws IOException, ClassNotFoundException {
+            return resolveClass(description);
+        }
+    }
+
+    /** An {@code SSLContext} engine that does nothing: the {@code init} self-test's. */
+    static final class NoOpSslContextSpi extends javax.net.ssl.SSLContextSpi {
+
+        @Override
+        protected void engineInit(
+                javax.net.ssl.KeyManager[] keyManagers,
+                javax.net.ssl.TrustManager[] trustManagers,
+                java.security.SecureRandom random) {
+            // Nothing: no provider, no random source.
+        }
+
+        @Override
+        protected javax.net.ssl.SSLSocketFactory engineGetSocketFactory() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLServerSocketFactory engineGetServerSocketFactory() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLEngine engineCreateSSLEngine() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLEngine engineCreateSSLEngine(String host, int port) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLSessionContext engineGetServerSessionContext() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLSessionContext engineGetClientSessionContext() {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /**
