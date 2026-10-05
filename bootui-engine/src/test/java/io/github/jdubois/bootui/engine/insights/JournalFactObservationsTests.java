@@ -913,6 +913,67 @@ class JournalFactObservationsTests {
                         assertThat(observation.unlistedReason()).isEqualTo(FrameworkWarningsByRoute.RESOLVED_4XX));
     }
 
+    /**
+     * Quarkus's error handler writes the request path and a per-request error id into the message it logs, so without
+     * normalization each failed request became a group of its own (found on a holdout application, M4-20).
+     */
+    @Test
+    void frameworkMessagesThatDifferOnlyByIdsOrPathNumbersAreOneGroup() {
+        String handler = "io.quarkus.vertx.http.runtime.QuarkusErrorHandler";
+        String base = "2878fa40-6f44-40d9-8381-ae15903c0b3d";
+        for (int i = 1; i <= 3; i++) {
+            request(
+                    "/api/orders/{id}",
+                    500,
+                    child(
+                            JournalSource.LOG,
+                            new LogPayload(
+                                    handler,
+                                    "ERROR",
+                                    "HTTP Request to /api/orders/" + (40 + i) + " failed, error id: " + base + "-" + i,
+                                    "java.lang.NullPointerException")));
+        }
+        request(
+                "/api/orders/{id}",
+                500,
+                child(JournalSource.LOG, new LogPayload(handler, "ERROR", "Request body too large", null)));
+
+        List<RuntimeObservationDto> warnings =
+                byKind(service(null, null).report(), FrameworkWarningsByRoute.KIND).stream()
+                        .filter(observation -> observation.subject().equals(ORDERS))
+                        .toList();
+
+        assertThat(warnings).hasSize(2);
+        assertThat(warnings)
+                .filteredOn(observation -> observation.sentence().contains("HTTP Request"))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.sentence())
+                            .startsWith("`" + ORDERS + "` logged `ERROR` from `QuarkusErrorHandler` in 3 of 4 requests"
+                                    + " (3 events): ")
+                            .contains("/api/orders/<n> failed, error id: <id>")
+                            .doesNotContain(base);
+                    assertThat(observation.affected()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void aMessageKeyDropsIdsAndNumericPathSegmentsOnly() {
+        assertThat(
+                        FrameworkWarningsByRoute.messageKey(
+                                "HTTP Request to /api/records/12?page=2 failed, error id: 2878fa40-6f44-40d9-8381-ae15903c0b3d-7"))
+                .isEqualTo("HTTP Request to /api/records/<n>?page=2 failed, error id: <id>");
+        assertThat(FrameworkWarningsByRoute.messageKey("trace 4bf92f3577b34da6a3ce929d0e0e4736 broke"))
+                .isEqualTo("trace <id> broke");
+        assertThat(FrameworkWarningsByRoute.messageKey(
+                        "HHH90003004: firstResult/maxResults specified with collection fetch; applying in memory"))
+                .as("codes, words, and short hexadecimal-looking text are kept")
+                .isEqualTo("HHH90003004: firstResult/maxResults specified with collection fetch; applying in memory");
+        assertThat(FrameworkWarningsByRoute.messageKey("Pool HikariPool-1 has 10 of 10 connections in use"))
+                .isEqualTo("Pool HikariPool-1 has 10 of 10 connections in use");
+        assertThat(FrameworkWarningsByRoute.messageKey(null)).isNull();
+    }
+
     private void unownedLog(LogPayload log) {
         unownedLog(1_000, "http-nio-1", log);
     }
