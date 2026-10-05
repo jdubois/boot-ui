@@ -79,10 +79,10 @@
     },
     {
       "app": "timeless",
-      "change": "Group framework-warnings-by-route messages without their per-request error id",
-      "pr": null,
+      "change": "Group framework warnings that differ only by ids or numeric path segments",
+      "pr": 1276,
       "commit": null,
-      "note": "Fill in the PR and commit when it merges, before the tag"
+      "note": "Fill in the merge commit when #1276 merges, before the tag"
     }
   ],
   "gates": {

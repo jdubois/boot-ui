@@ -150,7 +150,7 @@ under both versions.
   runs, which the harness writes elsewhere. Superseded attempts and their reasons are printed with the scores.
 - **The holdouts stay holdouts.** Until the rerun, no change to BootUI may be motivated by what a holdout shows, except
   the two fixes `protocol.json` lists in `allowedHoldoutFixes`: the Spring Modulith startup fix (#1274) and the
-  Timeless message-grouping fix (its PR and commit are filled in before the tag). The start checks showed the
+  Timeless message-grouping fix (#1276; its merge commit is filled in before the tag). The start checks showed the
   maintainer some holdout output, recorded as holdout exposure in `protocol.json` and printed with the scores:
   - **Bookstore:** the startup failure with Spring Modulith (fixed, see above), and, on two iterations of traffic
     before M4-19, route breakdowns on every route (most `INSUFFICIENT`), exception groups for unknown orders and
