@@ -47,6 +47,9 @@ everywhere. Containers the harness starts are named `bootui-validation-*` and ar
 
 ## Run it
 
+The protocol is registered by tagging the commit that merged it, once, before the rerun:
+`git tag validation-protocol-1 <commit> && git push origin validation-protocol-1`.
+
 Every command runs from the repository root. `BOOTUI_VALIDATION_M2` (default `validation/.work/m2`) is the one Maven
 repository for BootUI and every application; never point it at `~/.m2`, which may hold the released 1.x artifact of the
 same version.
@@ -106,16 +109,21 @@ summaries (duration, request count, statuses per route), and per service `runtim
 
 3. The maintainer fills `to-adjudicate.csv` in as `adjudication.csv` (`id,judgment,reason`), and writes `recall.csv`
    (`id,outcome,rows,note`) for every item of `recall/known-misses.json`. Two reviewers who agree are never overruled.
-4. The final score refuses to run while anything is missing:
+4. The final score refuses to run while anything is missing, while the registered files differ from the
+   `validation-protocol-1` tag, or while the worksheet differs from the one the evidence gives:
 
    ```bash
    node validation/scoring/score.mjs --worksheet validation/.work/scoring/worksheet.json \
+     --evidence validation/.work/evidence \
      --reviewer r1=validation/.work/scoring/r1.csv --reviewer r2=validation/.work/scoring/r2.csv \
      --adjudication validation/.work/scoring/adjudication.csv \
-     --recall validation/recall/known-misses.json --recall-judgments validation/.work/scoring/recall.csv \
+     --recall-judgments validation/.work/scoring/recall.csv \
      --investigations validation/.work/scoring/investigations.csv --ttfo validation/.work/ttfo.jsonl \
      --out validation/.work/scoring/out
    ```
+
+   `recall.csv` names, in `rows`, the worksheet ids (or, for a hidden row outside the sample, the observation ids) that
+   support each outcome.
 
    `score.md` holds the tables the report needs: scores per group, application, and kind with each gate's outcome,
    honesty, the hidden sample, misleading rows with their adjudication, recall, the agent investigations, and the time

@@ -5,9 +5,14 @@
 //      node validation/scoring/score.mjs --worksheet worksheet.json --reviewer r1=r1.csv --reviewer r2=r2.csv \
 //        --out <dir> --to-adjudicate
 //   2. The final score, which refuses to run while anything is missing:
-//      node validation/scoring/score.mjs --worksheet worksheet.json --reviewer r1=r1.csv --reviewer r2=r2.csv \
-//        --adjudication adjudication.csv --recall validation/recall/known-misses.json --recall-judgments recall.csv \
+//      node validation/scoring/score.mjs --worksheet worksheet.json --evidence <root> --reviewer r1=r1.csv \
+//        --reviewer r2=r2.csv --adjudication adjudication.csv --recall-judgments recall.csv \
 //        [--investigations investigations.csv] [--ttfo ttfo.jsonl] --out <dir>
+//
+// The registered files must match the registration tag (protocol.json `registrationRef`, created on the commit that
+// registered the protocol); `--registration-ref none` skips that check for tests, and the output says so. The recall
+// list is always the registered validation/recall/known-misses.json, and the worksheet is rebuilt from the evidence
+// and must match the one the reviewers judged.
 //
 // Reviewer files: CSV with `id,judgment,note` (the worksheet template works as is). Facts and hidden rows take
 // Actionable, Informative, Noise, or Misleading; honesty rows take Honest, Hides, or Misleading.
@@ -15,15 +20,16 @@
 // them judged Misleading. Two reviewers who agree are never overruled, Misleading included.
 // Recall file: CSV with `id,outcome,rows,note`; `rows` lists the worksheet ids that support the outcome.
 
+import {execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {parseArgs} from 'node:util'
 import {HONESTY, JUDGMENTS, USEFUL, atLeast, below, parseCsv, percent, toCsv, upperBound95} from './lib.mjs'
-import {registeredHashes, validationHome} from './worksheet.mjs'
+import {buildWorksheet, checkRuns, loadRuns, registeredHashes, validationHome} from './worksheet.mjs'
 
-const baseApp = (app) => app.replace(/\+agent$/, '')
+const baseApp = (app) => String(app ?? '').replace(/\+agent$/, '')
 const ROLES = ['tuned', 'holdout', 'agent']
 
 export function readCsvById(text, label) {
@@ -133,7 +139,7 @@ export function score(judged, protocol, inventory = []) {
     pooledBelow: pooled.facts === 0 || below(pooled.useful, pooled.facts, g.escalation.pooledBelowPercent),
     holdoutGap:
       tuned.facts && holdout.facts
-        ? Math.round((100 * tuned.useful) / tuned.facts - (100 * holdout.useful) / holdout.facts)
+        ? Math.round(10 * ((100 * tuned.useful) / tuned.facts - (100 * holdout.useful) / holdout.facts)) / 10
         : null,
     holdoutGapTooLarge: gapTooLarge,
     // Filters that hide everything on the holdouts cannot escape the comparison.
@@ -164,9 +170,11 @@ export function score(judged, protocol, inventory = []) {
     const hiddenUseful = kindHidden.filter((r) => r.bothUseful).length
     const entry = inventory.find((k) => k.kind === kind)
     const byDesign = entry?.unlistedByDesign ?? protocol.unlistedByDesign.includes(kind)
+    const ran = !entry || Object.values(entry.checks).some((status) => status === 'EVALUATED' || status === 'PARTIAL')
     let status
-    if (kindFacts.length === 0) status = byDesign ? 'NOT_LISTED' : misleading > 0 ? 'FAIL' : 'SILENT'
-    else if (misleading > g.perKind.misleading) status = 'FAIL'
+    if (kindFacts.length === 0) {
+      status = byDesign ? 'NOT_LISTED' : misleading > 0 ? 'FAIL' : ran ? 'SILENT' : 'NOT_EXERCISED'
+    } else if (misleading > g.perKind.misleading) status = 'FAIL'
     else if (kindFacts.length < g.perKind.minFacts || kindApps.size < g.perKind.minApps) status = 'UNDER_SAMPLED'
     else status = atLeast(t.useful, kindFacts.length, g.perKind.usefulPercent) ? 'PASS' : 'FAIL'
     const outcomes = {
@@ -174,6 +182,7 @@ export function score(judged, protocol, inventory = []) {
       FAIL: 'folds into its panel or stays hidden',
       UNDER_SAMPLED: 'stays listed, marked as not externally validated',
       SILENT: 'stays listed, marked as not externally validated',
+      NOT_EXERCISED: 'stays listed, marked as not externally validated: its check never ran',
       NOT_LISTED: 'not listed by default; judged through the hidden sample'
     }
     // Under escalation, every kind that does not pass its gate folds, the silent and under-sampled ones included.
@@ -248,12 +257,35 @@ export function recall(knownMisses, judgments, judgedRows = []) {
       if (m.outcome === 'not-exercised' && m.exercised !== false) {
         problems.push(`recall item ${m.id} is registered as exercised by the traffic, so it cannot be not-exercised`)
       }
-      if (m.firstRun === 'found' && m.outcome === 'found-hidden') regressions.push(m.id)
+      if (m.firstRun === 'found' && ['found-hidden', 'missed', 'honest-gap'].includes(m.outcome)) {
+        regressions.push(`${m.id} (${m.outcome})`)
+      }
+      const rows = (m.rows || '').split(/\s+/).filter(Boolean)
+      if (m.outcome === 'found-default' && !(rows.length && rows.every((id) => byId.get(id)?.section === 'fact'))) {
+        problems.push(`recall item ${m.id} is found in the default list, so its rows must be worksheet facts`)
+      }
+      if (m.outcome === 'found-hidden' && !rows.length) {
+        problems.push(`recall item ${m.id} is found in a hidden row: name it (a worksheet id or an observation id)`)
+      }
     }
     for (const c of counter) {
       known.add(c.id)
       if (!['respected', 'violated'].includes(c.outcome))
         problems.push(`counterexample ${c.id} has no outcome (respected|violated)`)
+      if (c.outcome === 'respected') {
+        const contradicting = judgedRows.filter(
+          (r) =>
+            baseApp(r.app) === app &&
+            r.section === 'fact' &&
+            r.final === 'Misleading' &&
+            (c.subjects || []).includes(r.subject)
+        )
+        if (contradicting.length) {
+          problems.push(
+            `counterexample ${c.id} is marked respected, but ${contradicting.map((r) => r.id).join(', ')} on its subject is misleading`
+          )
+        }
+      }
       if (c.outcome === 'violated') {
         const rows = (c.rows || '').split(/\s+/).filter(Boolean)
         if (!rows.length || !rows.every((id) => byId.get(id)?.final === 'Misleading')) {
@@ -327,6 +359,10 @@ const yes = (b) => (b ? 'Yes' : 'No')
 export function markdown(result) {
   const {score: s, judged, recall: rc, investigations: inv, ttfo} = result
   const out = []
+  if (result.registration !== result.expectedRegistration) {
+    out.push(`**Not checked against the registration tag (${result.registration}): not a final score.**`, '')
+  }
+  if (result.notes?.length) out.push('## Worksheet notes', '', ...result.notes.map((n) => `- ${n}`), '')
   out.push('## Scores', '')
   out.push(
     table(
@@ -431,7 +467,8 @@ export function markdown(result) {
     ),
     '',
     `${s.hiddenSummary.actionableEither} of ${s.hiddenSummary.sampled} sampled hidden rows were judged actionable by a ` +
-      `reviewer; at 95 % confidence, the hidden rows' actionable share is at most ${s.hiddenSummary.upperBoundPercent} %.`,
+      `reviewer; among sampled rows, at 95 % confidence, the actionable share is at most ` +
+      `${s.hiddenSummary.upperBoundPercent} % (the sample is stratified, so this does not bound all hidden rows).`,
     ''
   )
   if (s.hiddenValue.length) {
@@ -499,8 +536,8 @@ export function markdown(result) {
       ),
       '',
       rc.regressions.length
-        ? `Found in the first run's list, now only in a hidden row (filter regressions): ${rc.regressions.join(', ')}.`
-        : 'No item the first run listed is now only in a hidden row.',
+        ? `Found by the first run, not in the rerun's default list (regressions): ${rc.regressions.join(', ')}.`
+        : "Every item the first run found is in the rerun's default list.",
       ''
     )
   }
@@ -552,7 +589,8 @@ function main() {
       worksheet: {type: 'string'},
       reviewer: {type: 'string', multiple: true, default: []},
       adjudication: {type: 'string'},
-      recall: {type: 'string'},
+      evidence: {type: 'string'},
+      'registration-ref': {type: 'string'},
       'recall-judgments': {type: 'string'},
       investigations: {type: 'string'},
       ttfo: {type: 'string'},
@@ -575,6 +613,22 @@ function main() {
       problems.push(`${file} changed since the worksheet was generated: the protocol is not the registered one`)
   }
   if (!worksheet.registeredFiles) problems.push('the worksheet records no registered-file hashes')
+  const registration = values['registration-ref'] || protocol.registrationRef
+  if (registration !== 'none') {
+    try {
+      execFileSync('git', ['diff', '--quiet', registration, '--', ...protocol.registeredFiles], {
+        cwd: validationHome,
+        stdio: 'ignore'
+      })
+    } catch {
+      problems.push(
+        `the registered files differ from ${registration}, or that tag does not exist: tag the registration commit`
+      )
+    }
+  }
+  if ((worksheet.notes || []).some((n) => n.startsWith('INCOMPLETE'))) {
+    problems.push('the worksheet was built from an incomplete run set (--allow-incomplete)')
+  }
   const inputs = {}
   const reviewers = {}
   for (const spec of values.reviewer) {
@@ -596,7 +650,7 @@ function main() {
 
   if (values['to-adjudicate']) {
     // No score here: the maintainer adjudicates without knowing which ruling moves which gate.
-    const todo = judged.rows.filter((r) => r.needsAdjudication)
+    const todo = judged.rows.filter((r) => r.needsAdjudication && Object.values(r.judgments).every(Boolean))
     writeFileSync(
       join(values.out, 'to-adjudicate.csv'),
       toCsv(
@@ -617,20 +671,35 @@ function main() {
   }
 
   problems.push(...judged.problems)
+  if (values.evidence) {
+    // The worksheet the reviewers judged must be the one the evidence gives under the registered rules.
+    const loaded = loadRuns(values.evidence)
+    problems.push(...checkRuns(loaded.runs, loaded.superseded, protocol))
+    const rebuilt = buildWorksheet(loaded, protocol, values.evidence, current)
+    const shape = (w) => JSON.stringify({rows: w.rows, inventory: w.inventory})
+    if (shape(rebuilt) !== shape(worksheet)) problems.push('the worksheet does not match the one the evidence gives')
+    inputs.evidence = values.evidence
+  } else {
+    problems.push('pass --evidence, so the worksheet can be checked against the evidence')
+  }
   const result = {
     protocol: protocol.name,
+    registration,
+    expectedRegistration: protocol.registrationRef,
     registeredFiles: current,
     inputs,
+    notes: worksheet.notes || [],
     judged,
     score: score(judged, protocol, worksheet.inventory)
   }
-  if (values.recall && values['recall-judgments']) {
+  if (values['recall-judgments']) {
     const read = readCsvById(readFileSync(values['recall-judgments'], 'utf8'), 'the recall judgments')
     problems.push(...read.problems)
-    result.recall = recall(JSON.parse(readFileSync(values.recall, 'utf8')), read.map, judged.rows)
+    const known = JSON.parse(readFileSync(join(validationHome, 'recall', 'known-misses.json'), 'utf8'))
+    result.recall = recall(known, read.map, judged.rows)
     problems.push(...result.recall.problems)
   } else {
-    problems.push('recall is part of the protocol: pass --recall and --recall-judgments')
+    problems.push('recall is part of the protocol: pass --recall-judgments')
   }
   if (values.investigations) {
     result.investigations = investigations(parseCsv(readFileSync(values.investigations, 'utf8')), protocol)

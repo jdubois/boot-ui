@@ -31,7 +31,15 @@
     "It is a WARN message BootUI has no specific check for",
     "Spring MVC resolved an exception to a 4xx response"
   ],
-  "registeredFiles": ["protocol.json", "RUBRIC.md", "recall/known-misses.json", "scoring/lib.mjs"],
+  "registrationRef": "validation-protocol-1",
+  "registeredFiles": [
+    "protocol.json",
+    "RUBRIC.md",
+    "recall/known-misses.json",
+    "scoring/lib.mjs",
+    "scoring/worksheet.mjs",
+    "scoring/score.mjs"
+  ],
   "gates": {
     "target": {"usefulPercent": 70, "misleading": 0},
     "postM3": {"usefulPercent": 50},

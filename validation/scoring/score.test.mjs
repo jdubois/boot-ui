@@ -301,7 +301,14 @@ function scenario() {
       hidden: 0,
       unlistedByDesign: false
     },
-    {kind: 'gc-inflated-latency', checks: {h1: 'EVALUATED'}, listed: 0, hidden: 3, unlistedByDesign: true}
+    {kind: 'gc-inflated-latency', checks: {h1: 'EVALUATED'}, listed: 0, hidden: 3, unlistedByDesign: true},
+    {
+      kind: 'proxy-bypass',
+      checks: {t1: 'NOT_APPLICABLE', h1: 'UNAVAILABLE'},
+      listed: 0,
+      hidden: 0,
+      unlistedByDesign: false
+    }
   ]
   return {worksheet: {rows}, r1, r2, inventory}
 }
@@ -338,7 +345,7 @@ test('scores, adjudication rules, gates, and per-kind outcomes', () => {
   assert.equal(s.groups.agent.facts, 1, 'agent runs are scored apart')
   assert.equal(s.groups.tuned.meetsPostM3, true)
   assert.equal(s.groups.holdout.meetsTarget, false)
-  assert.equal(s.escalation.holdoutGap, -17)
+  assert.equal(s.escalation.holdoutGap, -16.7)
   assert.equal(s.escalation.triggered, false)
 
   const kind = (k) => s.perKind.find((x) => x.kind === k)
@@ -349,6 +356,7 @@ test('scores, adjudication rules, gates, and per-kind outcomes', () => {
   assert.equal(kind('gc-inflated-latency').status, 'NOT_LISTED')
   assert.equal(kind('connections-per-request').status, 'SILENT', 'a kind with only EVALUATED checks is still gated')
   assert.equal(kind('event-loop-blocking').status, 'SILENT')
+  assert.equal(kind('proxy-bypass').status, 'NOT_EXERCISED', 'a check that never ran is not silent')
   // A hidden row one reviewer judged Actionable is hidden value, whatever the adjudication says.
   assert.equal(s.hiddenValue.length, 1)
   assert.equal(kind('gc-inflated-latency').filterHidesValue, true, 'both reviewers found the hidden row useful')
@@ -417,15 +425,18 @@ test('recall, counterexamples, regressions, and investigations', () => {
           {id: 'A-3', exercised: false},
           {id: 'A-4'}
         ],
-        counterexamples: [{id: 'A-C1'}, {id: 'A-C2'}]
+        counterexamples: [
+          {id: 'A-C1', subjects: ['GET /c1']},
+          {id: 'A-C2', subjects: ['GET /c2']}
+        ]
       }
     }
   }
   const outcomes = (extra = {}) =>
     new Map(
       Object.entries({
-        'A-1': {outcome: 'found-default'},
-        'A-2': {outcome: 'found-hidden'},
+        'A-1': {outcome: 'found-default', rows: 'app/fact/2'},
+        'A-2': {outcome: 'found-hidden', rows: 'route-time-breakdown:0a1b2c3d4e'},
         'A-3': {outcome: 'not-exercised'},
         'A-4': {outcome: 'missed'},
         'A-C1': {outcome: 'respected'},
@@ -433,18 +444,26 @@ test('recall, counterexamples, regressions, and investigations', () => {
         ...extra
       }).map(([id, v]) => [id, {id, ...v}])
     )
-  const rows = [{id: 'app/fact/1', final: 'Misleading'}]
+  const rows = [
+    {id: 'app/fact/1', app: 'app', section: 'fact', subject: 'GET /c2', final: 'Misleading'},
+    {id: 'app/fact/2', app: 'app', section: 'fact', subject: 'GET /a', final: 'Actionable'}
+  ]
   const r = recall(known, outcomes(), rows)
   assert.deepEqual(r.problems, [])
   assert.equal(r.byApp[0].recallDefaultPercent, 33.3)
   assert.equal(r.byApp[0].recallAnyPercent, 66.7)
   assert.deepEqual(r.byApp[0].violated, ['A-C2'])
-  assert.deepEqual(r.regressions, ['A-2'])
+  assert.deepEqual(r.regressions, ['A-2 (found-hidden)'])
+  const respectedWrongly = recall(known, outcomes({'A-C2': {outcome: 'respected'}}), rows)
+  assert.ok(respectedWrongly.problems.some((p) => p.includes('A-C2 is marked respected')))
+  const unbacked = recall(known, outcomes({'A-1': {outcome: 'found-default'}, 'A-2': {outcome: 'found-hidden'}}), rows)
+  assert.equal(unbacked.problems.length, 2, 'a found item names the rows that state it')
   assert.equal(recall(known, new Map()).problems.length, 6)
   const bad = recall(known, outcomes({'A-4': {outcome: 'not-exercised'}, 'Z-9': {outcome: 'missed'}}), [
     {id: 'app/fact/1', final: 'Noise'}
   ])
-  assert.equal(bad.problems.length, 3, 'not-exercised needs registration, unknown ids and unbacked violations fail')
+  // not-exercised without registration, an unknown id, an unbacked violation, and a found row that is not a fact
+  assert.equal(bad.problems.length, 4)
 
   const runs = []
   for (let q = 1; q <= 10; q++) {
@@ -495,7 +514,9 @@ test('the command line lists rows to adjudicate without scores, and refuses a fi
     '--reviewer',
     `r2=${join(fixture, 'r2.csv')}`,
     '--out',
-    out
+    out,
+    '--registration-ref',
+    'none'
   ]
   const listing = execFileSync(process.execPath, [...args, '--to-adjudicate'], {encoding: 'utf8'})
   assert.match(listing, /^39 rows to adjudicate/)

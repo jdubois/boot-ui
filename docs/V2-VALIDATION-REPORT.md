@@ -25,10 +25,11 @@ were judged useful.
 
 **Registered on 2026-10-05, before any rerun** (PLAN-v2 M4-20, D35, D36). Every rule below is fixed before the rerun's
 evidence exists, and is implemented in the committed harness ([`validation/`](https://github.com/jdubois/boot-ui/blob/v2/validation/README.md)), so anyone can
-recompute the numbers. The worksheet records the SHA-256 of the registered files (`protocol.json`, the rubric, the
-known misses, and the fact rule in `scoring/lib.mjs`), and the scorer refuses to run if one changed since. Changing a
-rule after the evidence is collected is a protocol change: it is dated, says why, and reports the scores under both
-versions.
+recompute the numbers. Once this protocol is merged, its commit is tagged `validation-protocol-1`. The scorer refuses
+to run unless the registered files (`protocol.json`, the rubric, the known misses, and the worksheet and scoring
+scripts) match that tag, unless the worksheet the reviewers judged is the one the evidence gives, and unless the run
+set is complete. Changing a rule after the evidence is collected is a protocol change: it is dated, says why, and
+reports the scores under both versions.
 
 ### Preconditions and integrity
 
@@ -41,11 +42,14 @@ versions.
 - Each application runs once per configuration. A run is repeated only when it fails operationally (it does not start,
   or its traffic reports unexpected statuses); the previous attempt is kept with its reason, and the report lists it.
   The worksheet refuses a missing, duplicated, or unregistered run, a role other than the registered one, and smoke
-  runs, which the harness writes elsewhere.
+  runs, which the harness writes elsewhere. Superseded attempts and their reasons are printed with the scores.
 - **The holdouts stay holdouts.** Until the rerun, no change to BootUI may be motivated by what a holdout shows,
-  except the startup fix above; the holdouts were run only to check that they start and serve their traffic. A commit
-  that changes a kind a holdout surfaced says it was not driven by the holdout; if one was, that holdout is reported
-  as tuned for that kind.
+  except the startup fix above. The holdouts were run to check that they start and serve their traffic, and that check
+  exposed one holdout row, recorded here so the rule can be audited: on Timeless, `framework-warnings-by-route` showed
+  one row per failed `GET /api/records`, since Quarkus's message carries a per-request error id (the distinct-fact rule
+  counts them as one fact). A change to how that kind groups messages makes Timeless tuned for that kind. Any commit
+  that changes a kind a holdout surfaced says whether the holdout drove it; if it did, that holdout is reported as
+  tuned for that kind.
 
 ### Applications, traffic, and runs
 
@@ -115,8 +119,9 @@ Each sampled row is judged as if it were listed. A hidden row **either** reviewe
 whatever the adjudication says, and is listed with its kind and reason; its filter is fixed or explained before 2.0.0.
 Per kind, the share of sampled hidden rows useful to both reviewers is reported beside the listed share, and a kind
 whose hidden rows are useful at least as often as its listed ones is flagged: its filter hides value. The sample
-cannot prove that nothing is hidden: with about 70 rows, finding none actionable still allows about 5 % of hidden rows
-to be, and the report states that bound (Clopper-Pearson, 95 %).
+cannot prove that nothing is hidden. The report states a Clopper-Pearson 95 % bound on the actionable share among the
+sampled rows (about 5 % when none of 70 is actionable), which, since the sample is stratified, is not a bound on all
+hidden rows.
 
 ### Recall: known misses, registered now
 
@@ -125,10 +130,12 @@ problems a good report should surface and the counterexamples it must not presen
 Findings and reviews and from each application's known issues. The maintainer may add items before the rerun starts,
 never after. After the rerun, the maintainer marks each item found in the default list, found only in a hidden row, an
 honest gap (a check or coverage line says it cannot see it), missed, or not exercised, which is allowed only for an
-item registered now as out of the traffic's reach; and each counterexample respected or violated, a violation naming
-the facts, which must be adjudicated Misleading. Recall is the share found in the default list among the items
-exercised. An item the first run found that the rerun finds only in a hidden row is reported as a filter regression.
-The final score refuses to run without recall.
+item registered now as out of the traffic's reach (none is); and each counterexample respected or violated. A found
+item names the rows that state it, a violation names the facts, which must be adjudicated Misleading, and a
+counterexample cannot be marked respected while a fact adjudicated Misleading sits on its subject. Recall is the share
+found in the default list among the items exercised. An item the first run found that the rerun misses, finds only in
+a hidden row, or reports only as an honest gap is a regression. The scorer always reads the registered list, and the
+final score refuses to run without recall.
 
 ### Scores and gates
 
@@ -143,7 +150,8 @@ state, comparing exact fractions, never rounded shares:
 | Per kind (D35) | A kind with at least 3 facts on at least 2 applications, over every run: at least 50 % useful, and nothing misleading | It stays listed by default; otherwise it folds into its panel or stays hidden |
 | Per kind, few facts | Fewer than 3 facts, or facts on one application only | It stays listed, marked as not externally validated, unless something of the kind is misleading, which fails it |
 | Per kind, silent | No fact anywhere: the kind's checks ran and found nothing listed | It stays listed, marked as not externally validated |
-| Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
+| Per kind, not exercised | No fact anywhere, and no run evaluated the kind's check (not applicable or unavailable everywhere) | It stays listed, marked as not externally validated, and the report says its check never ran |
+| Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent, not-exercised, and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
 
 Every kind any run's report evaluates is gated, so a kind that found nothing cannot drop out. The kinds left out of the
 default list by design (the two memory kinds and D29's four, registered in `protocol.json`) have no fact to gate; they
