@@ -80,7 +80,7 @@ jobs:
       # protocol stays computable (docs/V2-VALIDATION-REPORT.md, "Protocol for the rerun").
       - name: Test the validation harness
         run: |
-          node --test validation/scoring/score.test.mjs
+          node --test validation/scoring/score.test.mjs validation/bin/await-restart.test.mjs
           for script in validation/bin/*.sh validation/apps/*/app.sh; do bash -n "$script"; done
           for script in validation/bin/*.mjs validation/traffic/*.mjs validation/stubs/*.mjs; do node --check "$script"; done
 

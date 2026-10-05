@@ -32,7 +32,7 @@ not released while any row reads `TODO`.
 | --- | --- |
 | Release candidate | TODO: `v2` commit and its BootUI version |
 | Rerun date | TODO |
-| Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); TODO: the SHA of the annotated tag `m4-20-protocol-1` |
+| Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); `m4-20-protocol-2`, which superseded `m4-20-protocol-1` (see the amendment below); TODO: the tag's SHA |
 | Applications | TODO: the five tuned applications and the two holdouts, with their pins |
 | Reviewers and adjudicator | TODO: two reviewers; the maintainer adjudicates every misleading row and every disagreement |
 | Known limitations | TODO: [Known limitations](KNOWN-LIMITATIONS.md) updated to the shipped scope |
@@ -122,7 +122,8 @@ recompute the numbers. The registration covers the whole harness: everything und
 area (`.work/`) and the first run's fixture (`scoring/fixtures/`), so the pins, patches, start commands, traffic, LLM
 stub, collector, rubric, reviewer prompt, known misses, and scoring scripts. Right before the rerun, after any addition
 to the known misses, the maintainer creates the annotated tag `m4-20-protocol-1` on the merged commit, never moves it,
-and records its SHA in the sign-off. (Not `v…`: `release.yml` starts on any pushed tag matching `v*`.) The scorer
+and records its SHA in the sign-off; an amendment gets the next tag, `m4-20-protocol-2`, on its own merge commit, and
+`protocol.json`'s `registration.ref` names the tag in force. (Not `v…`: `release.yml` starts on any pushed tag matching `v*`.) The scorer
 refuses to run unless the harness matches that tag, every run's BootUI commit descends from it, the worksheet the
 reviewers judged is the one the evidence gives, and the run set is complete. It checks that the tag is annotated and
 is the tag origin publishes (a tag deleted and recreated locally does not match), and writes the tag object's SHA and
@@ -130,6 +131,24 @@ its commit's SHA into its output. If origin cannot be reached, it refuses, unles
 score as not final.
 Changing a rule after the evidence is collected is a protocol change: it is dated, says why, and reports the scores
 under both versions.
+
+**Amendment (2026-10-05): `m4-20-protocol-2` supersedes `m4-20-protocol-1`.** Under `m4-20-protocol-1`, the PetClinic
+code-change agent run failed: `apps/petclinic/app.sh` compiled `change.patch` into two classes in two batches, so
+Spring Boot DevTools restarted the application twice, 2 seconds apart, and `rerun.sh --change`, which sent its
+after-change traffic at the first new journal run, met the second restart (75 connection errors) and stopped before
+collecting. A retry would have compared with an intermediate run, and its timing was not deterministic. The amendment
+changes `apps/petclinic/app.sh` (one DevTools restart, through `spring.devtools.restart.trigger-file`, touched once after
+compiling), `bin/rerun.sh` with a new `bin/await-restart.mjs` and its test (the after-change traffic starts only once the
+new journal run has stayed the same, and the application ready, for `changeRestart.stableSeconds`, 15 seconds; a second
+new run fails the run before any traffic or collection), and `protocol.json` (`registration.ref`, `changeRestart`,
+`amendments`). Nothing else changes. Every run made under `m4-20-protocol-1` is discarded wholesale, before any review
+or scoring, and every run is redone on one build pinned to the `m4-20-protocol-2` commit; its artifacts are kept for
+audit, not judged. What the operator saw of them, and nothing more: on build `5c4617cba` (engine `d48913b3…`, clean
+tree), the seven runs without the agent served their traffic with 0 unexpected statuses and listed 9, 6, 1, 5, 0, 7,
+and 6 rows (PetClinic, JHipster, Super Heroes, WebFlux gateway, Kafka, bookstore, Timeless); `work-after-response` was
+evaluated with 0 findings on JHipster (573 eligible requests) and the bookstore (1,683) with the agent; and
+`changed-code-not-executed` reported `VillainService` and `VillainResource` on Super Heroes. No row was reviewed or
+judged, and no time to first observation or investigation was measured.
 
 ### Preconditions and integrity
 

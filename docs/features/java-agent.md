@@ -488,9 +488,11 @@ fragment, a full queue (4 MB of fragments) drops it, and both are counted. Every
 own errors and resets the thread's state, and after 100 internal errors the sensor switches itself off for the JVM's
 life, which its row says. A `StackOverflowError` or `OutOfMemoryError` thrown inside the bridge, as an application's
 runaway recursion through timed methods, resets the thread's state too but is the application's, never counted toward
-that limit. A thread that dies inside a request's scope keeps its tree only until the next run, whose pool starts from
-the free trees. On the machine this was measured on, a timed call costs about 110 ns, most of it the two
-`System.nanoTime()` reads (43 ns each there); a call with no owner about 26 ns, and an excluded one about 10 ns.
+that limit. When such an error strikes again while the bridge resets the thread, before it is done, the next timed
+method to return on that thread resets it again, so the thread never stays counted inside a call it already left. A
+thread that dies inside a request's scope keeps its tree only until the next run, whose pool starts from the free trees.
+On the machine this was measured on, a timed call costs about 110 ns, most of it the two `System.nanoTime()` reads
+(43 ns each there); a call with no owner about 26 ns, and an excluded one about 10 ns.
 
 | Counter | What it counts |
 | --- | --- |

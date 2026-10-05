@@ -602,6 +602,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through
+  timed methods could overflow the stack a second time while the agent bridge was resetting the thread after the first
+  overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop
+  every later request on it from recording, or leave an abandoned fragment collecting its calls. The next timed method
+  to return on the thread now resets it again, and the dropped fragment is counted under `abandonedFragments`
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
 - **One framework warning per message, not per failed request.** Runtime Insights' `framework-warnings-by-route`
   grouped events by their exact message, so a framework that writes the request path and a per-request id into the
   message, as Quarkus's error handler does (`HTTP Request to /api/records failed, error id: …`), listed each failed
