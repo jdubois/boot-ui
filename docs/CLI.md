@@ -523,7 +523,12 @@ exposes a tool is still what `bootui tools` says.
 
 ## Building on it
 
-The transport lives in `bootui-client`, a small library with no dependencies at all — no Jackson, no HTTP
-client beyond the JDK's — that handles the URL, the token, the request, and the outcome mapping. It treats
-payloads as opaque JSON on purpose, so a client built against one BootUI version keeps working against an
-application running another. That is what a future Maven plugin, or your own tooling, would build on.
+The transport is the `io.github.jdubois.bootui.client` package of `bootui-cli`, a small client with no dependencies
+at all — no Jackson, no picocli, no HTTP client beyond the JDK's — that handles the URL, the token, the request, and
+the outcome mapping. It treats payloads as opaque JSON on purpose, so a client built against one BootUI version keeps
+working against an application running another. That is what a future Maven plugin, or your own tooling, would build
+on.
+
+Depend on `com.julien-dubois.bootui:bootui-cli` for it: picocli is an optional dependency, so the client brings
+nothing onto your classpath. That plain jar is a library, not a runnable CLI; to run the CLI, use the shaded
+`bootui-cli-<version>-all.jar` described above. Before BootUI 2.0, the client was its own `bootui-client` artifact.

@@ -34,5 +34,12 @@
                 <filtering>true</filtering>
             </resource>
         </resources>
+        <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
     </build>
 </project>

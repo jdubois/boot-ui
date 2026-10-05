@@ -94,9 +94,10 @@ for detail.
    build, so change both in the same commit and run the guard locally before pushing. For the `v2` merge, the `1.x`
    maintenance branch, and the 2.0.0 release day, follow `docs/V2-RELEASE.md` and run
    `.github/scripts/rehearse_v2_merge.py --release-day --live` first.
-8. Keep publication scope exact when modules are added or renamed. Published artifacts are the parent POM, core,
-   engine, UI, Spring autoconfigure, both Spring starters, the Quarkus parent, runtime, and deployment, `bootui-client`,
-   `bootui-cli`, and `bootui-agent` (smoke-tested as a dormant `-javaagent` with an agent-only runtime classpath).
+8. Keep publication scope exact when modules are added or renamed. Exactly eight coordinates are published: core,
+   engine, UI, the one Spring starter, the Quarkus runtime and deployment, `bootui-cli` (with its client package and
+   the `all` classifier), and `bootui-agent` (smoke-tested as a dormant `-javaagent` with an agent-only runtime
+   classpath). Both parent POMs build the reactor but are excluded; published POMs are flattened and parentless.
    Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list, which the guard
    count-checks, and stays out of the publication reactor and the smoke-test step, with one exception:
    `bootui-agent-bridge`, shaded into the agent, is built in the publication reactor but excluded from Central and never
@@ -104,7 +105,7 @@ for detail.
 9. Keep the coupled release surfaces aligned: the availability poll list matches the publication reactor, the
    `jbang-catalog.json` alias tracks the CLI shade execution and its `:all` classifier, every published jar module
    attaches an empty placeholder `javadoc.jar` during `package` before signing at `verify` (the release profile's
-   `attach-empty-javadocs` execution, which the source-less `bootui-ui` and both Spring starters override by id with
+   `attach-empty-javadocs` execution, which the source-less `bootui-ui` overrides by id with
    `skipIfEmpty=false`), and `quarkus.platform.version` stays independent of the BootUI project version.
 10. Releases stay on the Java 17 baseline. Broader JDK coverage belongs to `jdk-compatibility.yml`.
 

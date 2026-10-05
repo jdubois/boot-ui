@@ -135,10 +135,8 @@ jobs:
             -DgenerateBackupPoms=false
 
           export VERSION
-          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md docs/setup/activation.md
-          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md docs/setup/activation.md
-          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter-reactive</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/setup/webflux.md
-          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter-reactive:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/setup/webflux.md
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md docs/setup/activation.md docs/setup/webflux.md
+          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md docs/setup/activation.md docs/setup/webflux.md
           perl -0pi -e 's{(<artifactId>bootui-quarkus</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/setup/quarkus.md
           perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-quarkus:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/setup/quarkus.md
           perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-cli:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' jbang-catalog.json README.md docs/CLI.md
@@ -156,8 +154,8 @@ jobs:
             exit 1
           fi
 
-          if ! grep -q "com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:$VERSION" docs/setup/webflux.md; then
-            echo "::error::Failed to update the Gradle bootui-spring-boot-starter-reactive version in docs/setup/webflux.md to $VERSION"
+          if ! grep -q "com.julien-dubois.bootui:bootui-spring-boot-starter:$VERSION" docs/setup/webflux.md; then
+            echo "::error::Failed to update the Gradle bootui-spring-boot-starter version in docs/setup/webflux.md to $VERSION"
             exit 1
           fi
 
@@ -200,6 +198,16 @@ jobs:
             # ("may leak sensitive information"). The plugin already reads the passphrase from
             # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
             ./mvnw -B -ntp -Prelease clean verify
+
+            # Before the release commit and tag exist, so a broken consumer POM costs nothing: stage the exact
+            # Central bundle from this tree, check its coordinates and flattened POMs, and run the consumer
+            # smoke tests against it.
+            bash .github/scripts/stage-release-candidate.sh "$RUNNER_TEMP/bootui-candidate"
+            SMOKE_LOCAL_REPO="$RUNNER_TEMP/bootui-candidate-consumers" \
+              bash .github/scripts/consumer-smoke-tests.sh "$VERSION" "$RUNNER_TEMP/bootui-candidate"
+            # These are the contents the tag will seal, so the pre-publication step need not test them again
+            # after the tag exists, where a flaky rerun would leave a pushed tag with nothing published.
+            echo "CANDIDATE_SMOKE_PASSED=true" >> "$GITHUB_ENV"
           fi
 
           # Fail fast if versions:set (run with -DprocessAllModules=true, so it walks every
@@ -411,6 +419,18 @@ jobs:
 
           echo "Publishing version $VERSION from $RELEASE_SHA"
 
+      - name: Smoke test the staged release candidate
+        if: env.RESUME_AFTER_PUBLISH != 'true' && env.CANDIDATE_SMOKE_PASSED != 'true'
+        run: |
+          set -euo pipefail
+
+          # The consumer check before a coordinate is consumed, from the immutable tagged checkout, for the runs
+          # whose contents were not staged and smoke-tested before tagging: a tag push or a skip_build run. The
+          # bundle staged here is built from the same contents the next step publishes.
+          bash .github/scripts/stage-release-candidate.sh "$RUNNER_TEMP/bootui-candidate"
+          SMOKE_LOCAL_REPO="$RUNNER_TEMP/bootui-candidate-consumers" \
+            bash .github/scripts/consumer-smoke-tests.sh "$RELEASE_VERSION" "$RUNNER_TEMP/bootui-candidate"
+
       - name: Publish to Maven Central
         if: env.RESUME_AFTER_PUBLISH != 'true'
         env:
@@ -424,10 +444,11 @@ jobs:
           # Build only Central distribution modules and their required reactor dependencies during
           # publication. The complete reactor was already verified before the immutable release
           # commit and tag were created. bootui-agent-bridge is built here only because bootui-agent
-          # shades it into the published -javaagent jar; the root POM's excludeArtifacts keeps the
-          # bridge itself out of the Central bundle.
+          # shades it into the published -javaagent jar, and the two parents only because they parent
+          # the reactor; the root POM's excludeArtifacts keeps all three out of the Central bundle, and
+          # every published module carries a flattened, parentless POM.
           ./mvnw -B -ntp -Prelease clean deploy \
-            -pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli,bootui-agent-bridge,bootui-agent \
+            -pl .,bootui-core,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
             -am \
             -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}"
 
@@ -439,21 +460,17 @@ jobs:
           VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
           BASE="https://repo1.maven.org/maven2/com/julien-dubois/bootui"
 
-          # Every published artifact: the parent POM and one JAR per published module.
-          # This list must stay in sync with the publication reactor and Central exclusions.
+          # Every published artifact: one JAR per published module. Neither parent POM is published.
+          # This list must stay in sync with the publication reactor, the Central exclusions,
+          # check-central-bundle.py, and consumer-smoke-tests.sh.
           # Missing any one artifact causes the release to fail with the coordinate in the error.
           ARTIFACTS=(
-            "bootui-parent/${VERSION}/bootui-parent-${VERSION}.pom"
-            "bootui-quarkus-parent/${VERSION}/bootui-quarkus-parent-${VERSION}.pom"
             "bootui-core/${VERSION}/bootui-core-${VERSION}.jar"
             "bootui-engine/${VERSION}/bootui-engine-${VERSION}.jar"
-            "bootui-spring-autoconfigure/${VERSION}/bootui-spring-autoconfigure-${VERSION}.jar"
             "bootui-ui/${VERSION}/bootui-ui-${VERSION}.jar"
             "bootui-spring-boot-starter/${VERSION}/bootui-spring-boot-starter-${VERSION}.jar"
-            "bootui-spring-boot-starter-reactive/${VERSION}/bootui-spring-boot-starter-reactive-${VERSION}.jar"
             "bootui-quarkus/${VERSION}/bootui-quarkus-${VERSION}.jar"
             "bootui-quarkus-deployment/${VERSION}/bootui-quarkus-deployment-${VERSION}.jar"
-            "bootui-client/${VERSION}/bootui-client-${VERSION}.jar"
             "bootui-cli/${VERSION}/bootui-cli-${VERSION}.jar"
             # The runnable CLI is the shaded artifact, not the thin jar, so it is checked on its own:
             # a release that published bootui-cli but lost the shade execution would otherwise look fine
@@ -493,263 +510,12 @@ jobs:
           set -euo pipefail
 
           VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
-          SPRING_BOOT_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=spring-boot.version | tail -n 1)"
-          QUARKUS_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=quarkus.platform.version | tail -n 1)"
-          DEPENDENCY_PLUGIN_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=maven-dependency-plugin.version | tail -n 1)"
-          echo "Smoke-testing BootUI ${VERSION} against the published Maven Central artifacts."
-          echo "Distributions: Spring MVC (servlet starter), Spring WebFlux (reactive starter), Quarkus extension, Java agent."
 
-          # Drop all locally built/installed BootUI artifacts so every smoke test is forced to
-          # resolve them from Maven Central — exercising exactly what a consumer downloads.
-          # This guard applies to all three tests below; do not re-install between them.
-          rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"
-
-          # Maximum seconds to wait for a Spring Boot app to serve the BootUI index.
-          BOOTUI_SMOKE_TIMEOUT=300
-
-          # ── Helper: probe a running Spring Boot app for the BootUI index ──────────────
-          # Usage: wait_for_bootui <label> <base-url> <log-file> <app-pid>
-          wait_for_bootui() {
-            local label="$1" base_url="$2" log="$3" pid="$4"
-            local body="" ready="" deadline=$(( SECONDS + BOOTUI_SMOKE_TIMEOUT ))
-            while (( SECONDS <= deadline )); do
-              if ! kill -0 "$pid" 2>/dev/null; then
-                echo "::error::${label}: app exited before BootUI became available at ${base_url}."
-                cat "$log"; return 1
-              fi
-              body="$(curl -fsSL -H 'X-Forwarded-For: 127.0.0.1' "$base_url" 2>/dev/null || true)"
-              if printf '%s' "$body" | grep -q 'id="app"'; then ready=1; break; fi
-              sleep 5
-            done
-            if [[ -z "$ready" ]]; then
-              echo "::error::${label}: BootUI did not serve its UI at ${base_url} within the timeout."
-              cat "$log"; return 1
-            fi
-            if ! printf '%s' "$body" | grep -q '<title>BootUI</title>'; then
-              echo "::error::${label}: BootUI index.html at ${base_url} is missing <title>BootUI</title>."
-              printf '%s\n' "$body"; return 1
-            fi
-            local asset
-            asset="$(printf '%s' "$body" | grep -oE 'assets/[A-Za-z0-9._-]+\.js' | head -n 1)"
-            if [[ -z "$asset" ]]; then
-              echo "::error::${label}: No bundled JS asset reference found in BootUI index.html."
-              printf '%s\n' "$body"; return 1
-            fi
-            curl -fsSL -o /dev/null -H 'X-Forwarded-For: 127.0.0.1' "${base_url%/}/${asset}"
-            echo "${label}: BootUI served its index and bundled assets from Maven Central successfully."
-          }
-
-          create_spring_smoke_project() {
-            local project_dir="$1" artifact_id="$2" port="$3"
-            mkdir -p "$project_dir/src/main/java/smoke" "$project_dir/src/main/resources"
-            cat > "$project_dir/pom.xml" << SPRING_POM
-          <?xml version="1.0" encoding="UTF-8"?>
-          <project xmlns="http://maven.apache.org/POM/4.0.0">
-            <modelVersion>4.0.0</modelVersion>
-            <parent>
-              <groupId>org.springframework.boot</groupId>
-              <artifactId>spring-boot-starter-parent</artifactId>
-              <version>${SPRING_BOOT_VERSION}</version>
-            </parent>
-            <groupId>smoke</groupId>
-            <artifactId>${artifact_id}-consumer-smoke</artifactId>
-            <version>1</version>
-            <properties>
-              <java.version>17</java.version>
-            </properties>
-            <dependencies>
-              <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>${artifact_id}</artifactId>
-                <version>${VERSION}</version>
-              </dependency>
-            </dependencies>
-            <build>
-              <plugins>
-                <plugin>
-                  <groupId>org.springframework.boot</groupId>
-                  <artifactId>spring-boot-maven-plugin</artifactId>
-                </plugin>
-              </plugins>
-            </build>
-          </project>
-          SPRING_POM
-            cat > "$project_dir/src/main/java/smoke/SmokeApplication.java" <<'SPRING_APPLICATION'
-          package smoke;
-
-          import org.springframework.boot.SpringApplication;
-          import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-          @SpringBootApplication
-          public class SmokeApplication {
-
-              public static void main(String[] args) {
-                  SpringApplication.run(SmokeApplication.class, args);
-              }
-          }
-          SPRING_APPLICATION
-            cat > "$project_dir/src/main/resources/application.properties" << SPRING_PROPERTIES
-          bootui.enabled=ON
-          server.port=${port}
-          SPRING_PROPERTIES
-          }
-
-          # ── 1/3: Spring MVC — bootui-spring-boot-starter ─────────────────────────────
-          echo "=== Smoke test 1/3: Spring MVC (bootui-spring-boot-starter) ==="
-          MVC_SMOKE_DIR="$(mktemp -d)"
-          create_spring_smoke_project "$MVC_SMOKE_DIR" "bootui-spring-boot-starter" "8080"
-          LOG_MVC="$(mktemp)"
-          # Standalone project outside the reactor; no -o (must resolve from Central).
-          # fork=false keeps the app in the Maven JVM so killing this PID stops it cleanly.
-          ./mvnw -B -ntp -f "$MVC_SMOKE_DIR/pom.xml" -Dmaven.test.skip=true \
-            -Dspring-boot.run.fork=false \
-            spring-boot:run > "$LOG_MVC" 2>&1 &
-          MVC_PID=$!
-          cleanup_mvc() { kill "$MVC_PID" 2>/dev/null || true; wait "$MVC_PID" 2>/dev/null || true; }
-          trap cleanup_mvc EXIT
-          wait_for_bootui "Spring MVC" "http://localhost:8080/bootui/" "$LOG_MVC" "$MVC_PID"
-          kill "$MVC_PID" 2>/dev/null || true; wait "$MVC_PID" 2>/dev/null || true
-          trap - EXIT
-          echo "Spring MVC smoke test passed."
-
-          # ── 2/3: Spring WebFlux — bootui-spring-boot-starter-reactive ─────────────────
-          echo "=== Smoke test 2/3: Spring WebFlux (bootui-spring-boot-starter-reactive) ==="
-          WEBFLUX_SMOKE_DIR="$(mktemp -d)"
-          create_spring_smoke_project "$WEBFLUX_SMOKE_DIR" "bootui-spring-boot-starter-reactive" "8081"
-          LOG_WEBFLUX="$(mktemp)"
-          ./mvnw -B -ntp -f "$WEBFLUX_SMOKE_DIR/pom.xml" -Dmaven.test.skip=true \
-            -Dspring-boot.run.fork=false \
-            spring-boot:run > "$LOG_WEBFLUX" 2>&1 &
-          WEBFLUX_PID=$!
-          cleanup_webflux() { kill "$WEBFLUX_PID" 2>/dev/null || true; wait "$WEBFLUX_PID" 2>/dev/null || true; }
-          trap cleanup_webflux EXIT
-          wait_for_bootui "Spring WebFlux" "http://localhost:8081/bootui/" "$LOG_WEBFLUX" "$WEBFLUX_PID"
-          kill "$WEBFLUX_PID" 2>/dev/null || true; wait "$WEBFLUX_PID" 2>/dev/null || true
-          trap - EXIT
-          echo "Spring WebFlux smoke test passed."
-
-          # ── 3/3: Quarkus — bootui-quarkus + bootui-quarkus-deployment ────────────────
-          # A minimal standalone Maven project outside the reactor exercises the full consumer
-          # path: both runtime (bootui-quarkus) and deployment (bootui-quarkus-deployment)
-          # artifacts are resolved from Maven Central and the extension augments successfully.
-          # No HTTP server is started; a clean Quarkus build-time augmentation is the bar.
-          echo "=== Smoke test 3/3: Quarkus extension (bootui-quarkus + bootui-quarkus-deployment) ==="
-          QUARKUS_SMOKE_DIR="$(mktemp -d)"
-          mkdir -p "$QUARKUS_SMOKE_DIR/src/main/java"
-          cat > "$QUARKUS_SMOKE_DIR/pom.xml" << QUARKUS_POM
-          <?xml version="1.0" encoding="UTF-8"?>
-          <project xmlns="http://maven.apache.org/POM/4.0.0">
-            <modelVersion>4.0.0</modelVersion>
-            <groupId>smoke</groupId>
-            <artifactId>bootui-quarkus-consumer-smoke</artifactId>
-            <version>1</version>
-            <properties>
-              <maven.compiler.release>17</maven.compiler.release>
-              <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-            </properties>
-            <dependencyManagement>
-              <dependencies>
-                <dependency>
-                  <groupId>io.quarkus.platform</groupId>
-                  <artifactId>quarkus-bom</artifactId>
-                  <version>${QUARKUS_VERSION}</version>
-                  <type>pom</type>
-                  <scope>import</scope>
-                </dependency>
-              </dependencies>
-            </dependencyManagement>
-            <dependencies>
-              <!--
-                Declaring bootui-quarkus (the runtime artifact) is sufficient.
-                Quarkus build-time augmentation automatically resolves and downloads
-                bootui-quarkus-deployment from Maven Central via the extension's
-                quarkus-extension.properties, so both published coordinates are
-                exercised by this single dependency declaration.
-              -->
-              <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-quarkus</artifactId>
-                <version>${VERSION}</version>
-              </dependency>
-            </dependencies>
-            <build>
-              <plugins>
-                <plugin>
-                  <groupId>io.quarkus.platform</groupId>
-                  <artifactId>quarkus-maven-plugin</artifactId>
-                  <version>${QUARKUS_VERSION}</version>
-                  <extensions>true</extensions>
-                  <executions>
-                    <execution>
-                      <goals>
-                        <goal>build</goal>
-                        <goal>generate-code</goal>
-                      </goals>
-                    </execution>
-                  </executions>
-                </plugin>
-              </plugins>
-            </build>
-          </project>
-          QUARKUS_POM
-          # No -am (standalone project outside the reactor); no -o (must resolve from Central).
-          ./mvnw -B -ntp -f "$QUARKUS_SMOKE_DIR/pom.xml" package -Dmaven.test.skip=true
-          echo "Quarkus extension smoke test passed."
-
-          # ── 4/4: Java agent — bootui-agent ───────────────────────────────────────────
-          # A standalone consumer project resolves bootui-agent from Maven Central the way a build that
-          # attaches it does. The published POM must give that consumer no dependency: the bridge and
-          # Byte Buddy are shaded in and declared optional, and bootui-agent-bridge is never published,
-          # so its runtime classpath must hold the agent jar alone. The JVM then starts with that jar
-          # as its -javaagent, and the agent must report itself dormant without failing the JVM.
-          echo "=== Smoke test 4/4: Java agent (bootui-agent) ==="
-          AGENT_SMOKE_DIR="$(mktemp -d)"
-          cat > "$AGENT_SMOKE_DIR/pom.xml" << AGENT_POM
-          <?xml version="1.0" encoding="UTF-8"?>
-          <project xmlns="http://maven.apache.org/POM/4.0.0">
-            <modelVersion>4.0.0</modelVersion>
-            <groupId>smoke</groupId>
-            <artifactId>bootui-agent-consumer-smoke</artifactId>
-            <version>1</version>
-            <packaging>pom</packaging>
-            <dependencies>
-              <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-agent</artifactId>
-                <version>${VERSION}</version>
-              </dependency>
-            </dependencies>
-          </project>
-          AGENT_POM
-          # No -am (standalone project outside the reactor); no -o (must resolve from Central).
-          ./mvnw -B -ntp -f "$AGENT_SMOKE_DIR/pom.xml" \
-            "org.apache.maven.plugins:maven-dependency-plugin:${DEPENDENCY_PLUGIN_VERSION}:copy-dependencies" \
-            -DincludeScope=runtime \
-            -DoutputDirectory="$AGENT_SMOKE_DIR/lib"
-          AGENT_JAR="$AGENT_SMOKE_DIR/lib/bootui-agent-${VERSION}.jar"
-          AGENT_CLASSPATH="$(ls -1 "$AGENT_SMOKE_DIR/lib")"
-          if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then
-            echo "::error::The published bootui-agent ${VERSION} POM must give a consumer no compile or runtime dependency, but its runtime classpath resolved:"
-            printf '%s\n' "$AGENT_CLASSPATH"
-            exit 1
-          fi
-          AGENT_STDERR="$(mktemp)"
-          # java -version prints to stderr, which also carries the agent's dormant line and, on HotSpot, a
-          # class-data-sharing warning because the agent appends itself to the bootstrap class path.
-          if ! java -javaagent:"$AGENT_JAR" -version 2> "$AGENT_STDERR"; then
-            echo "::error::A JVM started with -javaagent:bootui-agent-${VERSION}.jar exited with a failure."
-            cat "$AGENT_STDERR"
-            exit 1
-          fi
-          cat "$AGENT_STDERR"
-          AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); dormant until BootUI claims it"
-          if ! grep -Fxq -- "$AGENT_DORMANT_LINE" "$AGENT_STDERR"; then
-            echo "::error::bootui-agent ${VERSION} did not report itself attached and dormant; expected: ${AGENT_DORMANT_LINE}"
-            exit 1
-          fi
-          echo "Java agent smoke test passed."
-
-          echo "All BootUI ${VERSION} distribution smoke tests passed (Spring MVC, Spring WebFlux, Quarkus, Java agent)."
+          # The consumer smoke tests that ran against the staged candidate before publication, now against
+          # Maven Central itself: Spring MVC and Spring WebFlux on the one starter, the CLI and its client,
+          # the Quarkus extension, and the Java agent. With no staged repository, the script removes every
+          # local BootUI artifact first and requires each one to come from Maven Central.
+          bash .github/scripts/consumer-smoke-tests.sh "$VERSION"
 
       - name: Decide documentation redeploy
         if: env.CENTRAL_AUTO_PUBLISH == 'true'

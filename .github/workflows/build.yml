@@ -118,7 +118,7 @@ jobs:
       - name: Require executed MySQL collector, Spring HTTP, and activity store tests
         run: >
           python3 .github/scripts/check-mysql-live-tests.py
-          bootui-spring-autoconfigure/target/surefire-reports
+          bootui-spring-boot-starter/target/surefire-reports
           MySqlExecutionLiveTests MySqlPermissionsLiveTests MySqlCollectorsLiveTests
           MySqlReplicationLiveTests MySqlDigestOverflowLiveTests MySqlPerformanceSchemaOffLiveTests
           MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
@@ -130,9 +130,9 @@ jobs:
       # the reported server line.
       - name: Run MySQL panel live suites on MySQL 9.7 LTS
         run: |
-          spring=bootui-spring-autoconfigure/target
+          spring=bootui-spring-boot-starter/target
           mv "$spring/surefire-reports" "$spring/surefire-reports-mysql-8.4"
-          ./mvnw -B -ntp -pl bootui-spring-autoconfigure test -Dbootui.mysql.image=mysql:9.7.2 \
+          ./mvnw -B -ntp -pl bootui-spring-boot-starter test -Dbootui.mysql.image=mysql:9.7.2 \
             -Dtest='MySqlExecutionLiveTests,MySqlPermissionsLiveTests,MySqlCollectorsLiveTests,MySqlReplicationLiveTests,MySqlDigestOverflowLiveTests,MySqlPerformanceSchemaOffLiveTests,MySqlInstrumentationLiveTests,MySqlIdentifierCaseLiveTests,MySqlHttpLiveTests'
           python3 .github/scripts/check-mysql-live-tests.py "$spring/surefire-reports" \
             MySqlExecutionLiveTests MySqlPermissionsLiveTests MySqlCollectorsLiveTests \
@@ -462,6 +462,41 @@ jobs:
           path: bootui-spring-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
+
+  # Builds the Maven Central bundle a release would upload, without uploading or signing it, checks that it
+  # holds exactly the published coordinates with flattened, parentless POMs, and runs the release's consumer
+  # smoke tests against it as a file repository (.github/scripts/stage-release-candidate.sh and
+  # consumer-smoke-tests.sh). release.yml runs the same scripts before tagging; this catches a broken consumer
+  # POM, or a starter that chooses the application's web stack, in the pull request that causes it.
+  release-candidate:
+    name: Staged release candidate smoke tests (Java 17)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      - name: Stage the release candidate
+        run: bash .github/scripts/stage-release-candidate.sh "$RUNNER_TEMP/bootui-candidate"
+
+      - name: Smoke test the staged release candidate
+        run: |
+          VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          SMOKE_LOCAL_REPO="$RUNNER_TEMP/bootui-candidate-consumers" \
+            bash .github/scripts/consumer-smoke-tests.sh "$VERSION" "$RUNNER_TEMP/bootui-candidate"
 
   # The BootUI agent's cumulative overhead (PLAN-v2 §5.13, §8, M5-12): the Spring sample's executable jar without the
   # agent and with every default sensor claimed, BootUI on in both, in five alternating pairs. The budget is 10 %: the

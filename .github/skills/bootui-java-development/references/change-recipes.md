@@ -16,7 +16,7 @@ The cache feature illustrates this boundary:
 - [CacheService](../../../../bootui-engine/src/main/java/io/github/jdubois/bootui/engine/cache/CacheService.java) owns
   shared orchestration; [CacheServiceTests](../../../../bootui-engine/src/test/java/io/github/jdubois/bootui/engine/cache/CacheServiceTests.java)
   use a fake provider to pin ordering, unavailable state, mutation races, and failures.
-- [SpringCacheProvider](../../../../bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/cache/SpringCacheProvider.java)
+- [SpringCacheProvider](../../../../bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/cache/SpringCacheProvider.java)
   and [QuarkusCacheProvider](../../../../bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/cache/QuarkusCacheProvider.java)
   keep native integration outside the engine.
 
@@ -67,7 +67,7 @@ Separate dependency absence from dependency present with no beans/resources, dis
 genuine execution failure. State the expected result for each before implementing.
 
 For Spring, use the existing context-runner and classloader-filtering patterns, testing MVC and WebFlux wiring where
-supported. [HibernateAdvisorAbsenceTest](../../../../bootui-spring-autoconfigure/src/test/java/io/github/jdubois/bootui/autoconfigure/hibernate/HibernateAdvisorAbsenceTest.java)
+supported. [HibernateAdvisorAbsenceTest](../../../../bootui-spring-boot-starter/src/test/java/io/github/jdubois/bootui/autoconfigure/hibernate/HibernateAdvisorAbsenceTest.java)
 is an entry point for optional-library absence. A missing-bean fixture alone does not prove classloading safety.
 
 For Quarkus, inspect capability-gated build steps and exclusion of classes importing optional APIs.

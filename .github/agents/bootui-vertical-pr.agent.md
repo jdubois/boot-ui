@@ -73,7 +73,7 @@ You are the BootUI vertical-PR owner. Deliver one coherent change from investiga
   the enabled/disabled profile lists.
 - Optional integrations are safe when dependencies are absent.
 - The CLI stays a mechanical projection of `McpToolCatalog`, with the manifest regenerated rather than hand-edited, and
-  `bootui-client` stays dependency-free. CLI and client command names, exit codes, and JSON output are public contract.
+  the client package of `bootui-cli` stays dependency-free. CLI and client command names, exit codes, and JSON output are public contract.
 - UI behavior is accessible in light and dark themes and does not surprise users.
 - Versions change only through `release.yml`; sample, integration-test, coverage, and conformance modules keep
   `maven.deploy.skip=true` and stay outside the publication reactor.

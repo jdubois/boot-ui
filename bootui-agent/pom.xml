@@ -96,6 +96,11 @@
 
     <build>
         <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <!-- src/heap-walk/java: the leak tests' heap walk, shared with the Spring and Quarkus leak tests. -->
                 <groupId>org.codehaus.mojo</groupId>
