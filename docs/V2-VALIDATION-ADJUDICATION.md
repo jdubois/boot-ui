@@ -1,53 +1,55 @@
 # BootUI 2.0 validation rerun: maintainer adjudication
 
-**Pending maintainer adjudication.** The M4-20 rerun under `m4-20-protocol-2` (tag object `5f38a51af`, commit
-`5bd7cb76e`), built once from `5bd7cb76e` (engine SHA-256 `e913e36b…`, clean tree), judged by two independent
-reviewers (r1 on claude-opus-5.5, r2 on gpt-6-sol) following the registered reviewer prompt. The operator gathered
-the evidence below and judged nothing. See the [validation report](V2-VALIDATION-REPORT.md#rerun-results-provisional).
+**Adjudicated 2026-10-05 by the maintainer, with three advisory models** (see the report's
+[Adjudication](V2-VALIDATION-REPORT.md#adjudication) section). The M4-20 rerun under `m4-20-protocol-2` (tag object
+`5f38a51af`, commit `5bd7cb76e`), built once from `5bd7cb76e` (engine SHA-256 `e913e36b…`, clean tree), was judged
+by two independent reviewers (r1 on claude-opus-5.5, r2 on gpt-6-sol) following the registered reviewer prompt. The
+operator gathered the evidence below and judged nothing. See the [validation report](V2-VALIDATION-REPORT.md#rerun-results)
+for the scores.
 
-What the protocol asks of the maintainer:
+This page is the record of the rulings:
 
-1. **Adjudicate** every row the reviewers judged differently, and every row one of them judged Misleading (section 1):
-   one judgment and one reason each, in [`adjudication.csv`](validation/m4-20-rerun/adjudication.csv) (`id,judgment,reason`).
+1. **Adjudication** (sections 1 and 2): every row the reviewers judged differently, and every row one of them judged
+   Misleading, with the maintainer's ruling and reason from [`adjudication.csv`](validation/m4-20-rerun/adjudication.csv).
    Two reviewers who agree are never overruled, Misleading included (section 2 lists those for the record).
-2. **Mark recall** for every known miss and counterexample in [`recall.csv`](validation/m4-20-rerun/recall.csv)
-   (`id,outcome,rows,note`), using the gathered [recall evidence](validation/m4-20-rerun/recall-evidence.md).
-3. Read the **hidden-row sample** outcomes (section 3): either reviewer judging a hidden row Actionable counts as
-   hidden value; the adjudication of such a row is recorded, not decisive.
+2. **Hidden-row sample** (section 3): either reviewer judging a hidden row Actionable counts as hidden value; the
+   adjudication of such a row is recorded, not decisive.
+3. **Recall** (section 4): the outcome of every known miss and counterexample from
+   [`recall.csv`](validation/m4-20-rerun/recall.csv), marked from the [recall evidence](validation/m4-20-rerun/recall-evidence.md).
 
-Then score as the [data README](validation/m4-20-rerun/README.md) shows, from a checkout at `5bd7cb76e` with the
-tag `m4-20-protocol-2` fetched.
+The [data README](validation/m4-20-rerun/README.md) shows how to rescore, from a checkout at `5bd7cb76e` with the tag
+`m4-20-protocol-2` fetched.
 
 ## 1. Rows to adjudicate (26)
 
-| # | Row | Kind | Subject | r1 | r2 |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `bookstore/fact/f96ae8af` | `split-transaction-writes` | POST /orders | Informative | Misleading |
-| 2 | `petclinic/fact/12b74f6b` | `repeated-selects` | POST /owners/{ownerId}/pets/{petId}/edit | Noise | Misleading |
-| 3 | `petclinic/fact/41f7e90d` | `repeated-selects` | POST /owners/{ownerId}/pets/new | Noise | Misleading |
-| 4 | `petclinic/fact/d1ce3167` | `repeated-selects` | GET /owners/{ownerId}/pets/new | Noise | Misleading |
-| 5 | `petclinic/fact/eb5bb5fb` | `repeated-selects` | GET /owners/{ownerId}/pets/{petId}/edit | Noise | Misleading |
-| 6 | `super-heroes+agent/fact/3ee46b2c` | `changed-code-not-executed` | io.quarkus.sample.superheroes.villain.rest.VillainResource | Informative | Misleading |
-| 7 | `super-heroes+agent/fact/f379ff0d` | `changed-code-not-executed` | io.quarkus.sample.superheroes.villain.service.VillainService | Informative | Misleading |
-| 8 | `timeless/fact/54ac7ea2` | `ai-usage-by-route` | POST /api/messages | Informative | Misleading |
-| 9 | `bookstore/fact/69437826` | `route-time-breakdown` | POST /registration | Noise | Informative |
-| 10 | `bookstore/honesty/850374c1` | `after-commit-writes` | (check) | Honest | Hides |
-| 11 | `bookstore/honesty/f85f04a9` | `route-time-breakdown` | POST /login | Honest | Hides |
-| 12 | `jhipster/fact/1c61d2f0` | `errors-behind-2xx` | POST /api/admin/users | Informative | Actionable |
-| 13 | `jhipster/fact/2aa57137` | `anonymous-data-reach` | POST /api/account/reset-password/init | Noise | Informative |
-| 14 | `jhipster/fact/56bdfa9e` | `route-time-breakdown` | POST /api/admin/users | Noise | Informative |
-| 15 | `jhipster/fact/6a1818fd` | `route-time-breakdown` | POST /api/authenticate | Noise | Informative |
-| 16 | `jhipster/fact/c25fff20` | `errors-behind-2xx` | POST /api/account/reset-password/init | Informative | Actionable |
-| 17 | `petclinic+agent/fact/e1a21005` | `changed-code-not-executed` | org.springframework.samples.petclinic.vet.Vet | Informative | Actionable |
-| 18 | `timeless/fact/f6bad530` | `route-time-breakdown` | POST /api/sign-in | Noise | Informative |
-| 19 | `webflux-gateway/fact/18d872b0` | `errors-behind-2xx` | POST /api/admin/users | Informative | Actionable |
-| 20 | `webflux-gateway/fact/54542269` | `exception-hotspots` | GET /services/absent/management/health/readiness | Informative | Noise |
-| 21 | `webflux-gateway/fact/57d1338e` | `exception-hotspots` | Behind 4xx responses | Informative | Noise |
-| 22 | `webflux-gateway/fact/726b62eb` | `exception-hotspots` | GET /services/absent/api/orders | Informative | Noise |
-| 23 | `webflux-gateway/hidden/25818fa9` | `exception-hotspots` | PUT /api/admin/users/{login} | Actionable | Noise |
-| 24 | `webflux-gateway/honesty/17ea33c9` | `event-loop-blocking` | (check) | Hides | Honest |
-| 25 | `webflux-gateway/honesty/45559ea2` | `route-time-breakdown` | POST /api/admin/users | Honest | Hides |
-| 26 | `webflux-gateway/honesty/ca64f722` | `route-time-breakdown` | POST /api/authenticate | Honest | Hides |
+| # | Row | Kind | Subject | r1 | r2 | Ruling |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `bookstore/fact/f96ae8af` | `split-transaction-writes` | POST /orders | Informative | Misleading | **Informative** |
+| 2 | `petclinic/fact/12b74f6b` | `repeated-selects` | POST /owners/{ownerId}/pets/{petId}/edit | Noise | Misleading | **Noise** |
+| 3 | `petclinic/fact/41f7e90d` | `repeated-selects` | POST /owners/{ownerId}/pets/new | Noise | Misleading | **Noise** |
+| 4 | `petclinic/fact/d1ce3167` | `repeated-selects` | GET /owners/{ownerId}/pets/new | Noise | Misleading | **Noise** |
+| 5 | `petclinic/fact/eb5bb5fb` | `repeated-selects` | GET /owners/{ownerId}/pets/{petId}/edit | Noise | Misleading | **Noise** |
+| 6 | `super-heroes+agent/fact/3ee46b2c` | `changed-code-not-executed` | io.quarkus.sample.superheroes.villain.rest.VillainResource | Informative | Misleading | **Informative** |
+| 7 | `super-heroes+agent/fact/f379ff0d` | `changed-code-not-executed` | io.quarkus.sample.superheroes.villain.service.VillainService | Informative | Misleading | **Informative** |
+| 8 | `timeless/fact/54ac7ea2` | `ai-usage-by-route` | POST /api/messages | Informative | Misleading | **Misleading** |
+| 9 | `bookstore/fact/69437826` | `route-time-breakdown` | POST /registration | Noise | Informative | **Informative** |
+| 10 | `bookstore/honesty/850374c1` | `after-commit-writes` | (check) | Honest | Hides | **Honest** |
+| 11 | `bookstore/honesty/f85f04a9` | `route-time-breakdown` | POST /login | Honest | Hides | **Honest** |
+| 12 | `jhipster/fact/1c61d2f0` | `errors-behind-2xx` | POST /api/admin/users | Informative | Actionable | **Informative** |
+| 13 | `jhipster/fact/2aa57137` | `anonymous-data-reach` | POST /api/account/reset-password/init | Noise | Informative | **Noise** |
+| 14 | `jhipster/fact/56bdfa9e` | `route-time-breakdown` | POST /api/admin/users | Noise | Informative | **Informative** |
+| 15 | `jhipster/fact/6a1818fd` | `route-time-breakdown` | POST /api/authenticate | Noise | Informative | **Informative** |
+| 16 | `jhipster/fact/c25fff20` | `errors-behind-2xx` | POST /api/account/reset-password/init | Informative | Actionable | **Informative** |
+| 17 | `petclinic+agent/fact/e1a21005` | `changed-code-not-executed` | org.springframework.samples.petclinic.vet.Vet | Informative | Actionable | **Informative** |
+| 18 | `timeless/fact/f6bad530` | `route-time-breakdown` | POST /api/sign-in | Noise | Informative | **Informative** |
+| 19 | `webflux-gateway/fact/18d872b0` | `errors-behind-2xx` | POST /api/admin/users | Informative | Actionable | **Informative** |
+| 20 | `webflux-gateway/fact/54542269` | `exception-hotspots` | GET /services/absent/management/health/readiness | Informative | Noise | **Noise** |
+| 21 | `webflux-gateway/fact/57d1338e` | `exception-hotspots` | Behind 4xx responses | Informative | Noise | **Informative** |
+| 22 | `webflux-gateway/fact/726b62eb` | `exception-hotspots` | GET /services/absent/api/orders | Informative | Noise | **Noise** |
+| 23 | `webflux-gateway/hidden/25818fa9` | `exception-hotspots` | PUT /api/admin/users/{login} | Actionable | Noise | **Actionable** |
+| 24 | `webflux-gateway/honesty/17ea33c9` | `event-loop-blocking` | (check) | Hides | Honest | **Honest** |
+| 25 | `webflux-gateway/honesty/45559ea2` | `route-time-breakdown` | POST /api/admin/users | Honest | Hides | **Honest** |
+| 26 | `webflux-gateway/honesty/ca64f722` | `route-time-breakdown` | POST /api/authenticate | Honest | Hides | **Honest** |
 
 ### 1a. Judged Misleading by one reviewer (8)
 
@@ -60,7 +62,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/bookstore/` (`split-transaction-writes:3bb9ca6432`)
 - **r1 (claude-opus-5.5): Informative**: True: createOrder commits the order with its event publications atomically (OrderService.java:33-44) and Modulith then runs the inventory decrement and registry updates in separate transactions (OrderEventInventoryHandler.java:19-22), which is the intended outbox design worth knowing but not changing, as the second check acknowledges.
 - **r2 (gpt-6-sol): Misleading**: orders/domain/OrderService.java:43 — The order explicitly publishes a durable Modulith event whose inventory update runs in a separate listener transaction, so merging publication and delivery into one transaction would break the design.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 3 of 3 advisory models (Informative, against my first Misleading): All 3: the split is the intended Modulith outbox (OrderService.java:33-44 commits order + event; listener in its own tx, OrderEventInventoryHandler.java:19-22). BootUI's 2nd check explicitly covers 'meant to commit alone, such as an outbox', so it does not push a wrong change. Opus 5: 7 of the 8 units are Modulith registry bookkeeping, inflating the count.
 
 #### `petclinic/fact/12b74f6b`
 
@@ -71,7 +73,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/petclinic/` (`repeated-selects:30e9325d8e`)
 - **r1 (claude-opus-5.5): Noise**: This repeats the lazy-SQL row for the same route and statement, and its call site PetController.java:64 plus join/IN-list advice point at populatePetTypes instead of the actual repeat source PetTypeFormatter.java:53.
 - **r2 (gpt-6-sol): Misleading**: owner/PetTypeFormatter.java:53 — The repeats come from a fixed pet-type lookup inside the formatter, not child rows of a parent query, so the proposed join or IN-list investigation points to the wrong fix.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Followed 3 of 3 advisory models (Noise, against my first Misleading): All 3: real repeats, but caused by PetTypeFormatter.java:53 (fixed type list), duplicated by the lazy-SQL row that already names the formatter; the join/IN advice is conditional ('if it does'), so it wastes a check rather than causing a wrong change. Opus 5 notes the call-site table wrongly attributes all 7 to PetController.java:64 (an engine bug).
 
 #### `petclinic/fact/41f7e90d`
 
@@ -82,7 +84,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/petclinic/` (`repeated-selects:613704a9e5`)
 - **r1 (claude-opus-5.5): Noise**: Same statement and requests as the lazy-SQL row for POST /owners/{ownerId}/pets/new, and its call site PetController.java:64 and N+1 join advice do not match the real cause in PetTypeFormatter.java:53.
 - **r2 (gpt-6-sol): Misleading**: owner/PetTypeFormatter.java:53 — The repeats come from a fixed pet-type lookup inside the formatter, not child rows of a parent query, so the proposed join or IN-list investigation points to the wrong fix.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Followed 3 of 3 advisory models (Noise, against my first Misleading): Same as row 2.
 
 #### `petclinic/fact/d1ce3167`
 
@@ -93,7 +95,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/petclinic/` (`repeated-selects:8f816c3c0f`)
 - **r1 (claude-opus-5.5): Noise**: It duplicates the lazy-SQL row for GET /owners/{ownerId}/pets/new and attributes the repeats to PetController.java:64 with join/IN-list advice, when they come from PetTypeFormatter.java:53.
 - **r2 (gpt-6-sol): Misleading**: owner/PetTypeFormatter.java:53 — The repeats come from a fixed pet-type lookup inside the formatter, not child rows of a parent query, so the proposed join or IN-list investigation points to the wrong fix.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Followed 3 of 3 advisory models (Noise, against my first Misleading): Same as row 2.
 
 #### `petclinic/fact/eb5bb5fb`
 
@@ -104,7 +106,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/petclinic/` (`repeated-selects:99568a33e9`)
 - **r1 (claude-opus-5.5): Noise**: It duplicates the lazy-SQL row for the pet edit page, with a call site (PetController.java:64) and N+1 advice that miss the formatter at PetTypeFormatter.java:53.
 - **r2 (gpt-6-sol): Misleading**: owner/PetTypeFormatter.java:53 — The repeats come from a fixed pet-type lookup inside the formatter, not child rows of a parent query, so the proposed join or IN-list investigation points to the wrong fix.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Followed 3 of 3 advisory models (Noise, against my first Misleading): Same as row 2.
 
 #### `super-heroes+agent/fact/3ee46b2c`
 
@@ -115,7 +117,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/super-heroes+agent/` (`changed-code-not-executed:1a70ea57b2`)
 - **r1 (claude-opus-5.5): Informative**: True: the changed deleteAllVillains (VillainResource.java:131-134) was never called because the traffic does not send DELETE /api/villains, which the developer would want to know, though the suggested GET /api/villains would not reach it.
 - **r2 (gpt-6-sol): Misleading**: rest/VillainResource.java:131 — The changed delete-all method was not run, but suggesting GET on a listing route will never reach the delete-all endpoint, so the recommended test is wrong.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 3 of 3 advisory models (Informative, against my first Misleading): All 3: true (deleteAllVillains, VillainResource.java:131, is @DELETE and did not run). Suggesting GET /api/villains is a wasted request, not a wrong code change. Grok: becomes Misleading only if a reader 'fixes wiring' without noticing @DELETE.
 
 #### `super-heroes+agent/fact/f379ff0d`
 
@@ -126,7 +128,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/super-heroes+agent/` (`changed-code-not-executed:ed332e0635`)
 - **r1 (claude-opus-5.5): Informative**: True: the changed VillainService.deleteAllVillains (VillainService.java:130-131) is reached only through DELETE /api/villains, which never ran, so the change is unverified; the other changed method findAllVillainsHavingName did run.
 - **r2 (gpt-6-sol): Misleading**: service/VillainService.java:130 — The changed delete-all method was not run, but suggesting GET on a listing route will never reach the delete-all endpoint, so the recommended test is wrong.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 3 of 3 advisory models (Informative, against my first Misleading): All 3: true (VillainService.java:130 reached only by DELETE or replaceAllVillains, neither ran). The GET hint is a wrong probe, not a reason to rewire.
 
 #### `timeless/fact/54ac7ea2`
 
@@ -137,7 +139,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/timeless/` (`ai-usage-by-route:6d11138a0f`)
 - **r1 (claude-opus-5.5): Informative**: The per-request AI cost (two model calls and about 1,660 tokens per WhatsApp message through TextAiService.java:9-12 and MessageResource.java:87) is true and worth knowing, while the growth it flags is only 1.0x, so there is nothing real to trim.
 - **r2 (gpt-6-sol): Misleading**: infra/ai/TextAiService.java:9 — The AI service uses a tool-enabled prompt and the second model call has only 1.0 times the first input, so treating tool-roundtrip context as growing conversation needing trimming is a wrong fix.
-- Ruling: ______  Reason: ______
+- **Ruling: Misleading.** GPT-6 is right Confirmed by 2 of 3 advisory models: 2 of 3 Misleading: tool round-trip (TextAiService.java:9), ~1,660 tokens per message with no real growth, yet 'grew up to 1.0 times' and the only advice is to trim the prompt. Grok: Informative, since '1.0 times' is in the same sentence.
 
 ### 1b. Other disagreements (18)
 
@@ -150,7 +152,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/bookstore/` (`route-time-breakdown:2a05f9407e`)
 - **r1 (claude-opus-5.5): Noise**: The 90 % 'handler, other work' on valid registrations is the deliberate BCrypt hash in UserService.java:31 (CommonSecurityConfig.java:20), reported without suggesting a fix, so it only restates expected cost.
 - **r2 (gpt-6-sol): Informative**: users/domain/UserService.java:30 — Registration hashes a password with BCrypt, which explains the handler-heavy median without implying a code change.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** GPT-6 is right Confirmed by 2 of 3 advisory models: 2 of 3 Informative: the 90 % handler share is BCrypt (UserService.java:30-31); profiling advice does not suggest weakening it. Grok: Noise (expected cost).
 
 #### `bookstore/honesty/850374c1`
 
@@ -159,7 +161,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/bookstore/` ()
 - **r1 (claude-opus-5.5): Honest**: Spring Modulith's JDBC event registry replaces the multicaster (pom.xml:111, application.properties:43-47), and its listeners write in their own REQUIRES_NEW transactions so nothing joins a committed one (OrderEventInventoryHandler.java:19).
 - **r2 (gpt-6-sol): Hides**: inventory/eventhandlers/OrderEventInventoryHandler.java:19 — The disabled event capture conceals the real post-commit inventory write performed by the Modulith listener after an order event.
-- Ruling: ______  Reason: ______
+- **Ruling: Honest.** Followed 3 of 3 advisory models (Honest, against my first Hides): All 3 Honest: Modulith replaces the multicaster, so UNAVAILABLE is true; the check targets AFTER_COMMIT writes WITHOUT their own transaction (AfterCommitWrites.java:17-21), and Modulith's listener commits in its own (InventoryService.java:23), so nothing of that class is hidden.
 
 #### `bookstore/honesty/f85f04a9`
 
@@ -170,7 +172,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/bookstore/` (`route-time-breakdown:0f81055bc7`)
 - **r1 (claude-opus-5.5): Honest**: POST /login is answered by Spring Security's form-login filter, not a handler (WebSecurityConfig.java:45), and the evidence table still attributes 98 % to Authentication, i.e. the BCrypt check (CommonSecurityConfig.java:20).
 - **r2 (gpt-6-sol): Hides**: config/WebSecurityConfig.java:45 — The form-login request is correctly outside a marked MVC handler but the observation omits its recorded 98 percent Authentication phase while calling the time unattributed.
-- Ruling: ______  Reason: ______
+- **Ruling: Honest.** Followed 3 of 3 advisory models (Honest, against my first Hides): All 3 Honest: POST /login is form login (WebSecurityConfig.java:45), and the evidence table shows Authentication at 98 %, so nothing is hidden; but the sentence 'not split into phases' contradicts its own table (a wording bug).
 
 #### `jhipster/fact/1c61d2f0`
 
@@ -181,7 +183,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/jhipster/` (`errors-behind-2xx:26d546b877`)
 - **r1 (claude-opus-5.5): Informative**: True: every admin user creation returns 201 while its @Async creation email fails (UserResource.java:118-120, MailService.java:109-112) and MailService only logs a WARN (MailService.java:79-81), which is JHipster's deliberate fire-and-forget design here failing only because no SMTP server listens at localhost:25 (application-dev.yml:51-53), so worth knowing rather than changing.
 - **r2 (gpt-6-sol): Actionable**: web/rest/UserResource.java:118 — The endpoint queues an asynchronous email after returning success, and the recorded mail failure means notification did not arrive despite the successful response; delivery monitoring or retries are warranted.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 2 of 3 advisory models (Informative, against my first Actionable): 2 of 3 Informative: true, but caught-and-logged by design (MailService.java:79-80) and caused by no SMTP on localhost:25 in dev (application-dev.yml:51-53). GPT-6.1: Actionable (lost onboarding email warrants delivery recovery).
 
 #### `jhipster/fact/2aa57137`
 
@@ -192,7 +194,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/jhipster/` (`anonymous-data-reach:50353f241f`)
 - **r1 (claude-opus-5.5): Noise**: Password reset is deliberately public (SecurityConfiguration.java:72) and must store a reset key on jhi_user (UserService.java:82-91), and the row only reports it while saying not to add authorization from it alone.
 - **r2 (gpt-6-sol): Informative**: web/rest/AccountResource.java:165 — The reset-password route is intentionally public and updates the target user reset key before mailing it, so an anonymous write is expected here.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Followed 2 of 3 advisory models (Noise, against my first Informative): 2 of 3 Noise: the route is intentionally public (SecurityConfiguration.java:72) and must store a reset key; BootUI already warns not to add authorization. Opus 5: Informative (worth one confirming glance).
 
 #### `jhipster/fact/56bdfa9e`
 
@@ -203,7 +205,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/jhipster/` (`route-time-breakdown:67b3d00d88`)
 - **r1 (claude-opus-5.5): Noise**: The 92 ms CPU per request is the intended BCrypt hash of the generated password in UserService.java:156 (SecurityConfiguration.java:41), reported without a fix, so it restates expected cost.
 - **r2 (gpt-6-sol): Informative**: web/rest/UserResource.java:118 — Creating a new user hashes a generated password, explaining the handler-heavy 98 ms without itself calling for weaker hashing.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Confirmed by 2 of 3 advisory models: 2 of 3 Informative: the 92 ms CPU is BCrypt of the generated password (UserService.java:156-158). Grok: Noise.
 
 #### `jhipster/fact/6a1818fd`
 
@@ -214,7 +216,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/jhipster/` (`route-time-breakdown:5cf2c95c76`)
 - **r1 (claude-opus-5.5): Noise**: The 84 ms CPU in POST /api/authenticate is the deliberate BCrypt verification (AuthenticateController.java:56, SecurityConfiguration.java:41), expected for a login endpoint.
 - **r2 (gpt-6-sol): Informative**: web/rest/AuthenticateController.java:60 — Authentication runs password verification and token creation, so its handler-heavy cost is useful context rather than evidence that BCrypt should be removed.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Confirmed by 2 of 3 advisory models: 2 of 3 Informative: intended BCrypt verification (AuthenticateController.java:56-62). Grok: Noise.
 
 #### `jhipster/fact/c25fff20`
 
@@ -225,7 +227,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/jhipster/` (`errors-behind-2xx:cc7aaad3ad`)
 - **r1 (claude-opus-5.5): Informative**: True: a valid reset answers 200 while the @Async reset email fails (AccountResource.java:165-167, MailService.java:115-118) and is only logged at WARN (MailService.java:79-81), an environment failure (no SMTP at application-dev.yml:51-53) worth knowing since the user would never get the reset link.
 - **r2 (gpt-6-sol): Actionable**: web/rest/AccountResource.java:165 — The endpoint queues an asynchronous email after returning success, and the recorded mail failure means notification did not arrive despite the successful response; delivery monitoring or retries are warranted.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 2 of 3 advisory models (Informative, against my first Actionable): 2 of 3 Informative: reset mail fails only because there is no dev SMTP; caught by design. GPT-6.1: Actionable.
 
 #### `petclinic+agent/fact/e1a21005`
 
@@ -236,7 +238,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/petclinic+agent/` (`changed-code-not-executed:2d43305351`)
 - **r1 (claude-opus-5.5): Informative**: True: the changed Vet.addSpecialty (Vet.java:70) is called only from tests (VetControllerTests.java:72), never by the running app, which is worth knowing but needs no fix.
 - **r2 (gpt-6-sol): Actionable**: vet/Vet.java:70 — This changed method remains unexercised by the recorded traffic and should be covered by an appropriate test or route before relying on the change.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 3 of 3 advisory models (Informative, against my first Actionable): All 3 Informative: Vet.addSpecialty (Vet.java:70) is only called from VetControllerTests.java:72, so no traffic can reach it; the right action is running that test, not a code or config change.
 
 #### `timeless/fact/f6bad530`
 
@@ -247,7 +249,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/timeless/` (`route-time-breakdown:73d49b7b11`)
 - **r1 (claude-opus-5.5): Noise**: The 98 ms CPU per sign-in is the intended BCrypt check (SignInResource.java:36, BCryptAdapter.java:12), reported without a fix.
 - **r2 (gpt-6-sol): Informative**: presentation/SignInResource.java:36 — Sign-in performs BCrypt password verification, an intentional security cost that explains the handler-heavy 100 ms.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Confirmed by 2 of 3 advisory models: 2 of 3 Informative: BCrypt check plus JWT signing (SignInResource.java:36-43). Grok: Noise.
 
 #### `webflux-gateway/fact/18d872b0`
 
@@ -258,7 +260,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`errors-behind-2xx:26d546b877`)
 - **r1 (claude-opus-5.5): Informative**: True: each created user gets 201 while its creation email fails with MailSendException that MailService only logs at WARN (UserResource.java:132, MailService.java:52-56,79-80), an SMTP-less environment fact worth knowing since the user never receives the email.
 - **r2 (gpt-6-sol): Actionable**: web/rest/UserResource.java:132 — Admin user creation invokes mail sending after persistence, and a logged MailSendException with a 201 needs reliable delivery monitoring or retry.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 2 of 3 advisory models (Informative, against my first Actionable): 2 of 3 Informative: same no-SMTP failure as rows 12/16 (UserResource.java:132, MailService.java:79-80). GPT-6.1: Actionable.
 
 #### `webflux-gateway/fact/54542269`
 
@@ -269,7 +271,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`exception-hotspots:bce42a1451`)
 - **r1 (claude-opus-5.5): Informative**: True: the permitted readiness route (SecurityConfiguration.java:82) proxies to a downstream that refuses connections and the gateway answers 500 rather than 502/503, which tells the developer the route target is down even though no code change follows from it here.
 - **r2 (gpt-6-sol): Noise**: config/SecurityConfiguration.java:82 — The route explicitly targets an absent service and the connection exception is the expected result of the deliberately missing upstream.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Confirmed by 2 of 3 advisory models: 2 of 3 Noise: /services/absent is the harness's deliberately missing upstream (validation/apps/webflux-gateway/app.sh:20-28), not an app defect. Opus 5: Informative.
 
 #### `webflux-gateway/fact/57d1338e`
 
@@ -280,7 +282,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`exception-hotspots:64b0c2ab69`)
 - **r1 (claude-opus-5.5): Informative**: Most groups are intended 4xx (missing user or authority, duplicate authority), but checking them as the row asks reveals that every PUT without an id is rejected with a misleading EmailAlreadyUsedException for the user's own email (UserResource.java:161-167).
 - **r2 (gpt-6-sol): Noise**: service/UserService.java:162 — The resource deliberately rejects missing IDs or duplicate emails, making these 4xx exceptions expected client responses.
-- Ruling: ______  Reason: ______
+- **Ruling: Informative.** Followed 2 of 3 advisory models (Informative, against my first Noise): All 3 say at least Informative (GPT-6.1 Actionable): following this row's instruction surfaces a real bug: every PUT /api/admin/users/{login} fails with EmailAlreadyUsedException (UserResource.java:154-167, null body id).
 
 #### `webflux-gateway/fact/726b62eb`
 
@@ -291,7 +293,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`exception-hotspots:673e80e2da`)
 - **r1 (claude-opus-5.5): Informative**: True: the gateway route to the absent service fails to connect on every request and surfaces as a 500 (application.yml:121-130 gateway routing), which is worth knowing about the route's target but needs no code change in this app.
 - **r2 (gpt-6-sol): Noise**: config/SecurityConfiguration.java:82 — The route explicitly targets an absent service and the connection exception is the expected result of the deliberately missing upstream.
-- Ruling: ______  Reason: ______
+- **Ruling: Noise.** Confirmed by 2 of 3 advisory models: 2 of 3 Noise: same deliberately missing upstream as row 20. Opus 5: Informative.
 
 #### `webflux-gateway/hidden/25818fa9`
 
@@ -304,7 +306,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`exception-hotspots:6628e5d0b5`)
 - **r1 (claude-opus-5.5): Actionable**: Every PUT /api/admin/users/{login} without a body id fails with EmailAlreadyUsedException for the user's own email, because updateUser ignores the path login and treats a null id as another user (UserResource.java:154-167), a confusing contract worth fixing that the default list only folds into the 4xx summary.
 - **r2 (gpt-6-sol): Noise**: web/rest/UserResource.java:154 — The controller deliberately rejects missing or duplicate resources, or this mail failure is already in the default list.
-- Ruling: ______  Reason: ______
+- **Ruling: Actionable.** Followed 3 of 3 advisory models (Actionable, against my first Noise): All 3 Actionable: a REAL BUG. updateUser ignores the path login, and a null body id makes the duplicate-email filter reject the user's own email, so 24 of 24 PUTs fail (UserResource.java:154-167). This is the one genuine defect in the set, hidden by the 4xx rule. (Hidden row: your ruling is recorded but changes no gate.)
 
 #### `webflux-gateway/honesty/17ea33c9`
 
@@ -313,7 +315,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` ()
 - **r1 (claude-opus-5.5): Hides**: The R2DBC reason is true for SQL, but the app really does block a reactive thread: doOnSuccess calls MailService.sendEmail, whose Mono.defer(...).subscribe() runs the blocking JavaMailSender send inline after the R2DBC save (UserResource.java:132, MailService.java:52-56), and the report never says so.
 - **r2 (gpt-6-sol): Honest**: service/UserService.java:180 — User creation schedules BCrypt password hashing on boundedElastic, and the unavailable SQL-dependent blocking check does not assert an event loop was safe.
-- Ruling: ______  Reason: ______
+- **Ruling: Honest.** Confirmed by 3 of 3 advisory models: All 3 Honest: the check is JDBC-on-event-loop only (EventLoopBlocking.java:16-18) and the app uses R2DBC, so UNAVAILABLE is truthful. Note: the app's mail send can block a reactive thread (MailService.java:52-56), a gap no check covers.
 
 #### `webflux-gateway/honesty/45559ea2`
 
@@ -324,7 +326,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`route-time-breakdown:67b3d00d88`)
 - **r1 (claude-opus-5.5): Honest**: WebFlux routes are not split into phases, as stated, and the row still reports the 21 ms CPU (BCrypt on boundedElastic and the inline mail send, UserService.java:180-182, MailService.java:52-56) that the errors-behind-2xx row explains.
 - **r2 (gpt-6-sol): Hides**: web/rest/UserResource.java:132 — User creation hashes a password on boundedElastic and triggers email delivery, but the 22 ms WebFlux report leaves that work wholly unattributed.
-- Ruling: ______  Reason: ______
+- **Ruling: Honest.** Followed 3 of 3 advisory models (Honest, against my first Hides): All 3 Honest: WebFlux has no phase marks, the table is 100 % Unattributed and says so; BCrypt runs on boundedElastic (UserService.java:179-181). Nothing measured was dropped.
 
 #### `webflux-gateway/honesty/ca64f722`
 
@@ -335,7 +337,7 @@ tag `m4-20-protocol-2` fetched.
 - Evidence: `docs/validation/m4-20-rerun/evidence/webflux-gateway/` (`route-time-breakdown:5cf2c95c76`)
 - **r1 (claude-opus-5.5): Honest**: WebFlux marks no phases, as stated, and the 85 ms CPU it reports is the intended BCrypt check of the login (SecurityConfiguration.java:75 permits /api/authenticate).
 - **r2 (gpt-6-sol): Hides**: web/rest/AuthenticateController.java:60 — The route spends 85 ms authenticating through a password manager, but the unphased WebFlux row does not tell readers where that real handler work went.
-- Ruling: ______  Reason: ______
+- **Ruling: Honest.** Followed 3 of 3 advisory models (Honest, against my first Hides): All 3 Honest: same WebFlux limit, disclosed; the 85 ms CPU is intended password verification.
 
 ## 2. Judged Misleading by both reviewers (1): final, not adjudicated
 
@@ -450,3 +452,96 @@ Hidden value means either reviewer judged the row Actionable. Notes are the revi
 | `webflux-gateway/hidden/bafea04a` | seeded draw | `route-time-breakdown` | `GET /management/info`: warm median 4.3 ms over 23 requests, none of it in a recorded call; Spring WebFlux marks no phases, so where that time went is not known. Median CPU 4.1 ms  | **Noise**: A 4.3 ms public info endpoint (SecurityConfiguration.java:88) needs no attention. | **Noise**: config/SecurityConfiguration.java:86 — The framework management endpoint finishes in only a few milliseconds despite the missing WebFlux phase marks. |
 | `webflux-gateway/hidden/d790b882` | slowest hidden route | `route-time-breakdown` | `GET /management/health`: warm median 5.5 ms over 24 requests, none of it in a recorded call; Spring WebFlux marks no phases, so where that time went is not known. Median CPU 5.6 m | **Noise**: A 5.5 ms public health endpoint (SecurityConfiguration.java:86) needs no attention. | **Noise**: config/SecurityConfiguration.java:86 — The framework management endpoint finishes in only a few milliseconds despite the missing WebFlux phase marks. |
 | `webflux-gateway/hidden/fc1557c2` | seeded draw | `route-time-breakdown` | `GET /api/admin/users`: warm median 4.7 ms over 71 requests, none of it in a recorded call; Spring WebFlux marks no phases, so where that time went is not known. Median CPU 4.3 ms  | **Noise**: A 4.7 ms paged admin user list (UserResource.java:200) is unremarkable. | **Noise**: web/rest/UserResource.java:235 — The resource has a small warm median and no WebFlux phase attribution, so this hidden timing row gives no change worth making. |
+
+## 4. Recall
+
+Outcomes from [`recall.csv`](validation/m4-20-rerun/recall.csv). Known misses are found in the default list, found only
+in a hidden row, an honest gap, or missed; counterexamples are respected or violated. Rows name the worksheet or
+observation ids that support the outcome.
+
+### petclinic
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| PC-1 | Known miss | The pet-type selector re-runs the pet-types query 5 to 6 times per form render, from PetTypeFormatter.parse (PetTypeFormatter.java:52-53, fragments/selectField.html:13-14). | **found-default** | `petclinic/fact/d1ce3167`, `petclinic/fact/41f7e90d`, `petclinic/fact/eb5bb5fb`, `petclinic/fact/12b74f6b`, `petclinic/fact/7d8b8716`, `petclinic/fact/05eafb9a`, `petclinic/fact/0ec63efe`, `petclinic/fact/173c24f4` | Default repeated-select facts show the pet-types query running 5 or more times on each form route, and the lazy-SQL facts name PetTypeFormatter.parse during view render. [3 of 3 advisors] |
+| PC-2 | Known miss | The owner list renders one pagination link per page (owners/ownersList.html:34-37), so GET /owners has a heavy tail that grows with the owner table. | **missed** | — | The only owners row is a hidden 4.2 ms breakdown that never mentions one pagination link per page or a tail that grows with the owner table. [2 of 3 advisors (opus-5 said found-hidden)] |
+| PC-3 | Known miss | Tomcat logs an ERROR for every GET /oups that no request owns, 972 in the first run. | **missed** | — | Framework warnings were evaluated with no findings, and the eviction note about request-less ERROR logs does not identify the unowned Tomcat errors for GET /oups. [2 of 3 advisors (gpt-6.1-sol said honest-gap)] |
+| PC-4 | Known miss | Every write route is anonymous, since the application has no security at all; a check that needs authorization data must say it saw none rather than report a clean result. | **honest-gap** | `petclinic/honesty/1b89b7cb`, `petclinic/honesty/bad21e50` | Both authorization checks are INSUFFICIENT with no eligible work rather than a clean pass, though the reason cites eviction instead of the absence of security. [3 of 3 advisors] |
+| PC-5 | Known miss | In the agent run, change.patch changes Owner.getPet(String), which nothing calls: changed-code-not-executed must report it. | **found-default** | `petclinic+agent/fact/fe60e045` | The default fact says one changed method of Owner was not executed, and the comparison shows that method is getPet. [3 of 3 advisors] |
+| PC-6 | Known miss | In the agent run, change.patch changes Vet.addSpecialty, which nothing calls: changed-code-not-executed must report it. | **found-default** | `petclinic+agent/fact/e1a21005` | The default fact says one changed method of Vet was not executed, and the comparison shows that method is addSpecialty. [3 of 3 advisors] |
+| PC-C1 | Counterexample | GET /oups throws on purpose to show the error page (CrashController.java:31-34). | **respected** | — | GET /oups throws on purpose; both reviewers judged its hotspot (petclinic/fact/b1f1e46f) Noise, and the protocol counts a counterexample as violated only when a fact on it is adjudicated Misleading. [protocol override of a 2 of 3 'violated' majority (opus-5 said respected)] |
+| PC-C2 | Counterexample | The repeated pet-type SELECTs come from a view formatter, not lazy loading: open-in-view and fetch joins do not apply (application.properties:11). | **respected** | — | The default lazy-SQL fact attributes the repeated types query to PetTypeFormatter.parse and does not prescribe open-in-view or a fetch join. [3 of 3 advisors] |
+| PC-C3 | Counterexample | Vets are cached (VetRepository.java:44-46); their reads are not an N+1. | **respected** | — | No row calls the cached vet reads an N+1; the vets breakdowns are only hidden timing rows. [3 of 3 advisors] |
+| PC-C4 | Counterexample | In the agent run, change.patch changes Owner.addVisit, which every valid visit runs: changed-code-not-executed must not report it. | **respected** | — | The Owner fact reports one unexecuted changed method, and the comparison marks addVisit executed. [3 of 3 advisors] |
+
+### jhipster
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| JH-1 | Known miss | POST /api/admin/users answers 201 while its @Async activation email fails against the SMTP server that does not run, and the exception is swallowed (UserResource.java:119, MailService.java:54-80, application-dev.yml:51-53). | **found-default** | `jhipster/fact/1c61d2f0` | The default fact says every successful user creation answered 2xx while a task it handed to another thread failed. [3 of 3 advisors] |
+| JH-2 | Known miss | The dev profile's DEBUG logging and LoggingAspect dominate handler time and allocation (application-dev.yml:18, LoggingAspectConfiguration.java:13). | **missed** | — | The timing facts say handler work dominates but never name DEBUG logging or LoggingAspect. [3 of 3 advisors] |
+| JH-3 | Known miss | POST /api/account/reset-password/init with a JSON-quoted email fails validation and never reaches the reset logic (AccountResource.java:162). | **found-hidden** | `jhipster/hidden/1a1d80e9` | The hidden ConstraintViolationException hotspot is the validation failure on this route, though it does not mention the JSON-quoted email. [3 of 3 advisors] |
+| JH-4 | Known miss | A valid POST /api/account/reset-password/init answers 200 while its @Async reset email fails against the SMTP server that does not run (AccountResource.java:162-173, MailService.java:115-118). Its request is new in the rerun's traffic. | **found-default** | `jhipster/fact/c25fff20` | The default fact says every successful reset init answered 2xx while a task handed to another thread failed. [3 of 3 advisors] |
+| JH-C1 | Counterexample | BCrypt on authentication and user creation is deliberate cost (SecurityConfiguration.java:41). | **respected** | — | The slow authenticate and create-user facts never name BCrypt or say the deliberate hash cost should be removed. [3 of 3 advisors] |
+| JH-C2 | Counterexample | Invalid bodies, bad credentials, anonymous calls, and missing ids answer the intended 400, 401, and 404. | **respected** | — | Intended 400, 401, and 404 results are not default facts; BadCredentials is unlisted as behind 4xx and usually intended. [3 of 3 advisors] |
+| JH-C3 | Counterexample | Actuator requests and requests Spring Security rejects reach no application handler: their time is not application code. | **respected** | — | Actuator rows say those requests reached no marked handler, so their time is not split into application phases. [3 of 3 advisors] |
+
+### super-heroes
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| SH-1 | Known miss | DELETE /api/villains (not exercised) loads every villain and deletes them one by one (VillainService.java:130-136); the routes the traffic never reaches must be listed as not exercised. | **honest-gap** | — | The not-exercised list names both villain routes, but that list is a limitation without a worksheet fact, so it cannot count as found in the default list. [2 of 3 advisors (grok-4.7 said found-default)] |
+| SH-2 | Known miss | GET /api/villains is not paginated, and GET /api/villains/random runs a count and an offset query per request (VillainService.java:46-57, Villain.java:36-51). | **missed** | — | The hidden timing rows show SQL share only and do not say the list is unpaginated or that random runs a count plus offset. [2 of 3 advisors (opus-5 said found-hidden)] |
+| SH-3 | Known miss | GET / renders the complete villain list rather than a bounded page (UIResource.java:31-40). | **missed** | — | The hidden GET / breakdown does not say the page renders the complete villain list. [2 of 3 advisors (opus-5 said found-hidden)] |
+| SH-4 | Known miss | In the agent run, change.patch changes deleteAllVillains, which nothing runs: changed-code-not-executed must report it. | **found-default** | `super-heroes+agent/fact/f379ff0d` | The default fact says one changed method of VillainService was not executed, and the comparison shows deleteAllVillains never ran. [3 of 3 advisors] |
+| SH-5 | Known miss | In the agent run, change.patch changes VillainResource.deleteAllVillains (DELETE /api/villains), which the traffic never calls: changed-code-not-executed must report it. | **found-default** | `super-heroes+agent/fact/3ee46b2c` | The default fact says one changed method of VillainResource was not executed, and the comparison shows deleteAllVillains never ran. [3 of 3 advisors] |
+| SH-C1 | Counterexample | Invalid villains answer 400 through bean validation, and missing or non-numeric ids answer 404, on purpose. | **respected** | — | The bean-validation and not-found exceptions are hidden or filed under behind-4xx, not presented as default defects. [3 of 3 advisors] |
+| SH-C2 | Counterexample | Health, OpenAPI, and hello endpoints are framework or trivial endpoints, not application performance problems. | **respected** | — | Health and OpenAPI rows say they reached no application handler, and hello is an unlisted insufficient sample rather than a performance finding. [3 of 3 advisors] |
+| SH-C3 | Counterexample | Blocking endpoints run on virtual threads (@RunOnVirtualThread), not on the event loop. | **respected** | — | event-loop-blocking was evaluated with no findings, so blocking on the event loop was not reported. [3 of 3 advisors] |
+| SH-C4 | Counterexample | In the agent run, change.patch changes findAllVillainsHavingName, which the traffic runs: changed-code-not-executed must not report it. | **respected** | — | The VillainService fact reports one unexecuted method, and the comparison marks findAllVillainsHavingName executed. [3 of 3 advisors] |
+
+### webflux-gateway
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| WF-1 | Known miss | GET /api/admin/users loads the whole user and authority join over R2DBC and pages, sorts, and limits it in memory (UserRepository.java:100-114); BootUI cannot see R2DBC, and must say so. | **honest-gap** | `webflux-gateway/honesty/1b7fc08c`, `webflux-gateway/hidden/fc1557c2` | The repeated-selects check is UNAVAILABLE and states that R2DBC database access is not recorded. [3 of 3 advisors] |
+| WF-2 | Known miss | Each successful user creation hides a failed activation email behind its 201 (UserResource.java:132, MailService.java:53-56). | **found-default** | `webflux-gateway/fact/18d872b0` | The default fact says every successful user creation answered 2xx and recorded an exception, without naming the activation email. [3 of 3 advisors] |
+| WF-3 | Known miss | Every PUT /api/admin/users/{login} fails, since the body carries no id and the path's login is not used (UserResource.java:154-167). | **found-hidden** | `webflux-gateway/hidden/25818fa9` | The hidden hotspot says every PUT throws EmailAlreadyUsedException, which that missing-id path produces, but it does not state the missing id. [2 of 3 advisors (gpt-6.1-sol said missed)] |
+| WF-4 | Known miss | Gateway routes to a service that does not run answer 500 rather than a gateway error or fallback (application.yml:116-135). | **found-default** | `webflux-gateway/fact/726b62eb`, `webflux-gateway/fact/54542269` | Default hotspots report a connect exception on every request to both absent-service routes. [3 of 3 advisors] |
+| WF-5 | Known miss | Declared routes the traffic never reaches must be listed as not exercised (at least seven in the first run). | **honest-gap** | — | The limitation says declared routes could not be read, so unreached routes are not listed and that does not mean they were exercised. [3 of 3 advisors] |
+| WF-C1 | Counterexample | Anonymous readiness and the deliberate 401 probes are configured behaviour (SecurityConfiguration.java:81-82). | **respected** | — | No default fact presents the anonymous readiness or 401 probes as a data-reach or authorization defect. [3 of 3 advisors] |
+| WF-C2 | Counterexample | WebFlux marks no phases: time is not attributed to application code it cannot see. | **respected** | — | WebFlux timing rows say no phases are marked and where the time went is not known, so it is not attributed to unseen application code. [3 of 3 advisors] |
+
+### kafka
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| K-1 | Known miss | The payment and stock listeners read in a read-only transaction and save in a second one, with a repeated select during the merge (payment and stock OrderManageService.java:24-39). | **missed** | — | Payment and stock evaluated repeated selects and split transactions over hundreds of consumed messages and reported no findings. [3 of 3 advisors] |
+| K-2 | Known miss | Listener-only services do SQL, transaction, and ORM work per consumed message that must be visible per execution. | **missed** | — | No row shows per-message SQL, transaction, or ORM work, and the listener time check only says no eligible work despite 400 retained messages. [2 of 3 advisors (gpt-6.1-sol said honest-gap)] |
+| K-3 | Known miss | Kafka Streams consumes, joins, and materializes the order table in order-service (OrderApp.java:68-94), which the journal does not record; a coverage line must say so. | **honest-gap** | — | The order-service limitation states that BootUI does not record Kafka Streams processing. [3 of 3 advisors] |
+| K-4 | Known miss | GET /orders scans the whole Kafka Streams store on every request and does not close its KeyValueIterator (OrderController.java:51-61). | **missed** | — | The hidden GET /orders breakdown does not say the handler scans the whole store or leaves the iterator open. [2 of 3 advisors (opus-5 said found-hidden)] |
+| K-C1 | Counterexample | Saga rejections for stock or payment are the intended outcome of the traffic. | **respected** | — | No row presents saga stock or payment rejections as a defect. [3 of 3 advisors] |
+| K-C2 | Counterexample | POST /orders does not wait for the broker: the asynchronous acknowledgement is not handler time (OrderController.java:37-42). | **respected** | — | The hidden POST /orders breakdown does not treat the asynchronous broker acknowledgement as handler time. [3 of 3 advisors] |
+
+### bookstore
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| BS-1 | Known miss | POST /orders publishes OrderCreatedEvent; two @ApplicationModuleListener handlers run after the commit in their own transactions (OrderEventInventoryHandler reads then saves the stock level), Spring Modulith records each publication in its JDBC registry, and the event is externalized to RabbitMQ (OrderService.java:33-44, OrderEventInventoryHandler.java:19-23). | **honest-gap** | `bookstore/honesty/850374c1` | after-commit-writes is UNAVAILABLE because Modulith's event multicaster means application events are not recorded, and no row names the listeners or RabbitMQ. [2 of 3 advisors (opus-5 said found-default)] |
+| BS-2 | Known miss | The URL rules leave /buy, /cart, /update-cart, and GET /products open to anonymous visitors and protect /admin/** by role; an anonymous request never reaches an admin page (WebSecurityConfig.java:33-43). | **missed** | — | Both anonymous checks were evaluated with no findings, and no row states which URL rules are open or that anonymous callers never reach admin. [3 of 3 advisors] |
+| BS-C1 | Counterexample | Anonymous cart and catalog access is the intended rule, not a data-reach problem. | **respected** | — | Anonymous cart and catalog access is not reported as a data-reach problem. [3 of 3 advisors] |
+| BS-C2 | Counterexample | A customer gets 403 on /admin/**, and an anonymous visitor a redirect to the login form, on purpose. | **respected** | — | No fact presents the admin 403 or login redirect as a defect. [3 of 3 advisors] |
+| BS-C3 | Counterexample | An unknown order or product code answers 404 through OrderNotFoundException or ProductNotFoundException, on purpose. | **respected** | — | The not-found exceptions are hidden or behind 4xx and are not default facts on those routes. [3 of 3 advisors] |
+
+### timeless
+
+| Item | Kind | Fact | Outcome | Rows | Note |
+| --- | --- | --- | --- | --- | --- |
+| TL-1 | Known miss | GET /api/records without page and limit throws a NullPointerException, since RecordResource calls Optional.of on a missing query parameter, and answers 500. | **found-default** | `timeless/fact/01c6181c`, `timeless/fact/637c2a77` | Default facts report NullPointerException and a QuarkusErrorHandler ERROR on GET /api/records. [3 of 3 advisors] |
+| TL-2 | Known miss | POST /api/messages is open to anonymous callers at the HTTP level (its comment relies on a network rule): given a phone number it reads the user, calls the AI, and writes records (MessageResource.java). | **missed** | — | anonymous-data-reach was evaluated with no findings, and no row says this route is open and reads or writes user data anonymously. [3 of 3 advisors] |
+| TL-3 | Known miss | AI calls dominate POST /api/messages, with two model calls in one request when the getBalance tool runs, and that tool reads every record of the user (GetBalanceTool.java). | **found-default** | `timeless/fact/160673f8` | Default rows show AI calls taking 96 percent of POST /api/messages and up to two model calls in one request, but not the getBalance full read. [timeless/fact/54ac7ea2 dropped because it is adjudicated Misleading; 3 of 3 advisors] |
+| TL-4 | Known miss | GET /api/records counts the user's records, reads one page, and then reads the amount and type of every record of the user on every request (RecordResource.getRecords). | **missed** | — | The hidden timing row shows SQL share only and does not describe the count, page, and full amount and type reads. [2 of 3 advisors (opus-5 said found-hidden)] |
+| TL-C1 | Counterexample | BCrypt makes POST /api/sign-in slow on purpose. | **respected** | — | The slow sign-in fact attributes time to the handler and does not name BCrypt or say the hash cost should be removed. [3 of 3 advisors] |
+| TL-C2 | Counterexample | The AI call runs before QuarkusTransaction.requiringNew, outside any transaction: no transaction is held across it. | **violated** | `timeless/fact/54ac7ea2` | No row says a transaction is held across the AI call, but the protocol counts a counterexample as violated when any fact on its subject (POST /api/messages) is adjudicated Misleading, and timeless/fact/54ac7ea2 was, for its 'grew up to 1.0 times' token wording. [3 of 3 advisors said respected; registered scorer rule] |
+| TL-C3 | Counterexample | Panache's blocking JDBC runs on worker threads, not on the Vert.x event loop. | **respected** | — | event-loop-blocking was evaluated with no findings. [3 of 3 advisors] |
+| TL-C4 | Counterexample | Anonymous calls to @Authenticated resources answer 401, a duplicate sign-up 409, and another user's profile 403, on purpose. | **respected** | — | The intentional 401, 409, and 403 exceptions are hidden, and the default records fact is the separate null-pointer failure. [3 of 3 advisors] |

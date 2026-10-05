@@ -11,7 +11,7 @@ reviewers on different models judged every observation independently, with the a
 operator who ran each application gathered facts and code pointers but judged nothing.
 
 **Rerun (2026-10-05), scored.** M4-20's rerun ran under the registered protocol (`m4-20-protocol-2`) on one build of
-`5bd7cb76e`; two reviewers judged it, the maintainer adjudicated it and marked recall, and the registered scorer
+`5bd7cb76e`; two reviewers judged it, the maintainer adjudicated it, recall was marked under his rule with his approval, and the registered scorer
 computed the result. See [Rerun results](#rerun-results) and the
 [adjudication file](V2-VALIDATION-ADJUDICATION.md). The first run's sections below are kept as they were.
 
@@ -39,7 +39,7 @@ not released while any row reads `TODO`.
 | Rerun date | 2026-10-05 (runs 09:38–10:29, time to first observation 10:53–11:23, Europe/Paris) |
 | Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); `m4-20-protocol-2`, which superseded `m4-20-protocol-1` (see the amendment below): tag object `5f38a51affaeb11a8c35f9a1b0185d964dd23f7d`, commit `5bd7cb76eb532f1a72bf3a1ab8b018190c6214a2` |
 | Applications | Tuned: Spring PetClinic `500158f`, JHipster sample `6b000b5d`, Quarkus Super Heroes `d472e71d6`, WebFlux gateway `73b700b`, Kafka saga `a76daeb`. Holdouts: bookstore `2933f5f`, Timeless `0a90516` (pins and patches in [`validation/apps/`](https://github.com/jdubois/boot-ui/tree/v2/validation/apps)) |
-| Reviewers and adjudicator | r1 on claude-opus-5.5 and r2 on gpt-6-sol, independent and one after the other; Julien Dubois, the maintainer, adjudicated the 26 disputed rows and marked recall, advised by three blind models (see [Adjudication](#adjudication)) |
+| Reviewers and adjudicator | r1 on claude-opus-5.5 and r2 on gpt-6-sol, independent and one after the other; Julien Dubois, the maintainer, adjudicated the 26 disputed rows, advised by three blind models; his coordinator agent set the recall marks under his rule, and he approved them (see [Adjudication](#adjudication)) |
 | Known limitations | TODO: [Known limitations](KNOWN-LIMITATIONS.md) updated to the shipped scope |
 | Decision | TODO: release 2.0.0, or not, and why |
 
@@ -124,7 +124,7 @@ protocol, with who accepted it and what the release notes say.
 ## Rerun results
 
 **Scored.** Run on 2026-10-05 under `m4-20-protocol-2`, exactly as registered: no registered file was changed. The
-maintainer adjudicated the 26 disputed rows and marked recall (see [Adjudication](#adjudication)), and the registered
+maintainer adjudicated the 26 disputed rows and approved the recall marks set under his rule (see [Adjudication](#adjudication)), and the registered
 scorer, run from a detached checkout of the tag (`5bd7cb76e`, tag object `5f38a51af`, the one origin publishes), found no
 problem and wrote [`score.md`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/score/score.md) and `score.json`. Every number below comes from them. Nothing
 is pending in this section; the release sign-off's remaining `TODO`s are measures outside the rerun. The data that reproduces every number is in
@@ -138,17 +138,17 @@ the per-kind gates, and the honesty rows judged as hiding something by one revie
 
 ### Adjudication
 
-**Who decided, and how.** The maintainer filled in every adjudication row and every recall mark himself, in
-[`adjudication.csv`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/adjudication.csv) and [`recall.csv`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/recall.csv). Unsure of his first answers,
-he had three advisory models (claude-opus-5, gpt-6.1-sol, and grok-4.7) judge the same 26 rows blind, with the
+**Who decided, and how.** The maintainer filled in every adjudication row himself, in
+[`adjudication.csv`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/adjudication.csv). Unsure of his first answers, he had three advisory models (claude-opus-5, gpt-6.1-sol, and grok-4.7) judge the same 26 rows blind, with the
 reviewers' names anonymized, and applied one rule: if the majority of the advisors agree, they know better than he does.
 That rule changed 18 of his 26 first answers; the other 8 rulings are his first answers, which a majority of the advisors
 confirmed. His first answers stay in his own workbook, which is not committed, and each committed reason says which way
 the advisors went ("Followed 3 of 3 advisory models (Informative, against my first Misleading): …"). The rulings remain
 the maintainer's: the protocol makes him the adjudicator, and the advisors are his means, not additional reviewers.
 
-The recall marks are the advisors' two-of-three majority under the same rule, with two marks set by the protocol rather
-than by the majority:
+The recall marks in [`recall.csv`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/recall.csv) were set by the maintainer's coordinator agent under his rule,
+the advisors' two-of-three majority, and he approved them; two marks were set by the protocol rather than by the
+majority:
 
 - **PC-C1** (`GET /oups` throws on purpose) stays **respected**, against a two-of-three "violated": a counterexample is
   violated only by a fact adjudicated Misleading, and both reviewers judged the `/oups` hotspot Noise.
