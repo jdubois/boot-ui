@@ -27,24 +27,23 @@ test.describe('Runtime Insights demo', () => {
       ['Exception hotspots', 'GET /api/sample/boom'],
       ['Exception hotspots', 'Behind 4xx responses'],
       ['Anonymous writes', '/api/insights/debug/reset-totals'],
-      ['Anonymous success on a restricted route', '/api/insights/reports/{name}']
+      ['Anonymous success on a restricted route', '/api/insights/reports/{name}'],
+      // D29's kinds are listed by default since their counterexample fixtures pass across observations (M4-18e).
+      ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
+      ['Writes after commit', '/api/insights/orders/{id}/archive'],
+      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush']
     ]) {
       await expect(page.getByRole('heading', {name: title, level: 2, exact: true})).toBeVisible({timeout: 15_000})
       await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()
     }
 
-    // Left out of the default list: a statement Repeated SELECTs already reports and the checks not yet validated.
-    // Show all routes lists them, each in its own group, marked and explained.
+    // Left out of the default list: a statement Repeated SELECTs already reports. Show all routes lists it, in its own
+    // group, marked and explained.
     const group = (title) =>
       page
         .locator('nav[aria-label="Observations"] > div')
         .filter({has: page.getByRole('heading', {name: title, level: 2, exact: true})})
-    const leftOut = [
-      ['SQL after the handler returned', '/api/insights/orders/report'],
-      ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
-      ['Writes after commit', '/api/insights/orders/{id}/archive'],
-      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush']
-    ]
+    const leftOut = [['SQL after the handler returned', '/api/insights/orders/report']]
     for (const [title] of leftOut) {
       await expect(group(title)).toHaveCount(0)
     }

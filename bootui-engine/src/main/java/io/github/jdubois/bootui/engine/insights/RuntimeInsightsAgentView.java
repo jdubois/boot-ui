@@ -531,6 +531,13 @@ public final class RuntimeInsightsAgentView {
             return "requests counts completed HTTP exchanges only. Observations here can come from scheduled jobs,"
                     + " messages, or other non-HTTP executions, so requests 0 is not proof nothing ran.";
         }
+        boolean leftOut = report.limitations().stream()
+                .anyMatch(limitation -> limitation.contains(RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS));
+        if (leftOut) {
+            return "Requests that " + RuntimeInsightsService.LEFT_OUT_BEFORE_LOSS + " (Clear recording, or the"
+                    + " journal's bounds) are left out, so requests 0 is not proof the run was idle: call again once"
+                    + " new requests have completed.";
+        }
         if (evicted > 0) {
             return "The journal evicted older events, so requests 0 is not proof the run was idle.";
         }

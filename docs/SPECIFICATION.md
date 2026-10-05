@@ -1748,8 +1748,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   a statement `repeated-selects` already lists from the same call site; `framework-warnings-by-route` leaves out a
   `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts in one row the framework `ERROR` events
   that carried no request id; `gc-inflated-latency` and `heap-growth-after-gc` are reached from the Memory panel
-  (revisiting D18); and the four ORM and application-event kinds of D29 are left out until their counterexample
-  fixtures pass. The panel's **Show all routes**, a search, or a deep link lists the rest.
+  (revisiting D18). The four ORM and application-event kinds of D29 are listed, since their counterexample fixtures
+  pass the cross-observation harness (M4-18e). The panel's **Show all routes**, a search, or a deep link lists the rest.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a

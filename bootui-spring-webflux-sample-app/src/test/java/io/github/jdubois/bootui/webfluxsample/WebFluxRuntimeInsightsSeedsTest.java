@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -83,6 +86,33 @@ class WebFluxRuntimeInsightsSeedsTest {
         assertThat(subjects("repeated-selects"))
                 .contains("GET /api/insights/notes/one-by-one")
                 .doesNotContain("GET /api/insights/notes/at-once", "GET /api/notes");
+    }
+
+    /**
+     * The cross-observation check on the WebFlux sample's counterexamples (M4-18e): JDBC offloaded to boundedElastic,
+     * one statement for every note, and an asynchronous client fire no kind at all.
+     */
+    @Test
+    void noObservationOfAnyKindFiresOnACounterexampleRoute() {
+        List<String> counterexamples =
+                List.of("GET /api/notes", "GET /api/insights/notes/at-once", "GET /api/sample/rest-client");
+        Set<String> exercised = journal.entries().stream()
+                .map(entry -> entry.event().payload())
+                .filter(HttpPayload.class::isInstance)
+                .map(HttpPayload.class::cast)
+                .map(http -> http.method() + " " + http.routeTemplate())
+                .collect(Collectors.toSet());
+        assertThat(exercised)
+                .as("every counterexample route ran, so its silence is a result")
+                .containsAll(counterexamples);
+        assertThat(observations)
+                .filteredOn(observation ->
+                        counterexamples.contains(observation.path("subject").asText()))
+                .filteredOn(observation -> !observation.path("status").asText().equals("INSUFFICIENT"))
+                .extracting(observation -> observation.path("kind").asText() + " on "
+                        + observation.path("subject").asText() + ": "
+                        + observation.path("sentence").asText())
+                .isEmpty();
     }
 
     @Test

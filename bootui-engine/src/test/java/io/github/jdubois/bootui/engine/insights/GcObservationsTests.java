@@ -81,6 +81,8 @@ class GcObservationsTests {
     void afterAClearTheFirstRetainedRequestIsRankedBecauseNoRequestIsKnownToBeCold() {
         request("/api/report", 5 * MS, 0);
         journal.clear();
+        // The next requests start well after the cleared one, so none may have lost an event to the clear.
+        requests += 100;
         request("/api/report", 200 * MS, 1);
         for (int i = 1; i <= 10; i++) {
             request("/api/report", i * 10 * MS, i == 10 ? 1 : 0);

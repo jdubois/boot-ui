@@ -16,20 +16,11 @@ final class DefaultListing {
             "Garbage collection and heap rows are reached from the Memory panel rather than listed" + " by default.";
 
     /**
-     * Why a row of D29's four kinds is left out: listed once the cross-observation counterexample harness passes
-     * (M4-18e). Remove a kind from {@link #UNLISTED_KINDS} when it does.
+     * The kinds left out whole, with why. D29's four kinds are listed since their counterexample fixtures pass the
+     * cross-observation harness ({@code ObservationHonestyHarnessTests}, M4-18e).
      */
-    static final String NOT_YET_VALIDATED =
-            "This check is not listed by default until its counterexample fixtures pass across observations.";
-
-    /** The kinds left out whole, with why. */
-    static final Map<String, String> UNLISTED_KINDS = Map.of(
-            GcInflatedLatency.KIND, MEMORY,
-            HeapGrowthAfterGc.KIND, MEMORY,
-            TransactionalListenerSkipped.KIND, NOT_YET_VALIDATED,
-            AfterCommitWrites.KIND, NOT_YET_VALIDATED,
-            OrmAutoFlush.KIND, NOT_YET_VALIDATED,
-            LargePersistenceContext.KIND, NOT_YET_VALIDATED);
+    static final Map<String, String> UNLISTED_KINDS =
+            Map.of(GcInflatedLatency.KIND, MEMORY, HeapGrowthAfterGc.KIND, MEMORY);
 
     /** Why a statement after the handler is left out when Repeated SELECTs already reports it. */
     static final String REPORTED_AS_REPEATED =

@@ -49,6 +49,30 @@ final class EvidenceRing {
      */
     private final LinkedHashSet<String> evictedRequestTraces = new LinkedHashSet<>();
 
+    /**
+     * The latest start, by the wall clock, of an event of a request, an execution, or a trace that the ring lost to
+     * eviction, to the byte bound, or to a clear; {@link Long#MIN_VALUE} while it lost none. A unit of work that started
+     * after it cannot have lost an event, since its events start no earlier than it does ({@link #lossHorizonMillis}).
+     */
+    private long lossHorizonMillis = Long.MIN_VALUE;
+
+    /**
+     * When the latest request whose HTTP event the ring lost ended, by the wall clock; {@link Long#MIN_VALUE} while it
+     * lost none. A container logs a request's failure once its id is gone, so an error without an id written shortly
+     * after may have been that lost request's.
+     */
+    private long lostRequestEndMillis = Long.MIN_VALUE;
+
+    /** The most thread names of requests that lost events remembered. */
+    static final int MAX_LOST_REQUEST_THREADS = 1_024;
+
+    /**
+     * The threads that ran the most recent requests the ring lost events of, so only an error without a request id
+     * written on one of them is taken as possibly that request's, never a startup or pool thread's own error. Kept
+     * across a clear, which loses events too.
+     */
+    private final LinkedHashSet<String> lostRequestThreads = new LinkedHashSet<>();
+
     EvidenceRing(int maxEvents, long maxBytes, int reservedSharePercent, LongSupplier externalBytes) {
         this.maxEvents = Math.max(1, maxEvents);
         this.maxBytes = Math.max(1, maxBytes);
@@ -59,6 +83,7 @@ final class EvidenceRing {
     synchronized void add(JournalEntry entry) {
         if (entry.estimatedBytes() + externalBytes.getAsLong() > maxBytes) {
             rememberEvictedRequest(entry.event());
+            lost(entry.event());
             lastBound = Bound.BYTES;
             evictedByBytes++;
             while (size() > 0 && retainedBytes + externalBytes.getAsLong() > maxBytes) {
@@ -87,6 +112,7 @@ final class EvidenceRing {
         JournalEntry evicted = evictOne();
         retainedBytes -= evicted.estimatedBytes();
         rememberEvictedRequest(evicted.event());
+        lost(evicted.event());
         lastBound = bound;
         if (bound == Bound.COUNT) {
             evictedByCount++;
@@ -118,6 +144,53 @@ final class EvidenceRing {
         }
     }
 
+    /** Moves the loss horizon past {@code event} when it belonged to a request, an execution, or a trace. */
+    synchronized void lost(RuntimeEvent event) {
+        if (event == null || (event.requestId() == null && event.executionId() == null && event.traceId() == null)) {
+            return;
+        }
+        // Never past now: a span from a skewed clock, or a wall clock stepped back, would otherwise hide every request
+        // until the restart.
+        long started = Math.min(event.epochMillis(), System.currentTimeMillis());
+        if (started > lossHorizonMillis) {
+            lossHorizonMillis = started;
+        }
+        if (event.requestId() != null
+                && event.thread() != null
+                && !event.thread().isBlank()) {
+            lostRequestThreads.remove(event.thread());
+            lostRequestThreads.add(event.thread());
+            if (lostRequestThreads.size() > MAX_LOST_REQUEST_THREADS) {
+                lostRequestThreads.remove(lostRequestThreads.iterator().next());
+            }
+        }
+        if (event.source() == JournalSource.HTTP && event.requestId() != null) {
+            long ended = Math.min(
+                    event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000, System.currentTimeMillis());
+            if (ended > lostRequestEndMillis) {
+                lostRequestEndMillis = ended;
+            }
+        }
+    }
+
+    /** Whether a request the ring lost events of ran on {@code thread}, as far as the ring remembers. */
+    synchronized boolean lostARequestOn(String thread) {
+        return thread != null && lostRequestThreads.contains(thread);
+    }
+
+    /** When the latest request whose HTTP event the ring lost ended, or {@code null} while it lost none. */
+    synchronized Long lostRequestEndMillis() {
+        return lostRequestEndMillis == Long.MIN_VALUE ? null : lostRequestEndMillis;
+    }
+
+    /**
+     * The latest start of an event of a unit of work the ring lost, or {@code null} while it lost none: a request or an
+     * execution that started then or before may have lost some of its events, so it is incomplete evidence.
+     */
+    synchronized Long lossHorizonMillis() {
+        return lossHorizonMillis == Long.MIN_VALUE ? null : lossHorizonMillis;
+    }
+
     /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */
     synchronized boolean evictedARequestOf(String traceId) {
         return traceId != null && evictedRequestTraces.contains(traceId);
@@ -127,8 +200,13 @@ final class EvidenceRing {
         return routine.size() + reserved.size();
     }
 
-    /** Drops every retained event. Eviction counts are kept: they report events lost to the bounds since startup. */
+    /**
+     * Drops every retained event. Eviction counts are kept: they report events lost to the bounds since startup. The
+     * loss horizon moves past them, since a request still running loses the events it recorded before the clear.
+     */
     synchronized void clear() {
+        routine.forEach(entry -> lost(entry.event()));
+        reserved.forEach(entry -> lost(entry.event()));
         routine.clear();
         reserved.clear();
         evictedRequestTraces.clear();
