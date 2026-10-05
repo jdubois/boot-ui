@@ -158,8 +158,7 @@ To try every feature at once, use the all-in-one launcher:
 ```
 
 It attaches the BootUI Java agent as [above](#run-it-with-the-bootui-java-agent-and-postgresql) (including
-`BOOTUI_AGENT_JAR`) with every sensor, the opt-in `threads`, `files`, and `environment` included, and the sensors not shipped yet, which
-only log a warning until they ship (set `BOOTUI_AGENT_SENSORS` to a comma-separated list to choose others), and runs the full `docker` profile, so PostgreSQL with `pg_stat_statements`, Redis, Kafka, and
+`BOOTUI_AGENT_JAR`), and runs the full `docker` profile, so PostgreSQL with `pg_stat_statements`, Redis, Kafka, and
 Ollama for Spring AI all start, as in [Run it with Docker](#run-it-with-docker). It also activates the `run-history`
 profile ([`application-run-history.properties`](src/main/resources/application-run-history.properties)), which keeps
 BootUI's history across full restarts:
