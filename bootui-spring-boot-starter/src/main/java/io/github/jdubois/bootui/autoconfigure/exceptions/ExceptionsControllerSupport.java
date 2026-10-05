@@ -1,10 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.exceptions;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.dto.CaughtExceptionsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionStatusUpdateRequest;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
+import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import java.util.Map;
@@ -28,12 +30,36 @@ public final class ExceptionsControllerSupport {
 
     public static ExceptionsReport list(
             ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties, ExceptionsService service) {
+        return list(storeProvider, properties, service, null);
+    }
+
+    /**
+     * The panel's report, with the caught-in-code summary when the agent's {@code caught-exceptions} sensor records
+     * ({@code docs/PLAN-v2.md} M5-6).
+     */
+    public static ExceptionsReport list(
+            ObjectProvider<ExceptionStore> storeProvider,
+            BootUiProperties properties,
+            ExceptionsService service,
+            ObjectProvider<CaughtExceptionsReader> caught) {
         ExceptionStore store = storeProvider.getIfAvailable();
-        if (store == null) {
-            return ExceptionsReport.unavailable(
-                    "Exception capture is disabled", properties.getExceptions().getMaxGroups());
-        }
-        return service.report(store);
+        ExceptionsReport report = store == null
+                ? ExceptionsReport.unavailable(
+                        "Exception capture is disabled",
+                        properties.getExceptions().getMaxGroups())
+                : service.report(store);
+        CaughtExceptionsReader reader = caught == null ? null : caught.getIfAvailable();
+        return reader == null ? report : report.withCaughtInCode(reader.summary(properties::isPanelEnabled));
+    }
+
+    /** The <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6). */
+    public static CaughtExceptionsReport caught(
+            ObjectProvider<CaughtExceptionsReader> caught, BootUiProperties properties) {
+        CaughtExceptionsReader reader = caught == null ? null : caught.getIfAvailable();
+        return reader == null
+                ? CaughtExceptionsReport.unavailable(
+                        "The BootUI agent's caught-exceptions sensor is not wired in this application")
+                : reader.report(properties::isPanelEnabled);
     }
 
     public static ExceptionDetailDto detail(

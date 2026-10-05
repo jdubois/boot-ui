@@ -1948,6 +1948,38 @@ public abstract class AbstractBootUiApiConformanceTest {
      * listed; an unknown sensor is a {@code 400}. The available shape is asserted with the agent attached, by the Spring
      * sample's agent scenario.
      */
+    /**
+     * Without the agent's caught-exceptions sensor, the Exceptions panel's report carries no caught-in-code summary
+     * and its section answers its contract, unavailable with why ({@code docs/PLAN-v2.md} M5-6), on every stack.
+     */
+    @Test
+    void caughtInApplicationCodeIsUnavailableWithoutTheAgent() {
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        JsonNode panel = panelFromLiveManifest("exceptions");
+        assumeTrue(panel != null && panel.path("enabled").asBoolean(true), "the exceptions panel is disabled here");
+
+        JsonNode report = probe().get(api("/exceptions")).json();
+        assertThat(report.has("caughtInCode"))
+                .as("the summary field is present")
+                .isTrue();
+        assertThat(report.path("caughtInCode").isNull())
+                .as("no summary without the sensor")
+                .isTrue();
+
+        ReadContract contract = BootUiApiContractCatalog.caughtExceptions();
+        Response response = probe().get(api(contract.relativePath()));
+        assertThat(response.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        List<String> failures = new ArrayList<>();
+        JsonNode body = response.json();
+        assertJsonContract(contract.relativePath(), contract, body, failures);
+        assertThat(failures).isEmpty();
+        assertThat(body.path("available").asBoolean()).isFalse();
+        assertThat(body.path("unavailableReason").asText()).contains("caught-exceptions sensor");
+        assertThat(body.path("rows")).isEmpty();
+    }
+
     @Test
     void sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent() {
         assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");

@@ -206,7 +206,13 @@ public final class BootUiApiContractCatalog {
                             "capacity", JsonType.INTEGER,
                             "traces", JsonType.ARRAY)),
             array("log-tail", "/log-tail/recent"),
-            capabilityList("exceptions", "/exceptions", "groups", "totalExceptions", Map.of()),
+            capabilityList(
+                    "exceptions",
+                    "/exceptions",
+                    "groups",
+                    "totalExceptions",
+                    // Caught in application code (PLAN-v2 M5-6): null without the agent's caught-exceptions sensor.
+                    fields("caughtInCode", JsonType.NULLABLE_OBJECT)),
             pagedList(
                     "http-exchanges",
                     "/http-exchanges",
@@ -512,6 +518,23 @@ public final class BootUiApiContractCatalog {
                             "page", JsonType.OBJECT)));
 
     /**
+     * The Exceptions panel's <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6), a read of the
+     * {@code exceptions} panel kept out of {@link #reads()}: it answers the same shape with or without the BootUI agent,
+     * {@code available: false} and no rows without it.
+     */
+    private static final ReadContract CAUGHT_EXCEPTIONS = read(
+            "exceptions",
+            "/exceptions/caught",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "limitations", JsonType.ARRAY,
+                    "settling", JsonType.INTEGER,
+                    "occurrences", JsonType.INTEGER,
+                    "findings", JsonType.INTEGER,
+                    "rows", JsonType.ARRAY));
+
+    /**
      * One Side Effects sensor's rows ({@code docs/PLAN-v2.md} §5.16), a read of the {@code side-effects} panel kept out of
      * {@link #reads()}: it answers the same shape with or without the BootUI agent, {@code available: false} and no rows
      * without it.
@@ -743,6 +766,11 @@ public final class BootUiApiContractCatalog {
     /** The journal request profile's read contract ({@code docs/PLAN-v2.md} §5.3, §5.11). */
     public static ReadContract requestJournalProfile() {
         return REQUEST_JOURNAL_PROFILE;
+    }
+
+    /** The Exceptions panel's caught-in-code read contract ({@code docs/PLAN-v2.md} M5-6). */
+    public static ReadContract caughtExceptions() {
+        return CAUGHT_EXCEPTIONS;
     }
 
     /** One Side Effects sensor's rows' read contract ({@code docs/PLAN-v2.md} §5.16). */
