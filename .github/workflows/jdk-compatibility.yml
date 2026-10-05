@@ -3,7 +3,7 @@ name: JDK compatibility (21/25/27)
 # Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml),
 # while adding focused compatibility checks on newer supported JDKs for every push to main and
 # to the long-lived v2 branch (PLAN-v2 M5-12: the BootUI agent's acceptance matrix covers Java 21
-# and 25 there too), every pull request into main, pull requests into v2 that change an
+# and 25 there too, with the Spring MVC browser suite attached to the agent), every pull request into main, pull requests into v2 that change an
 # agent-related path or carry the `agent` label (.github/scripts/agent-changes.sh), and a nightly
 # scheduled run.
 on:
@@ -117,3 +117,61 @@ jobs:
         # the module's own skip profile unbinds augmentation, so this only proves plain
         # compile + jar there.
         run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install
+
+  # The whole Spring MVC browser suite with the BootUI agent attached (PLAN-v2 §5.13, M5-12) on the newer supported JDKs
+  # the agent's class-file and JDK hooks must hold on; Java 17 runs it in build.yml, with the companion-agent legs. One
+  # MVC leg per JDK keeps the cost reasonable: WebFlux and Quarkus share the engine and the agent.
+  agent-e2e:
+    name: Spring end-to-end with the BootUI agent (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-spring-sample-app/e2e/package-lock.json
+
+      # The sample's -am build includes bootui-agent, its test-scope dependency, which the suite attaches.
+      - name: Build the Spring sample app and the BootUI agent
+        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
+
+      - name: Install Playwright dependencies
+        working-directory: bootui-spring-sample-app/e2e
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright browsers
+        working-directory: bootui-spring-sample-app/e2e
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run Playwright end-to-end tests with the agent
+        working-directory: bootui-spring-sample-app/e2e
+        run: npm run test:agent
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-agent-java-${{ matrix.java }}
+          path: |
+            bootui-spring-sample-app/e2e/playwright-report-agent/
+            bootui-spring-sample-app/e2e/test-results-agent/
+          if-no-files-found: ignore
+          retention-days: 7
