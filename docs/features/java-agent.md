@@ -873,9 +873,9 @@ two can run together.
 
 The advice runs at the entry and exit of `start`, at the exit of the constructors, and at the entry of the shutdowns:
 never on a thread's run path or its scoped values. M5-2's `executors` and `threads` sensors transform `Thread`,
-`ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and each keeps working
-whichever is installed first (forked-JVM tests claim the three sensors together, and beside the OpenTelemetry agent in
-both orders, on JDK 17, 21, and the newest verified JDK). A fork-join worker, the JDK's `DelayScheduler`, and a thread
+`ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and forked-JVM tests
+claim the three sensors together, and `thread-activity` beside the OpenTelemetry agent in both orders, on JDK 17, 21,
+and the newest verified JDK. A fork-join worker, the JDK's `DelayScheduler`, and a thread
 whose starting frame is in `java.util.concurrent` (the per-task threads `CompletableFuture` falls back to when the
 common pool has fewer than two threads) are pool workers too.
 
@@ -890,13 +890,16 @@ grouped apart in the panel. The JDK's own singletons (an innocuous thread, `proc
 `Common-Cleaner`) are recorded as the JDK's without a walk.
 
 **Left running.** A thread the application's code started for a request, and an executor it created for a request or
-an execution, are tracked weakly, at most 1,024 at a time: nothing the sensor holds keeps a thread, an executor, or a
-class loader alive. Each adapter tells the engine when a request's response is complete (Spring MVC once its async
+an execution, are tracked weakly, at most 1,024 threads and 1,024 executors at a time (the panel says when one was not
+tracked): nothing the sensor holds keeps a thread, an executor, or a class loader alive. Each adapter tells the engine when a request's response is complete (Spring MVC once its async
 context completed, Spring WebFlux when its chain terminates, Quarkus when the response body ended or the connection
-closed); the request's end is written into a lock-free ring, and the agent's drain thread checks it 250 ms later, so a
+closed); while a tracked thread or executor waits for its request's end, the end is written into a lock-free ring, and
+the agent's drain thread checks it 250 ms later, so a
 thread still unwinding as the response completes is not reported: a thread still alive then, or an executor not shut
 down, was so when the response was complete, and is reported once as **left running**. A thread started after its
-request ended is not waited for; one whose request's end never comes stops waiting after 10 minutes, counted. An
+request ended is not waited for, when that end was written; one whose request's end never comes stops waiting after
+10 minutes, counted. A static initializer anywhere on the starting stack, as a lazily created singleton's first use
+inside a request, makes it a singleton, never tracked. An
 executor's shutdown lands on its creation's row with its lifetime; one the collector reclaims without a shutdown, or
 that the JDK's cleaner shuts down because nothing references it (`newSingleThreadExecutor`), is counted as reclaimed.
 

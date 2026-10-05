@@ -111,20 +111,23 @@ public final class ThreadActivity {
         }
     }
 
-    /** A sighting's key: the starting thread's family, the target, the detail, the call site, and whether owned. */
+    /**
+     * An unowned start's sighting key: the starting thread's family, the target, the detail, the call site, and the
+     * started thread's class, so a pool's worker and another thread of the same name never share a verdict.
+     */
     static final class Key {
         final int family;
         final int target;
         final int detail;
         final long site;
-        final boolean owned;
+        final int type;
 
-        Key(int family, int target, int detail, long site, boolean owned) {
+        Key(int family, int target, int detail, long site, int type) {
             this.family = family;
             this.target = target;
             this.detail = detail;
             this.site = site;
-            this.owned = owned;
+            this.type = type;
         }
 
         @Override
@@ -137,7 +140,7 @@ public final class ThreadActivity {
                     && target == key.target
                     && detail == key.detail
                     && site == key.site
-                    && owned == key.owned;
+                    && type == key.type;
         }
 
         @Override
@@ -145,7 +148,7 @@ public final class ThreadActivity {
             int hash = family * 31 + target;
             hash = hash * 31 + detail;
             hash = hash * 31 + (int) (site ^ (site >>> 32));
-            return hash * 2 + (owned ? 1 : 0);
+            return hash * 31 + type;
         }
     }
 
@@ -221,7 +224,6 @@ public final class ThreadActivity {
                 return;
             }
             Thread started = (Thread) thread;
-            SideEffects.RECORDED[hook].increment();
             boolean virtual = ThreadPropagation.isVirtual(started);
             String name = started.getName();
             boolean singleton = jdkSingleton(started, name);
@@ -241,7 +243,9 @@ public final class ThreadActivity {
                 frames = 0L;
                 origin = ORIGIN_JDK;
                 isStatic = true;
-            } else if (owned && !virtual) {
+            } else if (owned) {
+                // A request's start always walks: its origin decides whether it is tracked, and a cached walk keyed by
+                // a call site the code-paths sensor did not stamp could be another caller's.
                 long[] walked = walk(claim, false);
                 if (walked[1] == WORKER) {
                     WORKERS.increment();
@@ -251,7 +255,12 @@ public final class ThreadActivity {
                 origin = (int) walked[1];
                 isStatic = walked[2] != 0L;
             } else {
-                Key key = new Key(owner.threadName, target, detail, SideEffects.site(stamp), owned);
+                Key key = new Key(
+                        owner.threadName,
+                        target,
+                        detail,
+                        SideEffects.site(stamp),
+                        started.getClass().hashCode());
                 sighting = state.sightings.get(key);
                 if (sighting == null) {
                     long[] walked = walk(claim, false);
@@ -276,6 +285,7 @@ public final class ThreadActivity {
                 origin = sighting.origin;
                 isStatic = sighting.isStatic;
             }
+            SideEffects.RECORDED[hook].increment();
             detail |= origin;
             if (isStatic) {
                 detail |= DETAIL_STATIC;
@@ -742,7 +752,9 @@ public final class ThreadActivity {
             return true;
         }
         if (!executor) {
-            return className.startsWith("java.lang.Thread") || className.startsWith("java.lang.VirtualThread");
+            return className.startsWith("java.lang.Thread")
+                    || className.startsWith("java.lang.VirtualThread")
+                    || className.startsWith("java.util.Timer");
         }
         return className.startsWith("java.util.concurrent.ThreadPoolExecutor")
                 || className.startsWith("java.util.concurrent.ScheduledThreadPoolExecutor")
@@ -790,13 +802,19 @@ public final class ThreadActivity {
             int outside = 0;
             int application = 0;
             boolean outsideApplication = false;
-            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && application == 0; i++) {
+            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && !isStatic; i++) {
                 StackWalker.StackFrame frame = iterator.next();
                 String className = frame.getClassName();
                 if (className.startsWith("io.github.jdubois.bootui.agent.")) {
                     continue;
                 }
                 String method = frame.getMethodName();
+                if (application != 0) {
+                    // The frames found; a static initializer further down, as a lazy holder's first use inside a
+                    // request, still makes it a singleton, never tracked.
+                    isStatic = "<clinit>".equals(method);
+                    continue;
+                }
                 if (!creatorFound) {
                     if (api(className, executor)) {
                         continue;
@@ -807,7 +825,7 @@ public final class ThreadActivity {
                         return new long[] {0L, WORKER, 0L};
                     }
                 }
-                if (outside == 0 && "<clinit>".equals(method)) {
+                if ("<clinit>".equals(method)) {
                     isStatic = true;
                 }
                 if (jdk(className)) {
@@ -853,7 +871,7 @@ public final class ThreadActivity {
         jdk("warm");
         WALKER.walk(new CreatorWalk(null, false)).getClass();
         State state = new State(-1L);
-        Key key = new Key(0, 0, 0, 0L, false);
+        Key key = new Key(0, 0, 0, 0L, 0);
         state.sightings.putIfAbsent(key, new Sighting(0L, 0, false));
         state.sightings.get(key).pending.sumThenReset();
         state.targets.putIfAbsent("warm", Integer.valueOf(0));

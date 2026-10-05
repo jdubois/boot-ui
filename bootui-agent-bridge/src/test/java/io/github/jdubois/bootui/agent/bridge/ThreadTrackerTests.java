@@ -119,10 +119,91 @@ class ThreadTrackerTests {
     void anUnownedThreadOrOneStartedAfterItsRequestEndedIsNotTracked() throws Exception {
         Thread thread = new Thread(() -> {});
         assertThat(track(thread, true, 0L)).isFalse();
+        // Another request's executor waits, so request ends are written.
+        Object other = new Object();
+        track(other, false, REQUEST + 1);
         end(GENERATION, REQUEST);
         assertThat(track(thread, true, REQUEST)).as("its request already ended").isFalse();
         assertThat(tracker.afterEnd.sum()).isEqualTo(1L);
         assertThat(reports).isEmpty();
+    }
+
+    @Test
+    void anEndIsNotWrittenWhileNothingWaits() {
+        tracker.ended(REQUEST);
+        track(new Object(), false, REQUEST);
+        end(GENERATION, REQUEST + 1);
+
+        assertThat(tracker.anyWaiting())
+                .as("its request's end was written before anything waited")
+                .isTrue();
+    }
+
+    @Test
+    void executorsNeverShutDownNeverStopThreadsFromBeingTracked() {
+        List<Object> kept = new ArrayList<>();
+        for (int i = 0; i < ThreadTracker.MAX_ENTRIES; i++) {
+            Object executor = new Object();
+            kept.add(executor);
+            track(executor, false, 0L);
+        }
+        Thread thread = new Thread(() -> {});
+        assertThat(track(thread, true, REQUEST))
+                .as("threads have their own budget")
+                .isTrue();
+        assertThat(kept).hasSize(ThreadTracker.MAX_ENTRIES);
+    }
+
+    /** Request ends written by many threads at once are each read once, never torn: every waiting thread is reported. */
+    @Test
+    void concurrentEndsAreEachReadOnce() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        int requests = 200;
+        List<Thread> running = new ArrayList<>();
+        for (int i = 0; i < requests; i++) {
+            Thread thread = new Thread(() -> {
+                try {
+                    release.await();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            thread.start();
+            running.add(thread);
+            track(thread, true, 10_000L + i);
+        }
+        try {
+            List<Thread> enders = new ArrayList<>();
+            for (int w = 0; w < 4; w++) {
+                int first = w;
+                Thread ender = new Thread(() -> {
+                    for (int i = first; i < requests; i += 4) {
+                        tracker.ended(10_000L + i);
+                    }
+                });
+                enders.add(ender);
+                ender.start();
+            }
+            for (int round = 0; round < 50 && reports.size() < requests; round++) {
+                tracker.processEnds(GENERATION, System.nanoTime() + 1, 0L, reports);
+                Thread.sleep(2);
+            }
+            for (Thread ender : enders) {
+                ender.join();
+            }
+            tracker.processEnds(GENERATION, System.nanoTime() + 1, 0L, reports);
+
+            assertThat(reports).hasSize(requests);
+            assertThat(reports.stream().map(report -> report.request).distinct().count())
+                    .isEqualTo(requests);
+            assertThat(tracker.endsLost.sum()).isZero();
+            assertThat(tracker.anyWaiting()).isFalse();
+        } finally {
+            release.countDown();
+            for (Thread thread : running) {
+                thread.join();
+            }
+        }
     }
 
     @Test

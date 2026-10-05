@@ -60,6 +60,7 @@ public final class ThreadActivityBehaviors {
             executorShutDown();
             poolWorkers();
             jdkThread();
+            timer();
             libraryThread();
             unowned();
             virtualThreads();
@@ -202,17 +203,33 @@ public final class ThreadActivityBehaviors {
     static void jdkThread() throws Exception {
         RECORDS.clear();
         long request = request();
-        java.util.Timer timer = new java.util.Timer("it-timer-thread", true);
+        // The JDK's HttpClient starts its selector thread in its own constructor: the JDK's, never the application's.
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
         endRequest(request);
         long[] start = await(kind(SideEffects.KIND_THREAD_START));
         settle();
-        timer.cancel();
         check(
                 "a thread the JDK starts for the application is the JDK's, recorded, never left running ("
                         + describe(RECORDS) + ")",
-                start != null
+                client != null
+                        && start != null
                         && origin(start) == ThreadActivity.ORIGIN_JDK
                         && none(kind(SideEffects.KIND_THREAD_LEFT_RUNNING)));
+    }
+
+    static void timer() throws Exception {
+        RECORDS.clear();
+        long request = request();
+        // A java.util.Timer started per request, a classic leak: the Timer is the threading API, the caller the
+        // creator.
+        java.util.Timer timer = new java.util.Timer("it-timer-thread", true);
+        endRequest(request);
+        long[] left = await(kind(SideEffects.KIND_THREAD_LEFT_RUNNING));
+        timer.cancel();
+        check(
+                "a java.util.Timer the application starts for a request is its own thread, left running ("
+                        + describe(RECORDS) + ")",
+                left != null && origin(left) == ThreadActivity.ORIGIN_APPLICATION);
     }
 
     static void libraryThread() throws Exception {

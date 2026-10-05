@@ -662,6 +662,8 @@ jobs:
   # no agent (the cumulative overhead with it, fifteen pairs). It may be on by default only with its own median at most
   # 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL, and fails the job when the verdict
   # is FAIL while thread-activity is among the default sensors. Pushes, manual runs, and pull requests labelled agent.
+  # Java 17 measures platform threads; a server that starts a virtual thread per request (Java 21+) takes the cached
+  # path of a start no request owns, which this route does not exercise.
   agent-overhead-thread-activity:
     name: Agent overhead, thread activity A/B (Java 17)
     runs-on: ubuntu-latest
@@ -724,12 +726,18 @@ jobs:
           increment_range="$(read_value spring-mvc-thread-activity-ab.properties minOverheadPercent) to $(read_value spring-mvc-thread-activity-ab.properties maxOverheadPercent)"
           cumulative=$(read_value spring-mvc-agent-threads.properties overheadPercent)
           cumulative_range="$(read_value spring-mvc-agent-threads.properties minOverheadPercent) to $(read_value spring-mvc-agent-threads.properties maxOverheadPercent)"
+          for value in "$increment" "$cumulative"; do
+            if ! [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "::error::The thread-activity sensor's default cannot be checked: '$value' is not a percentage."
+              exit 1
+            fi
+          done
           verdict=PASS
           if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
             verdict=FAIL
           fi
           default=no
-          if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -q 'THREAD_ACTIVITY'; then
+          if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'THREAD_ACTIVITY|"thread-activity"'; then
             default=yes
           fi
           line="Thread-activity sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %), on the thread route. On by default: ${default}."

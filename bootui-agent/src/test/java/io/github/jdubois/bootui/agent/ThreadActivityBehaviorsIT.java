@@ -29,6 +29,7 @@ class ThreadActivityBehaviorsIT {
             "an executor shut down in finally is recorded created and shut down, never left running",
             "fork-join workers and the common pool's are never threads of their own",
             "a thread the JDK starts for the application is the JDK's",
+            "a java.util.Timer the application starts for a request is its own thread, left running",
             "a library's thread and executor on a request's thread are the library's",
             "starts no request owns are counted under the starting thread's family",
             "the sensor never keeps an executor",

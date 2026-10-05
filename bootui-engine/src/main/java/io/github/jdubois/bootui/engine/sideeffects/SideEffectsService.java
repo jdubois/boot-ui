@@ -980,6 +980,14 @@ public final class SideEffectsService implements AutoCloseable {
                 limitations.add(LIMITATION_CALL_SITES_FAILED);
             }
         }
+        if (current != null && current.claim.sensors().threadActivity()) {
+            long untracked = sensorCounter(AgentSensorSettings.THREAD_ACTIVITY, "untracked");
+            if (untracked > 0) {
+                limitations.add(untracked + (untracked == 1 ? " thread or executor was" : " threads or executors were")
+                        + " not tracked: the sensor tracks at most 1,024 threads waiting for their request's end and"
+                        + " 1,024 executors at a time, so what they left running is not reported.");
+            }
+        }
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
         }
@@ -1018,9 +1026,13 @@ public final class SideEffectsService implements AutoCloseable {
 
     /** One of the bridge's blocking counters, 0 when unavailable. */
     private long blockingCounter(String name) {
+        return sensorCounter(AgentSensorSettings.BLOCKING, name);
+    }
+
+    /** A side-effect sensor's counter in the bridge's status, 0 when absent. */
+    private long sensorCounter(String sensor, String name) {
         try {
-            Object value = AgentBridgeAccess.map(access.status(), AgentSensorSettings.BLOCKING)
-                    .get(name);
+            Object value = AgentBridgeAccess.map(access.status(), sensor).get(name);
             return value instanceof Number number ? number.longValue() : 0L;
         } catch (RuntimeException ex) {
             return 0L;

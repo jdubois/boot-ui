@@ -412,6 +412,63 @@ class SideEffectsStoreTests {
                 .satisfies(row -> assertThat(row.capture()).isEqualTo("not-captured"));
     }
 
+    /**
+     * M5-5e: a thread-activity follow-up lands on its creation's row, even when the creation, made by a request longer
+     * than the store waits, counted under the unknown route, and the request's route is named by the time it ends.
+     */
+    @Test
+    void aThreadActivityFollowUpLandsOnItsCreationsRowEvenWhenTheRouteWasNamedLater() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        long request = 0x42L;
+        store.add(threads(SideEffectsCatalog.KIND_EXECUTOR_CREATE, request, NOW));
+        store.resolve(Map.of(), NOW + SideEffectsStore.PENDING_MILLIS);
+        store.resolve(Map.of(String.format("%016x", request), "GET /stream"), NOW + SideEffectsStore.PENDING_MILLIS);
+        store.add(threads(SideEffectsCatalog.KIND_EXECUTOR_LEFT_RUNNING, request, NOW));
+        store.add(threads(SideEffectsCatalog.KIND_EXECUTOR_SHUTDOWN, request, NOW));
+
+        List<SideEffectsRowDto> rows = store.rows("thread-activity", true, true);
+
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.attribution()).isEqualTo(SideEffectsStore.UNKNOWN_ROUTE);
+            assertThat(row.count()).isEqualTo(1L);
+            assertThat(row.requests()).isEqualTo(1L);
+            assertThat(row.leftRunning()).isEqualTo(1L);
+            assertThat(row.completed()).isEqualTo(1L);
+        });
+    }
+
+    private static SideEffectsStore.Observation threads(int kind, long request, long millis) {
+        return new SideEffectsStore.Observation(
+                new SideEffectRecord(
+                        SideEffectsCatalog.RECORD_THREADS,
+                        kind,
+                        1L,
+                        millis,
+                        millis,
+                        request,
+                        0L,
+                        0L,
+                        1,
+                        SideEffectsCatalog.OUTCOME_STARTED,
+                        1,
+                        0,
+                        0,
+                        SideEffectsCatalog.ORIGIN_APPLICATION,
+                        1L,
+                        0L,
+                        0L,
+                        0,
+                        0),
+                "thread-activity",
+                "executor",
+                "java.util.concurrent.ThreadPoolExecutor",
+                "com.example.Exports#export",
+                null,
+                "http-nio-{n}-exec-{n}",
+                "application",
+                null);
+    }
+
     private static NetworkCapture capture(boolean[] matched) {
         return new NetworkCapture() {
             @Override

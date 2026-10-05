@@ -21,14 +21,16 @@ import java.util.concurrent.locks.ReentrantLock;
  * executor, or a class loader alive.
  *
  * <p>Entries are {@link WeakReference}s with primitive fields only, chained by identity hash, at most {@value
- * #MAX_ENTRIES}; a full table leaves new ones untracked, counted. One {@link ReentrantLock}, never a monitor, so a
+ * #MAX_ENTRIES} threads and as many executors, so executors never shut down never stop threads from being tracked; a
+ * full kind leaves new ones untracked, counted. One {@link ReentrantLock}, never a monitor, so a
  * virtual thread never pins its carrier here, taken only on rare paths (a tracked start or creation, a shutdown of a
  * tracked executor) and by the drain thread; it is the innermost lock on these paths ({@code Thread.start} holds the
  * started thread's monitor on JDK 17), and nothing under it calls into a thread's monitor or application code: {@link
  * Thread#isAlive()} is all it asks a tracked thread.
  *
- * <p><b>Request ends.</b> An adapter's request end ({@link #ended}) takes no lock: it writes the request and the time
- * into a lock-free ring of {@value #ENDS} entries, which the drain thread reads ({@link #processEnds}) once each end is
+ * <p><b>Request ends.</b> An adapter's request end ({@link #ended}) takes no lock, and returns after one volatile read
+ * while no entry waits for a request's end: otherwise it writes the request and the time into a lock-free ring of
+ * {@value #ENDS} entries, which the drain thread reads ({@link #processEnds}), {@value #ENDS_PER_HOLD} at a time, once each end is
  * at least the grace period old, so a thread still unwinding as the response completes is not reported. Only then does
  * it ask each thread the request started before its end whether it is still alive: anything alive or not shut down
  * then, after the grace, was so when the response was complete, so a report is never false. The {@value #ENDED}
@@ -37,8 +39,14 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 final class ThreadTracker {
 
+    /** Entries at most, of each kind: threads waiting for their request, and executors, apart. */
     static final int MAX_ENTRIES = 1_024;
-    static final int BUCKETS = 2_048;
+
+    static final int BUCKETS = 4_096;
+
+    /** Ends read under one hold of the lock, which a tracked start contends on: the rest at the next hold. */
+    static final int ENDS_PER_HOLD = 256;
+
     static final int ENDS = 4_096;
     static final int ENDED = 1_024;
     static final long WAIT_MILLIS = 600_000L;
@@ -72,6 +80,11 @@ final class ThreadTracker {
 
     /** Read without the lock by the fast paths, which may miss an entry another thread is adding. */
     private volatile int size;
+
+    /** The thread entries and the executor entries, each bounded by {@value #MAX_ENTRIES}. */
+    private int threads;
+
+    private int executors;
 
     private long generation = Long.MIN_VALUE;
 
@@ -205,7 +218,7 @@ final class ThreadTracker {
             if (thread && !wait) {
                 return false;
             }
-            if (size >= MAX_ENTRIES) {
+            if ((thread ? threads : executors) >= MAX_ENTRIES) {
                 untracked.increment();
                 return false;
             }
@@ -229,6 +242,11 @@ final class ThreadTracker {
             entry.next = buckets[bucket];
             buckets[bucket] = entry;
             size++;
+            if (thread) {
+                threads++;
+            } else {
+                executors++;
+            }
             if (wait) {
                 entry.waitingForEnd = true;
                 entry.waitingSince = createdMillis;
@@ -283,7 +301,9 @@ final class ThreadTracker {
      * Never throws.
      */
     void ended(long request) {
-        if (request == 0L) {
+        if (request == 0L || waiting == 0) {
+            // Nothing waits: no request's end matters, so none is written. A thread one of these requests starts later
+            // is waited for until its timeout, counted unresolved.
             return;
         }
         long sequence = endsWritten.getAndIncrement();
@@ -301,10 +321,18 @@ final class ThreadTracker {
      * ring overwrote before they were read are counted lost. Never throws.
      */
     void processEnds(long processGeneration, long nowNanos, long graceNanos, List<Entry> reports) {
-        long written = endsWritten.get();
-        if (endsRead == written) {
-            return;
+        while (true) {
+            long written = endsWritten.get();
+            if (endsRead == written || !processEnds(processGeneration, written, nowNanos, graceNanos, reports)) {
+                return;
+            }
         }
+    }
+
+    /** One hold of the lock: at most {@value #ENDS_PER_HOLD} ends. Returns whether ends remain ready to read. */
+    private boolean processEnds(
+            long processGeneration, long written, long nowNanos, long graceNanos, List<Entry> reports) {
+        int read = 0;
         lock.lock();
         try {
             reset(processGeneration);
@@ -313,6 +341,9 @@ final class ThreadTracker {
                 endsRead = written - ENDS;
             }
             while (endsRead < written) {
+                if (read++ >= ENDS_PER_HOLD) {
+                    return true;
+                }
                 int slot = (int) (endsRead & (ENDS - 1));
                 long sequence = endSequences.get(slot);
                 if (sequence != endsRead + 1) {
@@ -338,6 +369,7 @@ final class ThreadTracker {
                 ended.put(Long.valueOf(request), Boolean.TRUE);
                 check(request, endedAt, nowNanos, reports);
             }
+            return false;
         } finally {
             lock.unlock();
         }
@@ -430,6 +462,8 @@ final class ThreadTracker {
         waitingOrder.clear();
         ended.clear();
         size = 0;
+        threads = 0;
+        executors = 0;
         waiting = 0;
         generation = next;
     }
@@ -514,6 +548,11 @@ final class ThreadTracker {
         }
         entry.next = null;
         size--;
+        if (entry.thread) {
+            threads--;
+        } else {
+            executors--;
+        }
         stopWaiting(entry);
         entry.clear();
     }
