@@ -13,6 +13,7 @@ import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import AiExportPreview from './components/AiExportPreview.vue'
+import CaughtInCode from './components/CaughtInCode.vue'
 import {exceptionMarkdown, loadExceptionCorrelation} from '../utils/markdownExport.js'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -21,6 +22,7 @@ const {readOnly, readOnlyReason} = usePanelState(props)
 const {confirm} = useConfirm()
 
 const report = ref(null)
+const caughtReport = ref(null)
 const detail = ref(null)
 const error = ref(null)
 const {message: banner, flash, show, clear} = useFlashMessage(4000)
@@ -40,7 +42,13 @@ const STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED']
 async function fetchExceptions() {
   error.value = null
   try {
-    report.value = await getJson('api/exceptions')
+    // The caught-in-code section is optional: its failure never hides the exception groups.
+    const [exceptions, caught] = await Promise.all([
+      getJson('api/exceptions'),
+      getJson('api/exceptions/caught').catch(() => null)
+    ])
+    report.value = exceptions
+    caughtReport.value = caught
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load exceptions')
@@ -512,6 +520,8 @@ onMounted(() => {
           </div>
         </template>
       </template>
+
+      <CaughtInCode v-if="caughtReport" :report="caughtReport" class="mt-4" />
     </template>
   </div>
 </template>

@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.ThrowableMarks;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -27,8 +28,6 @@ import org.springframework.beans.factory.DisposableBean;
 public final class RuntimeJournalLogAppender extends AppenderBase<ILoggingEvent> implements DisposableBean {
 
     static final String APPENDER_NAME = "BOOTUI_RUNTIME_JOURNAL";
-
-    private static final String BOOTUI_LOGGERS = "io.github.jdubois.bootui.";
 
     private final RuntimeEventSink journal;
 
@@ -60,7 +59,7 @@ public final class RuntimeJournalLogAppender extends AppenderBase<ILoggingEvent>
             return;
         }
         String logger = event.getLoggerName();
-        if (logger != null && logger.startsWith(BOOTUI_LOGGERS)) {
+        if (InternalPackageMatcher.BOOTUI.matchesName(logger)) {
             return;
         }
         try {

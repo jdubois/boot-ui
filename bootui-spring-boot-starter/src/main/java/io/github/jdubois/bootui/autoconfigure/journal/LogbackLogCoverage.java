@@ -6,6 +6,7 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.LoggerContextListener;
 import ch.qos.logback.core.Appender;
 import io.github.jdubois.bootui.engine.exceptions.LogCoverage;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.ILoggerFactory;
@@ -25,8 +26,6 @@ public final class LogbackLogCoverage implements LogCoverage, LoggerContextListe
 
     /** How long the bypassing loggers are kept between reads. */
     static final long CACHE_MILLIS = 1_000L;
-
-    private static final String BOOTUI_LOGGERS = "io.github.jdubois.bootui.";
 
     private final LoggerContext context;
     private volatile long resetAt;
@@ -75,7 +74,7 @@ public final class LogbackLogCoverage implements LogCoverage, LoggerContextListe
         for (Logger logger : context.getLoggerList()) {
             String name = logger.getName();
             if (logger.isAdditive()
-                    || name.startsWith(BOOTUI_LOGGERS)
+                    || InternalPackageMatcher.BOOTUI.matchesName(name)
                     || !logger.iteratorForAppenders().hasNext()
                     || !logger.isEnabledFor(Level.WARN)) {
                 continue;

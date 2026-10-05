@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.logging;
 
 import io.github.jdubois.bootui.engine.exceptions.LogCoverage;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,8 +23,6 @@ public final class QuarkusLogCoverage implements LogCoverage {
 
     /** How long the bypassing loggers are kept between reads. */
     static final long CACHE_MILLIS = 1_000L;
-
-    private static final String BOOTUI_LOGGERS = "io.github.jdubois.bootui.";
 
     private volatile long cachedAt = Long.MIN_VALUE;
     private volatile List<String> cached = List.of();
@@ -52,7 +51,7 @@ public final class QuarkusLogCoverage implements LogCoverage {
         List<String> names = new ArrayList<>();
         try {
             for (String name : Collections.list(LogManager.getLogManager().getLoggerNames())) {
-                if (name == null || name.isEmpty() || name.startsWith(BOOTUI_LOGGERS)) {
+                if (name == null || name.isEmpty() || InternalPackageMatcher.BOOTUI.matchesName(name)) {
                     continue;
                 }
                 Logger logger = LogManager.getLogManager().getLogger(name);
