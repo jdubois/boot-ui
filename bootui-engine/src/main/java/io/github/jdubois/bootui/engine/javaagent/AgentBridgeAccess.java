@@ -41,6 +41,8 @@ public final class AgentBridgeAccess {
     static final String METHOD_PROBES_CLASS = "io.github.jdubois.bootui.agent.bridge.MethodProbes";
     /** The side-effect sensors' bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-5a). */
     static final String SIDE_EFFECTS_CLASS = "io.github.jdubois.bootui.agent.bridge.SideEffects";
+    /** The caught-exceptions sensor's bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-6a). */
+    static final String CAUGHT_EXCEPTIONS_CLASS = "io.github.jdubois.bootui.agent.bridge.CaughtExceptions";
 
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
@@ -63,6 +65,7 @@ public final class AgentBridgeAccess {
     private final ClassEvidenceHandles classEvidence;
     private final MethodProbesHandles methodProbes;
     private final SideEffectsHandles sideEffects;
+    private final MethodHandle caughtSites;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -123,6 +126,43 @@ public final class AgentBridgeAccess {
         this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
         this.methodProbes = this.inventory == null ? null : MethodProbesHandles.bind(bridge);
         this.sideEffects = this.inventory == null ? null : SideEffectsHandles.bind(bridge);
+        this.caughtSites = this.inventory == null ? null : bindCaughtSites(bridge);
+    }
+
+    /** The caught-exceptions sensor's site names, bound once; {@code null} when the bridge has none. */
+    private static MethodHandle bindCaughtSites(Class<?> bridge) {
+        try {
+            Class<?> caught = Class.forName(CAUGHT_EXCEPTIONS_CLASS, false, bridge.getClassLoader());
+            return MethodHandles.publicLookup()
+                    .findStatic(caught, "sites", MethodType.methodType(String[].class, int.class));
+        } catch (Throwable ex) {
+            // An agent of this protocol from before M5-6a: no caught-exceptions sensor.
+            return null;
+        }
+    }
+
+    /**
+     * Whether the bridge carries the caught-exceptions sensor ({@code CaughtExceptions}): an agent of the same protocol
+     * from before M5-6a does not.
+     */
+    public boolean caughtExceptionsSupported() {
+        return inventorySupported() && caughtSites != null;
+    }
+
+    /**
+     * The caught-exceptions sensor's handler sites from id {@code from}, each {@code key, types, line, flags} joined by
+     * tabs, index 0 being id {@code from}; an entry not written yet is {@code null}. Empty without the sensor's bridge.
+     */
+    public String[] caughtExceptionSites(int from) {
+        if (!caughtExceptionsSupported()) {
+            return new String[0];
+        }
+        try {
+            Object value = caughtSites.invoke(from);
+            return value instanceof String[] strings ? strings : new String[0];
+        } catch (Throwable ex) {
+            return new String[0];
+        }
     }
 
     /**
@@ -558,6 +598,14 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Whether the bridge's method probes can record argument and return shapes ({@code docs/PLAN-v2.md} M5-8, D44): an
+     * agent from before them starts every probe metadata-only.
+     */
+    public boolean methodProbeShapesSupported() {
+        return methodProbesSupported() && methodProbes.shapes();
+    }
+
+    /**
      * Starts a method probe for the claim {@code token} ({@code MethodProbes.start}): the answer's {@code status} is
      * {@code started} with the {@code probe}, or {@code invalid}, {@code refused}, {@code stale}, {@code unavailable}, or
      * {@code failed} with a {@code reason}.
@@ -607,7 +655,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Method probes' bridge entry points, bound once; {@code null} when the bridge has none. */
-    private record MethodProbesHandles(MethodHandle start, MethodHandle stop, MethodHandle list) {
+    private record MethodProbesHandles(MethodHandle start, MethodHandle stop, MethodHandle list, boolean shapes) {
 
         static MethodProbesHandles bind(Class<?> bridge) {
             try {
@@ -616,10 +664,22 @@ public final class AgentBridgeAccess {
                 return new MethodProbesHandles(
                         lookup.findStatic(probes, "start", MethodType.methodType(Map.class, long.class, Map.class)),
                         lookup.findStatic(probes, "stop", MethodType.methodType(Map.class, long.class, long.class)),
-                        lookup.findStatic(probes, "list", MethodType.methodType(List.class)));
+                        lookup.findStatic(probes, "list", MethodType.methodType(List.class)),
+                        shapes(lookup, probes));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-8: no method probes.
                 return null;
+            }
+        }
+
+        /** Whether the bridge records argument and return shapes: an agent from before D44 has no such constant. */
+        private static boolean shapes(MethodHandles.Lookup lookup, Class<?> probes) {
+            try {
+                Object protocol = lookup.findStaticGetter(probes, "SHAPES_PROTOCOL", int.class)
+                        .invoke();
+                return protocol instanceof Integer version && version >= 1;
+            } catch (Throwable ex) {
+                return false;
             }
         }
     }

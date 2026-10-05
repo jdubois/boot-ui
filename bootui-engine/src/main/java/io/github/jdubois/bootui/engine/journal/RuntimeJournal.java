@@ -223,6 +223,21 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     }
 
     /**
+     * Offers an event of the {@code agent.caught-exceptions} source, which BootUI's drain thread publishes for the
+     * application thread that recorded it: that thread's BootUI work was already left out by the agent, so the
+     * publishing thread being BootUI's own is not a reason to drop it. Any other source is refused here.
+     */
+    @Override
+    public boolean offerAgentRecord(RuntimeEvent event) {
+        if (event == null
+                || event.source() != JournalSource.AGENT_CAUGHT_EXCEPTIONS
+                || !settings.records(event.source())) {
+            return false;
+        }
+        return enqueue(event);
+    }
+
+    /**
      * Offers a {@code lifecycle} marker that BootUI publishes about its own action ({@link ControlMarkers}), which runs
      * in BootUI's own request and would otherwise be dropped as BootUI's work.
      */

@@ -2853,7 +2853,8 @@ public class BootUiProperties {
          * {@code files}, opt-in, records the files the application opens, deletes, moves, and copies, as path
          * patterns, never contents. {@code threads}, opt-in, also propagates a request's context into threads started from application code and
          * into virtual threads. {@code environment}, opt-in, records the names of the environment variables and system
-         * properties the application reads, never their values.
+         * properties the application reads, never their values. {@code caught-exceptions}, opt-in, reports the exceptions
+         * application code catches and which of them are thrown again, never their message, to the runtime journal.
          */
         private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
 

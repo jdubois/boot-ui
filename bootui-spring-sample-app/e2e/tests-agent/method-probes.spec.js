@@ -56,8 +56,90 @@ test.describe('Method probes, agent attached', () => {
     expect(ended.hits.length).toBeGreaterThanOrEqual(3)
     for (const hit of ended.hits) {
       expect(Object.keys(hit).sort()).toEqual(
-        ['caller', 'durationMicros', 'exceptionType', 'outcome', 'requestId', 'threadKind', 'time'].sort()
+        [
+          'arguments',
+          'argumentsNotRecorded',
+          'caller',
+          'durationMicros',
+          'exceptionType',
+          'outcome',
+          'requestId',
+          'returned',
+          'shapesIncomplete',
+          'threadKind',
+          'time'
+        ].sort()
       )
+      // A metadata-only probe: no shape.
+      expect(hit.arguments).toEqual([])
+      expect(hit.returned).toBeNull()
+    }
+  })
+
+  test('records argument and return shapes when asked, and never shows them to MCP', async ({page}) => {
+    for (let i = 0; i < 3; i++) {
+      expect((await page.request.get(`/api/quotes/shapes-${i}`)).ok()).toBeTruthy()
+    }
+    await expect
+      .poll(
+        async () => {
+          const report = await (await page.request.get('/bootui/api/code-paths')).json()
+          return report.routes?.some((route) => route.route === ROUTE) ?? false
+        },
+        {timeout: 30_000}
+      )
+      .toBe(true)
+
+    await page.goto(`/bootui/#/code-paths?route=${encodeURIComponent(ROUTE)}`)
+    await page.locator('.code-paths-tree').getByRole('button', {name: 'SlowPricingService.quote'}).click()
+    await expect(page.locator('#code-paths-probe-target')).toContainText(SLOW)
+    await page.getByLabel('Record argument and return shapes').check()
+    await page.getByRole('button', {name: 'Probe this method'}).click()
+    const dialog = page.getByRole('dialog', {name: 'Probe this method?'})
+    await expect(dialog).toContainText('shapes of the arguments and the return value')
+    await dialog.getByRole('button', {name: 'Start probe'}).click()
+
+    const probe = page.locator('.code-paths-probe').first()
+    await expect(probe.locator('.code-paths-probe-state')).toHaveText('active', {timeout: 15_000})
+    await expect(probe.locator('.code-paths-probe-shapes-badge')).toHaveText('shapes')
+    for (let i = 0; i < 2; i++) {
+      expect((await page.request.get(`/api/quotes/sku-shaped-${i}`)).ok()).toBeTruthy()
+    }
+    await expect(probe).toContainText(/[2-9] of 20 invocations/, {timeout: 15_000})
+    const hit = page.locator('.code-paths-probe-hits tbody tr').first()
+    await expect(hit.locator('.code-paths-probe-arguments .code-paths-probe-shape')).toHaveText(['String'])
+    await expect(page.locator('.code-paths-probe-withheld')).toContainText('bootui.expose-values=FULL')
+    await expect(hit.locator('.code-paths-probe-shape').first()).toHaveText('int')
+
+    // The UI's read, under the sample's default MASKED exposure: types and nullness, never a string's length.
+    const listed = await (await page.request.get('/bootui/api/code-paths/probes')).json()
+    expect(listed.shapesAvailable).toBe(true)
+    const shaped = listed.probes.find((candidate) => candidate.method === SLOW && candidate.recordShapes)
+    expect(shaped.shapesHiddenReason).toBeNull()
+    expect(shaped.hits[0].arguments).toEqual([
+      {
+        kind: 'string',
+        declaredType: 'java.lang.String',
+        type: 'java.lang.String',
+        size: null,
+        present: null,
+        constant: null,
+        withheld: true
+      }
+    ])
+    expect(shaped.hits[0].returned).toMatchObject({kind: 'primitive', declaredType: 'int'})
+    expect(JSON.stringify(shaped)).not.toContain('sku-shaped')
+    await probe.getByRole('button', {name: 'Stop'}).click()
+    await expect(probe.locator('.code-paths-probe-state')).toHaveText('ended', {timeout: 15_000})
+
+    // MCP's get_method_probe, as the CLI's bootui probe show: the same probe, never a shape.
+    const forAgents = await callMcpTool(page, 'get_method_probe', {id: shaped.id})
+    expect(forAgents.recordShapes).toBe(true)
+    expect(forAgents.shapesHiddenReason).toContain('never to MCP or the CLI')
+    expect(forAgents.hits.length).toBeGreaterThanOrEqual(2)
+    for (const recorded of forAgents.hits) {
+      expect(recorded.arguments).toEqual([])
+      expect(recorded.returned).toBeNull()
     }
   })
 
@@ -83,3 +165,36 @@ test.describe('Method probes, agent attached', () => {
     expect(forged.status()).toBe(403)
   })
 })
+
+/** Calls one BootUI MCP tool from the page, with the MCP server enabled for the call and restored after it. */
+async function callMcpTool(page, name, args) {
+  await page.goto('/bootui/')
+  return page.evaluate(
+    async ({name, args}) => {
+      const token = decodeURIComponent(
+        document.cookie
+          .split(';')
+          .map((part) => part.trim())
+          .find((part) => part.startsWith('XSRF-TOKEN='))
+          ?.substring('XSRF-TOKEN='.length) ?? ''
+      )
+      const headers = {'Content-Type': 'application/json', 'X-XSRF-TOKEN': token}
+      const toggle = (enabled) =>
+        fetch('api/mcp-server/toggle', {method: 'POST', headers, body: JSON.stringify({enabled})})
+      const before = await (await fetch('api/mcp-server')).json()
+      await toggle(true)
+      try {
+        const response = await fetch('api/mcp', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}})
+        })
+        const envelope = await response.json()
+        return JSON.parse(envelope.result.content[0].text)
+      } finally {
+        await toggle(before.enabled)
+      }
+    },
+    {name, args}
+  )
+}
