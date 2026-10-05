@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`, and
+  `environment` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
 - **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
   `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
   executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of

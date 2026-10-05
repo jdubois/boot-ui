@@ -46,4 +46,33 @@ export async function acceptConfirm(page) {
   await expect(dialog).toBeHidden()
 }
 
+/**
+ * Switches an opt-in BootUI agent sensor on or off at run time (docs/PLAN-v2.md M5-14), as the Java Agent panel does,
+ * echoing the XSRF-TOKEN cookie a GET primes; then waits until the sensor's switch reads `installed` when switched on,
+ * or `off` when switched off. Returns whether it was enabled before, so a spec can put it back.
+ *
+ * @param {import('@playwright/test').APIRequestContext} request
+ * @param {string} sensor such as `environment`
+ * @param {boolean} enabled
+ */
+export async function switchAgentSensor(request, sensor, enabled) {
+  const toggleOf = async () =>
+    ((await (await request.get('/bootui/api/java-agent')).json()).toggles ?? []).find(
+      (candidate) => candidate.id === sensor
+    )
+  const before = await toggleOf()
+  expect(before, `the ${sensor} switch is offered while the agent is armed`).toBeTruthy()
+  if (before.enabled !== enabled) {
+    const {cookies} = await request.storageState()
+    const xsrf = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN')
+    const response = await request.post(`/bootui/api/java-agent/sensors/${sensor}`, {
+      headers: {'Content-Type': 'application/json', ...(xsrf ? {'X-XSRF-TOKEN': xsrf.value} : {})},
+      data: {enabled}
+    })
+    expect(response.status(), await response.text()).toBe(200)
+  }
+  await expect.poll(async () => (await toggleOf())?.state, {timeout: 30_000}).toBe(enabled ? 'installed' : 'off')
+  return before.enabled
+}
+
 export {expect}

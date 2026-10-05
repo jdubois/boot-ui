@@ -108,8 +108,8 @@ public record AgentSensorSettings(
                 "Off by default: it retransforms java.lang.Thread, the riskiest JDK class to instrument, and a failed"
                         + " self-test leaves it off until the application restarts.";
             case FILES ->
-                "Off by default: its overhead is not proven within the agent's 10 % budget yet; it measured about 10 %"
-                        + " cumulative on the benchmark's I/O route.";
+                "Off by default: with the default sensors, the agent's overhead on the benchmark's I/O route measured"
+                        + " about 10.6 %, over its 10 % budget.";
             case ENVIRONMENT ->
                 "Off by default: it advises System.getProperty, which frameworks call often; a read takes about 23–28 ns"
                         + " with it instead of 5–6 ns.";

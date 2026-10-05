@@ -118,7 +118,15 @@ describe('AgentSensorToggle', () => {
 
   it('is hidden while the manifest does not list an enabled, available Java Agent panel', () => {
     expect(mountToggle(toggle(), ref(null)).find('input').exists()).toBe(false)
-    expect(mountToggle(toggle(), manifest({enabled: false})).find('input').exists()).toBe(false)
-    expect(mountToggle(toggle(), manifest({available: false})).find('input').exists()).toBe(false)
+    expect(
+      mountToggle(toggle(), manifest({enabled: false}))
+        .find('input')
+        .exists()
+    ).toBe(false)
+    expect(
+      mountToggle(toggle(), manifest({available: false}))
+        .find('input')
+        .exists()
+    ).toBe(false)
   })
 })

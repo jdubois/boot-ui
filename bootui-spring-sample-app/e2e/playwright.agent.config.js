@@ -18,8 +18,10 @@ const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
 const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
 
-// The default sensors and the opt-in environment sensor, whose Side Effects seed the side-effects spec asserts (M5-5d).
-const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment`
+// The default sensors and the opt-in files sensor, whose Side Effects seed the side-effects spec asserts (M5-5d). The
+// opt-in environment sensor is left out on purpose: the sensor-switch spec and the side-effects spec switch it on at run
+// time (M5-14), and back off.
+const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files`
 
 export default defineConfig({
   testDir: '.',

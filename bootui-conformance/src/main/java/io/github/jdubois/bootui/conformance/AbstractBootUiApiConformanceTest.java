@@ -1870,17 +1870,22 @@ public abstract class AbstractBootUiApiConformanceTest {
     void anOptInSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
         assumeTrue(isPanelUsableInLiveManifest("java-agent"), "java-agent panel is not available in this environment");
         assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
-        assertThat(probe().get(api("/java-agent")).json().path("toggles").size()).isZero();
+        assertThat(probe().get(api("/java-agent")).json().path("toggles").size())
+                .isZero();
         JsonNode panel = livePanelsById().get("java-agent");
 
         BootUiHttpProbe probe = probe();
         Response refused = probe.request(
                 "POST", api("/java-agent/sensors/environment"), stateChangingHeaders(probe), "{\"enabled\":true}");
         if (panel.path("readOnly").asBoolean(false)) {
-            assertThat(refused.status()).as("a read-only java-agent panel refuses the switch").isEqualTo(403);
+            assertThat(refused.status())
+                    .as("a read-only java-agent panel refuses the switch")
+                    .isEqualTo(403);
             return;
         }
-        assertThat(refused.status()).as("POST java-agent/sensors/environment without the agent").isEqualTo(409);
+        assertThat(refused.status())
+                .as("POST java-agent/sensors/environment without the agent")
+                .isEqualTo(409);
         assertThat(refused.isJson()).isTrue();
         assertThat(refused.json().path("error").asText()).contains("not armed");
 
@@ -1893,7 +1898,9 @@ public abstract class AbstractBootUiApiConformanceTest {
         BootUiHttpProbe empty = probe();
         Response missing =
                 empty.request("POST", api("/java-agent/sensors/environment"), stateChangingHeaders(empty), "{}");
-        assertThat(missing.status()).as("POST java-agent/sensors/environment without enabled").isEqualTo(400);
+        assertThat(missing.status())
+                .as("POST java-agent/sensors/environment without enabled")
+                .isEqualTo(400);
         assertThat(missing.json().path("error").asText()).contains("enabled");
     }
 
