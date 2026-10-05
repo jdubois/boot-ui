@@ -410,16 +410,23 @@ public final class FilesEnvironmentBehaviors {
     static void jdkReadsAreNotRecorded() throws Exception {
         RECORDS.clear();
         long before = (Long) environment().get("jdkReads");
+        long frameworkBefore = (Long) environment().get("frameworkReads");
         CONTEXT.set(REQUEST);
         javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        io.smallrye.config.bootuiit.FakeConfigSource.value("bootui.it.config.property");
         CONTEXT.remove();
         Thread.sleep(100);
         drain();
         long after = (Long) environment().get("jdkReads");
+        long frameworkAfter = (Long) environment().get("frameworkReads");
         check(
-                "the JDK's own property reads are not recorded (" + before + " -> " + after + " " + describe(RECORDS)
-                        + ")",
+                "the JDK's own property reads are not recorded, nor a configuration framework's (" + before + " -> "
+                        + after + ", " + frameworkBefore + " -> " + frameworkAfter + " " + describe(RECORDS) + ")",
                 after > before
+                        && frameworkAfter > frameworkBefore
+                        && RECORDS.stream()
+                                .noneMatch(record ->
+                                        "bootui.it.config.property".equals(string(record[SideEffects.R_TARGET])))
                         && RECORDS.stream()
                                 .noneMatch(record -> string(record[SideEffects.R_TARGET]) != null
                                         && string(record[SideEffects.R_TARGET]).startsWith("javax.xml")));

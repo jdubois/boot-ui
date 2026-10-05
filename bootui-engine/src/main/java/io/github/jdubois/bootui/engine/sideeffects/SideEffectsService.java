@@ -90,7 +90,9 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_ENVIRONMENT = "Environment: a name is recorded the first time a thread reads it for"
             + " a request or an execution, so a row counts the requests and threads that read it, not every call; on a"
             + " thread no request scope owns, a name read again within a second counts once; a name the JDK read first for"
-            + " the same request on the same thread is not recorded again. Reads the JDK makes for"
+            + " the same request on the same thread is not recorded again. A configuration framework resolving its own"
+            + " properties (SmallRye Config, Spring's Environment) is not a direct read and is not recorded, nor are reads"
+            + " the JDK makes for"
             + " itself, as an XML or SSL factory looking up its property, are not recorded. A framework reading the whole"
             + " map (System.getenv() or System.getProperties()) and then a name from it shows as (all variables), or not"
             + " at all for properties.";

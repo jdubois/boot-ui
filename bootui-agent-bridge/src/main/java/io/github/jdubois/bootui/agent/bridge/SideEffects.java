@@ -308,6 +308,11 @@ public final class SideEffects {
     private static final LongAdder WALKS = new LongAdder();
     private static final LongAdder SIGHTINGS_FULL = new LongAdder();
     private static final LongAdder JDK_READS = new LongAdder();
+    private static final LongAdder FRAMEWORK_READS = new LongAdder();
+
+    /** The context of an environment read whose immediate caller is a configuration framework: not recorded. */
+    static final int INDIRECT_FRAMEWORK = -2;
+
     private static final Sightings SIGHTINGS = new Sightings();
     /** The interned targets of the files and environment sensors in the current intern table's generation. */
     private static final AtomicInteger[] INTERNED = {
@@ -770,14 +775,21 @@ public final class SideEffects {
             String target = name == null
                     ? "(all variables)"
                     : name.length() > MAX_PATTERN ? name.substring(0, MAX_PATTERN) : name;
-            int id = internQuota(target, SENSOR_ENVIRONMENT);
             long stamp = CodePaths.stamp();
-            long[] summary = summary(frame, claim, null, hook, id, stamp, true);
+            // Walked before the name is interned, its cache keyed by the name's hash: an indirect read, never
+            // recorded, takes nothing of the generation's table.
+            long[] summary = summary(frame, claim, null, hook, target.hashCode() | 1, stamp, true);
+            if (summary[1] == INDIRECT_FRAMEWORK) {
+                // A configuration framework resolving its own property, as SmallRye Config or Spring's Environment.
+                FRAMEWORK_READS.increment();
+                return;
+            }
             if (summary[1] < 0) {
                 // A read the JDK made for itself, as a property lookup inside an XML or SSL factory: not direct.
                 JDK_READS.increment();
                 return;
             }
+            int id = internQuota(target, SENSOR_ENVIRONMENT);
             RECORDED[hook].increment();
             Owner owner = owner(frame, claim);
             record(frame, owner, SENSOR_ENVIRONMENT, kind, id, OUTCOME_DONE, (int) summary[1], stamp, summary[0], 0L);
@@ -1056,7 +1068,7 @@ public final class SideEffects {
      */
     static long[] summary(CodePaths.Frame frame, Claim claim, Owner owner, int hook, int id, long stamp, boolean env) {
         int method = stamp > 0L ? CodePaths.stampMethod(stamp) : -1;
-        if (method >= 0 && id > 0) {
+        if (method >= 0 && (env ? id != 0 : id > 0)) {
             long key = ((long) (hook + 1) << 56) | ((long) (id & 0xFFFFFF) << 32) | (method & 0xFFFFFFFFL);
             long[] found = new long[2];
             int result = SIGHTINGS.find(generation, key, found);
@@ -1137,6 +1149,20 @@ public final class SideEffects {
                 || className.startsWith("jdk.internal.reflect.")
                 || className.startsWith("java.lang.reflect.")
                 || className.startsWith("java.lang.invoke.");
+    }
+
+    /**
+     * Configuration frameworks, which read system properties and environment variables to resolve their own
+     * properties: such a read is the framework's, not a direct one (PLAN-v2 M5-5 design I4).
+     */
+    static boolean configuration(String className) {
+        return className.startsWith("io.smallrye.config.")
+                || className.startsWith("org.eclipse.microprofile.config.")
+                || className.startsWith("io.quarkus.runtime.configuration.")
+                || className.startsWith("org.springframework.core.env.")
+                || className.startsWith("org.springframework.boot.env.")
+                || className.startsWith("org.springframework.boot.context.config.")
+                || className.equals("org.springframework.core.SpringProperties");
     }
 
     /** Whether {@code className} is the JDK's by its name. */
@@ -1221,6 +1247,9 @@ public final class SideEffects {
                     immediate = false;
                     if (jdk(frame)) {
                         return new long[] {0L, -1L};
+                    }
+                    if (configuration(className)) {
+                        return new long[] {0L, INDIRECT_FRAMEWORK};
                     }
                 }
                 if (jdk(frame)) {
@@ -2421,6 +2450,7 @@ public final class SideEffects {
             walk(null, true);
             walk(null, false);
             transparent("warm");
+            configuration("warm");
             classLoading("warm");
             jdk("warm");
             StandardOpenOption.WRITE.getClass();
@@ -2526,6 +2556,7 @@ public final class SideEffects {
             }
             if (sensor == SENSOR_ENVIRONMENT) {
                 map.put("jdkReads", Long.valueOf(JDK_READS.sum()));
+                map.put("frameworkReads", Long.valueOf(FRAMEWORK_READS.sum()));
             }
             if (sensor == SENSOR_PROCESSES) {
                 map.put("exitsWatched", Long.valueOf(EXITS_WATCHED.sum()));
@@ -2590,6 +2621,7 @@ public final class SideEffects {
         WALKS.reset();
         SIGHTINGS_FULL.reset();
         JDK_READS.reset();
+        FRAMEWORK_READS.reset();
         SIGHTINGS.clear();
         for (AtomicInteger interned : INTERNED) {
             interned.set(0);

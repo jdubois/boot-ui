@@ -645,7 +645,9 @@ The advice runs at the method's entry and passes only the name to the bridge. A 
 reads the name for a request or an execution: on a thread no request scope owns, again once a second has passed. A
 row's count is therefore the requests and threads that read it, not the calls. A read whose immediate caller, past
 `System` and the `Boolean.getBoolean`, `Integer.getInteger`, and `Long.getLong` lookups, is a JDK class, such as an XML
-or SSL factory looking up its own property, is not recorded. Spring's `Environment` reads the whole maps once, so a
+or SSL factory looking up its own property, is not recorded, nor is a read whose immediate caller is a configuration
+framework resolving its own properties (SmallRye Config, MicroProfile Config, Quarkus' configuration, Spring's
+`Environment` and `SpringProperties`), which reads thousands of names at startup. Spring's `Environment` reads the whole maps once, so a
 property it resolves from them is not seen, and `System.getProperties()` is not hooked. A generation keeps at most
 1,000 distinct names; a name that looks like a secret value is masked.
 
