@@ -50,7 +50,8 @@ everywhere. Containers the harness starts are named `bootui-validation-*` and ar
 
 The maintainer registers the protocol once, right before the rerun and after any addition to the known misses, with an
 annotated tag on the merged commit, which is never moved (a `v…` name would start `release.yml`):
-`git tag -a m4-20-protocol-1 -m "M4-20 validation protocol" <commit> && git push origin m4-20-protocol-1`.
+`git tag -a m4-20-protocol-2 -m "M4-20 validation protocol" <commit> && git push origin m4-20-protocol-2`.
+`m4-20-protocol-1` was superseded by `m4-20-protocol-2` before any review or scoring (`protocol.json`, `amendments`).
 The tag registers everything under `validation/` except `.work/` and `scoring/fixtures/`. A measured run refuses a
 checkout with any change, a checkout that is not the recorded build, and `VALIDATION_APP_ARGS`.
 
@@ -118,7 +119,7 @@ summaries (duration, request count, statuses per route), and per service `runtim
 3. The maintainer fills `to-adjudicate.csv` in as `adjudication.csv` (`id,judgment,reason`), and writes `recall.csv`
    (`id,outcome,rows,note`) for every item of `recall/known-misses.json`. Two reviewers who agree are never overruled.
 4. The final score refuses to run while anything is missing, while the registered files differ from the
-   `m4-20-protocol-1` tag or that tag is not the one origin publishes (`--offline` marks the score not final), while
+   `m4-20-protocol-2` tag (`protocol.json`, `registration.ref`) or that tag is not the one origin publishes (`--offline` marks the score not final), while
    the worksheet differs from the one the evidence gives, or without the investigations
    and the time to first observation (`--partial` scores without them, marked as partial):
 
