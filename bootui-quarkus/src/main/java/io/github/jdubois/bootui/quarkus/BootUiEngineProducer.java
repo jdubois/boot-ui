@@ -85,8 +85,10 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.sideeffects.JournalExecutions;
+import io.github.jdubois.bootui.engine.sideeffects.JournalNetworkCapture;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
@@ -140,7 +142,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Singleton;
-import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Clock;
@@ -384,7 +385,8 @@ public class BootUiEngineProducer {
             JavaAgentService javaAgent,
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
-            AgentEvidence evidence) {
+            AgentEvidence evidence,
+            Config config) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
@@ -397,6 +399,11 @@ public class BootUiEngineProducer {
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         service.setExecutionLabels(JournalExecutions.of(journal.isResolvable() ? journal.get() : null));
+        // Whether a panel shows a network connection's work (M5-5b).
+        service.setNetworkCapture(JournalNetworkCapture.of(journal.isResolvable() ? journal.get() : null));
+        // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
+        service.setExporterEndpoints(
+                key -> config.getOptionalValue(key, String.class).orElse(null));
         return service;
     }
 
@@ -1136,7 +1143,7 @@ public class BootUiEngineProducer {
                 allowedApiHosts);
         GitHubApiClient client = new GitHubApiClient(
                 settings,
-                HttpClient.newBuilder().connectTimeout(requestTimeout).build(),
+                BootUiHttpClients.newBuilder().connectTimeout(requestTimeout).build(),
                 new ObjectMapper(),
                 DefaultGitHubTokenProvider.create());
         return GitHubDashboardService.using(

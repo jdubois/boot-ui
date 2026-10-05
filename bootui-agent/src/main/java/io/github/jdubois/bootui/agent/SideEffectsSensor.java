@@ -4,12 +4,25 @@ import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.Socket;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.SocketChannel;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
 import net.bytebuddy.asm.Advice;
@@ -19,22 +32,61 @@ import net.bytebuddy.matcher.ElementMatchers;
 /**
  * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook, installed with the
  * hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
- * in the bridge saying which sensors record ({@link SideEffects#enable}). M5-5a ships {@value SideEffects#PROCESSES}:
- * {@code ProcessBuilder.start(Redirect[])}. A self-test per hook runs it on the sensor's worker thread, which the bridge
- * counts and never records: the processes hook starts a command holding a NUL character, which {@code ProcessBuilder}
- * refuses before spawning anything. A sensor whose hook fails its self-test is disabled and the transformer removed;
- * the bridge stops it for the claim at once. A claim asking for another set of side-effect sensors reinstalls the
- * transformer with that set's hooks; a claim asking for none, or a release, removes it.
+ * in the bridge saying which sensors record ({@link SideEffects#enable}). {@value SideEffects#PROCESSES} hooks {@code
+ * ProcessBuilder.start(Redirect[])}; {@value SideEffects#NETWORK} (M5-5b) hooks {@code Socket.connect}, {@code
+ * SocketChannelImpl.connect}, {@code blockingConnect}, and {@code finishConnect}, {@code DatagramChannelImpl.send},
+ * {@code DatagramSocket.send}, and {@code InetAddress.getAddressesFromNameService}.
+ *
+ * <p>A self-test per hook runs it on the sensor's worker thread, which the bridge counts and never records, without
+ * starting a process or sending a byte: a command holding a NUL character, which {@code ProcessBuilder} refuses before
+ * spawning; connects and sends to an unresolved address, or to a Unix-domain address on a TCP channel, which the JDK
+ * refuses before any I/O, on a socket without a proxy, so no proxy selector is asked; a finish with no connect pending; a send on a closed socket; and, on a helper
+ * thread with a bounded wait, a lookup of a spelling of {@code localhost} the JVM's case-sensitive cache does not hold,
+ * which the hosts file answers.
+ *
+ * <p>Failures are isolated. A hook that fails its self-test is left out of the transformer for the JVM's life; when it
+ * is one of its sensor's core hooks, the sensor is disabled for the JVM's life instead, and the transformer reinstalled
+ * with the remaining sensors, so one sensor never takes another down. A claim asking for another set of side-effect
+ * sensors reinstalls the transformer with that set's hooks; a claim asking for none, or a release, removes it.
  */
 final class SideEffectsSensor {
 
     static final String PROCESS_BUILDER = "java.lang.ProcessBuilder";
+    static final String SOCKET = "java.net.Socket";
+    static final String SOCKET_CHANNEL = "sun.nio.ch.SocketChannelImpl";
+    static final String DATAGRAM_CHANNEL = "sun.nio.ch.DatagramChannelImpl";
+    static final String DATAGRAM_SOCKET = "java.net.DatagramSocket";
+    static final String INET_ADDRESS = "java.net.InetAddress";
 
-    /** Every hook: its id, the type it transforms, its kind, and its sensor. */
-    static final String[][] HOOKS = {{"ProcessBuilder.start", PROCESS_BUILDER, "record", SideEffects.PROCESSES}};
+    static final String CORE = "core";
+    static final String OPTIONAL = "optional";
+
+    /** Every hook: its id, the type it transforms, its kind, its sensor, and whether its sensor needs it. */
+    static final String[][] HOOKS = {
+        {"ProcessBuilder.start", PROCESS_BUILDER, "record", SideEffects.PROCESSES, CORE},
+        {"Socket.connect", SOCKET, "record", SideEffects.NETWORK, CORE},
+        {"SocketChannel.connect", SOCKET_CHANNEL, "record", SideEffects.NETWORK, CORE},
+        {"SocketChannel.blockingConnect", SOCKET_CHANNEL, "record", SideEffects.NETWORK, OPTIONAL},
+        {"SocketChannel.finishConnect", SOCKET_CHANNEL, "record", SideEffects.NETWORK, OPTIONAL},
+        {"DatagramChannel.send", DATAGRAM_CHANNEL, "record", SideEffects.NETWORK, OPTIONAL},
+        {"DatagramSocket.send", DATAGRAM_SOCKET, "record", SideEffects.NETWORK, OPTIONAL},
+        {"InetAddress.lookup", INET_ADDRESS, "record", SideEffects.NETWORK, OPTIONAL}
+    };
+
+    /** The side-effect sensors, in status order. */
+    static final String[] SENSORS = {SideEffects.PROCESSES, SideEffects.NETWORK};
 
     /** The command the processes self-test starts: {@code ProcessBuilder} refuses a NUL before spawning. */
     static final String SELF_TEST_COMMAND = "bootui-agent-self-test\u0000";
+
+    /** The unresolved host the network self-test connects and sends to: the JDK refuses it before any I/O. */
+    static final String SELF_TEST_HOST = "bootui-agent-self-test.invalid";
+
+    /** How long the lookup step's helper thread is waited for. */
+    static final long LOOKUP_WAIT_MILLIS = 5_000L;
+
+    /** Rounds of self-test at most: each round that fails leaves at least one hook out. */
+    private static final int MAX_ROUNDS = 4;
 
     private static final int INSTALL = 1;
     private static final int RELEASE = 2;
@@ -52,6 +104,12 @@ final class SideEffectsSensor {
     private volatile int wantedMask;
     /** Every sensor a claim ever asked for: reported, with its state, until the JVM ends. */
     private volatile int reportedMask;
+    /** Sensors whose core hook failed its self-test: off for the JVM's life. */
+    private volatile int failedSensors;
+    /** Hooks that failed their self-test: left out of the transformer for the JVM's life. */
+    private final Set<String> failedHooks = new LinkedHashSet<String>();
+    /** Why each failed sensor failed. */
+    private final Map<String, String> sensorErrors = new LinkedHashMap<String, String>();
 
     private volatile String state = "off";
     private volatile long installMillis = -1;
@@ -78,9 +136,13 @@ final class SideEffectsSensor {
         if (stuck) {
             return;
         }
+        int effective = mask & ~failedSensors;
         // Only while no job runs: a release the worker is running would remove the hooks after this enabled them.
-        if (transformer != null && installedMask == mask && selfTestPassed && worker == null) {
-            SideEffects.enable(mask);
+        if (transformer != null && installedMask == effective && selfTestPassed && worker == null) {
+            SideEffects.enable(effective);
+            return;
+        }
+        if (effective == 0 && transformer == null) {
             return;
         }
         schedule(INSTALL);
@@ -114,6 +176,11 @@ final class SideEffectsSensor {
         return worker == null && pending == 0;
     }
 
+    /** The sensors the current claim asks for that have not failed. */
+    private int effective() {
+        return wantedMask & ~failedSensors;
+    }
+
     /** Starts the one thread process exits complete on, once per JVM, through the agent's own thread factory. */
     private synchronized void startExitWorker() {
         if (exitWorkerStarted) {
@@ -139,7 +206,7 @@ final class SideEffectsSensor {
         public void run() {
             int job;
             while ((job = nextJob()) != 0) {
-                int mask = wantedMask;
+                int mask = effective();
                 try {
                     if ((job & RELEASE) != 0 || (job & INSTALL) != 0 && transformer != null && installedMask != mask) {
                         SideEffects.disable(installedMask, null);
@@ -149,7 +216,7 @@ final class SideEffectsSensor {
                         if (transformer == null) {
                             install(mask);
                         }
-                        selfTest(mask);
+                        selfTest(mask, 1);
                     }
                 } catch (Throwable ex) {
                     selfTestPassed = false;
@@ -169,7 +236,7 @@ final class SideEffectsSensor {
         selfTestMillis = -1;
         SideEffects.warm();
         startExitWorker();
-        InstallAction action = new InstallAction(mask);
+        InstallAction action = new InstallAction(mask, leftOut());
         try {
             transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
             installedMask = mask;
@@ -179,6 +246,13 @@ final class SideEffectsSensor {
             installMillis = elapsed / 1_000_000L;
         }
         state = "testing";
+    }
+
+    /** The hooks the transformer leaves out: the mutation tests' omissions and the hooks that failed. */
+    private synchronized Set<String> leftOut() {
+        Set<String> left = new LinkedHashSet<String>(omitted);
+        left.addAll(failedHooks);
+        return left;
     }
 
     void reset() {
@@ -217,38 +291,104 @@ final class SideEffectsSensor {
     final class InstallAction implements PrivilegedAction<ResettableClassFileTransformer> {
 
         private final int mask;
+        private final Set<String> left;
 
-        InstallAction(int mask) {
+        InstallAction(int mask, Set<String> left) {
             this.mask = mask;
+            this.left = left;
         }
 
         @Override
         public ResettableClassFileTransformer run() {
-            return builder(mask).installOn(instrumentation);
+            return builder(mask, left).installOn(instrumentation);
         }
     }
 
-    private AgentBuilder builder(int mask) {
-        ExecutorSensor.Visit processBuilder = new ExecutorSensor.Visit(omitted);
+    private AgentBuilder builder(int mask, Set<String> left) {
+        List<String> types = new ArrayList<String>();
+        List<ExecutorSensor.Visit> visits = new ArrayList<ExecutorSensor.Visit>();
         if ((mask & SideEffects.MASK_PROCESSES) != 0) {
-            processBuilder.and(
-                    "ProcessBuilder.start",
-                    Advice.to(SideEffectsAdvice.ProcessStart.class)
-                            .on(ElementMatchers.named("start")
-                                    .and(ElementMatchers.isPrivate())
-                                    .and(ElementMatchers.takesArguments(1))
-                                    .and(ElementMatchers.takesArgument(0, ProcessBuilder.Redirect[].class))));
+            types.add(PROCESS_BUILDER);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "ProcessBuilder.start",
+                            Advice.to(SideEffectsAdvice.ProcessStart.class)
+                                    .on(ElementMatchers.named("start")
+                                            .and(ElementMatchers.isPrivate())
+                                            .and(ElementMatchers.takesArguments(1))
+                                            .and(ElementMatchers.takesArgument(0, ProcessBuilder.Redirect[].class)))));
         }
-        return stats.configure(new AgentBuilder.Default())
+        if ((mask & SideEffects.MASK_NETWORK) != 0) {
+            types.add(SOCKET);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "Socket.connect",
+                            Advice.to(SideEffectsAdvice.SocketConnect.class)
+                                    .on(ElementMatchers.named("connect")
+                                            .and(ElementMatchers.takesArguments(2))
+                                            .and(ElementMatchers.takesArgument(0, SocketAddress.class))
+                                            .and(ElementMatchers.takesArgument(1, int.class)))));
+            types.add(SOCKET_CHANNEL);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "SocketChannel.connect",
+                            Advice.to(SideEffectsAdvice.ChannelConnect.class)
+                                    .on(ElementMatchers.named("connect")
+                                            .and(ElementMatchers.takesArguments(1))
+                                            .and(ElementMatchers.takesArgument(0, SocketAddress.class))
+                                            .and(ElementMatchers.returns(boolean.class))))
+                    .and(
+                            "SocketChannel.blockingConnect",
+                            Advice.to(SideEffectsAdvice.ChannelBlockingConnect.class)
+                                    .on(ElementMatchers.named("blockingConnect")
+                                            .and(ElementMatchers.takesArguments(2))
+                                            .and(ElementMatchers.takesArgument(0, SocketAddress.class))
+                                            .and(ElementMatchers.takesArgument(1, long.class))))
+                    .and(
+                            "SocketChannel.finishConnect",
+                            Advice.to(SideEffectsAdvice.ChannelFinishConnect.class)
+                                    .on(ElementMatchers.named("finishConnect")
+                                            .and(ElementMatchers.takesArguments(0))
+                                            .and(ElementMatchers.returns(boolean.class)))));
+            types.add(DATAGRAM_CHANNEL);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "DatagramChannel.send",
+                            Advice.to(SideEffectsAdvice.DatagramChannelSend.class)
+                                    .on(ElementMatchers.named("send")
+                                            .and(ElementMatchers.isPublic())
+                                            .and(ElementMatchers.takesArguments(2))
+                                            .and(ElementMatchers.takesArgument(0, ByteBuffer.class))
+                                            .and(ElementMatchers.takesArgument(1, SocketAddress.class)))));
+            types.add(DATAGRAM_SOCKET);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "DatagramSocket.send",
+                            Advice.to(SideEffectsAdvice.DatagramSocketSend.class)
+                                    .on(ElementMatchers.named("send")
+                                            .and(ElementMatchers.takesArguments(1))
+                                            .and(ElementMatchers.takesArgument(0, DatagramPacket.class)))));
+            types.add(INET_ADDRESS);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "InetAddress.lookup",
+                            Advice.to(SideEffectsAdvice.Lookup.class)
+                                    .on(ElementMatchers.named("getAddressesFromNameService")
+                                            .and(ElementMatchers.isStatic())
+                                            .and(ElementMatchers.takesArgument(0, String.class)))));
+        }
+        AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
-                .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>named(PROCESS_BUILDER)))
-                .type(ElementMatchers.named(PROCESS_BUILDER))
-                .transform(processBuilder);
+                .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
+        for (int i = 0; i < types.size(); i++) {
+            builder = builder.type(ElementMatchers.named(types.get(i))).transform(visits.get(i));
+        }
+        return builder;
     }
 
     // ---- self-test -----------------------------------------------------------------------------------------------
 
-    void selfTest(int mask) {
+    void selfTest(int mask, int round) {
         selfTestPassed = false;
         selfTestError = null;
         state = "testing";
@@ -258,18 +398,32 @@ final class SideEffectsSensor {
         SideEffects.beginSelfTest();
         try {
             if ((mask & SideEffects.MASK_PROCESSES) != 0) {
-                steps.put("processes", processStep());
+                steps.put(SideEffects.PROCESSES, processStep());
+            }
+            if ((mask & SideEffects.MASK_NETWORK) != 0) {
+                networkSteps(steps, privileged);
             }
         } finally {
             hits = SideEffects.endSelfTest();
         }
         selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
-        Map<String, String> results = evaluate(mask, hits, steps);
+        Set<String> left = leftOut();
+        Map<String, String> results = evaluate(mask, hits, steps, left);
         selfTestSteps = steps;
         List<String> failed = new ArrayList<String>();
+        int failedNow = 0;
         for (String[] hook : HOOKS) {
-            if ((mask & SideEffects.bit(hook[3])) != 0 && !"passed".equals(results.get(hook[0]))) {
-                failed.add(hook[0]);
+            int bit = SideEffects.bit(hook[3]);
+            if ((mask & bit) == 0 || "passed".equals(results.get(hook[0]))) {
+                continue;
+            }
+            if (left.contains(hook[0]) && !CORE.equals(hook[4])) {
+                // Left out already: its sensor records without it.
+                continue;
+            }
+            failed.add(hook[0]);
+            if (CORE.equals(hook[4])) {
+                failedNow |= bit;
             }
         }
         if (failed.isEmpty()) {
@@ -280,14 +434,52 @@ final class SideEffectsSensor {
             return;
         }
         String error = "self-test failed for " + failed + " " + steps;
-        SideEffects.disable(mask, error);
-        AgentBridge.message("the BootUI agent's side-effect sensors failed their self-test and were removed: " + error);
-        // The verdict before the transformer's removal, which takes a while: status reports it at once.
+        synchronized (this) {
+            failedHooks.addAll(failed);
+            failedSensors |= failedNow;
+            for (String id : SENSORS) {
+                if ((failedNow & SideEffects.bit(id)) != 0) {
+                    sensorErrors.put(id, error);
+                }
+            }
+        }
+        if (failedNow != 0) {
+            SideEffects.disable(failedNow, error);
+            AgentBridge.message(
+                    "the BootUI agent's side-effect sensors failed their self-test and were removed: " + error);
+        } else {
+            AgentBridge.message("the BootUI agent left side-effect hooks out after their self-test failed: " + error);
+        }
+        // The verdict before the transformer's removal, which takes a while: status reports it at once, the sensors
+        // that did not fail reading as installing again.
         state = "self-test-failed";
         selfTestError = error;
         selfTest = results;
+        SideEffects.disable(mask & ~failedNow, null);
         reset();
-        state = stuck ? "self-test-failed (release-failed)" : "self-test-failed";
+        int remaining = effective();
+        if (stuck) {
+            state = "self-test-failed (release-failed)";
+            return;
+        }
+        if (remaining != 0 && round < MAX_ROUNDS) {
+            // The other sensors, and this one without the hooks that failed, are installed and self-tested again.
+            install(remaining);
+            selfTest(remaining, round + 1);
+            return;
+        }
+        if (remaining != 0) {
+            synchronized (this) {
+                failedSensors |= remaining;
+                for (String id : SENSORS) {
+                    if ((remaining & SideEffects.bit(id)) != 0) {
+                        sensorErrors.put(id, error);
+                    }
+                }
+            }
+            SideEffects.disable(remaining, error);
+        }
+        state = "self-test-failed";
     }
 
     /** Starts a command {@code ProcessBuilder} refuses before spawning anything: the hook runs, nothing starts. */
@@ -303,7 +495,120 @@ final class SideEffectsSensor {
         }
     }
 
+    /**
+     * Runs each network hook once without any I/O, its outcome by hook id: connects and sends to an unresolved address,
+     * which the JDK refuses before touching the network, on a socket without a proxy; a finish with no connect pending;
+     * a send on a closed socket; and a name lookup, on a helper thread waited for at most {@value #LOOKUP_WAIT_MILLIS}
+     * ms.
+     */
+    static void networkSteps(Map<String, String> steps, boolean privileged) {
+        InetSocketAddress unresolved = InetSocketAddress.createUnresolved(SELF_TEST_HOST, 9);
+        steps.put("Socket.connect", expectRefused(() -> {
+            try (Socket socket = new Socket(Proxy.NO_PROXY)) {
+                socket.connect(unresolved, 1);
+            }
+        }));
+        steps.put("SocketChannel.connect", expectRefused(() -> {
+            try (SocketChannel channel = SocketChannel.open()) {
+                channel.connect(unresolved);
+            }
+        }));
+        steps.put("SocketChannel.blockingConnect", expectRefused(() -> {
+            // A Unix-domain address on a TCP channel: since JDK 25 the adaptor refuses an unresolved address before
+            // blockingConnect, which refuses this one itself, before any I/O.
+            try (SocketChannel channel = SocketChannel.open()) {
+                channel.socket().connect(java.net.UnixDomainSocketAddress.of(SELF_TEST_HOST), 1);
+            }
+        }));
+        steps.put("SocketChannel.finishConnect", expectRefused(() -> {
+            try (SocketChannel channel = SocketChannel.open()) {
+                channel.configureBlocking(false);
+                channel.finishConnect();
+            }
+        }));
+        steps.put("DatagramChannel.send", expectRefused(() -> {
+            try (DatagramChannel channel = DatagramChannel.open()) {
+                channel.send(ByteBuffer.allocate(0), unresolved);
+            }
+        }));
+        steps.put("DatagramSocket.send", expectRefused(() -> {
+            // Never bound: no port is opened, and the closed socket refuses before sending.
+            DatagramSocket socket = new DatagramSocket((SocketAddress) null);
+            socket.close();
+            socket.send(new DatagramPacket(new byte[0], 0, InetAddress.getLoopbackAddress(), 9));
+        }));
+        steps.put("InetAddress.lookup", lookupStep(privileged));
+    }
+
+    /** A step that must throw: {@code ok} when it did, as the JDK refuses before any I/O. */
+    static String expectRefused(Step step) {
+        try {
+            step.run();
+            return "error: the step did not fail";
+        } catch (Exception expected) {
+            return "ok";
+        } catch (Throwable ex) {
+            return "error: " + ex;
+        }
+    }
+
+    /** A step that may throw. */
+    interface Step {
+        void run() throws Exception;
+    }
+
+    /**
+     * Resolves two spellings of {@code localhost} the JVM's case-sensitive address cache does not hold, which the hosts
+     * file answers, on a helper thread the bridge counts as the self-test's, waited for at most {@value
+     * #LOOKUP_WAIT_MILLIS} ms so a slow resolver never stalls the install.
+     */
+    static String lookupStep(boolean privileged) {
+        AtomicReference<String> outcome = new AtomicReference<String>("error: timed out");
+        Thread helper = AgentThreads.newThread(
+                "bootui-agent-self-test-lookup",
+                () -> {
+                    for (int i = 0; i < 2; i++) {
+                        try {
+                            InetAddress.getAllByName(spelling());
+                        } catch (IOException resolvedOrNot) {
+                            // Unknown or not, the lookup reached the name service.
+                        }
+                    }
+                    outcome.set("ok");
+                },
+                privileged);
+        Thread self = Thread.currentThread();
+        SideEffects.selfTestOn(helper);
+        try {
+            helper.start();
+            helper.join(LOOKUP_WAIT_MILLIS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        } finally {
+            SideEffects.selfTestOn(self);
+        }
+        return outcome.get();
+    }
+
+    /** {@code localhost} with a random mix of cases, never all lower case, which the application likely resolved. */
+    static String spelling() {
+        String name = "localhost";
+        int bits = ThreadLocalRandom.current().nextInt(1, 1 << name.length());
+        StringBuilder spelled = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            spelled.append((bits & (1 << i)) != 0 ? Character.toUpperCase(c) : c);
+        }
+        return spelled.toString();
+    }
+
     static Map<String, String> evaluate(int mask, Map<String, Object> hits, Map<String, String> steps) {
+        return evaluate(mask, hits, steps, Set.of());
+    }
+
+    /** Each hook's result: {@code passed}, {@code failed}, {@code not-exercised (…)}, or {@code not-installed}. */
+    static Map<String, String> evaluate(
+            int mask, Map<String, Object> hits, Map<String, String> steps, Set<String> left) {
         Map<String, String> results = new LinkedHashMap<String, String>();
         for (String[] hook : HOOKS) {
             if ((mask & SideEffects.bit(hook[3])) == 0) {
@@ -311,9 +616,11 @@ final class SideEffectsSensor {
                 continue;
             }
             Object count = hits == null ? null : hits.get(hook[0]);
-            String outcome = steps.get(hook[3]);
+            String outcome = steps.containsKey(hook[0]) ? steps.get(hook[0]) : steps.get(hook[3]);
             if (count instanceof Long && (Long) count > 0) {
                 results.put(hook[0], "passed");
+            } else if (left.contains(hook[0])) {
+                results.put(hook[0], "failed");
             } else {
                 results.put(hook[0], "ok".equals(outcome) ? "failed" : "not-exercised (" + outcome + ")");
             }
@@ -326,40 +633,69 @@ final class SideEffectsSensor {
     /** One status row per side-effect sensor a claim asked for since the JVM started. */
     List<Map<String, Object>> status() {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-        for (String id : new String[] {SideEffects.PROCESSES}) {
+        Set<String> left = leftOut();
+        for (String id : SENSORS) {
             int bit = SideEffects.bit(id);
             if ((reportedMask & bit) == 0) {
                 continue;
             }
+            boolean failed = (failedSensors & bit) != 0;
             Map<String, Object> map = new LinkedHashMap<String, Object>();
             map.put("id", id);
-            map.put("state", state);
+            map.put(
+                    "state",
+                    failed ? (stuck ? "self-test-failed (release-failed)" : "self-test-failed") : sensorState(bit));
             map.put("idle", Boolean.valueOf(idle()));
             map.put("durationMillis", Long.valueOf(ExecutorSensor.durationMillis(installMillis, selfTestMillis)));
             map.put("installMillis", Long.valueOf(installMillis));
             map.put("selfTestMillis", Long.valueOf(selfTestMillis));
-            map.put("selfTestPassed", Boolean.valueOf(selfTestPassed && (installedMask & bit) != 0));
-            map.put("selfTestError", selfTestError);
+            map.put("selfTestPassed", Boolean.valueOf(!failed && selfTestPassed && (installedMask & bit) != 0));
+            String error;
+            synchronized (this) {
+                error = failed ? sensorErrors.get(id) : null;
+            }
+            map.put("selfTestError", error);
             map.put("selfTestSteps", new LinkedHashMap<String, String>(selfTestSteps));
             List<Object> hooks = new ArrayList<Object>();
+            List<String> leftOut = new ArrayList<String>();
             Map<String, String> results = selfTest;
             for (String[] hook : HOOKS) {
                 if (!id.equals(hook[3])) {
                     continue;
+                }
+                boolean omittedHook = left.contains(hook[0]);
+                if (omittedHook && !failed) {
+                    leftOut.add(hook[0]);
                 }
                 Map<String, Object> row = new LinkedHashMap<String, Object>();
                 row.put("id", hook[0]);
                 row.put("kind", hook[2]);
                 row.put("type", hook[1]);
                 row.put("present", Boolean.valueOf(ExecutorSensor.present(hook[1])));
-                row.put("transformed", Boolean.valueOf((installedMask & bit) != 0 && stats.transformed(hook[1])));
-                row.put("selfTest", results.getOrDefault(hook[0], "not-run"));
+                row.put(
+                        "transformed",
+                        Boolean.valueOf((installedMask & bit) != 0 && !omittedHook && stats.transformed(hook[1])));
+                row.put("selfTest", omittedHook ? "failed" : results.getOrDefault(hook[0], "not-run"));
                 hooks.add(row);
             }
             map.put("hooks", hooks);
+            map.put("hooksLeftOut", leftOut);
             stats.putInto(map);
             rows.add(map);
         }
         return rows;
+    }
+
+    /** A sensor's state while it has not failed: the transformer's, or {@code released} when it carries another set. */
+    private String sensorState(int bit) {
+        String current = state;
+        if ("installed".equals(current) && (installedMask & bit) == 0) {
+            return "released";
+        }
+        if (current.startsWith("self-test-failed")) {
+            // Another sensor's failure: this one is installed again without it.
+            return stuck ? "release-failed" : "installing";
+        }
+        return current;
     }
 }

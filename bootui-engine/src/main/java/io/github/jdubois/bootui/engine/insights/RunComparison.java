@@ -860,6 +860,7 @@ public final class RunComparison {
             case DEPENDS_ON -> "depends on";
             case HANDLED_BY -> "is handled by";
             case INVOKES -> "invokes";
+            case OPENS -> "opens";
         };
     }
 
