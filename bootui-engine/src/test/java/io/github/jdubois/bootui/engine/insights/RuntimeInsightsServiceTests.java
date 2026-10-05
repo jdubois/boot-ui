@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.inventory.CodeChanges;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
+import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.GcPayload;
@@ -38,6 +39,7 @@ import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -408,6 +410,8 @@ class RuntimeInsightsServiceTests {
                 sql("select * from children where id = ?", RequestPhase.HANDLER, -1, -1));
 
         RuntimeInsightsService service = service();
+        // The kind's own default-list floor, apart from its external validation, which leaves every row out (M4-20).
+        service.assumeValidated();
         RuntimeInsightsReportDto report = service.report();
         Map<String, RuntimeObservationDto> byRoute = observations(report, RepeatedSelects.KIND);
         RuntimeObservationDto inside = byRoute.get("GET /api/orders/{id}");
@@ -420,16 +424,18 @@ class RuntimeInsightsServiceTests {
                 .contains(RepeatedSelects.RESULT_SIZE_UNRECORDED)
                 .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR);
 
-        RuntimeObservationDetailDto outside =
-                service.insight(byRoute.get("GET /api/outside").id());
-        assertThat(outside.rows()).singleElement().satisfies(row -> {
-            assertThat(row.cells().get(4)).isEqualTo("response write");
-            assertThat(row.cells().get(5)).isEqualTo("no");
-            assertThat(row.cells().get(2)).isEqualTo("50");
-        });
-        assertThat(byRoute.get("GET /api/outside").limitations())
-                .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR)
-                .anyMatch(limitation -> limitation.contains("summed across affected requests"));
+        // Repeated while the response was written, outside every transaction: SQL after the handler returned reports
+        // the same statement from the same call site, with its cause, so Repeated SELECTs leaves it to it (M4-20).
+        assertThat(byRoute).doesNotContainKey("GET /api/outside");
+        assertThat(observations(report, LazySqlAfterHandler.KIND)).containsKey("GET /api/outside");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.findings()).isEqualTo(3);
+                    assertThat(check.reason())
+                            .contains("1 statement that SQL after the handler returned reports on the same route");
+                });
 
         assertThat(byRoute.get("GET /api/unmeasured").limitations())
                 .contains(RepeatedSelects.UNMEASURED_REPEAT_TIME)
@@ -447,11 +453,83 @@ class RuntimeInsightsServiceTests {
         assertThat(list.observations())
                 .filteredOn(observation -> RepeatedSelects.KIND.equals(observation.kind()))
                 .extracting(observation -> observation.subject())
-                .contains("GET /api/orders/{id}", "GET /api/outside", "GET /api/unmeasured", "GET /api/unknown");
+                .contains("GET /api/orders/{id}", "GET /api/unmeasured", "GET /api/unknown");
         assertThat(list.limitations()).noneMatch(limitation -> limitation.contains("Left out"));
         assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
                 .extracting(observation -> observation.subject())
                 .contains("GET /api/orders/{id}");
+    }
+
+    /**
+     * PetClinic's pet form (M4-20's adjudication follow-up 1): the handler loads the pet types once, then the view's
+     * formatter loads them again for each option while the template renders. Repeated SELECTs names the formatter, where
+     * the repeats ran after the handler returned, not the handler; and with SQL after the handler returned reporting the
+     * same statement from the same call site, with its cause, Repeated SELECTs leaves it to that row.
+     */
+    @Test
+    void repeatsWhileAViewRendersTakeTheFormattersCallSiteAndAreLeftToSqlAfterTheHandler() {
+        String handler =
+                "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)";
+        String formatter =
+                "org.springframework.samples.petclinic.owner.PetTypeFormatter.print(PetTypeFormatter.java:53)";
+        for (int i = 0; i < 3; i++) {
+            List<Child> children = new ArrayList<>();
+            children.add(new Child(
+                    JournalSource.SQL,
+                    1_000_000,
+                    new SqlPayload(
+                            "select * from owners where id = ?",
+                            "Owners.find:1",
+                            "db",
+                            false,
+                            null,
+                            RequestPhase.HANDLER,
+                            100)));
+            children.add(new Child(
+                    JournalSource.SQL,
+                    1_000_000,
+                    new SqlPayload(
+                            "select * from types order by name",
+                            handler,
+                            "db",
+                            false,
+                            null,
+                            RequestPhase.HANDLER,
+                            200)));
+            for (int r = 0; r < 5; r++) {
+                children.add(new Child(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload(
+                                "select * from types order by name",
+                                null,
+                                "db",
+                                false,
+                                ApplicationFrames.of(List.of(
+                                        formatter,
+                                        "org.thymeleaf.spring6.processor.SpringOptionFieldTagProcessor.doProcess("
+                                                + "SpringOptionFieldTagProcessor.java:61)")),
+                                RequestPhase.RESPONSE,
+                                300 + r)));
+            }
+            request("GET", "/owners/{id}/pets/new", children.toArray(Child[]::new));
+        }
+
+        RuntimeInsightsService repeatsOnly = new RuntimeInsightsService(
+                journal, null, null, InsightsStack.SPRING_MVC, null, List.of(new RepeatedSelects()));
+        RuntimeObservationDto repeated =
+                observations(repeatsOnly.report(), RepeatedSelects.KIND).get("GET /owners/{id}/pets/new");
+        assertThat(repeatsOnly.insight(repeated.id()).rows())
+                .hasSize(3)
+                .allSatisfy(row -> assertThat(row.cells().get(3)).isEqualTo(formatter));
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+        assertThat(observations(report, RepeatedSelects.KIND)).doesNotContainKey("GET /owners/{id}/pets/new");
+        assertThat(observations(report, LazySqlAfterHandler.KIND)
+                        .get("GET /owners/{id}/pets/new")
+                        .sentence())
+                .contains("while the view was rendered");
     }
 
     @Test
@@ -463,6 +541,7 @@ class RuntimeInsightsServiceTests {
         request("GET", "/api/hot", lineByLine(RepeatedSelects.HIGH_REPEAT_KEEP, 200_000));
 
         RuntimeInsightsService service = service();
+        service.assumeValidated();
         RuntimeInsightsReportDto report = service.report();
         Map<String, RuntimeObservationDto> byRoute = observations(report, RepeatedSelects.KIND);
         assertThat(byRoute.get("GET /api/orders/line-by-line").status()).isEqualTo("OBSERVED");

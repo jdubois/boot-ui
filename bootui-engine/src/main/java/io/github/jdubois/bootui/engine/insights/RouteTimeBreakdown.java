@@ -505,6 +505,8 @@ public final class RouteTimeBreakdown implements Observation {
         long[] durations = warm.stream().mapToLong(Breakdown::duration).toArray();
         long rejected = unmarked.stream().filter(b -> rejected(b.request())).count();
         String which = unmarked.size() == warm.size() ? "all of them" : unmarked.size() + " of them";
+        Totals totals = Totals.of(unmarked);
+        String authentication = authenticationLed(totals);
         StringBuilder sentence = new StringBuilder("`")
                 .append(route)
                 .append("`: warm median ")
@@ -513,13 +515,21 @@ public final class RouteTimeBreakdown implements Observation {
                 .append(InsightText.counted(warm.size(), "request"))
                 .append("; ")
                 .append(which);
+        // The time is "not split into phases" past the authentication the evidence names, so the sentence says so
+        // rather than contradicting its own table (M4-20's adjudication follow-up 5).
+        String split = authentication != null
+                ? ": the security filters' authentication took " + authentication
+                        + " of it, and the rest is not split into phases."
+                : ", so the time is not split into phases.";
         if (rejected == unmarked.size()) {
             sentence.append(" answered 401 or 403 before reaching a handler BootUI marks, as security filters do when"
-                    + " they reject a request, so the time is not split into phases.");
+                            + " they reject a request")
+                    .append(split);
         } else {
             sentence.append(" reached no handler BootUI marks (")
                     .append(unmarkedExamples(stack))
-                    .append("), so the time is not split into phases.");
+                    .append(")")
+                    .append(split);
             if (rejected > 0) {
                 sentence.append(' ')
                         .append(InsightText.counted(rejected, "request"))
@@ -527,7 +537,6 @@ public final class RouteTimeBreakdown implements Observation {
                         .append(" answered 401 or 403.");
             }
         }
-        Totals totals = Totals.of(unmarked);
         List<String> calls = new ArrayList<>();
         for (Map.Entry<Phase, long[]> phase : totals.ranked()) {
             // Authentication is an observed phase, not a call the request made, so it stays out of this sentence; the
@@ -552,11 +561,17 @@ public final class RouteTimeBreakdown implements Observation {
                         sentence.toString(),
                         warm.size(),
                         unmarked.size(),
-                        List.of(
-                                rejected == unmarked.size()
-                                        ? "Send the route requests it accepts to read where its handler's time goes."
-                                        : "Open the slowest exemplar request in Live Activity to see its timeline and"
-                                                + " recorded calls."),
+                        authentication != null
+                                ? List.of(
+                                        check(Phase.AUTHENTICATION),
+                                        "Open the slowest exemplar request in Live Activity to see its timeline and"
+                                                + " recorded calls.")
+                                : List.of(
+                                        rejected == unmarked.size()
+                                                ? "Send the route requests it accepts to read where its handler's time"
+                                                        + " goes."
+                                                : "Open the slowest exemplar request in Live Activity to see its"
+                                                        + " timeline and recorded calls."),
                         slowest(unmarked),
                         COLUMNS,
                         totals.rows(),
@@ -574,6 +589,21 @@ public final class RouteTimeBreakdown implements Observation {
     private static boolean slowFew(List<Breakdown> warm) {
         return warm.size() >= SLOW_FEW_WARM_REQUESTS
                 && median(warm.stream().mapToLong(Breakdown::duration).toArray()) >= SLOW_FEW_WARM_MEDIAN_NANOS;
+    }
+
+    /**
+     * The share authentication took of {@code totals}, such as {@code 98 %}, when it is the largest phase, or
+     * {@code null}: the time security filters spent authenticating, as a form login does, is named even when no handler
+     * was marked.
+     */
+    private static String authenticationLed(Totals totals) {
+        List<Map.Entry<Phase, long[]>> ranked = totals.ranked();
+        if (ranked.isEmpty()
+                || ranked.get(0).getKey() != Phase.AUTHENTICATION
+                || ranked.get(0).getValue()[0] <= 0) {
+            return null;
+        }
+        return percent(ranked.get(0).getValue()[0], totals.sum());
     }
 
     /**

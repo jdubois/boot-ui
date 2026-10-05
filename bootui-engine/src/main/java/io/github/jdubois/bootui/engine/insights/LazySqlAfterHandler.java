@@ -214,21 +214,18 @@ public final class LazySqlAfterHandler implements Observation {
     }
 
     /**
-     * Whether {@code repeatedSelects} already reports {@code finding}'s statement where the default list shows it
-     * ({@code docs/PLAN-v2.md} M4-19): a finding with the same key, the route and the statement's fingerprint, that
-     * shares one of its call sites, or names none when this one names none either. It must be at least as sufficient as
-     * this one and above the agent list's floor, so the fact is never left out of both.
+     * Whether one of {@code lazy}, this kind's findings, already reports {@code repeated}, a {@code repeated-selects}
+     * finding, with its cause (M4-20's adjudication follow-up 1): a finding with the same key, the route and the
+     * statement's fingerprint, that shares one of its call sites, or names none when that one names none either, and is
+     * at least as sufficient, so the fact is never reported weaker than it was.
      */
-    static boolean reportedBy(Finding finding, List<Finding> repeatedSelects) {
-        Set<String> sites = callSites(finding);
-        for (Finding repeated : repeatedSelects) {
-            if (!repeated.key().equals(finding.key())
-                    || !repeated.listed()
-                    || (finding.sufficient() && !repeated.sufficient())
-                    || repeated.limitations().contains(RepeatedSelects.UNDER_DEFAULT_FLOOR)) {
+    static boolean reports(List<Finding> lazy, Finding repeated) {
+        Set<String> repeatedSites = callSites(repeated);
+        for (Finding finding : lazy) {
+            if (!finding.key().equals(repeated.key()) || (repeated.sufficient() && !finding.sufficient())) {
                 continue;
             }
-            Set<String> repeatedSites = callSites(repeated);
+            Set<String> sites = callSites(finding);
             if (sites.isEmpty() && repeatedSites.isEmpty()) {
                 return true;
             }

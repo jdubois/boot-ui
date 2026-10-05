@@ -104,6 +104,14 @@ that stays silent on every application stays listed, marked as not externally va
 | `work-after-response` | 0 | 0 | — | 0 | Silent | **Listed, not externally validated** |
 | `changed-code-not-executed` | 4 | 2 | 2 of 4 (50 %), all four from the agent runs | 0 | Pass | **Listed** |
 
+**Applied** by M4-24 ([v2 plan](PLAN-v2.md)): each outcome above is recorded once in the engine's
+`ExternalValidation` registry, which decides the default list on Spring MVC, Spring WebFlux, and Quarkus, and is shown
+with each kind in the panel (`validation` and `validationReason` on every check) and to agents. The four failed kinds
+are folded: `route-time-breakdown` into Live Activity's **Why this route is slow**, `exception-hotspots` into the
+Exceptions panel, `connections-per-request` into Database Connection Pools, and `ai-usage-by-route` into the AI
+Framework panel, each of which links to the kind's rows; every row stays in the full report. Applying a gate as
+registered is not an exception.
+
 ### Exceptions
 
 Every measure, gate, or kind that ships without meeting its target, and every deliberate deviation from the registered
@@ -408,6 +416,15 @@ a candidate fix before the next validation.
    time "is not split into phases" while its evidence table attributes 98 % to authentication. The advisors reported the
    same kind of contradiction in an `after-commit-writes` sentence; the committed reasons do not detail it, so it is
    to be confirmed from the maintainer's workbook before it is fixed.
+
+**Fixed by M4-24**, none changing the rerun's score: (1) a statement run after the handler returned takes its
+render-time call site, such as the formatter, and `repeated-selects` leaves to `lazy-sql-after-handler` a statement it
+reports on the same route from the same call site; (2) input growth is reported only from 1.5 times the first call's,
+and two model calls are worded as a tool round-trip, not a prompt to trim; (3) a group that (nearly) every request to
+its route, at least three, recorded behind 4xx responses is its own row, never counted in **Behind 4xx responses**;
+(4) the hint names the routes mapped to the changed method by its own HTTP method and path, or says none is known;
+(5) a route the security filters answered says how much of its time authentication took. The maintainer's workbook
+ruled the `after-commit-writes` row honest, and its sentence and table agree, so it is unchanged.
 
 ### Known harness issues under m4-20-protocol-2
 

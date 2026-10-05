@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.CodeInventoryMethodDto;
+import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
@@ -97,13 +98,61 @@ class ChangedCodeNotExecutedTests {
                             + " this run.");
             assertThat(observation.eligible()).isEqualTo(3);
             assertThat(observation.affected()).isEqualTo(2);
-            assertThat(observation.whatToCheck().get(0)).contains("GET /orders");
+            assertThat(observation.whatToCheck().get(0))
+                    .as("without declared routes, no route is suggested, not another method's")
+                    .startsWith("No route is known to be mapped to them")
+                    .doesNotContain("GET /orders");
+            assertThat(observation.limitations())
+                    .contains("Routes that executed this class's methods in this run: GET /orders.");
         });
         RuntimeObservationDetailDto detail =
                 service.insight(observations(report).get(0).id());
         assertThat(detail.rows())
                 .extracting(row -> row.cells().get(0))
                 .containsExactly("OrderService.pay()V", "OrderService.refund()V");
+    }
+
+    /**
+     * The route to send is the one mapped to the changed method, by its own HTTP method and path (M4-20's adjudication
+     * follow-up 4, Super Heroes' {@code @DELETE deleteAllVillains}): never another route of its class, such as the
+     * {@code GET} on the same path that ran the class's other methods.
+     */
+    @Test
+    void theRouteMappedToTheChangedMethodIsSuggestedNeverAnotherVerbOnTheClass() {
+        code.set(changes(
+                method("pay", CodeChanges.CHANGED, CodeInventoryService.NEVER_EXECUTED),
+                method("list", CodeChanges.CHANGED, CodeInventoryService.EXECUTED)));
+        RuntimeInsightsService service = service();
+        service.setDeclaredRoutes(
+                () -> List.of(
+                        new MappingDto("GET", "/orders", "shop.OrderService#list()", null, null),
+                        new MappingDto("DELETE", "/orders", "shop.OrderService#pay()", null, null),
+                        new MappingDto("DELETE", "/orders/{id}", "shop.Other#pay()", null, null)),
+                null);
+
+        assertThat(observations(service.report()))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.whatToCheck().get(0))
+                        .contains("`DELETE /orders`")
+                        .doesNotContain("GET /orders")
+                        .doesNotContain("/orders/{id}"));
+    }
+
+    /** A changed method no declared route maps to, such as a service method, names no route rather than a guess. */
+    @Test
+    void aChangedMethodNoRouteMapsToNamesNoRoute() {
+        code.set(changes(
+                method("pay", CodeChanges.CHANGED, CodeInventoryService.NEVER_EXECUTED),
+                method("list", CodeChanges.CHANGED, CodeInventoryService.EXECUTED)));
+        RuntimeInsightsService service = service();
+        service.setDeclaredRoutes(
+                () -> List.of(new MappingDto("GET", "/orders", "shop.OrderService#list()", null, null)), null);
+
+        assertThat(observations(service.report()))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.whatToCheck().get(0))
+                        .startsWith("No declared route is mapped to it")
+                        .doesNotContain("GET /orders"));
     }
 
     @Test

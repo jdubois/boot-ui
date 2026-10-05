@@ -1857,20 +1857,25 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
+  Every check carries `validation` and `validationReason`, its kind's external validation ([PLAN-v2.md](PLAN-v2.md)
+  M4-20, recorded once in the engine's `ExternalValidation`): `PASSED` (`errors-behind-2xx`,
+  `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on the validation applications)
+  are listed by default, the latter marked in the panel; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
+  `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
+  its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
+  `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
+  reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` ([PLAN-v2.md](PLAN-v2.md) M4-19, D35): a `route-time-breakdown` is listed only when prominent
-  (a warm median of 20 ms or more, authorization taking 20 % of the warm time, or a median of 50 authorization
-  decisions a request; this replaces §5.5's former "or one phase ≥ 50 %", which nearly every short route met; a route
-  with fewer than five warm requests is listed as insufficient only when two to four of them have a warm median of
-  100 ms or more);
-  `exception-hotspots` lists groups behind a 5xx, a failed run or message, a redirect, or not observed in the previous
-  run, and collapses those seen only behind 4xx responses, and those caught in scheduled runs or messages that
-  completed, into one counted row each; `lazy-sql-after-handler` leaves out
-  a statement `repeated-selects` already lists from the same call site; `framework-warnings-by-route` leaves out a
-  `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts in one row the framework `ERROR` events
-  that carried no request id; `gc-inflated-latency` and `heap-growth-after-gc` are reached from the Memory panel
-  (revisiting D18). The four ORM and application-event kinds of D29 are listed, since their counterexample fixtures
-  pass the cross-observation harness (M4-18e). The panel's **Show all routes**, a search, or a deep link lists the rest.
+  not, `unlistedReason` (M4-19, M4-20): the kind's validation reason for a kind that is not listed, or else the kind's
+  own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
+  taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
+  groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
+  three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves
+  to `lazy-sql-after-handler` a statement that kind reports on the same route from the same call site, its check's
+  reason counting them, and names the render-time call site of statements run after the handler; and
+  `framework-warnings-by-route` leaves out a `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts
+  in one row the framework `ERROR` events that carried no request id. The panel's **Show all routes**, a search, or a
+  deep link lists the rest.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a

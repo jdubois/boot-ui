@@ -371,6 +371,9 @@ public final class RepeatedSelects implements Observation {
         return windows.innermost(event) == null ? "no" : "yes";
     }
 
+    /** Marks a call site counted from a statement run after the handler returned. */
+    private static final String AFTER_HANDLER = "\u0000after:";
+
     private static String merge(String current, String next) {
         return current.equals(next) ? current : "mixed";
     }
@@ -386,10 +389,48 @@ public final class RepeatedSelects implements Observation {
             long nanos,
             boolean unknownTime,
             boolean measured,
-            String callSite,
+            Map<String, Integer> sites,
             String phase,
             String inTransaction,
             Map<Integer, Integer> issuers) {
+
+        /**
+         * The call site that issued most of its executions, preferring one after the handler on a tie, or {@code null}
+         * when none was recorded. A statement run after the handler returned, while a view rendered or the response was
+         * written, takes its render-time call site, such as the formatter a template called, not the handler's (M4-20's
+         * adjudication follow-up 1).
+         */
+        String callSite() {
+            String best = null;
+            int most = 0;
+            for (Map.Entry<String, Integer> site : sites.entrySet()) {
+                boolean after = site.getKey().startsWith(AFTER_HANDLER);
+                boolean bestAfter = best != null && best.startsWith(AFTER_HANDLER);
+                if (site.getValue() > most || (site.getValue() == most && after && !bestAfter)) {
+                    best = site.getKey();
+                    most = site.getValue();
+                }
+            }
+            if (best == null) {
+                return null;
+            }
+            String site = best.startsWith(AFTER_HANDLER) ? best.substring(AFTER_HANDLER.length()) : best;
+            return site.isEmpty() ? null : site;
+        }
+
+        /** {@code sites} with {@code sql}'s call site counted once more. */
+        private static Map<String, Integer> site(Map<String, Integer> sites, SqlPayload sql) {
+            String site = sql.phase() == RequestPhase.RESPONSE
+                    ? AFTER_HANDLER + nonNull(LazySqlAfterHandler.callSite(sql))
+                    : nonNull(sql.callSite());
+            Map<String, Integer> merged = new LinkedHashMap<>(sites);
+            merged.merge(site, 1, Integer::sum);
+            return java.util.Collections.unmodifiableMap(merged);
+        }
+
+        private static String nonNull(String site) {
+            return site == null ? "" : site;
+        }
 
         static Repeat first(
                 ProjectedRequest request,
@@ -407,7 +448,7 @@ public final class RepeatedSelects implements Observation {
                     unknown ? 0 : duration,
                     unknown,
                     duration > 0,
-                    sql.callSite(),
+                    site(Map.of(), sql),
                     phaseLabel(sql.phase()),
                     transactionLabel(event, windows),
                     issuer(Map.of(), sql));
@@ -435,7 +476,7 @@ public final class RepeatedSelects implements Observation {
                     unknown ? nanos : nanos + Math.max(0, duration),
                     unknown,
                     measured || duration > 0,
-                    callSite,
+                    site(sites, sql),
                     merge(phase, phaseLabel(sql.phase())),
                     merge(inTransaction, transactionLabel(event, windows)),
                     issuer(issuers, sql));

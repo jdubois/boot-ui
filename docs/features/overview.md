@@ -672,41 +672,53 @@ request's own |
 | `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
 | `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it and to `gc-inflated-latency`. Never called a leak, since a warming cache rises too before it levels off |
-| `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
+| `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input that grew by half or more across a request's model calls, and length-limited answers. Two calls in one request, the shape of a tool call and its answer, are not called growth. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route (messages that differ only by an id, such as a UUID or a long hexadecimal id, or by a numeric path segment are one group, quoted with `<id>` and `<n>`), and in one row of its own, the framework `ERROR` events that carried no request or execution id, such as a container's errors while parsing requests or a failure at startup. An error written on the thread of a request that failed, within a second after it ended, as Tomcat logs an exception a servlet threw once the request's filters returned, is taken as that request's and left out of that count, which a limitation says. That row's affected count is its error events, so it ranks among the kind's other rows |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
-| `changed-code-not-executed` | Per class, the methods changed or added since the previous run that the agent tracked and that nothing executed in this run, worded "your change has not run yet", with the routes that executed the class's other methods. Reads [Code Inventory](java-agent.md#code-inventory): needs the [BootUI agent](java-agent.md)'s `inventory` sensor and a previous run of the application kept in this JVM, and is not applicable, with the reason, without either, or while the Code Inventory panel is disabled; a changed method that executed, or one the agent could not track, is never reported |
+| `changed-code-not-executed` | Per class, the methods changed or added since the previous run that the agent tracked and that nothing executed in this run, worded "your change has not run yet". Its check names the declared routes mapped to the changed methods, by their own HTTP method and path, or says no route is known to be mapped to them; never another route of the class. The routes that executed the class's other methods are listed among its limitations. Reads [Code Inventory](java-agent.md#code-inventory): needs the [BootUI agent](java-agent.md)'s `inventory` sensor and a previous run of the application kept in this JVM, and is not applicable, with the reason, without either, or while the Code Inventory panel is disabled; a changed method that executed, or one the agent could not track, is never reported |
+
+**External validation** decides which kinds the default list shows ([validation report](../V2-VALIDATION-REPORT.md#per-kind-gates),
+[PLAN-v2.md](../PLAN-v2.md) M4-20). Each kind was judged by two reviewers on seven applications not written for BootUI,
+and its outcome is recorded once in the engine, so every stack, the panel, and the agent tools say the same:
+
+| Outcome | Kinds | Default list |
+| --- | --- | --- |
+| Passed | `errors-behind-2xx`, `changed-code-not-executed` | Listed |
+| Silent or never exercised | `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response` | Listed, marked **Not externally validated** |
+| Failed, folded into its panel | `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI) | Not listed; the panel links to its rows |
+| Too few facts to judge | `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed, **Not externally validated** |
+| Not listed by design | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
+
+Each check in the JSON carries `validation` (`PASSED`, `NOT_VALIDATED`, `FAILED`, `UNDER_SAMPLED`, `NOT_LISTED`, or
+`NOT_JUDGED`) and `validationReason`. The panel marks a kind's group, and its selected row says why. The observations
+planned with the BootUI agent are `NOT_JUDGED`: they are shown as rows of their own panel, such as Side Effects, until
+their own external run passes the gate (D36).
 
 **The default list** shows less than the report holds, so the rows worth reading first are not buried under the others.
 A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the toggle **Show
 all routes**, any search, a deep link to the row, such as **Why this route is slow** in a request's drawer, and an agent
 query naming its kind or route, or `all`, reach it. The panel counts what it left out under the list, keeps the open row
 in view when a refresh leaves it out, marks such a row **Not listed by default**, and says why in its detail and in
-**Copy for AI**. The default list leaves out:
+**Copy for AI**. A row of a kind that is not listed gives its kind's validation as the reason. Within the kinds, these
+rules also apply, and are what **Show all routes** orders by:
 
-- a `route-time-breakdown` that is not prominent: listed when its warm median is 20 ms or more, when authorization
-  takes 20 % or more of its warm requests' time, or when its requests make a median of 50 authorization decisions or
-  more. Authorization replaces a separate authorization-cost check. A route whose time is not split into phases, such as
-  an Actuator route or one on WebFlux without a recorded call, is listed by its median or its decisions only. Five warm
-  requests are needed to split a route into phases; a route with fewer is listed, as not enough evidence with its warm
-  median and its slowest requests, only when two to four warm requests have a median of 100 ms or more, so a single
-  slow request, which may be warm-up, is not;
-- an `exception-hotspots` group that no request answered with 5xx, no scheduled run or message failed for, that is not
-  new since the previous run, and that was seen only behind 2xx or 4xx responses or in runs and messages that
-  completed; a redirect or a request recorded without a status keeps it listed. The groups seen only behind 4xx
-  responses, usually intended, are collapsed into one counted row, **Behind 4xx responses**, and those caught in
-  scheduled runs or messages that completed into another, **Caught in completed runs or messages**, both listed after
-  the others; Errors behind 2xx responses reports the 2xx ones;
-- a `lazy-sql-after-handler` statement that `repeated-selects` already reports, listed, on the same route from the same
-  call site;
+- a `route-time-breakdown` that is not prominent is left out: one is prominent when its warm median is 20 ms or more,
+  when authorization takes 20 % or more of its warm requests' time, or when its requests make a median of 50
+  authorization decisions or more. Five warm requests are needed to split a route into phases; a route with fewer is
+  reported as not enough evidence. A route whose requests reached no handler BootUI marks, such as a form login the
+  security filters answered, says how much of its time authentication took when that is most of it;
+- `exception-hotspots` collapses the groups seen only behind 4xx responses, usually intended, into one counted row,
+  **Behind 4xx responses**, unless (nearly) every request to their route, at least three, recorded them: such a route
+  may never succeed, so its group is its own row. Groups caught in scheduled runs or messages that completed are
+  counted in **Caught in completed runs or messages**; Errors behind 2xx responses reports the 2xx ones;
+- `repeated-selects` does not report a statement that `lazy-sql-after-handler` reports on the same route, from the same
+  call site, and at least as sufficiently, since that row names its cause; the check's reason counts them. A statement
+  run after the handler returned, while a view rendered, takes its render-time call site, such as the formatter a
+  template called;
 - a `framework-warnings-by-route` `WARN` message without a specific check, and Spring MVC's `Resolved [...]` note when
-  every request it was written in answered 4xx;
-- every `gc-inflated-latency` and `heap-growth-after-gc` row: garbage collection and heap rows are reached from the
-  Memory panel, which counts them beside its link, read from this panel's report each time it loads its own, and whose
-  link opens this panel on the **Memory** theme with every row shown.
-
-`transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` are listed
-by default: their counterexample fixtures pass the cross-observation counterexample harness (D29, M4-18e).
+  every request it was written in answered 4xx, are left out;
+- the Memory panel counts the `gc-inflated-latency` and `heap-growth-after-gc` rows beside its link, which opens this
+  panel on the **Memory** theme with every row shown.
 
 Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
 but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented
