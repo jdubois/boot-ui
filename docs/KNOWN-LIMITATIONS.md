@@ -18,7 +18,8 @@ and **may not be in 2.0**: whatever is not merged when 2.0.0 is cut ships in a l
   The sign-off lists the outcome for every kind.
 - **No new observation kinds before 2.0.0.** The planned agent-backed observations ship as panel rows first, and become
   Runtime Insights kinds only after their seeded case, their counterexample, and an external run pass.
-- **Kafka Streams processing is not recorded** on any stack. Producer sends and listener executions are.
+- **Kafka Streams processing is not recorded** on any stack. Producer sends and listener executions are. Runtime
+  Insights names this first among its limitations whenever Kafka Streams is on the classpath, as it does R2DBC.
 - **Non-JDBC data stores are not recorded** on any stack: Redis, MongoDB, and similar commands do not enter the journal,
   so `repeated-selects` and the runtime model do not cover them.
 - **Many narrower observations are deferred** until after 2.0, such as retry amplification, cache effectiveness, pool
@@ -61,6 +62,11 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 
 ## Spring MVC
 
+- **Executors that are not beans keep no request link** without the BootUI agent: an executor an `AsyncConfigurer`
+  creates without `@Bean`, a `FactoryBean`'s product, a `SimpleAsyncTaskScheduler`'s tasks, and a
+  `VirtualThreadTaskExecutor`. The application's executor and scheduler beans, and a pool another executor bean wraps,
+  are followed (also on WebFlux), including a task one of a request's tasks hands on to them. A periodic or cron task
+  belongs to the request that scheduled it on its first run only.
 - **CPU on virtual threads** is not read by the per-request scope readings; use the opt-in JFR attribution (**Profile
   resources**) for it.
 

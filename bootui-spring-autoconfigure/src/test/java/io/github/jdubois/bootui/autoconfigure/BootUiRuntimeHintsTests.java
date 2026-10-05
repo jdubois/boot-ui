@@ -38,6 +38,19 @@ class BootUiRuntimeHintsTests {
     }
 
     @Test
+    void registersTheTaskDecoratorFieldsBootUiComposesWithOnANativeImage() throws Exception {
+        for (Class<?> pool : new Class<?>[] {
+            org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor.class,
+            org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler.class,
+            org.springframework.core.task.SimpleAsyncTaskExecutor.class
+        }) {
+            assertThat(RuntimeHintsPredicates.reflection().onField(pool.getDeclaredField("taskDecorator")))
+                    .as(pool.getName())
+                    .accepts(hints);
+        }
+    }
+
+    @Test
     void registersHotSpotDiagnosticMxBeanForReflectiveHeapDumps() {
         assertThat(RuntimeHintsPredicates.reflection()
                         .onType(TypeReference.of("com.sun.management.HotSpotDiagnosticMXBean"))

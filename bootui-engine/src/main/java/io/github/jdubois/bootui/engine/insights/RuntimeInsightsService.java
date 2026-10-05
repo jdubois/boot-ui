@@ -101,6 +101,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
     private volatile Supplier<AppEventCapture> appEventCapture;
+    private volatile List<String> unrecordedWork = List.of();
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
     private volatile LongSupplier codePathsFingerprint;
@@ -352,6 +353,15 @@ public final class RuntimeInsightsService {
      */
     public synchronized void setAppEventCapture(Supplier<AppEventCapture> appEventCapture) {
         this.appEventCapture = appEventCapture;
+        this.cached = null;
+    }
+
+    /**
+     * Installs what this application can run that the journal does not record ({@link UnrecordedWork}), which the
+     * report names first among its limitations ({@code docs/PLAN-v2.md} M4-22).
+     */
+    public synchronized void setUnrecordedWork(List<String> unrecordedWork) {
+        this.unrecordedWork = unrecordedWork == null ? List.of() : List.copyOf(unrecordedWork);
         this.cached = null;
     }
 
@@ -885,7 +895,8 @@ public final class RuntimeInsightsService {
                         counts[3],
                         counts[2],
                         snapshot.dropped(source))));
-        List<String> limitations = new ArrayList<>();
+        // What the journal cannot see at all comes first, before what this run's events miss (D39, M4-22).
+        List<String> limitations = new ArrayList<>(upFront(capture));
         String markers = markersDuring(snapshot.markers());
         if (markers != null) {
             limitations.add(markers);
@@ -931,6 +942,21 @@ public final class RuntimeInsightsService {
                 status.clears(),
                 status.dropped(),
                 0L);
+    }
+
+    /**
+     * The limitations a reader needs before any observation: database access the journal cannot record, R2DBC
+     * statements (D39), and work it does not record, such as Kafka Streams processing. An application without a
+     * database at all gets no line, and SQL capture turned off stays with the checks it affects.
+     */
+    private List<String> upFront(SqlCapture capture) {
+        List<String> lines = new ArrayList<>();
+        String reason = capture.reason();
+        if (SqlCapture.R2DBC_ONLY.equals(reason) || SqlCapture.R2DBC_NOT_RECORDED.equals(reason)) {
+            lines.add(reason);
+        }
+        lines.addAll(unrecordedWork);
+        return lines;
     }
 
     /**
