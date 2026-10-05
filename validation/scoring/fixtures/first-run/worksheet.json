@@ -1,0 +1,1633 @@
+{
+  "protocol": "first run, 2026-10-03, rescored",
+  "seed": "n/a",
+  "notes": [
+    "The first run judged every row, whatever its status, so every row is a fact here."
+  ],
+  "rows": [
+    {
+      "id": "petclinic/fact/a62511f1",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /oups",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:80de221758"
+      ],
+      "key": "petclinic/fact/a62511f1"
+    },
+    {
+      "id": "petclinic/fact/50f9ac59",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /oups",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:95561af40b"
+      ],
+      "key": "petclinic/fact/50f9ac59"
+    },
+    {
+      "id": "petclinic/fact/06e5c528",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:3b351119e5"
+      ],
+      "key": "petclinic/fact/06e5c528"
+    },
+    {
+      "id": "petclinic/fact/d3fd7deb",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5fb8278694"
+      ],
+      "key": "petclinic/fact/d3fd7deb"
+    },
+    {
+      "id": "petclinic/fact/43bcb2a0",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:6dc48e7605"
+      ],
+      "key": "petclinic/fact/43bcb2a0"
+    },
+    {
+      "id": "petclinic/fact/77fe8257",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:82279a9845"
+      ],
+      "key": "petclinic/fact/77fe8257"
+    },
+    {
+      "id": "petclinic/fact/fe190ccf",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:3bae7b5cc0"
+      ],
+      "key": "petclinic/fact/fe190ccf"
+    },
+    {
+      "id": "petclinic/fact/0c07e9d0",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5d03df99f6"
+      ],
+      "key": "petclinic/fact/0c07e9d0"
+    },
+    {
+      "id": "petclinic/fact/aac8ce18",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:1c02750660"
+      ],
+      "key": "petclinic/fact/aac8ce18"
+    },
+    {
+      "id": "petclinic/fact/77671fba",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/visits/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:fbbe6d160d"
+      ],
+      "key": "petclinic/fact/77671fba"
+    },
+    {
+      "id": "petclinic/fact/4280ff9b",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "lazy-sql-after-handler",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "lazy-sql-after-handler:613704a9e5"
+      ],
+      "key": "petclinic/fact/4280ff9b"
+    },
+    {
+      "id": "petclinic/fact/2a85786a",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "lazy-sql-after-handler",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "lazy-sql-after-handler:8f816c3c0f"
+      ],
+      "key": "petclinic/fact/2a85786a"
+    },
+    {
+      "id": "petclinic/fact/7eb3e8e6",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "repeated-selects",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "repeated-selects:613704a9e5"
+      ],
+      "key": "petclinic/fact/7eb3e8e6"
+    },
+    {
+      "id": "petclinic/fact/5a6fc1a7",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "repeated-selects",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "repeated-selects:8f816c3c0f"
+      ],
+      "key": "petclinic/fact/5a6fc1a7"
+    },
+    {
+      "id": "petclinic/fact/1b08524a",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:27b548538c"
+      ],
+      "key": "petclinic/fact/1b08524a"
+    },
+    {
+      "id": "petclinic/fact/c5483971",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/find",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:2667652a92"
+      ],
+      "key": "petclinic/fact/c5483971"
+    },
+    {
+      "id": "petclinic/fact/03ebd76c",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /vets",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:665a7fb2e8"
+      ],
+      "key": "petclinic/fact/03ebd76c"
+    },
+    {
+      "id": "petclinic/fact/14036973",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:773f8ff417"
+      ],
+      "key": "petclinic/fact/14036973"
+    },
+    {
+      "id": "petclinic/fact/847b57f7",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:a4bca246be"
+      ],
+      "key": "petclinic/fact/847b57f7"
+    },
+    {
+      "id": "petclinic/fact/45cb7960",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:b6b142faa6"
+      ],
+      "key": "petclinic/fact/45cb7960"
+    },
+    {
+      "id": "petclinic/fact/05912815",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /vets.html",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:c96b43f4ab"
+      ],
+      "key": "petclinic/fact/05912815"
+    },
+    {
+      "id": "petclinic/fact/a4c9b970",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "lazy-sql-after-handler",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "lazy-sql-after-handler:30e9325d8e"
+      ],
+      "key": "petclinic/fact/a4c9b970"
+    },
+    {
+      "id": "petclinic/fact/33b72e6d",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "lazy-sql-after-handler",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "lazy-sql-after-handler:99568a33e9"
+      ],
+      "key": "petclinic/fact/33b72e6d"
+    },
+    {
+      "id": "petclinic/fact/70f194f8",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "repeated-selects",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "repeated-selects:30e9325d8e"
+      ],
+      "key": "petclinic/fact/70f194f8"
+    },
+    {
+      "id": "petclinic/fact/a00b4c28",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "repeated-selects",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "repeated-selects:99568a33e9"
+      ],
+      "key": "petclinic/fact/a00b4c28"
+    },
+    {
+      "id": "petclinic/fact/8bf162ac",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/visits/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:28ce00e37c"
+      ],
+      "key": "petclinic/fact/8bf162ac"
+    },
+    {
+      "id": "petclinic/fact/3bb78df5",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:35a8dacc0c"
+      ],
+      "key": "petclinic/fact/3bb78df5"
+    },
+    {
+      "id": "petclinic/fact/eaf213c6",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners",
+      "status": "OBSERVED",
+      "observationIds": [
+        "gc-inflated-latency:5fb8278694"
+      ],
+      "key": "petclinic/fact/eaf213c6"
+    },
+    {
+      "id": "petclinic/fact/30e3fd5c",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "gc-inflated-latency",
+      "subject": "POST /owners/{ownerId}/edit",
+      "status": "OBSERVED",
+      "observationIds": [
+        "gc-inflated-latency:6dc48e7605"
+      ],
+      "key": "petclinic/fact/30e3fd5c"
+    },
+    {
+      "id": "petclinic/fact/01eecfa6",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "gc-inflated-latency:27b548538c"
+      ],
+      "key": "petclinic/fact/01eecfa6"
+    },
+    {
+      "id": "petclinic/fact/86a753b5",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/{ownerId}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "gc-inflated-latency:3b351119e5"
+      ],
+      "key": "petclinic/fact/86a753b5"
+    },
+    {
+      "id": "petclinic/fact/7e8e1ae9",
+      "section": "fact",
+      "app": "petclinic",
+      "role": "tuned",
+      "service": "",
+      "kind": "gc-inflated-latency",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "observationIds": [
+        "gc-inflated-latency:82279a9845"
+      ],
+      "key": "petclinic/fact/7e8e1ae9"
+    },
+    {
+      "id": "jhipster/fact/8604ffb8",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/bank-accounts",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:2e45922436"
+      ],
+      "key": "jhipster/fact/8604ffb8"
+    },
+    {
+      "id": "jhipster/fact/29eba574",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/authenticate",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5cf2c95c76"
+      ],
+      "key": "jhipster/fact/29eba574"
+    },
+    {
+      "id": "jhipster/fact/778c4696",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/authenticate",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:061fc4c54d"
+      ],
+      "key": "jhipster/fact/778c4696"
+    },
+    {
+      "id": "jhipster/fact/2860d3c9",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:0b7afe569c"
+      ],
+      "key": "jhipster/fact/2860d3c9"
+    },
+    {
+      "id": "jhipster/fact/df9aa10c",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/admin/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:2bf7e477d0"
+      ],
+      "key": "jhipster/fact/df9aa10c"
+    },
+    {
+      "id": "jhipster/fact/db76f4f0",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/operations",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:4cd2ae3a3d"
+      ],
+      "key": "jhipster/fact/db76f4f0"
+    },
+    {
+      "id": "jhipster/fact/bc75b288",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/labels/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:50f64fb6ed"
+      ],
+      "key": "jhipster/fact/bc75b288"
+    },
+    {
+      "id": "jhipster/fact/131f1c4d",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/operations/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:8551e98278"
+      ],
+      "key": "jhipster/fact/131f1c4d"
+    },
+    {
+      "id": "jhipster/fact/997a53d0",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:94a8f734ef"
+      ],
+      "key": "jhipster/fact/997a53d0"
+    },
+    {
+      "id": "jhipster/fact/8baccab4",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/account",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:acd55ae4fa"
+      ],
+      "key": "jhipster/fact/8baccab4"
+    },
+    {
+      "id": "jhipster/fact/efd0d6f1",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/bank-accounts",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:be149ef93a"
+      ],
+      "key": "jhipster/fact/efd0d6f1"
+    },
+    {
+      "id": "jhipster/fact/79dbab37",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/operations",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:d0b57f07ea"
+      ],
+      "key": "jhipster/fact/79dbab37"
+    },
+    {
+      "id": "jhipster/fact/eb94d561",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/labels",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:d5199598ce"
+      ],
+      "key": "jhipster/fact/eb94d561"
+    },
+    {
+      "id": "jhipster/fact/4b1cb57b",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/labels",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:2b1f7d77f0"
+      ],
+      "key": "jhipster/fact/4b1cb57b"
+    },
+    {
+      "id": "jhipster/fact/0f3069f4",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/authenticate",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:2c56b900a3"
+      ],
+      "key": "jhipster/fact/0f3069f4"
+    },
+    {
+      "id": "jhipster/fact/783a88cb",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/bank-accounts",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:591c823305"
+      ],
+      "key": "jhipster/fact/783a88cb"
+    },
+    {
+      "id": "jhipster/fact/7fde5078",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:64c65e2a49"
+      ],
+      "key": "jhipster/fact/7fde5078"
+    },
+    {
+      "id": "jhipster/fact/a3812766",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:9e7d73f73b"
+      ],
+      "key": "jhipster/fact/a3812766"
+    },
+    {
+      "id": "jhipster/fact/a89a8a6c",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/operations/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:b5ee61c72e"
+      ],
+      "key": "jhipster/fact/a89a8a6c"
+    },
+    {
+      "id": "jhipster/fact/947a9c1f",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/labels/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:b8c5dcbaee"
+      ],
+      "key": "jhipster/fact/947a9c1f"
+    },
+    {
+      "id": "jhipster/fact/c629fe83",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:bbb1577bf3"
+      ],
+      "key": "jhipster/fact/c629fe83"
+    },
+    {
+      "id": "jhipster/fact/f168da10",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/operations",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:dbd321beb1"
+      ],
+      "key": "jhipster/fact/f168da10"
+    },
+    {
+      "id": "jhipster/fact/706b7aa3",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:e348dfbc45"
+      ],
+      "key": "jhipster/fact/706b7aa3"
+    },
+    {
+      "id": "jhipster/fact/acc847e4",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /management/health",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:6b66b25b23"
+      ],
+      "key": "jhipster/fact/acc847e4"
+    },
+    {
+      "id": "jhipster/fact/8bde4171",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /management/info",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:110c0f6477"
+      ],
+      "key": "jhipster/fact/8bde4171"
+    },
+    {
+      "id": "jhipster/fact/7fa6a7ed",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/operations/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:19666a6c7a"
+      ],
+      "key": "jhipster/fact/7fa6a7ed"
+    },
+    {
+      "id": "jhipster/fact/9b8eb1b1",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:291ed86f12"
+      ],
+      "key": "jhipster/fact/9b8eb1b1"
+    },
+    {
+      "id": "jhipster/fact/ac490e5c",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/account",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:55b3d6053f"
+      ],
+      "key": "jhipster/fact/ac490e5c"
+    },
+    {
+      "id": "jhipster/fact/db75bcd2",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/labels",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:55e0f2ca42"
+      ],
+      "key": "jhipster/fact/db75bcd2"
+    },
+    {
+      "id": "jhipster/fact/2a0591e5",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/operations/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5656673718"
+      ],
+      "key": "jhipster/fact/2a0591e5"
+    },
+    {
+      "id": "jhipster/fact/0af08809",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5d03df99f6"
+      ],
+      "key": "jhipster/fact/0af08809"
+    },
+    {
+      "id": "jhipster/fact/9116cdce",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:67b3d00d88"
+      ],
+      "key": "jhipster/fact/9116cdce"
+    },
+    {
+      "id": "jhipster/fact/480f5408",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/labels/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:74fd955490"
+      ],
+      "key": "jhipster/fact/480f5408"
+    },
+    {
+      "id": "jhipster/fact/31a19bf0",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:8d880b8bae"
+      ],
+      "key": "jhipster/fact/31a19bf0"
+    },
+    {
+      "id": "jhipster/fact/62515c19",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:93db0e965b"
+      ],
+      "key": "jhipster/fact/62515c19"
+    },
+    {
+      "id": "jhipster/fact/37a2c72b",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PUT /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:c86619d1a5"
+      ],
+      "key": "jhipster/fact/37a2c72b"
+    },
+    {
+      "id": "jhipster/fact/b77ff5f4",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/labels/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:cfeb39ac43"
+      ],
+      "key": "jhipster/fact/b77ff5f4"
+    },
+    {
+      "id": "jhipster/fact/c8a09d15",
+      "section": "fact",
+      "app": "jhipster",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:f455176ec1"
+      ],
+      "key": "jhipster/fact/c8a09d15"
+    },
+    {
+      "id": "super-heroes/fact/a3a00bf5",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:025ed23823"
+      ],
+      "key": "super-heroes/fact/a3a00bf5"
+    },
+    {
+      "id": "super-heroes/fact/14755edd",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/villains",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:27164da4b1"
+      ],
+      "key": "super-heroes/fact/14755edd"
+    },
+    {
+      "id": "super-heroes/fact/36787a03",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:773f8ff417"
+      ],
+      "key": "super-heroes/fact/36787a03"
+    },
+    {
+      "id": "super-heroes/fact/2d661de7",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/villains",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:de95325264"
+      ],
+      "key": "super-heroes/fact/2d661de7"
+    },
+    {
+      "id": "super-heroes/fact/0a5120ca",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PUT /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:3904410b7b"
+      ],
+      "key": "super-heroes/fact/0a5120ca"
+    },
+    {
+      "id": "super-heroes/fact/2fcd5641",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:b9a41f0c02"
+      ],
+      "key": "super-heroes/fact/2fcd5641"
+    },
+    {
+      "id": "super-heroes/fact/08256fc1",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:d9c348a22a"
+      ],
+      "key": "super-heroes/fact/08256fc1"
+    },
+    {
+      "id": "super-heroes/fact/c05f3d6e",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:653fe5bc87"
+      ],
+      "key": "super-heroes/fact/c05f3d6e"
+    },
+    {
+      "id": "super-heroes/fact/d30544bf",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/villains/random",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:f85ec4f404"
+      ],
+      "key": "super-heroes/fact/d30544bf"
+    },
+    {
+      "id": "super-heroes/fact/6e7d12f1",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/villains",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:e365eb8de1"
+      ],
+      "key": "super-heroes/fact/6e7d12f1"
+    },
+    {
+      "id": "super-heroes/fact/165f20be",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /q/openapi",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:2421f79db5"
+      ],
+      "key": "super-heroes/fact/165f20be"
+    },
+    {
+      "id": "super-heroes/fact/821d9405",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /q/health",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:b0cef9c91f"
+      ],
+      "key": "super-heroes/fact/821d9405"
+    },
+    {
+      "id": "super-heroes/fact/8892dd7d",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "errors-behind-2xx",
+      "subject": "DELETE /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "errors-behind-2xx:6e93941864"
+      ],
+      "key": "super-heroes/fact/8892dd7d"
+    },
+    {
+      "id": "super-heroes/fact/59f631c7",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "DELETE /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:25f1098bef"
+      ],
+      "key": "super-heroes/fact/59f631c7"
+    },
+    {
+      "id": "super-heroes/fact/2365e9e8",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "framework-warnings-by-route",
+      "subject": "DELETE /api/villains/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "framework-warnings-by-route:5deccb7a2f"
+      ],
+      "key": "super-heroes/fact/2365e9e8"
+    },
+    {
+      "id": "super-heroes/fact/cd4f3c24",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /q/health/ready",
+      "status": "INSUFFICIENT",
+      "observationIds": [
+        "route-time-breakdown:867cd3670a"
+      ],
+      "key": "super-heroes/fact/cd4f3c24"
+    },
+    {
+      "id": "super-heroes/fact/d3a196e0",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /q/health/live",
+      "status": "INSUFFICIENT",
+      "observationIds": [
+        "route-time-breakdown:b085ce3e00"
+      ],
+      "key": "super-heroes/fact/d3a196e0"
+    },
+    {
+      "id": "super-heroes/fact/b773ef49",
+      "section": "fact",
+      "app": "super-heroes",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/villains/hello",
+      "status": "INSUFFICIENT",
+      "observationIds": [
+        "route-time-breakdown:f541cb85a4"
+      ],
+      "key": "super-heroes/fact/b773ef49"
+    },
+    {
+      "id": "webflux-gateway/fact/cb914b68",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/admin/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:2bf7e477d0"
+      ],
+      "key": "webflux-gateway/fact/cb914b68"
+    },
+    {
+      "id": "webflux-gateway/fact/c2aab47a",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:0b7afe569c"
+      ],
+      "key": "webflux-gateway/fact/c2aab47a"
+    },
+    {
+      "id": "webflux-gateway/fact/cf6ddfaf",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/account",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:acd55ae4fa"
+      ],
+      "key": "webflux-gateway/fact/cf6ddfaf"
+    },
+    {
+      "id": "webflux-gateway/fact/1baca838",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:67b3d00d88"
+      ],
+      "key": "webflux-gateway/fact/1baca838"
+    },
+    {
+      "id": "webflux-gateway/fact/bcfbdca1",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/authorities",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:da6bdf4ef3"
+      ],
+      "key": "webflux-gateway/fact/bcfbdca1"
+    },
+    {
+      "id": "webflux-gateway/fact/1b804e7e",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/authorities/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:31fb58c274"
+      ],
+      "key": "webflux-gateway/fact/1b804e7e"
+    },
+    {
+      "id": "webflux-gateway/fact/0922a75b",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/authenticate",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5cf2c95c76"
+      ],
+      "key": "webflux-gateway/fact/0922a75b"
+    },
+    {
+      "id": "webflux-gateway/fact/7ae2b5c8",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "errors-behind-2xx",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "errors-behind-2xx:26d546b877"
+      ],
+      "key": "webflux-gateway/fact/7ae2b5c8"
+    },
+    {
+      "id": "webflux-gateway/fact/63c12ecb",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "PUT /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:6628e5d0b5"
+      ],
+      "key": "webflux-gateway/fact/63c12ecb"
+    },
+    {
+      "id": "webflux-gateway/fact/b3af30e4",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:80c2f91fd8"
+      ],
+      "key": "webflux-gateway/fact/b3af30e4"
+    },
+    {
+      "id": "webflux-gateway/fact/a739801e",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:d19214e3e7"
+      ],
+      "key": "webflux-gateway/fact/a739801e"
+    },
+    {
+      "id": "webflux-gateway/fact/f39133c7",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /management/health",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:6b66b25b23"
+      ],
+      "key": "webflux-gateway/fact/f39133c7"
+    },
+    {
+      "id": "webflux-gateway/fact/edcf43d9",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /services/absent/api/orders",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:673e80e2da"
+      ],
+      "key": "webflux-gateway/fact/edcf43d9"
+    },
+    {
+      "id": "webflux-gateway/fact/c08d095e",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/authorities/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:6f0b2c75f0"
+      ],
+      "key": "webflux-gateway/fact/c08d095e"
+    },
+    {
+      "id": "webflux-gateway/fact/e7721497",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/authorities",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:aa7bf27aa4"
+      ],
+      "key": "webflux-gateway/fact/e7721497"
+    },
+    {
+      "id": "webflux-gateway/fact/1bee6a00",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "exception-hotspots",
+      "subject": "GET /services/absent/management/health/readiness",
+      "status": "OBSERVED",
+      "observationIds": [
+        "exception-hotspots:bce42a1451"
+      ],
+      "key": "webflux-gateway/fact/1bee6a00"
+    },
+    {
+      "id": "webflux-gateway/fact/d5ee6746",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/authenticate",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:061fc4c54d"
+      ],
+      "key": "webflux-gateway/fact/d5ee6746"
+    },
+    {
+      "id": "webflux-gateway/fact/7b23e198",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /management/info",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:110c0f6477"
+      ],
+      "key": "webflux-gateway/fact/7b23e198"
+    },
+    {
+      "id": "webflux-gateway/fact/1e4d3ec7",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5d03df99f6"
+      ],
+      "key": "webflux-gateway/fact/1e4d3ec7"
+    },
+    {
+      "id": "webflux-gateway/fact/129192e7",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "PUT /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:c86619d1a5"
+      ],
+      "key": "webflux-gateway/fact/129192e7"
+    },
+    {
+      "id": "webflux-gateway/fact/9e2b68c5",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/users",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:de07ae1669"
+      ],
+      "key": "webflux-gateway/fact/9e2b68c5"
+    },
+    {
+      "id": "webflux-gateway/fact/a76d253a",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/authorities",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:3785fa58db"
+      ],
+      "key": "webflux-gateway/fact/a76d253a"
+    },
+    {
+      "id": "webflux-gateway/fact/95bd870b",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /services/absent/management/health/readiness",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:579b87cea6"
+      ],
+      "key": "webflux-gateway/fact/95bd870b"
+    },
+    {
+      "id": "webflux-gateway/fact/46476677",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/authorities/{id}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:5fa304ab36"
+      ],
+      "key": "webflux-gateway/fact/46476677"
+    },
+    {
+      "id": "webflux-gateway/fact/c5a9c266",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "GET /services/absent/api/orders",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:68efaaa172"
+      ],
+      "key": "webflux-gateway/fact/c5a9c266"
+    },
+    {
+      "id": "webflux-gateway/fact/ee320615",
+      "section": "fact",
+      "app": "webflux-gateway",
+      "role": "tuned",
+      "service": "",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:93db0e965b"
+      ],
+      "key": "webflux-gateway/fact/ee320615"
+    },
+    {
+      "id": "kafka/fact/be4b74de",
+      "section": "fact",
+      "app": "kafka",
+      "role": "tuned",
+      "service": "order-service",
+      "kind": "route-time-breakdown",
+      "subject": "POST /orders",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:3bb9ca6432"
+      ],
+      "key": "kafka/fact/be4b74de"
+    },
+    {
+      "id": "kafka/fact/defd4432",
+      "section": "fact",
+      "app": "kafka",
+      "role": "tuned",
+      "service": "order-service",
+      "kind": "route-time-breakdown",
+      "subject": "GET /orders",
+      "status": "OBSERVED",
+      "observationIds": [
+        "route-time-breakdown:eb33c83b20"
+      ],
+      "key": "kafka/fact/defd4432"
+    }
+  ]
+}

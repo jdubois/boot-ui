@@ -55,5 +55,8 @@ docs/.vuepress/public/videos/*.mp4
 /bootui-spring-sample-app/Dockerfile-native
 /bootui-spring-sample-app/src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-spring-sample-app/reachability-metadata.json
 
+# Validation harness work area: cloned applications, their Maven repository, logs, and collected evidence
+/validation/.work/
+
 # Local HyperFrames video projects and their renders; published videos live as GitHub Release assets
 /videos/

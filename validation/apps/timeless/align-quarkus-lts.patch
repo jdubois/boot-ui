@@ -1,0 +1,19 @@
+diff --git a/timeless-api/pom.xml b/timeless-api/pom.xml
+index 1679f76..1ea5652 100644
+--- a/timeless-api/pom.xml
++++ b/timeless-api/pom.xml
+@@ -12,12 +12,12 @@
+         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+-        <quarkus.platform.version>3.39.1</quarkus.platform.version>
++        <quarkus.platform.version>3.33.3.3</quarkus.platform.version>
+         <skipITs>true</skipITs>
+         <surefire-plugin.version>3.5.6</surefire-plugin.version>
+         <quarkus-quinoa.version>2.8.1</quarkus-quinoa.version>
+         <jbcrypt.version>0.4</jbcrypt.version>
+-        <quarkus-langchain4j-openai.version>1.13.1</quarkus-langchain4j-openai.version>
++        <quarkus-langchain4j-openai.version>1.7.8</quarkus-langchain4j-openai.version>
+         <assertj.version>3.27.7</assertj.version>
+     </properties>
+ 
