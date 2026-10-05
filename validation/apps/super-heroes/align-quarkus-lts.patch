@@ -1,0 +1,13 @@
+diff --git a/rest-villains/pom.xml b/rest-villains/pom.xml
+index e74c4f991..350c32f35 100644
+--- a/rest-villains/pom.xml
++++ b/rest-villains/pom.xml
+@@ -22,7 +22,7 @@
+     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+     <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+-    <quarkus.platform.version>3.39.5</quarkus.platform.version>
++    <quarkus.platform.version>3.33.3.3</quarkus.platform.version>
+     <quarkus.test.arg-line/>
+     <surefire-plugin.version>3.6.0</surefire-plugin.version>
+   </properties>

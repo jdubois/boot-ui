@@ -76,6 +76,14 @@ jobs:
       - name: Test MySQL live-evidence gate
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_mysql_live_tests.py'
 
+      # The validation harness is not built or published; its scorer and scripts are checked so the registered
+      # protocol stays computable (docs/V2-VALIDATION-REPORT.md, "Protocol for the rerun").
+      - name: Test the validation harness
+        run: |
+          node --test validation/scoring/score.test.mjs
+          for script in validation/bin/*.sh validation/apps/*/app.sh; do bash -n "$script"; done
+          for script in validation/bin/*.mjs validation/traffic/*.mjs validation/stubs/*.mjs; do node --check "$script"; done
+
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v6
         with:
