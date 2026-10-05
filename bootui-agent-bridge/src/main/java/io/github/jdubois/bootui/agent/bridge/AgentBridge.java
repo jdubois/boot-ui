@@ -191,6 +191,10 @@ public final class AgentBridge {
             // Before the agent hears of the claim, so the sensor records for the new run as soon as it can.
             CodePaths.claimed(next);
         }
+        if (next.hasSensor(CaughtExceptions.SENSOR)) {
+            // The ring and its intern table, before the handlers record for the new run.
+            CaughtExceptions.claimed(next);
+        }
         if (SideEffects.claims(next)) {
             // The side-effect sensors' ring and intern table, before any of their hooks records for the run.
             SideEffects.claimed(next);
@@ -199,6 +203,7 @@ public final class AgentBridge {
         // A probe never outlives the run that started it (PLAN-v2 M5-8).
         MethodProbes.claimed(next.generation);
         SideEffects.refresh();
+        CaughtExceptions.refresh();
         return transition(agent, "claim", next, ARMED);
     }
 
@@ -302,6 +307,7 @@ public final class AgentBridge {
                 CodePaths.refresh();
                 MethodProbes.endAll();
                 SideEffects.refresh();
+                CaughtExceptions.refresh();
                 return transition(agent, "disarm", next, DISARMED);
             }
         }
@@ -332,6 +338,7 @@ public final class AgentBridge {
                 CodePaths.refresh();
                 MethodProbes.endAll();
                 SideEffects.refresh();
+                CaughtExceptions.refresh();
                 Map<String, Object> request = new LinkedHashMap<String, Object>();
                 request.put("op", "release");
                 request.put("generation", Long.valueOf(generation));
@@ -405,6 +412,9 @@ public final class AgentBridge {
                 for (int i = 0; i < ids.length; i++) {
                     map.put(ids[i], SideEffects.status(ids[i]));
                 }
+            }
+            if (CaughtExceptions.claimedOnce) {
+                map.put(CaughtExceptions.SENSOR, CaughtExceptions.status());
             }
             map.put("ring", AgentRing.status());
             map.put(MethodProbes.SENSOR, MethodProbes.status());
@@ -575,6 +585,7 @@ public final class AgentBridge {
         SideEffects.reset();
         AgentRing.reset();
         MethodProbes.reset();
+        CaughtExceptions.reset();
         inventoryClaimed = false;
         SlotSwitches.reset();
     }

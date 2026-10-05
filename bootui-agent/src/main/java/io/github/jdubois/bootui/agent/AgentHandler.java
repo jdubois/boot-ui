@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.CaughtExceptions;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
@@ -25,7 +26,8 @@ import java.util.function.Function;
  * it (PLAN-v2 M5-2, M5-3, M5-4a), as does a claim asking for a side-effect sensor such as {@code processes} (M5-5a, one
  * transformer for every side-effect hook, {@link SideEffectsSensor}), and a release removes it; a claim without a sensor installs nothing, unless
  * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
- * transformer ({@link ApplicationMethodsSensor}): a claim asking for neither removes it, since its advice on every
+ * transformer ({@link ApplicationMethodsSensor}) with the {@code caught-exceptions} sensor (M5-6a): a claim asking for
+ * none of them removes it, since its advice on every
  * application method would otherwise stay for a claim that never reads it. A {@code method-probe} of the current armed
  * generation queues one method probe ({@link MethodProbeSensor}, PLAN-v2 M5-8) for the class loaders of the current run:
  * the context class loader chain of the thread that claimed or refined, held weakly. A {@code sensors} switch of the
@@ -114,10 +116,17 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 boolean inventory = claimedSensors.contains(CodeInventory.SENSOR);
                 boolean codePaths = claimedSensors.contains(CodePaths.SENSOR);
-                applicationMethodsClaimed = inventory || codePaths;
+                boolean caught = claimedSensors.contains(CaughtExceptions.SENSOR);
+                applicationMethodsClaimed = inventory || codePaths || caught;
                 if (applicationMethodsClaimed) {
                     applicationMethods()
-                            .claimed(generation, packages, strings(request.get("beanClasses")), inventory, codePaths);
+                            .claimed(
+                                    generation,
+                                    packages,
+                                    strings(request.get("beanClasses")),
+                                    inventory,
+                                    codePaths,
+                                    caught);
                 } else if (applicationMethods != null) {
                     // Its advice would otherwise stay on every method for a claim that never reads it.
                     applicationMethods.release();
@@ -349,6 +358,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         if (applicationMethods != null) {
             sensors.add(active(applicationMethods.inventoryStatus()));
             sensors.add(active(applicationMethods.codePathsStatus()));
+            if (applicationMethods.caughtEver()) {
+                // Opt-in: reported once a claim asked for it, as the other opt-in sensors are.
+                sensors.add(active(applicationMethods.caughtStatus()));
+            }
         }
         if (sideEffects != null) {
             for (Map<String, Object> row : sideEffects.status()) {

@@ -690,6 +690,7 @@ public final class JavaAgentService {
                 Map<String, Object> counters = id == null ? Map.of() : AgentBridgeAccess.map(status, id);
                 boolean inventory = AgentSensorSettings.INVENTORY.equals(id);
                 boolean codePaths = AgentSensorSettings.CODE_PATHS.equals(id);
+                boolean caught = AgentSensorSettings.CAUGHT_EXCEPTIONS.equals(id);
                 sensors.add(new JavaAgentSensorDto(
                         id,
                         AgentBridgeAccess.text(sensor, "state"),
@@ -708,7 +709,7 @@ public final class JavaAgentService {
                         count(sensor, "skipped"),
                         count(sensor, "transformed"),
                         count(sensor, "retransformed"),
-                        counters.isEmpty() || inventory || codePaths ? null : executorCounters(counters),
+                        counters.isEmpty() || inventory || codePaths || caught ? null : executorCounters(counters),
                         counters.isEmpty() || !inventory ? null : inventoryCounters(counters),
                         counters.isEmpty() || !codePaths ? null : codePathsCounters(counters)));
             }

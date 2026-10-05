@@ -11,6 +11,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`, and
   `environment` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
+- **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
+  sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
+  that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
+  in another exception. Each becomes an event of the runtime journal's new `agent.caught-exceptions` source, owned by
+  the Exceptions panel, with the handler's class, method, line, and declared types, the exception's class, and its
+  request or execution, never its message. The visit inserts straight-line calls at handler entries and one rethrowing
+  catch-any handler per method, computing no frames and loading no class inside the transformer; the Java Agent panel
+  shows the sensor's two hooks and self-test. A stress test defines every class of Spring Framework, Hibernate ORM,
+  Jackson, Netty, Vert.x, Quarkus, and Kotlin's standard library and coroutines with and without the visit on JDK 17,
+  21, and 26. The Exceptions panel's
+  **Caught in application code** section, `exceptions-caught-in-code` rows, and the decision on its default follow.
+  ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+
 - **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
   `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
   executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of
