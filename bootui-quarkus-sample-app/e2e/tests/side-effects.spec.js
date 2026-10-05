@@ -232,6 +232,7 @@ test.describe('Side Effects view (Quarkus)', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Request input reached this')
+  })
 
   test('reports a sleep on the Vert.x event loop and never the same sleep on a worker', async ({
     openView,

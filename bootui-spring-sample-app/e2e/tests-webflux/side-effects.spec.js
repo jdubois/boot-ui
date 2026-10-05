@@ -218,6 +218,7 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Request input reached this')
+  })
 
   test('reports a sleep on the event loop and never the same sleep on boundedElastic', async ({
     page,

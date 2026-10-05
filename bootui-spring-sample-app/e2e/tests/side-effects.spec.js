@@ -224,6 +224,7 @@ test.describe('Side Effects view', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Request input reached this')
+  })
 
   test('says the blocking sensor is not applicable on Spring MVC, which runs no event loop', async ({
     openView,
