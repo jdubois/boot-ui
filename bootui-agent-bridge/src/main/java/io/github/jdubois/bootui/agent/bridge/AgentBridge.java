@@ -72,8 +72,8 @@ public final class AgentBridge {
 
     /**
      * Called once by the agent's {@code premain}: the handler the bridge calls on every transition, with an {@code op} of
-     * {@code claim}, {@code refine}, {@code disarm}, {@code release}, {@code status}, or {@code method-probe}
-     * ({@link MethodProbes}). Returns false when a handler is
+     * {@code claim}, {@code refine}, {@code disarm}, {@code release}, {@code sensors} (a runtime switch,
+     * {@link #switchSensor}), {@code status}, or {@code method-probe} ({@link MethodProbes}). Returns false when a handler is
      * already installed (a second agent copy), which then stays dormant.
      */
     public static boolean install(Function<Map<String, Object>, Map<String, Object>> agent) {
@@ -129,8 +129,10 @@ public final class AgentBridge {
         int codePathsPool = pool instanceof Number ? ((Number) pool).intValue() : 0;
         long codePathsQueueBytes = queue instanceof Number ? ((Number) queue).longValue() : 0L;
         String slot = Claim.slot(mode, application);
+        Claim current;
+        Claim next;
         while (true) {
-            Claim current = CLAIM.get();
+            current = CLAIM.get();
             if (current != null
                     && current.armed
                     && !current.slot.equals(slot)
@@ -139,7 +141,15 @@ public final class AgentBridge {
                 HOLDS.increment();
                 return result(HELD, "held by " + current.owner + " (" + current.mode + ")", current);
             }
-            Claim next = new Claim(
+            Map<String, Boolean> overrides;
+            if (current != null && current.slot.equals(slot)) {
+                // A restart or reload of the same application: its runtime switches carry over.
+                overrides = Claim.relevant(sensors, current.overrides);
+            } else {
+                overrides = Claim.relevant(sensors, SlotSwitches.saved(slot));
+                SlotSwitches.save(current);
+            }
+            next = new Claim(
                     GENERATIONS.incrementAndGet(),
                     TOKENS.incrementAndGet(),
                     owner,
@@ -147,6 +157,8 @@ public final class AgentBridge {
                     mode,
                     packages,
                     sensors,
+                    overrides,
+                    0L,
                     skipTasks,
                     skipThreads,
                     ringCapacity,
@@ -158,35 +170,94 @@ public final class AgentBridge {
                     new WeakReference<Supplier<Object>>(capture),
                     new WeakReference<Function<Object, AutoCloseable>>(reopen));
             if (CLAIM.compareAndSet(current, next)) {
-                CLAIMS.increment();
-                if (current != null && current.armed && !current.slot.equals(slot)) {
-                    TAKEOVERS.increment();
-                }
-                if (next.hasSensor(CodeInventory.SENSOR)) {
-                    // Before the agent hears of the claim, so its self-test and advice see the new run's epoch.
-                    inventoryClaimed = true;
-                    try {
-                        CodeInventory.claimed(next);
-                    } catch (Throwable ex) {
-                        // Even the inventory state failing to initialize must not fail the claim.
-                        error(ex);
-                    }
-                }
-                if (next.hasSensor(CodePaths.SENSOR)) {
-                    // Before the agent hears of the claim, so the sensor records for the new run as soon as it can.
-                    CodePaths.claimed(next);
-                }
-                if (SideEffects.claims(next)) {
-                    // The side-effect sensors' ring and intern table, before any of their hooks records for the run.
-                    SideEffects.claimed(next);
-                }
-                CodePaths.refresh();
-                // A probe never outlives the run that started it (PLAN-v2 M5-8).
-                MethodProbes.claimed(next.generation);
-                SideEffects.refresh();
-                return transition(agent, "claim", next, ARMED);
+                break;
             }
         }
+        CLAIMS.increment();
+        if (current != null && current.armed && !current.slot.equals(slot)) {
+            TAKEOVERS.increment();
+        }
+        if (next.hasSensor(CodeInventory.SENSOR)) {
+            // Before the agent hears of the claim, so its self-test and advice see the new run's epoch.
+            inventoryClaimed = true;
+            try {
+                CodeInventory.claimed(next);
+            } catch (Throwable ex) {
+                // Even the inventory state failing to initialize must not fail the claim.
+                error(ex);
+            }
+        }
+        if (next.hasSensor(CodePaths.SENSOR)) {
+            // Before the agent hears of the claim, so the sensor records for the new run as soon as it can.
+            CodePaths.claimed(next);
+        }
+        if (SideEffects.claims(next)) {
+            // The side-effect sensors' ring and intern table, before any of their hooks records for the run.
+            SideEffects.claimed(next);
+        }
+        CodePaths.refresh();
+        // A probe never outlives the run that started it (PLAN-v2 M5-8).
+        MethodProbes.claimed(next.generation);
+        SideEffects.refresh();
+        return transition(agent, "claim", next, ARMED);
+    }
+
+    /**
+     * Switches {@code sensor} on or off for the claim the token identifies, at run time, and for every later claim in its
+     * slot ({@code mode:application}) until the JVM ends, so a DevTools restart or a Quarkus live reload keeps the switch
+     * (PLAN-v2 M5-14): an override, never written anywhere, dropped once the application's own sensors agree with it. The
+     * switches travel with the slot's claims, each claim in the same slot taking its predecessor's, and are kept by
+     * {@link SlotSwitches} while another slot's claim, or none, is current.
+     * Only {@code threads} and the side-effect sensors can be switched, since the agent installs and removes them without
+     * a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
+     * switches the agent receives. Re-enabling {@code threads} after it failed in this run is refused: its bridge
+     * disables it for the run's generation, so only the next claim tries it again.
+     */
+    public static Map<String, Object> switchSensor(long token, String sensor, boolean enabled) {
+        Function<Map<String, Object>, Map<String, Object>> agent = AGENT.get();
+        if (agent == null) {
+            return result(UNAVAILABLE, "the BootUI agent did not start", null);
+        }
+        if (!switchable(sensor)) {
+            return result(
+                    FAILED,
+                    "the " + sensor + " sensor cannot be switched at run time: only " + ThreadPropagation.SENSOR
+                            + " and the side-effect sensors can",
+                    null);
+        }
+        Claim next;
+        while (true) {
+            Claim current = CLAIM.get();
+            if (current == null || current.token != token || !current.armed) {
+                STALE_TOKENS.increment();
+                return result(STALE, "this claim was replaced or ended", current);
+            }
+            if (enabled && ThreadPropagation.SENSOR.equals(sensor) && ThreadPropagation.disabled(current.generation)) {
+                return result(
+                        FAILED,
+                        "the threads sensor failed in this run: it stays off until the application restarts",
+                        current);
+            }
+            Map<String, Boolean> overrides = new LinkedHashMap<String, Boolean>(current.overrides);
+            overrides.remove(sensor);
+            overrides.put(sensor, Boolean.valueOf(enabled));
+            next = current.switched(Claim.relevant(current.configuredSensors, overrides));
+            if (CLAIM.compareAndSet(current, next)) {
+                break;
+            }
+        }
+        if (SideEffects.claims(next)) {
+            // The ring and intern table of a claim that asked for no side-effect sensor until now; a no-op otherwise.
+            SideEffects.claimed(next);
+        }
+        // A sensor switched off stops recording now, before the agent removes its hooks.
+        SideEffects.refresh();
+        return transition(agent, "sensors", next, ARMED);
+    }
+
+    /** Whether the agent can switch {@code sensor} without a new claim. */
+    static boolean switchable(String sensor) {
+        return sensor != null && (ThreadPropagation.SENSOR.equals(sensor) || SideEffects.bit(sensor) != 0);
     }
 
     /**
@@ -255,6 +326,8 @@ public final class AgentBridge {
             }
             // A release takes its own generation, so the agent never applies it over a newer claim it saw first.
             long generation = GENERATIONS.incrementAndGet();
+            // The slot's runtime switches outlive its claim, for its next one.
+            SlotSwitches.save(current);
             if (CLAIM.compareAndSet(current, null)) {
                 CodePaths.refresh();
                 MethodProbes.endAll();
@@ -503,5 +576,6 @@ public final class AgentBridge {
         AgentRing.reset();
         MethodProbes.reset();
         inventoryClaimed = false;
+        SlotSwitches.reset();
     }
 }

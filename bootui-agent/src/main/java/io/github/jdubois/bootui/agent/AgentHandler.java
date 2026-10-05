@@ -28,7 +28,9 @@ import java.util.function.Function;
  * transformer ({@link ApplicationMethodsSensor}): a claim asking for neither removes it, since its advice on every
  * application method would otherwise stay for a claim that never reads it. A {@code method-probe} of the current armed
  * generation queues one method probe ({@link MethodProbeSensor}, PLAN-v2 M5-8) for the class loaders of the current run:
- * the context class loader chain of the thread that claimed or refined, held weakly.
+ * the context class loader chain of the thread that claimed or refined, held weakly. A {@code sensors} switch of the
+ * current generation (PLAN-v2 M5-14) installs or removes the {@code threads} and side-effect sensors at run time, in the
+ * order of the claim's {@code sensorsRevision}.
  */
 final class AgentHandler implements Function<Map<String, Object>, Map<String, Object>> {
 
@@ -54,6 +56,8 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private boolean armed;
     private List<String> packages = Collections.emptyList();
     private List<String> claimedSensors = Collections.emptyList();
+    /** The current claim's last runtime switch applied: a switch arriving after a later one is ignored. */
+    private long sensorsRevision;
 
     AgentHandler(
             Instrumentation instrumentation,
@@ -92,6 +96,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 SideEffects.agentWork(false);
                 packages = strings(request.get("packages"));
                 claimedSensors = strings(request.get("sensors"));
+                sensorsRevision = number(request.get("sensorsRevision"));
                 hook.onClaim(Collections.unmodifiableMap(new LinkedHashMap<String, Object>(request)));
                 List<String> probe = hook.probePackages();
                 if (!probe.isEmpty()) {
@@ -102,6 +107,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 if (claimedSensors.contains(ThreadPropagation.SENSOR)) {
                     threads().claimed(generation, packages);
+                } else if (threads != null && switchedOff(request, ThreadPropagation.SENSOR)) {
+                    // Switched off at run time (PLAN-v2 M5-14): java.lang.Thread is restored, even when this claim
+                    // reached the agent before the switch did.
+                    threads.release();
                 }
                 boolean inventory = claimedSensors.contains(CodeInventory.SENSOR);
                 boolean codePaths = claimedSensors.contains(CodePaths.SENSOR);
@@ -137,6 +146,8 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                     }
                 }
                 return answer("ok", null);
+            case "sensors":
+                return switched(request, requested);
             case "disarm":
                 if (requested == generation) {
                     armed = false;
@@ -184,6 +195,53 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             default:
                 return answer(AgentBridge.FAILED, "unknown operation " + op);
         }
+    }
+
+    /**
+     * A runtime switch of the current claim's sensors (PLAN-v2 M5-14): installs or removes the {@code threads} sensor, and
+     * reinstalls the side-effect sensors' transformer for their new mask, or removes it. Applied to the current claim's
+     * generation even once it is disarmed, so a sensor switched off just before the run ended is still removed; ignored
+     * for another generation or after a later switch, since calls can arrive out of order.
+     */
+    private Map<String, Object> switched(Map<String, Object> request, long requested) {
+        long revision = number(request.get("sensorsRevision"));
+        if (requested != generation) {
+            return answer("ignored", "another claim's switch");
+        }
+        if (revision <= sensorsRevision) {
+            return answer("ignored", "an older switch");
+        }
+        sensorsRevision = revision;
+        List<String> previous = claimedSensors;
+        List<String> next = strings(request.get("sensors"));
+        claimedSensors = next;
+        boolean hadThreads = previous.contains(ThreadPropagation.SENSOR);
+        boolean wantsThreads = next.contains(ThreadPropagation.SENSOR);
+        if (wantsThreads && !hadThreads) {
+            threads().claimed(generation, packages);
+        } else if (!wantsThreads && hadThreads && threads != null) {
+            threads.release();
+        }
+        int before = sideEffectsMask(previous);
+        int after = sideEffectsMask(next);
+        if (after != before) {
+            if (after != 0) {
+                sideEffects().claimed(after);
+            } else if (sideEffects != null) {
+                sideEffects.release();
+            }
+        }
+        return answer("ok", null);
+    }
+
+    /** Whether the claim {@code request} describes switched {@code sensor} off at run time. */
+    private static boolean switchedOff(Map<String, Object> request, String sensor) {
+        Object overrides = request.get("sensorOverrides");
+        return overrides instanceof Map && Boolean.FALSE.equals(((Map<?, ?>) overrides).get(sensor));
+    }
+
+    private static long number(Object value) {
+        return value instanceof Number ? ((Number) value).longValue() : 0L;
     }
 
     private ThreadSensor threads() {

@@ -24,8 +24,20 @@ final class Claim {
     final String application;
     final String mode;
     final List<String> packages;
-    /** The sensors this application asked for, such as {@code executors}. */
+    /**
+     * The sensors this claim uses, such as {@code executors}: those the application asked for, with the runtime switches
+     * of its slot applied ({@link #overrides}). Every sensor's gate reads this list.
+     */
     final List<String> sensors;
+    /** The sensors the application asked for ({@code bootui.agent.sensors}), before the runtime switches. */
+    final List<String> configuredSensors;
+    /**
+     * The runtime switches of this claim's slot, sensor id to on or off (PLAN-v2 M5-14): only those that differ from
+     * {@link #configuredSensors}. Unmodifiable.
+     */
+    final Map<String, Boolean> overrides;
+    /** 0 at the claim, then one more at each runtime switch: the agent applies switches in this order. */
+    final long sensorsRevision;
     /** Task class-name prefixes of wrappers that already propagate BootUI's context: never keyed. */
     final String[] skipTasks;
     /** Worker thread-name prefixes of executors that propagate BootUI's context themselves: never applied. */
@@ -54,7 +66,9 @@ final class Claim {
             String application,
             String mode,
             List<String> packages,
-            List<String> sensors,
+            List<String> configuredSensors,
+            Map<String, Boolean> overrides,
+            long sensorsRevision,
             String[] skipTasks,
             String[] skipThreads,
             int ringCapacity,
@@ -72,7 +86,10 @@ final class Claim {
         this.application = application;
         this.mode = mode;
         this.packages = packages;
-        this.sensors = sensors;
+        this.configuredSensors = configuredSensors;
+        this.overrides = overrides;
+        this.sensorsRevision = sensorsRevision;
+        this.sensors = effective(configuredSensors, overrides);
         this.skipTasks = skipTasks;
         this.skipThreads = skipThreads;
         this.ringCapacity = ringCapacity;
@@ -125,7 +142,9 @@ final class Claim {
                 application,
                 mode,
                 Collections.unmodifiableList(merged),
-                sensors,
+                configuredSensors,
+                overrides,
+                sensorsRevision,
                 skipTasks,
                 skipThreads,
                 ringCapacity,
@@ -146,7 +165,9 @@ final class Claim {
                 application,
                 mode,
                 packages,
-                sensors,
+                configuredSensors,
+                overrides,
+                sensorsRevision,
                 skipTasks,
                 skipThreads,
                 ringCapacity,
@@ -157,6 +178,71 @@ final class Claim {
                 false,
                 capture,
                 reopen);
+    }
+
+    /** This claim with the runtime switches {@code switched}, one revision later. */
+    Claim switched(Map<String, Boolean> switched) {
+        return new Claim(
+                generation,
+                token,
+                owner,
+                application,
+                mode,
+                packages,
+                configuredSensors,
+                switched,
+                sensorsRevision + 1,
+                skipTasks,
+                skipThreads,
+                ringCapacity,
+                beanClasses,
+                codePathsPool,
+                codePathsQueueBytes,
+                armedAt,
+                armed,
+                capture,
+                reopen);
+    }
+
+    /**
+     * {@code configured} with {@code overrides} applied: the configured sensors switched off removed, then the sensors
+     * switched on added, in their switch order.
+     */
+    static List<String> effective(List<String> configured, Map<String, Boolean> overrides) {
+        if (overrides.isEmpty()) {
+            return configured;
+        }
+        List<String> list = new ArrayList<String>();
+        for (int i = 0; i < configured.size(); i++) {
+            if (!Boolean.FALSE.equals(overrides.get(configured.get(i)))) {
+                list.add(configured.get(i));
+            }
+        }
+        for (Map.Entry<String, Boolean> entry : overrides.entrySet()) {
+            if (Boolean.TRUE.equals(entry.getValue()) && !list.contains(entry.getKey())) {
+                list.add(entry.getKey());
+            }
+        }
+        return Collections.unmodifiableList(list);
+    }
+
+    /**
+     * The switches of {@code overrides} that still differ from {@code configured}: one that the configuration now agrees
+     * with, as after the application's {@code bootui.agent.sensors} changed, is dropped. Unmodifiable.
+     */
+    static Map<String, Boolean> relevant(List<String> configured, Map<String, Boolean> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return Collections.<String, Boolean>emptyMap();
+        }
+        Map<String, Boolean> kept = new LinkedHashMap<String, Boolean>();
+        for (Map.Entry<String, Boolean> entry : overrides.entrySet()) {
+            if (entry.getValue() != null && entry.getValue().booleanValue() != configured.contains(entry.getKey())) {
+                kept.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return kept.isEmpty()
+                ? Collections.<String, Boolean>emptyMap()
+                : Collections.unmodifiableMap(kept);
     }
 
     boolean hasSensor(String sensor) {
@@ -193,6 +279,9 @@ final class Claim {
         map.put("mode", mode);
         map.put("packages", new ArrayList<String>(packages));
         map.put("sensors", new ArrayList<String>(sensors));
+        map.put("configuredSensors", new ArrayList<String>(configuredSensors));
+        map.put("sensorOverrides", new LinkedHashMap<String, Boolean>(overrides));
+        map.put("sensorsRevision", Long.valueOf(sensorsRevision));
         Map<String, Object> executors = new LinkedHashMap<String, Object>();
         executors.put("skipTasks", list(skipTasks));
         executors.put("skipThreads", list(skipThreads));
