@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.journal;
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityAware;
 import io.github.jdubois.bootui.autoconfigure.datasource.DataSourceDeclarations;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunStartEvents;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
@@ -13,6 +14,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
@@ -58,6 +60,9 @@ public final class RunStartPublisher implements ApplicationListener<ApplicationR
         }
         Duration taken = event.getTimeTaken();
         Environment environment = context.getEnvironment();
+        // A source the journal is set to record but this run cannot fill is not named in its comparability facts.
+        Set<JournalSource> unrecorded =
+                new SpringAppEventCapture(context).get().recorded() ? Set.of() : Set.of(JournalSource.APP_EVENT);
         RunStartEvents.publish(
                 journal,
                 System.currentTimeMillis(),
@@ -66,7 +71,8 @@ public final class RunStartPublisher implements ApplicationListener<ApplicationR
                 Arrays.asList(environment.getActiveProfiles()),
                 jdbcUrls(),
                 cacheType(),
-                tracing(environment));
+                tracing(environment),
+                unrecorded);
     }
 
     private List<StartupStepTiming> slowestBeans() {

@@ -101,6 +101,7 @@ public final class ChangeImpactService {
     private final Predicate<String> panelEnabled;
 
     private volatile InsightsStack stack;
+    private volatile Supplier<AppEventCapture> appEventCapture;
     private volatile Function<Predicate<String>, MethodRoutes> codePaths;
     private volatile BiFunction<String, String, CodeInventoryService.MethodLookup> inventory;
 
@@ -130,6 +131,30 @@ public final class ChangeImpactService {
      */
     public void setStack(InsightsStack stack) {
         this.stack = stack;
+    }
+
+    /**
+     * Installs whether this application's application events are recorded ({@link AppEventCapture}), so an impact that
+     * could reach code through an event says when none is recorded. Without it, they are assumed recorded.
+     */
+    public void setAppEventCapture(Supplier<AppEventCapture> appEventCapture) {
+        this.appEventCapture = appEventCapture;
+    }
+
+    /**
+     * Why a reach through an application event is not counted because this application's events are not recorded, or
+     * {@code null} when they are, or the journal does not record the {@code app-event} source anyway.
+     */
+    private String unrecordedAppEvents() {
+        Supplier<AppEventCapture> supplier = appEventCapture;
+        if (supplier == null || !journal.records(JournalSource.APP_EVENT)) {
+            return null;
+        }
+        AppEventCapture capture = AppEventCapture.read(supplier);
+        if (capture.recorded()) {
+            return null;
+        }
+        return capture.reason() + " A reach that exists only through an event is not counted.";
     }
 
     /**
@@ -199,6 +224,11 @@ public final class ChangeImpactService {
             if (structure.beansUnavailable() != null) {
                 return unavailable(asked, structure.beansUnavailable());
             }
+            List<String> notFoundLimitations = new ArrayList<>(limitations(model, omitted));
+            String unrecordedEvents = unrecordedAppEvents();
+            if (unrecordedEvents != null) {
+                notFoundLimitations.add(unrecordedEvents);
+            }
             return new RuntimeChangeImpactDto(
                     NOT_FOUND,
                     "No route, bean, repository, table, cache, host, or method named `" + asked
@@ -213,7 +243,7 @@ public final class ChangeImpactService {
                     0,
                     List.of(),
                     0,
-                    limitations(model, omitted));
+                    notFoundLimitations);
         }
         if (candidates.size() > 1) {
             return new RuntimeChangeImpactDto(
@@ -342,6 +372,10 @@ public final class ChangeImpactService {
         String unrecordedPublications = AppEventPublications.unrecordedReason(stack);
         if (unrecordedPublications != null) {
             limitations.add(unrecordedPublications);
+        }
+        String unrecordedEvents = unrecordedAppEvents();
+        if (unrecordedEvents != null) {
+            limitations.add(unrecordedEvents);
         }
         return new RuntimeChangeImpactDto(
                 RESOLVED,

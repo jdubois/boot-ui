@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.codepaths.MethodRoutes;
 import io.github.jdubois.bootui.engine.codepaths.TracedMethods;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
@@ -27,6 +28,7 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -50,6 +52,7 @@ public final class RunComparisonService {
     private volatile BooleanSupplier agentAttached = () -> false;
     private volatile Function<Integer, CodeInventoryService.ChangesRead> inventoryChanges;
     private volatile Function<Predicate<String>, MethodRoutes> codePaths;
+    private volatile Supplier<AppEventCapture> appEventCapture;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -99,11 +102,19 @@ public final class RunComparisonService {
     }
 
     /**
+     * Installs whether this application's application events are recorded ({@link AppEventCapture}), so a comparison
+     * that compares no application event edge says why. Without it, they are assumed recorded.
+     */
+    public void setAppEventCapture(Supplier<AppEventCapture> appEventCapture) {
+        this.appEventCapture = appEventCapture;
+    }
+
+    /**
      * Compares the current run with the kept run {@code runId}, or, when it is {@code null} or blank, with the newest
      * kept run, including one with no HTTP traffic.
      */
     public RuntimeRunComparisonDto compare(String runId) {
-        RuntimeRunComparisonDto comparison = compareRuns(runId);
+        RuntimeRunComparisonDto comparison = withUnrecordedAppEvents(compareRuns(runId));
         if (RunComparison.UNAVAILABLE.equals(comparison.status()) && comparison.current() == null) {
             return comparison;
         }
@@ -113,6 +124,40 @@ public final class RunComparisonService {
                 || (!comparison.runs().isEmpty()
                         && comparison.runs().get(0).runId().equals(runId));
         return comparison.withCodeChanges(codeChanges(previousRun));
+    }
+
+    /**
+     * {@code comparison}, naming among its limitations why no application event edge is compared when this run's
+     * application events are not recorded although the journal records the {@code app-event} source.
+     */
+    private RuntimeRunComparisonDto withUnrecordedAppEvents(RuntimeRunComparisonDto comparison) {
+        Supplier<AppEventCapture> supplier = appEventCapture;
+        if (supplier == null
+                || comparison.current() == null
+                || journal == null
+                || !journal.records(JournalSource.APP_EVENT)) {
+            return comparison;
+        }
+        AppEventCapture capture = AppEventCapture.read(supplier);
+        if (capture.recorded()) {
+            return comparison;
+        }
+        List<String> limitations =
+                new ArrayList<>(comparison.limitations() == null ? List.of() : comparison.limitations());
+        limitations.add(capture.reason() + " Its application event edges are not compared.");
+        return new RuntimeRunComparisonDto(
+                comparison.status(),
+                comparison.reason(),
+                comparison.current(),
+                comparison.previous(),
+                comparison.runs(),
+                comparison.notComparableReasons(),
+                comparison.behavior(),
+                comparison.edges(),
+                comparison.restartCost(),
+                comparison.latency(),
+                limitations,
+                comparison.codeChanges());
     }
 
     /**

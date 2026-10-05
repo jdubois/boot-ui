@@ -465,6 +465,28 @@ class ChangeImpactServiceTests {
                         assertThat(limitation).contains("does not record who publishes an application event"));
     }
 
+    @Test
+    void springSaysWhenItRecordsNoApplicationEventBesideTheApplicationsOwnMulticaster() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+
+        ChangeImpactService modulith = service(structure(null));
+        modulith.setStack(InsightsStack.SPRING_MVC);
+        modulith.setAppEventCapture(() -> AppEventCapture.notRecorded(AppEventCapture.CUSTOM_MULTICASTER));
+        ChangeImpactService recorded = service(structure(null));
+        recorded.setStack(InsightsStack.SPRING_MVC);
+        recorded.setAppEventCapture(AppEventCapture::capturing);
+
+        assertThat(modulith.impact("productService").limitations())
+                .anySatisfy(limitation -> assertThat(limitation)
+                        .contains(AppEventCapture.CUSTOM_MULTICASTER, "only through an event is not counted"));
+        assertThat(modulith.impact("OrderPlaced").limitations())
+                .as("an event type that is not found may only be unrecorded")
+                .anySatisfy(limitation -> assertThat(limitation).contains(AppEventCapture.CUSTOM_MULTICASTER));
+        assertThat(recorded.impact("productService").limitations())
+                .noneSatisfy(limitation -> assertThat(limitation).contains(AppEventCapture.CUSTOM_MULTICASTER));
+    }
+
     private ChangeImpactService service(StructureSnapshot structure) {
         return service(structure, panel -> true);
     }
