@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {toDocLink} from './doc-links.js'
+import {isRepositoryOnly, toDocLink} from './doc-links.js'
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 /* JVM-TUNING-CHECKS.md is excluded from the build in config.js, so it must not fall through to the
@@ -107,7 +107,9 @@ const groups = [
 export function createDocsSidebar() {
   const markdownFiles = listMarkdownFiles(docsRoot)
   const routedDocs = new Set(groups.flatMap((group) => group.docs))
-  const remainingDocs = markdownFiles.filter((file) => !hiddenDocs.includes(file) && !routedDocs.has(file))
+  const remainingDocs = markdownFiles.filter(
+    (file) => !hiddenDocs.includes(file) && !routedDocs.has(file) && !isRepositoryOnly(file)
+  )
 
   return [
     ...groups.map((group) => ({

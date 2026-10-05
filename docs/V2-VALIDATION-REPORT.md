@@ -124,13 +124,24 @@ protocol, with who accepted it and what the release notes say.
 **Provisional, pending maintainer adjudication** of the 26 rows in the [adjudication file](V2-VALIDATION-ADJUDICATION.md)
 and the maintainer's recall marks. Run on 2026-10-05 under `m4-20-protocol-2`, exactly as registered: no registered file
 was changed. The data that reproduces every number is in
-[`validation/m4-20-rerun/`](validation/m4-20-rerun/README.md): the evidence, the worksheet, both reviewers' files, the
+[`docs/validation/m4-20-rerun/`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/README.md) (kept in the repository, not published on the documentation site): the evidence, the worksheet, both reviewers' files, the
 investigations, and the time to first observation.
 
 What the adjudication can and cannot change: the default-visible score, the tuned and holdout scores, and so the global
 and holdout gates and escalation count facts **useful to both reviewers**, which no adjudication changes. The
 adjudication settles which disputed rows are Misleading, which decides the "none misleading" part of each target and of
 the per-kind gates, and the honesty rows judged as hiding something by one reviewer.
+
+### Adjudication
+
+The provisional per-kind table below was made public with the reviewers' judgments, before the maintainer adjudicated.
+It shows which pending rows can move a gate: the two Super Heroes `changed-code-not-executed` rows (r1 Informative,
+r2 Misleading) decide that kind's gate, which passes unless either is adjudicated Misleading. No other pending row
+decides whether a kind is listed: the other kinds with a pending Misleading row (`repeated-selects`,
+`split-transaction-writes`, `ai-usage-by-route`) are under-sampled, and a Misleading ruling only turns that into a
+failed gate, so they stay off the default list either way; the global and holdout gates do not depend on any ruling.
+The maintainer adjudicated knowing this. The table is kept as published, and the scorer's final
+per-kind table is reported beside it.
 
 ### Integrity
 
@@ -168,7 +179,8 @@ No-change comparisons (two runs sharing a baseline file, same traffic): PetClini
 gateway, the bookstore, Timeless, and Kafka's order service answered `COMPARED` with **0 behavior changes and 0 edge
 changes**. Kafka's payment and stock services answered `NO_PREVIOUS_RUN` and said why: the harness gives the three
 services one baseline file, written last by the order service, so the other two ignore it as another application's.
-That is a limit of the harness's Kafka configuration, reported honestly by BootUI, not a false "no change".
+That is a limit of the harness's Kafka configuration, reported honestly by BootUI, not a false "no change" (see
+[Known harness issues](#known-harness-issues-under-m4-20-protocol-2)).
 
 ### Scores
 
@@ -217,7 +229,7 @@ service's blocking send on a reactive thread is not mentioned), and its `POST /a
 
 Pending: the maintainer marks each of the 52 registered known misses and counterexamples. The operator gathered, for
 each, the worksheet rows and every row of the full report that names its subject, with the checks and coverage lines,
-in the [recall evidence](validation/m4-20-rerun/recall-evidence.md).
+in the [recall evidence](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/recall-evidence.md).
 
 ### Agent runs
 
@@ -244,8 +256,8 @@ one-minute load average was below 10.
 | Timeless | Quarkus (dev mode) | 9.38, 16.97, 15.82 | `ai-usage-by-route` OBSERVED | 26.1 | Yes |
 
 Kafka's services list no row by default on its traffic (the measured runs too), so its first observation never comes.
-The registered scorer prints an unreached measurement as `0.0` minutes in its time-to-first-observation table
-(`score.mjs` formats a `null` duration); the value recorded in `ttfo.jsonl` is `null`, and this table is right.
+The value recorded in `ttfo.jsonl` is `null`, which this table gives; the scorer's own table does not (see
+[Known harness issues](#known-harness-issues-under-m4-20-protocol-2)).
 
 ### Agent investigations
 
@@ -268,20 +280,39 @@ answers, with the operator's facts from this run where the sample has changed si
 | 9 | Did a change remove a repeated query? | Partly: right, from the current run only, without the comparison | 7 (1) | Partly, the same | 6 (1) |
 | 10 | Which scheduled job or listener does the most database work? | Wrong: said no listener does any | 10 (1) | Correct | 20 (2) |
 
-2.0: 6 correct, 3 partial, 1 wrong, 73 calls; 1.x: 6 correct, 2 partial, 2 wrong, 138 calls. Differences from the first
-run, all decided before any question was asked:
+2.0: 6 correct, 3 partial, 1 wrong, 73 calls; 1.x: 6 correct, 2 partial, 2 wrong, 138 calls.
 
-- The 1.x arm is held to the commands of the released 1.19.0 CLI (its `bootui-tools.json`): besides `insights` and
-  `agent`, it lacks `code`, `probe`, `side-effects`, `request-profile`, and `http routes`, which the first run's 1.x arm
-  could use. Its help output hides them too.
-- The sample activates BootUI only through an active profile, so it ran with `--spring.profiles.active=dev`; a first
-  start without it served no BootUI endpoint and was stopped before any question.
-- The sample gained routes since `fb4cc07e5` (tag writes, after-response work), and this build reports price-check's
-  transaction as `OBSERVED` where the first run's said `INSUFFICIENT`; the grader had these facts.
-- In run B, the comparison also reported a drop in allocation per request on `GET /api/secure/products`
-  (1.9 MB to 0.1 MB), which the code change did not cause; no answer used it.
+Three deviations from the first run, each decided before any question was asked:
+
+1. **The 1.x arm is held to the released 1.19.0 command set.** Its wrapper refuses, and its help hides, every command
+   that 1.19.0's `bootui-tools.json` does not have: `insights` and `agent` as in the first run, and also `code`,
+   `probe`, `side-effects`, `request-profile`, and `http routes`. Reason: the target compares 2.0 with 1.x tools, and the
+   first run's 1.x arm could use `request-profile` and `http routes`, which no 1.x release has. Consequence: the 1.x arm
+   has fewer tools than in the first run, so its call count is not comparable with the first run's.
+2. **The sample application ran with `--spring.profiles.active=dev`.** Reason: BootUI activates only through an active
+   profile, never a default one, so a start with `dev` as the default profile serves no BootUI endpoint. A first start
+   without the flag showed this and was stopped before any question; the questions ran on the restarted application.
+3. **The expected answers were adapted with this run's facts.** Reason: the sample has changed since `fb4cc07e5`. It
+   gained the tag-write and after-response routes, and this build reports price-check's transaction as `OBSERVED` where
+   the first run's said `INSUFFICIENT`. The operator wrote these facts from run A's report before any question, and run
+   B's comparison facts before questions 6 and 9; among them, that the comparison also reported a drop in allocation
+   per request on `GET /api/secure/products` (1.9 MB to 0.1 MB), which the code change did not cause and no answer used.
+   One fact was added later: what `insights impact insightOrderService` shows (the first 8 of 20 observed routes) was
+   captured after question 7's answers came back, and before grading. The grader had every fact, and the first run's
+   expected answers unchanged.
 
 The agents ran on the session's default model, one question each, so the limits of the first run still apply.
+
+### Known harness issues under m4-20-protocol-2
+
+Found during the rerun, not fixed under the tag, which freezes the harness; to fix before any future protocol.
+
+1. **`score.mjs` prints an unreached time to first observation as `0.0` minutes.** Kafka listed no default-visible row
+   within the 20-minute limit, and `ttfo.jsonl` records `seconds: null`, but `score.md`'s table formats it as `0.0`
+   (with "No" in its ≤ 5 minutes column). The report gives the right value.
+2. **The Kafka harness gives its three services one baseline file.** The order service writes it last, so in the
+   no-change comparison the payment and stock services ignore it as another application's and answer
+   `NO_PREVIOUS_RUN`, which BootUI reports honestly, with that reason. Only the order service was compared.
 
 ## Protocol for the rerun
 
