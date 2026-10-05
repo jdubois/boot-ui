@@ -86,6 +86,14 @@ final class SideEffectsSensor {
     static final String FILE_CHANNEL = "java.nio.channels.FileChannel";
     static final String SYSTEM = "java.lang.System";
     static final String LOCK_SUPPORT = "java.util.concurrent.locks.LockSupport";
+    static final String THREAD = "java.lang.Thread";
+    static final String VIRTUAL_THREAD = "java.lang.VirtualThread";
+    static final String THREAD_POOL = "java.util.concurrent.ThreadPoolExecutor";
+    static final String FORK_JOIN_POOL = "java.util.concurrent.ForkJoinPool";
+    static final String PER_TASK = "java.util.concurrent.ThreadPerTaskExecutor";
+
+    /** The feature release a hook's type first exists in: below it, the hook is unsupported, never failed. */
+    static final String SINCE_21 = "21";
 
     static final String CORE = "core";
     static final String OPTIONAL = "optional";
@@ -114,12 +122,28 @@ final class SideEffectsSensor {
         {"System.getenv", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getenvAll", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
-        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE}
+        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE},
+        {"Thread.start", THREAD, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"VirtualThread.start", VIRTUAL_THREAD, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        {"ThreadPoolExecutor.addWorker", THREAD_POOL, "pool", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ThreadPerTaskExecutor.start", PER_TASK, "pool", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        {"ThreadPoolExecutor.<init>", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ForkJoinPool.<init>", FORK_JOIN_POOL, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL},
+        {"ThreadPerTaskExecutor.<init>", PER_TASK, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        {"ThreadPoolExecutor.shutdown", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ThreadPoolExecutor.shutdownNow", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ForkJoinPool.shutdown", FORK_JOIN_POOL, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL},
+        {"ThreadPerTaskExecutor.shutdown", PER_TASK, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21}
     };
 
     /** The side-effect sensors, in status order. */
     static final String[] SENSORS = {
-        SideEffects.PROCESSES, SideEffects.NETWORK, SideEffects.FILES, SideEffects.ENVIRONMENT, SideEffects.BLOCKING
+        SideEffects.PROCESSES,
+        SideEffects.NETWORK,
+        SideEffects.FILES,
+        SideEffects.ENVIRONMENT,
+        SideEffects.BLOCKING,
+        SideEffects.THREAD_ACTIVITY
     };
 
     /** The variable and property the environment self-test reads, which no one sets. */
@@ -303,6 +327,10 @@ final class SideEffectsSensor {
     private synchronized Set<String> leftOut() {
         Set<String> left = new LinkedHashSet<String>(omitted);
         left.addAll(failedHooks);
+        if (left.contains("ThreadPerTaskExecutor.start")) {
+            // Without it, every task of a virtual-thread-per-task executor would read as a thread of its own.
+            left.add("VirtualThread.start");
+        }
         return left;
     }
 
@@ -537,6 +565,9 @@ final class SideEffectsSensor {
                                             .and(ElementMatchers.isPublic())
                                             .and(ElementMatchers.isStatic()))));
         }
+        if ((mask & SideEffects.MASK_THREADS) != 0) {
+            threadActivity(types, visits, left);
+        }
         AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
@@ -544,6 +575,74 @@ final class SideEffectsSensor {
             builder = builder.type(ElementMatchers.named(types.get(i))).transform(visits.get(i));
         }
         return builder;
+    }
+
+    /**
+     * The thread-activity sensor's visits (M5-5e): {@code Thread.start()} and {@code start(ThreadContainer)}, {@code
+     * VirtualThread.start(ThreadContainer)}, the pool marks, the executors' canonical constructors, and their shutdowns.
+     */
+    private static void threadActivity(List<String> types, List<ExecutorSensor.Visit> visits, Set<String> left) {
+        types.add(THREAD);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "Thread.start",
+                        Advice.to(ThreadActivityAdvice.Start.class)
+                                .on(ElementMatchers.named("start")
+                                        .and(ElementMatchers.takesArguments(0)
+                                                .or(ElementMatchers.takesArguments(1))))));
+        types.add(VIRTUAL_THREAD);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "VirtualThread.start",
+                        Advice.to(ThreadActivityAdvice.VirtualStart.class)
+                                .on(ElementMatchers.named("start").and(ElementMatchers.takesArguments(1)))));
+        types.add(THREAD_POOL);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ThreadPoolExecutor.addWorker",
+                        Advice.to(ThreadActivityAdvice.AddWorker.class)
+                                .on(ElementMatchers.named("addWorker").and(ElementMatchers.takesArguments(2))))
+                .and(
+                        "ThreadPoolExecutor.<init>",
+                        Advice.to(ThreadActivityAdvice.ThreadPoolCreated.class)
+                                .on(ElementMatchers.isConstructor().and(ElementMatchers.takesArguments(7))))
+                .and(
+                        "ThreadPoolExecutor.shutdown",
+                        Advice.to(ThreadActivityAdvice.ThreadPoolShutdown.class)
+                                .on(ElementMatchers.named("shutdown").and(ElementMatchers.takesArguments(0))))
+                .and(
+                        "ThreadPoolExecutor.shutdownNow",
+                        Advice.to(ThreadActivityAdvice.ThreadPoolShutdownNow.class)
+                                .on(ElementMatchers.named("shutdownNow").and(ElementMatchers.takesArguments(0)))));
+        types.add(FORK_JOIN_POOL);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ForkJoinPool.<init>",
+                        Advice.to(ThreadActivityAdvice.ForkJoinCreated.class)
+                                .on(ElementMatchers.isConstructor()
+                                        .and(ElementMatchers.isPublic())
+                                        .and(ElementMatchers.takesArguments(10))))
+                .and(
+                        "ForkJoinPool.shutdown",
+                        Advice.to(ThreadActivityAdvice.ForkJoinShutdown.class)
+                                .on(ElementMatchers.namedOneOf("shutdown", "shutdownNow", "close")
+                                        .and(ElementMatchers.takesArguments(0)))));
+        types.add(PER_TASK);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ThreadPerTaskExecutor.start",
+                        Advice.to(ThreadActivityAdvice.PerTaskStart.class)
+                                .on(ElementMatchers.named("start")
+                                        .and(ElementMatchers.takesArguments(1))
+                                        .and(ElementMatchers.takesArgument(0, Thread.class))))
+                .and(
+                        "ThreadPerTaskExecutor.<init>",
+                        Advice.to(ThreadActivityAdvice.PerTaskCreated.class).on(ElementMatchers.isConstructor()))
+                .and(
+                        "ThreadPerTaskExecutor.shutdown",
+                        Advice.to(ThreadActivityAdvice.PerTaskShutdown.class)
+                                .on(ElementMatchers.namedOneOf("shutdown", "shutdownNow", "close")
+                                        .and(ElementMatchers.takesArguments(0)))));
     }
 
     // ---- self-test -----------------------------------------------------------------------------------------------
@@ -572,6 +671,9 @@ final class SideEffectsSensor {
             if ((mask & SideEffects.MASK_BLOCKING) != 0) {
                 steps.put(SideEffects.BLOCKING, parkStep());
             }
+            if ((mask & SideEffects.MASK_THREADS) != 0) {
+                threadActivitySteps(steps, privileged);
+            }
         } finally {
             hits = SideEffects.endSelfTest();
         }
@@ -583,7 +685,9 @@ final class SideEffectsSensor {
         int failedNow = 0;
         for (String[] hook : HOOKS) {
             int bit = SideEffects.bit(hook[3]);
-            if ((mask & bit) == 0 || "passed".equals(results.get(hook[0]))) {
+            if ((mask & bit) == 0
+                    || "passed".equals(results.get(hook[0]))
+                    || "unsupported".equals(results.get(hook[0]))) {
                 continue;
             }
             if (left.contains(hook[0]) && !CORE.equals(hook[4])) {
@@ -920,7 +1024,9 @@ final class SideEffectsSensor {
             }
             Object count = hits == null ? null : hits.get(hook[0]);
             String outcome = steps.containsKey(hook[0]) ? steps.get(hook[0]) : steps.get(hook[3]);
-            if (count instanceof Long && (Long) count > 0) {
+            if (unsupported(hook)) {
+                results.put(hook[0], "unsupported");
+            } else if (count instanceof Long && (Long) count > 0) {
                 results.put(hook[0], "passed");
             } else if (left.contains(hook[0])) {
                 results.put(hook[0], "failed");
@@ -929,6 +1035,77 @@ final class SideEffectsSensor {
             }
         }
         return results;
+    }
+
+    /** Whether {@code hook}'s type first exists in a later feature release than this JDK's. */
+    static boolean unsupported(String[] hook) {
+        return hook.length > 5 && Runtime.version().feature() < Integer.parseInt(hook[5]);
+    }
+
+    /**
+     * Runs each thread-activity hook once, its outcome by hook id, on this agent thread, whose threads, executors, and
+     * shutdowns the bridge counts and never records: a platform thread started and joined; from JDK 21, a virtual thread;
+     * a {@code ThreadPoolExecutor} running one task, then shut down, and another shut down at once; a {@code
+     * ForkJoinPool}; and, from JDK 21, a thread-per-task executor running one task, then closed. Every thread is the
+     * agent's own, named {@code bootui-agent-self-test-…}, and joined.
+     */
+    static void threadActivitySteps(Map<String, String> steps, boolean privileged) {
+        steps.put("Thread.start", ExecutorSensor.step(new ThreadSensor.PlatformStep(), 5));
+        steps.put(
+                "VirtualThread.start",
+                Runtime.version().feature() < 21
+                        ? "unsupported"
+                        : ExecutorSensor.step(new ThreadSensor.VirtualStep(), 5));
+        String pool = ExecutorSensor.step(seconds -> {
+            java.util.concurrent.ThreadPoolExecutor executor = new java.util.concurrent.ThreadPoolExecutor(
+                    1,
+                    1,
+                    1,
+                    java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.LinkedBlockingQueue<Runnable>(),
+                    task -> AgentThreads.newThread("bootui-agent-self-test-pool", task, privileged));
+            try {
+                executor.submit(new ExecutorSensor.Noop()).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+            } finally {
+                executor.shutdown();
+            }
+            executor.awaitTermination(seconds, java.util.concurrent.TimeUnit.SECONDS);
+            new java.util.concurrent.ThreadPoolExecutor(
+                            0,
+                            1,
+                            1,
+                            java.util.concurrent.TimeUnit.SECONDS,
+                            new java.util.concurrent.LinkedBlockingQueue<Runnable>())
+                    .shutdownNow();
+        }, 5);
+        steps.put("ThreadPoolExecutor.addWorker", pool);
+        steps.put("ThreadPoolExecutor.<init>", pool);
+        steps.put("ThreadPoolExecutor.shutdown", pool);
+        steps.put("ThreadPoolExecutor.shutdownNow", pool);
+        String forkJoin = ExecutorSensor.step(seconds -> new java.util.concurrent.ForkJoinPool(1).shutdownNow(), 5);
+        steps.put("ForkJoinPool.<init>", forkJoin);
+        steps.put("ForkJoinPool.shutdown", forkJoin);
+        String perTask = Runtime.version().feature() < 21
+                ? "unsupported"
+                : ExecutorSensor.step(seconds -> perTaskStep(privileged, seconds), 5);
+        steps.put("ThreadPerTaskExecutor.start", perTask);
+        steps.put("ThreadPerTaskExecutor.<init>", perTask);
+        steps.put("ThreadPerTaskExecutor.shutdown", perTask);
+    }
+
+    /** JDK 21+: a thread-per-task executor of the agent's own threads runs one task, then is closed, by reflection. */
+    private static void perTaskStep(boolean privileged, int seconds) throws Exception {
+        java.util.concurrent.ThreadFactory factory =
+                task -> AgentThreads.newThread("bootui-agent-self-test-per-task", task, privileged);
+        java.util.concurrent.ExecutorService executor = (java.util.concurrent.ExecutorService)
+                java.util.concurrent.Executors.class
+                        .getMethod("newThreadPerTaskExecutor", java.util.concurrent.ThreadFactory.class)
+                        .invoke(null, factory);
+        try {
+            executor.submit(new ExecutorSensor.Noop()).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            java.util.concurrent.ExecutorService.class.getMethod("close").invoke(executor);
+        }
     }
 
     // ---- status ----------------------------------------------------------------------------------------------------

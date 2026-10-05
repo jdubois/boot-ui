@@ -6,32 +6,41 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * The thread-activity sensor's tracker (PLAN-v2 §5.16, M5-5e): the threads a request started and the executors the
- * application created, held weakly until their request ends, their executor is shut down, or the collector reclaims
- * them, so the sensor can say which threads a request left running, which executors it left running, and which
- * executors were never shut down, without ever keeping a thread, an executor, or a class loader alive.
+ * The thread-activity sensor's tracker (PLAN-v2 §5.16, M5-5e): the threads a request's application code started and the
+ * executors it created, held weakly until their request ended, their executor was shut down, or the collector reclaimed
+ * them, so the sensor can say which threads and executors a request left running, without ever keeping a thread, an
+ * executor, or a class loader alive.
  *
  * <p>Entries are {@link WeakReference}s with primitive fields only, chained by identity hash, at most {@value
  * #MAX_ENTRIES}; a full table leaves new ones untracked, counted. One {@link ReentrantLock}, never a monitor, so a
- * virtual thread never pins its carrier here; it is the innermost lock taken on these paths ({@code Thread.start} holds
- * the started thread's monitor on JDK 17), and nothing under it calls into a thread's monitor or application code:
- * {@link Thread#isAlive()} is all it asks a tracked thread. A request's end is checked once: anything alive or not shut
- * down then was so when its response was complete, so a report is never false. A thread or executor of a request
- * already ended ({@value #ENDED} recent ends are remembered) is not waited for; one whose request's end never comes
- * stops waiting after {@value #WAIT_MILLIS} ms, counted. Not for the application's own use: the bridge serializes
- * nothing else through it.
+ * virtual thread never pins its carrier here, taken only on rare paths (a tracked start or creation, a shutdown of a
+ * tracked executor) and by the drain thread; it is the innermost lock on these paths ({@code Thread.start} holds the
+ * started thread's monitor on JDK 17), and nothing under it calls into a thread's monitor or application code: {@link
+ * Thread#isAlive()} is all it asks a tracked thread.
+ *
+ * <p><b>Request ends.</b> An adapter's request end ({@link #ended}) takes no lock: it writes the request and the time
+ * into a lock-free ring of {@value #ENDS} entries, which the drain thread reads ({@link #processEnds}) once each end is
+ * at least the grace period old, so a thread still unwinding as the response completes is not reported. Only then does
+ * it ask each thread the request started before its end whether it is still alive: anything alive or not shut down
+ * then, after the grace, was so when the response was complete, so a report is never false. The {@value #ENDED}
+ * latest ended requests are remembered, so a thread one of them starts afterwards is not waited for; a waiting entry
+ * whose request's end never came stops waiting after {@value #WAIT_MILLIS} ms, counted.
  */
 final class ThreadTracker {
 
     static final int MAX_ENTRIES = 1_024;
     static final int BUCKETS = 2_048;
-    static final int ENDED = 256;
+    static final int ENDS = 4_096;
+    static final int ENDED = 1_024;
     static final long WAIT_MILLIS = 600_000L;
 
     /** What a check reports about an entry. */
@@ -46,18 +55,34 @@ final class ThreadTracker {
     private final Entry[] buckets = new Entry[BUCKETS];
     private final Map<Long, List<Entry>> waitingByRequest = new HashMap<Long, List<Entry>>();
     private final ArrayDeque<Entry> waitingOrder = new ArrayDeque<Entry>();
-    private final long[] ended = new long[ENDED];
-    private int endedNext;
+    private final LinkedHashMap<Long, Boolean> ended = new LinkedHashMap<Long, Boolean>(64, 0.75f, false) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Long, Boolean> eldest) {
+            return size() > ENDED;
+        }
+    };
+
+    /** The lock-free ring of request ends: written by any thread, read by the drain thread only. */
+    private final AtomicLongArray endRequests = new AtomicLongArray(ENDS);
+
+    private final AtomicLongArray endNanos = new AtomicLongArray(ENDS);
+    private final AtomicLongArray endSequences = new AtomicLongArray(ENDS);
+    private final AtomicLong endsWritten = new AtomicLong();
+    private long endsRead;
+
     /** Read without the lock by the fast paths, which may miss an entry another thread is adding. */
     private volatile int size;
+
     private long generation = Long.MIN_VALUE;
 
-    /** Entries waiting for their request's end: read without the lock by {@link #requestEnded}. */
+    /** Entries waiting for their request's end: read without the lock. */
     private volatile int waiting;
 
     final LongAdder untracked = new LongAdder();
     final LongAdder unresolved = new LongAdder();
     final LongAdder afterEnd = new LongAdder();
+    final LongAdder endsLost = new LongAdder();
+    final LongAdder endsChecked = new LongAdder();
 
     /**
      * What the sensor recorded of a tracked thread or executor, copied into what a check reports: its record's owner,
@@ -76,7 +101,7 @@ final class ThreadTracker {
         final int target;
         final long stamp;
         final long frames;
-        final long flags;
+        final int detail;
         final long createdNanos;
         final long createdMillis;
         Entry next;
@@ -100,7 +125,7 @@ final class ThreadTracker {
                 int target,
                 long stamp,
                 long frames,
-                long flags,
+                int detail,
                 long createdNanos,
                 long createdMillis) {
             super(referent, queue);
@@ -115,7 +140,7 @@ final class ThreadTracker {
             this.target = target;
             this.stamp = stamp;
             this.frames = frames;
-            this.flags = flags;
+            this.detail = detail;
             this.createdNanos = createdNanos;
             this.createdMillis = createdMillis;
         }
@@ -135,7 +160,7 @@ final class ThreadTracker {
                     target,
                     stamp,
                     frames,
-                    flags,
+                    detail,
                     createdNanos,
                     createdMillis);
             copy.reported = what;
@@ -145,9 +170,9 @@ final class ThreadTracker {
     }
 
     /**
-     * Tracks {@code referent}, a thread a request started or an executor, under {@code generation}: it waits for its
-     * request's end when {@code request} is not 0 and that request has not ended yet. Returns whether it is tracked.
-     * Never throws.
+     * Tracks {@code referent}, a thread a request's application code started or an executor a request or an execution
+     * created, under {@code generation}: it waits for its request's end when {@code request} is not 0 and that request
+     * has not ended yet. A thread is tracked only while it waits. Returns whether it is tracked. Never throws.
      */
     boolean track(
             Object referent,
@@ -161,7 +186,7 @@ final class ThreadTracker {
             int target,
             long stamp,
             long frames,
-            long flags,
+            int detail,
             long createdMillis,
             List<Entry> reports) {
         if (referent == null) {
@@ -173,12 +198,11 @@ final class ThreadTracker {
             reset(entryGeneration);
             expunge(reports, now);
             timeOut(createdMillis);
-            boolean wait = request != 0L && !endedRecently(request);
+            boolean wait = request != 0L && !ended.containsKey(Long.valueOf(request));
             if (request != 0L && !wait) {
                 afterEnd.increment();
             }
             if (thread && !wait) {
-                // A thread is tracked only to tell, at its request's end, whether it still runs.
                 return false;
             }
             if (size >= MAX_ENTRIES) {
@@ -198,7 +222,7 @@ final class ThreadTracker {
                     target,
                     stamp,
                     frames,
-                    flags,
+                    detail,
                     now,
                     createdMillis);
             int bucket = entry.hash & (BUCKETS - 1);
@@ -225,7 +249,7 @@ final class ThreadTracker {
 
     /**
      * An executor is being shut down: its entry, reported {@link #EXECUTOR_SHUT_DOWN}, or {@link #EXECUTOR_RECLAIMED}
-     * when {@code reclaimed} (a cleaner or finalizer shuts it down because nothing references it), is added to {@code
+     * when {@code reclaimed} (a cleaner or a finalizer shuts it down because nothing references it), is added to {@code
      * reports} and forgotten; nothing when it is not tracked. Never throws.
      */
     void shutdown(Object executor, boolean reclaimed, long shutdownGeneration, List<Entry> reports) {
@@ -254,47 +278,96 @@ final class ThreadTracker {
     }
 
     /**
-     * A request ended, its response complete: each thread it started still alive is reported {@link
-     * #THREAD_LEFT_RUNNING} and forgotten, each executor it created not shut down {@link #EXECUTOR_LEFT_RUNNING} and kept
-     * for its shutdown. Returns at once when no entry waits. Never throws.
+     * A request ended, its response complete: written into the ring, without a lock, for the drain thread. Request ids
+     * are random 64-bit values, so an end of an earlier generation read under a later one names no request of it.
+     * Never throws.
      */
-    void requestEnded(long endGeneration, long request, List<Entry> reports) {
+    void ended(long request) {
         if (request == 0L) {
             return;
         }
-        long now = System.nanoTime();
+        long sequence = endsWritten.getAndIncrement();
+        int slot = (int) (sequence & (ENDS - 1));
+        endSequences.set(slot, -1L);
+        endRequests.set(slot, request);
+        endNanos.set(slot, System.nanoTime());
+        endSequences.set(slot, sequence + 1);
+    }
+
+    /**
+     * The drain thread: reads the request ends at least {@code graceNanos} old and reports, for each, the threads its
+     * application code started before it ended that are still alive ({@link #THREAD_LEFT_RUNNING}), forgotten, and the
+     * executors it created that are not shut down ({@link #EXECUTOR_LEFT_RUNNING}), kept for their shutdown. Ends the
+     * ring overwrote before they were read are counted lost. Never throws.
+     */
+    void processEnds(long processGeneration, long nowNanos, long graceNanos, List<Entry> reports) {
+        long written = endsWritten.get();
+        if (endsRead == written) {
+            return;
+        }
         lock.lock();
         try {
-            if (endGeneration != generation) {
-                return;
+            reset(processGeneration);
+            if (written - endsRead > ENDS) {
+                endsLost.add(written - endsRead - ENDS);
+                endsRead = written - ENDS;
             }
-            ended[endedNext] = request;
-            endedNext = (endedNext + 1) & (ENDED - 1);
-            if (waiting == 0) {
-                return;
-            }
-            List<Entry> list = waitingByRequest.remove(Long.valueOf(request));
-            if (list == null) {
-                return;
-            }
-            for (Entry entry : list) {
-                if (!entry.waitingForEnd) {
+            while (endsRead < written) {
+                int slot = (int) (endsRead & (ENDS - 1));
+                long sequence = endSequences.get(slot);
+                if (sequence != endsRead + 1) {
+                    if (sequence > endsRead + 1) {
+                        endsLost.increment();
+                        endsRead++;
+                        continue;
+                    }
+                    // Not written yet: read again at the next drain.
+                    break;
+                }
+                long request = endRequests.get(slot);
+                long endedAt = endNanos.get(slot);
+                if (endSequences.get(slot) != sequence) {
+                    endsLost.increment();
+                    endsRead++;
                     continue;
                 }
-                entry.waitingForEnd = false;
-                waiting--;
-                Object referent = entry.get();
-                if (entry.thread) {
-                    if (referent instanceof Thread && ((Thread) referent).isAlive()) {
-                        reports.add(entry.report(THREAD_LEFT_RUNNING, now));
-                    }
-                    remove(entry);
-                } else if (referent != null) {
-                    reports.add(entry.report(EXECUTOR_LEFT_RUNNING, now));
+                if (nowNanos - endedAt < graceNanos) {
+                    break;
                 }
+                endsRead++;
+                ended.put(Long.valueOf(request), Boolean.TRUE);
+                check(request, endedAt, nowNanos, reports);
             }
         } finally {
             lock.unlock();
+        }
+    }
+
+    private void check(long request, long endedAt, long nowNanos, List<Entry> reports) {
+        if (waiting == 0) {
+            return;
+        }
+        List<Entry> list = waitingByRequest.remove(Long.valueOf(request));
+        if (list == null) {
+            return;
+        }
+        endsChecked.increment();
+        for (Entry entry : list) {
+            if (!entry.waitingForEnd) {
+                continue;
+            }
+            entry.waitingForEnd = false;
+            waiting--;
+            Object referent = entry.get();
+            boolean before = entry.createdNanos - endedAt <= 0;
+            if (entry.thread) {
+                if (before && referent instanceof Thread && ((Thread) referent).isAlive()) {
+                    reports.add(entry.report(THREAD_LEFT_RUNNING, nowNanos));
+                }
+                remove(entry);
+            } else if (referent != null && before) {
+                reports.add(entry.report(EXECUTOR_LEFT_RUNNING, nowNanos));
+            }
         }
     }
 
@@ -307,6 +380,7 @@ final class ThreadTracker {
         lock.lock();
         try {
             expunge(reports, now);
+            timeOut(System.currentTimeMillis());
         } finally {
             lock.unlock();
         }
@@ -325,12 +399,13 @@ final class ThreadTracker {
         return waiting;
     }
 
-    /** Forgets everything: a new claim generation, or tests. */
+    /** Forgets everything: a new claim generation, the sensor disabled, or tests. */
     void clear() {
         lock.lock();
         try {
             reset(Long.MIN_VALUE);
             generation = Long.MIN_VALUE;
+            endsRead = endsWritten.get();
         } finally {
             lock.unlock();
         }
@@ -353,20 +428,10 @@ final class ThreadTracker {
         }
         waitingByRequest.clear();
         waitingOrder.clear();
-        java.util.Arrays.fill(ended, 0L);
-        endedNext = 0;
+        ended.clear();
         size = 0;
         waiting = 0;
         generation = next;
-    }
-
-    private boolean endedRecently(long request) {
-        for (int i = 0; i < ENDED; i++) {
-            if (ended[i] == request) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void expunge(List<Entry> reports, long now) {
@@ -381,7 +446,7 @@ final class ThreadTracker {
 
     /** Entries waiting longer than {@value #WAIT_MILLIS} ms stop waiting: their request's end never came. */
     private void timeOut(long nowMillis) {
-        if (waiting == 0 && waitingOrder.size() > 0) {
+        if (waiting == 0) {
             waitingOrder.clear();
             return;
         }

@@ -19,9 +19,15 @@ class ThreadTrackerTests {
     private final ThreadTracker tracker = new ThreadTracker();
     private final List<ThreadTracker.Entry> reports = new ArrayList<>();
 
+    /** The request's end, checked at once: no grace. */
+    private void end(long generation, long request) {
+        tracker.ended(request);
+        tracker.processEnds(generation, System.nanoTime() + 1, 0L, reports);
+    }
+
     private boolean track(Object referent, boolean thread, long request) {
         return tracker.track(
-                referent, thread, GENERATION, request, 0L, 0, 1, 0, 3, 5L, 9L, 0L, System.currentTimeMillis(), reports);
+                referent, thread, GENERATION, request, 0L, 0, 1, 0, 3, 5L, 9L, 0, System.currentTimeMillis(), reports);
     }
 
     @Test
@@ -43,7 +49,7 @@ class ThreadTrackerTests {
             assertThat(track(joined, true, REQUEST)).isTrue();
             assertThat(tracker.anyWaiting()).isTrue();
 
-            tracker.requestEnded(GENERATION, REQUEST, reports);
+            end(GENERATION, REQUEST);
 
             assertThat(reports).singleElement().satisfies(report -> {
                 assertThat(report.reported).isEqualTo(ThreadTracker.THREAD_LEFT_RUNNING);
@@ -73,7 +79,7 @@ class ThreadTrackerTests {
                     .isEqualTo(ThreadTracker.EXECUTOR_SHUT_DOWN));
             reports.clear();
 
-            tracker.requestEnded(GENERATION, REQUEST, reports);
+            end(GENERATION, REQUEST);
 
             assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
                     .isEqualTo(ThreadTracker.EXECUTOR_LEFT_RUNNING));
@@ -108,7 +114,7 @@ class ThreadTrackerTests {
     void anUnownedThreadOrOneStartedAfterItsRequestEndedIsNotTracked() throws Exception {
         Thread thread = new Thread(() -> {});
         assertThat(track(thread, true, 0L)).isFalse();
-        tracker.requestEnded(GENERATION, REQUEST, reports);
+        end(GENERATION, REQUEST);
         assertThat(track(thread, true, REQUEST))
                 .as("its request already ended")
                 .isFalse();
@@ -117,17 +123,53 @@ class ThreadTrackerTests {
     }
 
     @Test
-    void anotherGenerationForgetsEverythingAndItsEndsAreIgnored() {
-        Object executor = new Object();
-        track(executor, false, REQUEST);
-        tracker.requestEnded(GENERATION + 1, REQUEST, reports);
-        assertThat(reports).isEmpty();
+    void anotherGenerationForgetsEverything() {
+        track(new Object(), false, REQUEST);
         assertThat(tracker.size()).isOne();
 
-        tracker.track(executor, false, GENERATION + 1, 0L, 0L, 0, 1, 0, 3, 0L, 0L, 0L, 0L, reports);
+        end(GENERATION + 1, REQUEST);
 
-        assertThat(tracker.size()).as("only the new generation's entry").isOne();
+        assertThat(reports).isEmpty();
+        assertThat(tracker.size()).as("only a new generation's entries").isZero();
         assertThat(tracker.anyWaiting()).isFalse();
+    }
+
+    @Test
+    void anEndIsCheckedOnlyOnceItsGracePassed() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        Thread running = new Thread(() -> {
+            try {
+                release.await();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        running.start();
+        try {
+            track(running, true, REQUEST);
+            tracker.ended(REQUEST);
+
+            tracker.processEnds(GENERATION, System.nanoTime(), 60_000_000_000L, reports);
+            assertThat(reports).as("within its grace").isEmpty();
+            assertThat(tracker.anyWaiting()).isTrue();
+
+            tracker.processEnds(GENERATION, System.nanoTime() + 120_000_000_000L, 60_000_000_000L, reports);
+            assertThat(reports).singleElement().satisfies(report -> assertThat(report.reported)
+                    .isEqualTo(ThreadTracker.THREAD_LEFT_RUNNING));
+        } finally {
+            release.countDown();
+            running.join();
+        }
+    }
+
+    @Test
+    void endsTheRingOverwroteBeforeTheyWereReadAreCountedLost() {
+        track(new Object(), false, REQUEST);
+        for (int i = 0; i < ThreadTracker.ENDS + 10; i++) {
+            tracker.ended(1_000L + i);
+        }
+        tracker.processEnds(GENERATION, System.nanoTime() + 1, 0L, reports);
+        assertThat(tracker.endsLost.sum()).isEqualTo(10L);
     }
 
     @Test
@@ -146,14 +188,15 @@ class ThreadTrackerTests {
     @Test
     void entriesWaitingLongerThanTheirBoundStopWaitingCounted() {
         Object executor = new Object();
-        tracker.track(executor, false, GENERATION, REQUEST, 0L, 0, 1, 0, 3, 0L, 0L, 0L, 0L, reports);
+        tracker.track(executor, false, GENERATION, REQUEST, 0L, 0, 1, 0, 3, 0L, 0L, 0, 0L, reports);
         assertThat(tracker.anyWaiting()).isTrue();
 
-        tracker.track(new Object(), false, GENERATION, 0L, 0L, 0, 1, 0, 3, 0L, 0L, 0L, ThreadTracker.WAIT_MILLIS, reports);
+        tracker.track(
+                new Object(), false, GENERATION, 0L, 0L, 0, 1, 0, 3, 0L, 0L, 0, ThreadTracker.WAIT_MILLIS, reports);
 
         assertThat(tracker.anyWaiting()).isFalse();
         assertThat(tracker.unresolved.sum()).isEqualTo(1L);
-        tracker.requestEnded(GENERATION, REQUEST, reports);
+        end(GENERATION, REQUEST);
         assertThat(reports).isEmpty();
     }
 
