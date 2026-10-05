@@ -173,13 +173,82 @@ class CaughtExceptionsVisitTests {
     }
 
     @Test
-    void aHandlerWithoutALineNumberInAMethodWithLinesIsForeign() throws Exception {
-        byte[] transformed = visitAlone(Hand.handlerWithoutLine());
+    void aThrowableHandlerWithoutALineNumberOrANamedLocalInAMethodWithLinesIsForeign() throws Exception {
+        byte[] transformed = visitAlone(Hand.handlerWithoutLine("java/lang/Throwable"));
 
-        String[] site = sites().get(Hand.FOREIGN.replace('.', '/') + "#f()I#0#java/lang/IllegalStateException");
+        String[] site = sites().get(Hand.FOREIGN.replace('.', '/') + "#f()I#0#java/lang/Throwable");
         assertThat(site).isNotNull();
         assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).isNotZero();
         assertThat(run(Hand.FOREIGN, transformed, "f", null)).isEqualTo(3);
+    }
+
+    /** Inlined advice catches {@code Throwable}: a handler of another type without a line number is the application's. */
+    @Test
+    void aTypedHandlerWithoutALineNumberIsTheApplications() throws Exception {
+        visitAlone(Hand.handlerWithoutLine("java/lang/IllegalStateException"));
+
+        String[] site = sites().get(Hand.FOREIGN.replace('.', '/') + "#f()I#0#java/lang/IllegalStateException");
+        assertThat(site).isNotNull();
+        assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).isZero();
+    }
+
+    /**
+     * javac gives no handler a line number of its own when it is on its try's line ({@code Code.addLineNumber} skips a
+     * repeated line), so a whole try/catch written on one line is the application's, whatever it catches. Compiled
+     * here, from source, so no formatter can split the line.
+     */
+    @Test
+    void aTryCatchWrittenOnOneLineIsTheApplications() throws Exception {
+        String source = "package bootuicaughtoneline;\n"
+                + "public class OneLine {\n"
+                + "    public static int sleep(long millis) {\n"
+                + "        try { Thread.sleep(millis); } catch (InterruptedException e) { return 1; }\n"
+                + "        return 0;\n"
+                + "    }\n"
+                + "    public static int parse(String text) {\n"
+                + "        int value; try { value = Integer.parseInt(text); } catch (NumberFormatException e) { value = -1; } return value;\n"
+                + "    }\n"
+                + "    public static int any(Object value) {\n"
+                + "        try { return value.hashCode(); } catch (Throwable t) { return -2; }\n"
+                + "    }\n"
+                + "}\n";
+        byte[] original = OneLineSource.compile("bootuicaughtoneline.OneLine", source);
+        assertThat(lines(original).get("parse(Ljava/lang/String;)I"))
+                .as("javac gave the one-line method's handler no line of its own")
+                .hasSize(1);
+        byte[] transformed = visitAlone(original);
+
+        Map<String, String[]> sites = sites();
+        for (String key : List.of(
+                "bootuicaughtoneline/OneLine#sleep(J)I#0#java/lang/InterruptedException",
+                "bootuicaughtoneline/OneLine#parse(Ljava/lang/String;)I#0#java/lang/NumberFormatException",
+                "bootuicaughtoneline/OneLine#any(Ljava/lang/Object;)I#0#java/lang/Throwable")) {
+            assertThat(sites.get(key)).as(key).isNotNull();
+            assertThat(flags(sites.get(key)) & CaughtExceptions.FLAG_FOREIGN)
+                    .as(key)
+                    .isZero();
+        }
+        Class<?> type = Class.forName(
+                "bootuicaughtoneline.OneLine", true, new Loader(Map.of("bootuicaughtoneline.OneLine", transformed)));
+        assertThat(type.getMethod("parse", String.class).invoke(null, "x")).isEqualTo(-1);
+        assertThat(type.getMethod("any", Object.class).invoke(null, (Object) null))
+                .isEqualTo(-2);
+    }
+
+    /** kotlinc's one-line {@code try}/{@code catch} expression, compiled by the build, is the application's too. */
+    @Test
+    void kotlinsOneLineTryCatchIsTheApplications() throws Exception {
+        visitAlone(original("bootuicaughtkt.OneLineKt"));
+
+        Map<String, String[]> sites = sites();
+        assertThat(sites.keySet())
+                .as("%s", sites.keySet())
+                .anyMatch(key -> key.startsWith("bootuicaughtkt/OneLineKt#parse(Ljava/lang/String;)I#0#"));
+        sites.forEach((key, site) -> {
+            if (key.startsWith("bootuicaughtkt/OneLineKt#")) {
+                assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).as(key).isZero();
+            }
+        });
     }
 
     @Test
@@ -509,6 +578,70 @@ class CaughtExceptionsVisitTests {
         return frames;
     }
 
+    /** Per method, the lines its LineNumberTable lists. */
+    static Map<String, List<Integer>> lines(byte[] bytes) {
+        Map<String, List<Integer>> lines = new LinkedHashMap<>();
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                List<Integer> found = new ArrayList<>();
+                                lines.put(name + descriptor, found);
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public void visitLineNumber(int line, Label start) {
+                                        found.add(line);
+                                    }
+                                };
+                            }
+                        },
+                        0);
+        return lines;
+    }
+
+    /** Compiles one class from source with javac's default debug information, in memory. */
+    static final class OneLineSource {
+
+        static byte[] compile(String name, String source) throws IOException {
+            javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+            assertThat(compiler).as("javac").isNotNull();
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            javax.tools.JavaFileObject input =
+                    new javax.tools.SimpleJavaFileObject(
+                            java.net.URI.create("string:///" + name.replace('.', '/') + ".java"),
+                            javax.tools.JavaFileObject.Kind.SOURCE) {
+                        @Override
+                        public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+                            return source;
+                        }
+                    };
+            javax.tools.StandardJavaFileManager standard = compiler.getStandardFileManager(null, null, null);
+            javax.tools.JavaFileManager files = new javax.tools.ForwardingJavaFileManager<>(standard) {
+                @Override
+                public javax.tools.JavaFileObject getJavaFileForOutput(
+                        Location location,
+                        String className,
+                        javax.tools.JavaFileObject.Kind kind,
+                        javax.tools.FileObject sibling) {
+                    return new javax.tools.SimpleJavaFileObject(
+                            java.net.URI.create("bytes:///" + className.replace('.', '/') + ".class"), kind) {
+                        @Override
+                        public java.io.OutputStream openOutputStream() {
+                            return bytes;
+                        }
+                    };
+                }
+            };
+            Boolean compiled = compiler.getTask(
+                            null, files, null, List.of("-g", "--release", "17"), null, List.of(input))
+                    .call();
+            assertThat(compiled).as("compiled %s", name).isTrue();
+            return bytes.toByteArray();
+        }
+    }
+
     static String describe(Object local) {
         if (local == Opcodes.TOP) {
             return "TOP";
@@ -612,7 +745,7 @@ class CaughtExceptionsVisitTests {
         }
 
         /** {@code static int f()}: its handler's first line number comes six instructions in. */
-        static byte[] handlerWithoutLine() {
+        static byte[] handlerWithoutLine(String caught) {
             ClassWriter writer = start(FOREIGN, Opcodes.V17);
             MethodVisitor m = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "f", "()I", null, null);
             m.visitCode();
@@ -620,13 +753,13 @@ class CaughtExceptionsVisitTests {
             Label end = new Label();
             Label handler = new Label();
             Label later = new Label();
-            m.visitTryCatchBlock(start, end, handler, "java/lang/IllegalStateException");
+            m.visitTryCatchBlock(start, end, handler, caught);
             m.visitLabel(start);
             m.visitLineNumber(30, start);
             throwNew(m);
             m.visitLabel(end);
             m.visitLabel(handler);
-            m.visitFrame(Opcodes.F_FULL, 0, new Object[0], 1, new Object[] {"java/lang/IllegalStateException"});
+            m.visitFrame(Opcodes.F_FULL, 0, new Object[0], 1, new Object[] {caught});
             m.visitInsn(Opcodes.POP);
             for (int i = 0; i < 5; i++) {
                 m.visitInsn(Opcodes.NOP);

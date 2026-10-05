@@ -42,8 +42,8 @@ import net.bytebuddy.utility.OpenedClassReader;
  * maximum stack is raised to at least 3 by hand, the depth at a handler being exactly 1. Nothing resolves a type: the
  * visit compares instruction operands only. Classes older than Java 7 (version 51), whose methods may lack stack map
  * frames, are left alone. Each handler's site is registered in the bridge as the method is read, and its flags once the
- * whole method was read: a handler with no line number in its first {@value #LINE_WINDOW} instructions, in a method
- * that has line numbers, is one another agent's inlined advice added; one that is also a jump target is shared.
+ * whole method was read: a handler another agent's inlined advice added ({@link MethodVisit#foreign}) is skipped at
+ * run time, as is one that is also a jump target.
  */
 final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
@@ -67,7 +67,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         MethodVisit visit = new MethodVisit(null, "warm/Up", Opcodes.ACC_STATIC, "up", "(JLjava/lang/String;D)V");
         visit.frameLocals();
         new ClassVisit(null);
-        new Site(new Label());
+        visit.foreign(new Site(new Label()));
         MethodVisit.kind(Type.getType("J"));
         MethodVisit.frameType(Type.getType("Ljava/lang/String;"));
     }
@@ -139,6 +139,12 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         boolean lineSeen;
         /** Instructions read since its label, or -1 before it or once past the line window. */
         int counted = -1;
+        /** Whether its label was read and its first instruction not yet. */
+        boolean awaitingFirst;
+        /** Its first instruction's opcode, or -1. */
+        int firstOpcode = -1;
+        /** The local its first instruction stores to or loads, or -1. */
+        int firstVar = -1;
 
         Site(Label label) {
             this.label = label;
@@ -174,6 +180,10 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         private final List<Site> sites = new ArrayList<Site>();
         private final List<Label> jumpTargets = new ArrayList<Label>();
+        /** The local variable slots the method's LocalVariableTable names, and whether it has one. */
+        private final List<Integer> namedSlots = new ArrayList<Integer>();
+
+        private boolean localVariableTable;
         private boolean code;
         private boolean anyLine;
         private Site hook;
@@ -302,6 +312,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
             if (site != null && site.id >= 0) {
                 hook = site;
                 site.counted = 0;
+                site.awaitingFirst = true;
             }
             super.visitLabel(label);
         }
@@ -328,9 +339,19 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         // ---- instructions ------------------------------------------------------------------------------------------
 
-        /** Before an instruction: the pending handler's entry call, and the line window's count. */
-        private void instruction() {
+        /**
+         * Before an instruction of {@code opcode}, on local {@code var} or -1: the pending handler's entry call, the
+         * handler's first instruction, and the line window's count.
+         */
+        private void instruction(int opcode, int var) {
             beforeCode();
+            for (Site site : sites) {
+                if (site.awaitingFirst) {
+                    site.awaitingFirst = false;
+                    site.firstOpcode = opcode;
+                    site.firstVar = var;
+                }
+            }
             if (hook != null) {
                 Site site = hook;
                 hook = null;
@@ -348,65 +369,65 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         @Override
         public void visitInsn(int opcode) {
-            instruction();
+            instruction(opcode, -1);
             super.visitInsn(opcode);
         }
 
         @Override
         public void visitIntInsn(int opcode, int operand) {
-            instruction();
+            instruction(opcode, -1);
             super.visitIntInsn(opcode, operand);
         }
 
         @Override
         public void visitVarInsn(int opcode, int varIndex) {
-            instruction();
+            instruction(opcode, varIndex);
             stored(opcode, varIndex);
             super.visitVarInsn(opcode, varIndex);
         }
 
         @Override
         public void visitTypeInsn(int opcode, String type) {
-            instruction();
+            instruction(opcode, -1);
             super.visitTypeInsn(opcode, type);
         }
 
         @Override
         public void visitFieldInsn(int opcode, String fieldOwner, String fieldName, String fieldDescriptor) {
-            instruction();
+            instruction(opcode, -1);
             super.visitFieldInsn(opcode, fieldOwner, fieldName, fieldDescriptor);
         }
 
         @Override
         public void visitMethodInsn(
                 int opcode, String methodOwner, String methodName, String methodDescriptor, boolean isInterface) {
-            instruction();
+            instruction(opcode, -1);
             super.visitMethodInsn(opcode, methodOwner, methodName, methodDescriptor, isInterface);
         }
 
         @Override
         public void visitInvokeDynamicInsn(
                 String indyName, String indyDescriptor, Handle bootstrap, Object... bootstrapArguments) {
-            instruction();
+            instruction(Opcodes.INVOKEDYNAMIC, -1);
             super.visitInvokeDynamicInsn(indyName, indyDescriptor, bootstrap, bootstrapArguments);
         }
 
         @Override
         public void visitJumpInsn(int opcode, Label label) {
-            instruction();
+            instruction(opcode, -1);
             jumpTargets.add(label);
             super.visitJumpInsn(opcode, label);
         }
 
         @Override
         public void visitLdcInsn(Object value) {
-            instruction();
+            instruction(Opcodes.LDC, -1);
             super.visitLdcInsn(value);
         }
 
         @Override
         public void visitIincInsn(int varIndex, int increment) {
-            instruction();
+            instruction(Opcodes.IINC, varIndex);
             if (varIndex < stores.length) {
                 mark(varIndex, slotKinds[varIndex] == KIND_INT ? SAME_KIND : OTHER_KIND);
             }
@@ -415,7 +436,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         @Override
         public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
-            instruction();
+            instruction(Opcodes.TABLESWITCH, -1);
             jumpTargets.add(dflt);
             for (Label label : labels) {
                 jumpTargets.add(label);
@@ -425,7 +446,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         @Override
         public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
-            instruction();
+            instruction(Opcodes.LOOKUPSWITCH, -1);
             jumpTargets.add(dflt);
             for (Label label : labels) {
                 jumpTargets.add(label);
@@ -435,7 +456,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
 
         @Override
         public void visitMultiANewArrayInsn(String arrayDescriptor, int numDimensions) {
-            instruction();
+            instruction(Opcodes.MULTIANEWARRAY, -1);
             super.visitMultiANewArrayInsn(arrayDescriptor, numDimensions);
         }
 
@@ -491,6 +512,8 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         public void visitLocalVariable(
                 String variableName, String variableDescriptor, String signature, Label start, Label end, int index) {
             beforeCode();
+            localVariableTable = true;
+            namedSlots.add(Integer.valueOf(index));
             super.visitLocalVariable(variableName, variableDescriptor, signature, start, end, index);
         }
 
@@ -513,7 +536,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                     continue;
                 }
                 int flags = 0;
-                if (anyLine && !site.lineSeen) {
+                if (foreign(site)) {
                     flags |= CaughtExceptions.FLAG_FOREIGN;
                 }
                 if (jumpTargets.contains(site.label)) {
@@ -528,6 +551,25 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                 CaughtExceptions.siteRead(site.id, flags, site.line);
             }
             super.visitMaxs(inserted || exit ? Math.max(maxStack, STACK) : maxStack, maxLocals);
+        }
+
+        /**
+         * Whether the handler is one another agent's inlined advice added, by signals only such handlers show
+         * together: in a method with line numbers, none within its first {@value #LINE_WINDOW} instructions (advice is
+         * inlined without debug information), it catches exactly {@code java/lang/Throwable} (as advice's suppression
+         * and exit-on-throwable handlers do), and it does not start by storing the exception into a local the method's
+         * LocalVariableTable names (advice's locals are never named). javac and kotlinc give a handler on its try's
+         * line no line number of its own, so the line alone would take {@code try { ... } catch (E e) {}} written on
+         * one line for advice.
+         */
+        boolean foreign(Site site) {
+            if (!anyLine || site.lineSeen || !"java/lang/Throwable".equals(site.types.toString())) {
+                return false;
+            }
+            boolean namedStore = site.firstOpcode == Opcodes.ASTORE
+                    && localVariableTable
+                    && namedSlots.contains(Integer.valueOf(site.firstVar));
+            return !namedStore;
         }
 
         /**
