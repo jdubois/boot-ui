@@ -329,8 +329,8 @@ public final class McpToolDescriptions {
                             + "side-effect sensors; this version records the processes it starts, its network: "
                             + "connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, "
                             + "park, a blocking network or file operation) started on an event loop, and, opt-in, the "
-                            + "files it opens, deletes, moves, and copies and the environment variables and system "
-                            + "properties it reads. "
+                            + "files it opens, deletes, moves, and copies, the environment variables and system "
+                            + "properties it reads, and the threads it starts and executors it creates (thread-activity). "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
@@ -346,7 +346,11 @@ public final class McpToolDescriptions {
                             + "as {n}) with its kind, location, and origin (application, library, class-path, jdk, "
                             + "logging), never contents; an environment row a name, never its value; a blocking row the "
                             + "operation, the event loop's thread family, and how long it blocked, not-applicable on "
-                            + "Spring MVC, which runs no event loop."),
+                            + "Spring MVC, which runs no event loop; a thread-activity row a thread's family or an "
+                            + "executor's class, how many a request started (count / requests), how many were still "
+                            + "running when their request ended (leftRunning), and executors shut down (completed) or "
+                            + "reclaimed without a shutdown (failed), library and JDK pools by origin, never what a "
+                            + "thread holds."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "

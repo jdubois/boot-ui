@@ -33,6 +33,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * stub server this test runs and one file read per request, so the side-effect sensors that hook connects and files
  * are measured on a route that exercises them (M5-5b). {@code bootui.benchmark.agent.baseline-sensors} runs the other
  * arm with the agent and those sensors instead of without the agent, an A/B of the sensors left out of it.
+ * {@code bootui.benchmark.route=threads} drives {@value #THREADS_ROUTE}: the search plus one thread started and joined
+ * and one executor created and shut down per request, for the thread-activity sensor's A/B (M5-5e).
  * {@code bootui.benchmark.report} names the report, {@code spring-mvc-agent} by default, whose summary is {@code
  * summary.properties}; any other name writes {@code <name>.md} and {@code <name>.properties}.
  *
@@ -48,6 +50,13 @@ class AgentOverheadBenchmarkIT {
 
     /** The budget from §8: throughput with the agent's default sensors within 10 % of the same run without it. */
     static final double BUDGET_PERCENT = 10;
+
+    /**
+     * The thread variant's route ({@code bootui.benchmark.route=threads}, M5-5e): the search, one thread started and
+     * joined, and one executor created and shut down, so the thread-activity sensor's hooks are measured on a route
+     * that runs them.
+     */
+    static final String THREADS_ROUTE = "/api/thread-activity/benchmark?term=console";
 
     /** The I/O variant's route: the search, one outbound connect, and one file read. */
     static final String IO_ROUTE = "/api/side-effects/benchmark-io?term=console";
@@ -73,8 +82,9 @@ class AgentOverheadBenchmarkIT {
         int passes = Integer.getInteger("bootui.benchmark.passes", 3);
         String sensors = System.getProperty("bootui.benchmark.agent.sensors", "");
         String failAbove = System.getProperty("bootui.benchmark.agent.fail-above-percent", "");
-        boolean io = "io".equals(System.getProperty("bootui.benchmark.route", ""));
-        String route = io ? IO_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        String variant = System.getProperty("bootui.benchmark.route", "");
+        boolean io = "io".equals(variant);
+        String route = io ? IO_ROUTE : "threads".equals(variant) ? THREADS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
         String baseline = System.getProperty("bootui.benchmark.agent.baseline-sensors", "");
         String reportName = System.getProperty("bootui.benchmark.report", "spring-mvc-agent");
         String baselineLabel = baseline.isBlank() ? "No agent" : "Agent, sensors " + baseline;

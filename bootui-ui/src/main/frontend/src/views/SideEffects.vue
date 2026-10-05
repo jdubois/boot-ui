@@ -686,9 +686,7 @@ function hookStatus(value, label) {
                             </td>
                           </template>
                           <td v-if="columnsOf(sensor).failed" class="text-end">
-                            {{
-                              columnsOf(sensor).threads && row.kind !== 'executor' ? '—' : formatNumber(row.failed)
-                            }}
+                            {{ columnsOf(sensor).threads && row.kind !== 'executor' ? '—' : formatNumber(row.failed) }}
                           </td>
                           <td v-if="columnsOf(sensor).exits" class="text-end">
                             {{ formatNumber(row.completed) }}

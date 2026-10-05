@@ -36,9 +36,9 @@ function agentJar() {
 }
 
 // The sample's ScheduledJavaVersion seed is off unless its period is set: only this leg asserts its Side Effects row.
-// The default sensors, the opt-in files and environment sensors, and blocking, named whatever its default, whose Side
-// Effects seeds the side-effects spec asserts (M5-5c, M5-5d).
-const JVM_ARGS = ` "-Djvm.args=-javaagent:${agentJar()}" -Dside-effects-seed.scheduled-every=20s -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking`
+// The default sensors, the opt-in files, environment, and thread-activity sensors, and blocking, named whatever its
+// default, whose Side Effects seeds the side-effects spec asserts (M5-5c, M5-5d, M5-5e).
+const JVM_ARGS = ` "-Djvm.args=-javaagent:${agentJar()}" -Dside-effects-seed.scheduled-every=20s -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity`
 const webServers = Array.isArray(base.webServer) ? base.webServer : base.webServer ? [base.webServer] : []
 
 export default defineConfig({

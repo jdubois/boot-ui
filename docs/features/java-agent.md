@@ -135,7 +135,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
 [`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
 [`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
-[`files`](#the-files-sensor), and [`environment`](#the-environment-sensor). The agent installs each one once, on its own
+[`files`](#the-files-sensor), [`environment`](#the-environment-sensor), and
+[`thread-activity`](#the-thread-activity-sensor). The agent installs each one once, on its own
 thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
@@ -848,6 +849,78 @@ The sensor does not see a library's own `sleep` or `wait` (outside the applicati
 method reference (`Thread::sleep`, an `invokedynamic`), `Thread.join`, a `sleep` qualified by a `Thread` subclass, or
 blocking on a loop before it handled its first request.
 
+## The thread-activity sensor
+
+The opt-in `thread-activity` sensor records the threads the application starts and the executors it creates, per route
+or thread family and call site, for the [Side Effects](#side-effects) panel's **Threads and leaks** tab,
+`get_side_effects`, and `bootui side-effects`: how many a request starts, the threads and executors a request's
+application code **left running** when it ended, and the executors shut down, or reclaimed by the collector without a
+shutdown. It never records a thread-local, a task, or anything a thread or an executor holds. It is a different
+sensor from [`threads`](#the-threads-sensor), which carries a request's context into the threads its work starts; the
+two can run together.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `Thread.start` | records starts | `Thread.start()`, and `start(ThreadContainer)` from JDK 21, of every platform thread; core |
+| `VirtualThread.start` | records starts | `VirtualThread.start(ThreadContainer)`, which `Thread.ofVirtual().start` and `Thread.startVirtualThread` reach, from JDK 21 |
+| `ThreadPoolExecutor.addWorker` | pool mark | a thread a pool starts is its worker, recorded as the executor, never as a thread of its own; core |
+| `ThreadPerTaskExecutor.start` | pool mark | the virtual or platform thread a thread-per-task executor starts for a task, from JDK 21 |
+| `ThreadPoolExecutor.<init>` | records creations | the canonical constructor every other `ThreadPoolExecutor` and `ScheduledThreadPoolExecutor` constructor and `Executors` factory reaches; core |
+| `ForkJoinPool.<init>` | records creations | the canonical public constructor, which `new ForkJoinPool(n)` and `Executors.newWorkStealingPool` reach; the common pool is never recorded |
+| `ThreadPerTaskExecutor.<init>` | records creations | `Executors.newVirtualThreadPerTaskExecutor()` and `newThreadPerTaskExecutor`, from JDK 21 |
+| `ThreadPoolExecutor.shutdown`, `.shutdownNow` | records shutdowns | of a tracked executor; core |
+| `ForkJoinPool.shutdown`, `ThreadPerTaskExecutor.shutdown` | records shutdowns | `shutdown`, `shutdownNow`, and `close` |
+
+The advice runs at the entry and exit of `start`, at the exit of the constructors, and at the entry of the shutdowns:
+never on a thread's run path or its scoped values. M5-2's `executors` and `threads` sensors transform `Thread`,
+`ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and each keeps working
+whichever is installed first (forked-JVM tests claim the three sensors together, and beside the OpenTelemetry agent in
+both orders, on JDK 17, 21, and the newest verified JDK). A fork-join worker, the JDK's `DelayScheduler`, and a thread
+whose starting frame is in `java.util.concurrent` (the per-task threads `CompletableFuture` falls back to when the
+common pool has fewer than two threads) are pool workers too.
+
+**Origin.** One bounded walk of at most 64 frames skips the threading API's own frames (`Thread`, its builders,
+`kotlin.concurrent`, and for an executor its constructors and the `Executors` factories) to find who started or
+created it. When that is the JDK, as for a `java.util.Timer`, an `HttpClient`, or the executors `CompletableFuture`
+and virtual threads create lazily, or when a static initializer created it, the row's origin is `jdk` or a static
+singleton's, and it is never tracked. Otherwise the first frame outside the JDK decides, as for the `threads` sensor:
+in the application's packages, `application`; else `library`, as a framework's pool, a client, a Hikari pool started
+lazily inside a repository call, Tomcat's `AsyncContext.start`, or Spring's `@Async` executor. Library and JDK rows are
+grouped apart in the panel. The JDK's own singletons (an innocuous thread, `process reaper`, `Keep-Alive-Timer`,
+`Common-Cleaner`) are recorded as the JDK's without a walk.
+
+**Left running.** A thread the application's code started for a request, and an executor it created for a request or
+an execution, are tracked weakly, at most 1,024 at a time: nothing the sensor holds keeps a thread, an executor, or a
+class loader alive. Each adapter tells the engine when a request's response is complete (Spring MVC once its async
+context completed, Spring WebFlux when its chain terminates, Quarkus when the response body ended or the connection
+closed); the request's end is written into a lock-free ring, and the agent's drain thread checks it 250 ms later, so a
+thread still unwinding as the response completes is not reported: a thread still alive then, or an executor not shut
+down, was so when the response was complete, and is reported once as **left running**. A thread started after its
+request ended is not waited for; one whose request's end never comes stops waiting after 10 minutes, counted. An
+executor's shutdown lands on its creation's row with its lifetime; one the collector reclaims without a shutdown, or
+that the JDK's cleaner shuts down because nothing references it (`newSingleThreadExecutor`), is counted as reclaimed.
+
+**Cost.** A request-owned platform thread start or an executor creation walks the stack once. A virtual thread start,
+or a start no request owns, as a server starting a virtual thread per request, reuses the walk of the first start of
+the same starting thread family, target, kind, and code-paths call site (at most 1,024 per run), so a row's call site
+is its first start's when the code-paths sensor did not stamp it; a start no request owns is counted in that sighting
+and published by the drain thread. The sensor is opt-in until a same-runner A/B of the agent's overhead benchmark on a
+route that starts a thread and creates an executor per request shows its own median increment at most 3 % and the
+cumulative median at most 10 % (the `agent-overhead-thread-activity` job of `build.yml`). Add `thread-activity` to
+`bootui.agent.sensors` to record it.
+
+Each hook is self-tested on the sensor's own thread: a platform thread started and joined, from JDK 21 a virtual thread,
+a `ThreadPoolExecutor` running one task then shut down and another shut down at once, a `ForkJoinPool` shut down, and,
+from JDK 21, a thread-per-task executor running one task then closed. A core hook that fails disables the sensor alone;
+an optional hook that fails is left out, and when `ThreadPerTaskExecutor.start` is left out, so is
+`VirtualThread.start`, or every task of a virtual-thread-per-task executor would read as a thread of its own. The hooks
+of JDK 21 are `unsupported` on JDK 17.
+
+The sensor does not see threads started or executors created through classes that bypass the JDK's (Netty's own
+thread-per-task executor, JBoss Threads' `EnhancedQueueExecutor`, Tomcat's own `ThreadPoolExecutor` copy): their threads'
+`Thread.start` is recorded as a library's. A subclass whose constructor throws after the canonical constructor returned
+leaves a creation recorded. A thread that ends within 250 ms of its request's end is never reported left running.
+
 ## HotSwap
 
 A debugger's HotSwap, as IntelliJ IDEA's **Reload Changed Classes** through JDI, or another agent's
@@ -926,7 +999,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, and `environment`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, and `thread-activity`. The Side Effects sensors this version does not ship (`thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1199,7 +1272,7 @@ The panel has one tab per sensor group:
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
 | Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in; otherwise `not-claimed`. |
-| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` records when `bootui.agent.sensors` opts in (see [the thread-activity sensor](#the-thread-activity-sensor)); `thread-locals` and `resources` are `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |
 
@@ -1264,7 +1337,11 @@ lifetime, first and last seen times, and up to three exemplar request ids linkin
 its kind (`connect`, `datagram`, or `lookup`), its client, how it is captured (`captured` with the panel's id,
 `not-captured`, or `infrastructure`; none for a lookup), attempts, failures, established connections, total and
 longest connect, send, or resolution time, and the same times and request ids. The **Network** tab shows them with a
-**Not captured by any panel** badge, or a link to the panel that captured the work. Rows are capped at 500 per
+**Not captured by any panel** badge, or a link to the panel that captured the work. Each thread-activity row has its
+kind (`thread`, `virtual thread`, or `executor`), its target (the started thread's family, digits as `{n}`, or the
+executor's class), its origin (`application`, `library`, or `jdk`), how many were started or created and by how many
+distinct requests, how many were still running when their request ended (`leftRunning`), and for an executor how many
+were shut down (`completed`), with their lifetime, or reclaimed without a shutdown (`failed`). Rows are capped at 500 per
 sensor and 2,000 per run; extra observations are counted in the sensor's **Other** row. Up to 10,000 observations wait
 for a route before falling back to `(unknown route)`. These bounds shrink in proportion when
 `bootui.runtime-journal.agent-evidence-max-bytes` is set below its default.

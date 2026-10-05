@@ -1,8 +1,12 @@
 package io.github.jdubois.bootui.sample.sideeffects;
 
+import io.github.jdubois.bootui.sample.catalog.ProductSummary;
+import io.github.jdubois.bootui.sample.catalog.SampleCatalog;
+import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -16,9 +20,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class ThreadActivityController {
 
     private final BackgroundWork work;
+    private final SampleCatalog catalog;
 
-    public ThreadActivityController(BackgroundWork work) {
+    public ThreadActivityController(BackgroundWork work, SampleCatalog catalog) {
         this.work = work;
+        this.catalog = catalog;
+    }
+
+    /**
+     * The agent overhead benchmark's thread route (M5-5e): the product search of {@code GET
+     * /api/sample/product-search}, plus one thread started and joined and one executor created and shut down, so the
+     * thread-activity sensor's hooks run on every request.
+     */
+    @GetMapping("/benchmark")
+    public List<ProductSummary> benchmark(@RequestParam(name = "term", defaultValue = "console") String term)
+            throws Exception {
+        work.refreshNow();
+        work.createAndShutDown();
+        return catalog.searchProducts(term);
     }
 
     @GetMapping("/left-running")

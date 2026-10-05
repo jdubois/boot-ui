@@ -64,6 +64,11 @@ public class BackgroundWork {
         }
     }
 
+    /** An executor created and shut down at once, with no task: the benchmark's executor hooks, nothing running. */
+    public void createAndShutDown() {
+        new ThreadPoolExecutor(0, 1, 1, TimeUnit.SECONDS, new LinkedBlockingQueue<>()).shutdown();
+    }
+
     private static void pause() {
         try {
             Thread.sleep(LEFT_RUNNING_MILLIS);
