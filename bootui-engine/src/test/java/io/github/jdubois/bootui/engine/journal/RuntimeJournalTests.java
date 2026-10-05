@@ -353,6 +353,105 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void theLossHorizonIsTheLatestStartOfAnEvictedEventOfAUnitOfWork() {
+        RuntimeJournal journal = journal(settings(3, 10_000_000, 100, 0, JournalSource.all()), false);
+        assertThat(journal.lossHorizonMillis()).isNull();
+
+        journal.offer(sql(5, false));
+        journal.offer(statement(9, "select 1"));
+        journal.offer(sql(2, false));
+        journal.offer(sql(3, false));
+        journal.dispatchPending();
+        assertThat(journal.lossHorizonMillis()).as("one event evicted").isEqualTo(1_005L);
+
+        journal.offer(sql(4, false));
+        journal.dispatchPending();
+        assertThat(journal.lossHorizonMillis())
+                .as("an event that belongs to no request, execution, or trace leaves it where it was")
+                .isEqualTo(1_005L);
+        journal.offer(sql(6, false));
+        journal.dispatchPending();
+        assertThat(journal.lossHorizonMillis()).as("it never moves back").isEqualTo(1_005L);
+    }
+
+    @Test
+    void clearingMovesTheLossHorizonPastTheRetainedAndTheStillQueuedEvents() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.dispatchPending();
+        journal.offer(sql(7, false));
+
+        journal.clear();
+
+        assertThat(journal.lossHorizonMillis()).isEqualTo(1_007L);
+        journal.offer(sql(9, false));
+        journal.dispatchPending();
+        assertThat(journal.entries()).hasSize(1);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(1_007L);
+    }
+
+    @Test
+    void clearingARequestsHttpEventRemembersWhenThatRequestEnded() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.dispatchPending();
+        assertThat(journal.lostRequestEndMillis())
+                .as("a statement is not a request's end")
+                .isNull();
+        journal.offer(new RuntimeEvent(
+                JournalSource.HTTP, 2_000, 30_000_000, "r1", null, null, "http-1", null, true, () -> 64));
+        journal.dispatchPending();
+
+        journal.clear();
+
+        assertThat(journal.lostRequestEndMillis()).isEqualTo(2_030L);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(2_000L);
+    }
+
+    @Test
+    void itRemembersTheThreadsOfLostRequestsAcrossAClearButNotThoseOfUnownedEvents() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 1_002, 0, null, null, null, "main", null, true, () -> 64));
+        journal.dispatchPending();
+
+        journal.clear();
+        journal.offer(sql(3, false));
+        journal.dispatchPending();
+
+        assertThat(journal.lostARequestOn("http-nio-8080-exec-1")).isTrue();
+        assertThat(journal.lostARequestOn("main"))
+                .as("a startup error carried no request")
+                .isFalse();
+        assertThat(journal.lostARequestOn(null)).isFalse();
+    }
+
+    @Test
+    void theLossHorizonNeverMovesPastNow() {
+        RuntimeJournal journal = journal(settings(1, 10_000_000, 100, 0, JournalSource.all()), false);
+        long future = System.currentTimeMillis() + java.time.Duration.ofDays(1).toMillis();
+
+        // An imported span from a skewed clock, then an event that evicts it.
+        journal.offer(new RuntimeEvent(JournalSource.AI, future, 1, null, null, "trace-1", "t", null, false, () -> 64));
+        journal.offer(sql(1, false));
+        journal.dispatchPending();
+
+        assertThat(journal.lossHorizonMillis()).isNotNull().isLessThanOrEqualTo(System.currentTimeMillis());
+    }
+
+    @Test
+    void anEventTooLargeToRetainMovesTheLossHorizon() {
+        int eventBytes = sql(0, false).estimatedBytes();
+        RuntimeJournal journal = journal(settings(1_000, eventBytes * 3L, 1_000, 10, JournalSource.all()), false);
+
+        journal.offer(new RuntimeEvent(
+                JournalSource.SQL, 5_000, 1, "r1", null, null, "t", null, false, () -> eventBytes * 10));
+        journal.dispatchPending();
+
+        assertThat(journal.lossHorizonMillis()).isEqualTo(5_000L);
+    }
+
+    @Test
     void clearingDropsTheRetainedEventsButKeepsTheCountsAndTheSequence() {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         journal.offer(sql(1, false));
@@ -709,6 +808,9 @@ class RuntimeJournalTests {
             assertThat(journal.status().queueDepth())
                     .as("the queued events are released")
                     .isZero();
+            assertThat(journal.lossHorizonMillis())
+                    .as("released, not dropped, so the work they belonged to lost them")
+                    .isEqualTo(1_003L);
             assertThat(journal.offer(sql(4, true))).isFalse();
             assertThat(journal.offer(sql(5, false))).isFalse();
             assertThat(journal.status().droppedTotal()).isEqualTo(2);
@@ -792,6 +894,9 @@ class RuntimeJournalTests {
         assertThat(journal.status().dropped())
                 .as("a user clear is not queue-pressure loss")
                 .isEmpty();
+        assertThat(journal.lossHorizonMillis())
+                .as("cleared from the queue or taken by the dispatcher, the second event was lost to the clear")
+                .isEqualTo(1_002L);
     }
 
     @Test

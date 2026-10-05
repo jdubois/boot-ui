@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 /**
@@ -167,17 +168,17 @@ final class JournalQueue {
 
     /**
      * Detaches this queue for a clear, in constant time: it takes no more events, drops those it holds, and wakes a
-     * dispatcher waiting on it. Returns how many it dropped.
+     * dispatcher waiting on it. Returns what it dropped, to be visited after the lock is released.
      */
-    int detach() {
+    Detached detach() {
         ReentrantLock lock = this.lock;
         lock.lock();
         try {
             if (detached || refusing) {
-                return 0;
+                return Detached.NONE;
             }
             detached = true;
-            int dropped = count;
+            Detached dropped = new Detached(items, takeIndex, count);
             items = new RuntimeEvent[0];
             takeIndex = 0;
             putIndex = 0;
@@ -203,6 +204,25 @@ final class JournalQueue {
             filling.signalAll();
         } finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * The events a detach dropped: the detached ring buffer, which no offer or take touches any more, where its oldest
+     * event was, and how many it held.
+     */
+    record Detached(RuntimeEvent[] items, int takeIndex, int count) {
+
+        static final Detached NONE = new Detached(new RuntimeEvent[0], 0, 0);
+
+        /** Visits each dropped event, oldest first. */
+        void forEach(Consumer<RuntimeEvent> action) {
+            for (int i = 0; i < count; i++) {
+                RuntimeEvent event = items[(takeIndex + i) % items.length];
+                if (event != null) {
+                    action.accept(event);
+                }
+            }
         }
     }
 

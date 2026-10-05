@@ -355,6 +355,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 synchronized (processing) {
                     if (queue != admission) {
                         // Offered before a clear that ran while the dispatcher held it: cleared with the recording.
+                        ring.lost(first);
                         processed.incrementAndGet();
                         continue;
                     }
@@ -520,6 +521,34 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return ring.evictedARequestOf(traceId);
     }
 
+    /**
+     * The latest start, by the wall clock, of an event of a request, an execution, or a trace that the journal evicted,
+     * could not fit, or cleared, or {@code null} while it lost none. A request or an execution that started then or
+     * before may be missing some of its events, so a reader that judges what a unit did not do leaves it out; one that
+     * started later is complete, since its events start no earlier than it does.
+     */
+    public Long lossHorizonMillis() {
+        return ring.lossHorizonMillis();
+    }
+
+    /**
+     * When the latest request whose HTTP event the journal evicted, could not fit, or cleared ended, by the wall clock,
+     * or {@code null} while it lost none: an {@code ERROR} logged without a request id shortly after, as a container
+     * logs a failure once the request's id is gone, may have been that request's.
+     */
+    public Long lostRequestEndMillis() {
+        return ring.lostRequestEndMillis();
+    }
+
+    /**
+     * Whether a request whose events the journal evicted, could not fit, or cleared ran on {@code thread}, as far as it
+     * remembers the most recent {@value EvidenceRing#MAX_LOST_REQUEST_THREADS} such threads: only an error logged without
+     * a request id on such a thread may have been that request's.
+     */
+    public boolean lostARequestOn(String thread) {
+        return ring.lostARequestOn(thread);
+    }
+
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);
@@ -565,7 +594,10 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue())) {
                 // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
                 // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
-                queued = detached.detach();
+                JournalQueue.Detached cleared = detached.detach();
+                queued = cleared.count();
+                // Outside the queue's lock: their requests and executions lost them to the clear.
+                cleared.forEach(ring::lost);
             }
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);
@@ -656,7 +688,10 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             // ended. Without waiting for processing, which it holds: later offers are refused and counted as dropped,
             // and the events still queued are dropped with their frames, counted as processed as a clear counts them.
             JournalQueue last = (JournalQueue) ADMISSION.getAndSet(this, JournalQueue.closed());
-            processed.addAndGet(last.detach());
+            JournalQueue.Detached discarded = last.detach();
+            processed.addAndGet(discarded.count());
+            // Counted as processed, not dropped, so no check is made partial by them: their work lost them instead.
+            discarded.forEach(ring::lost);
             return;
         }
         if (settings.enabled()) {

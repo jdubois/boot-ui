@@ -293,8 +293,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `WARN` messages without a specific check and counts, in a **No request** row, the framework `ERROR` events that
   carried no request id, except those a container wrote on a failed request's thread just after it ended. Garbage
   collection and heap rows are reached from the Memory panel, which counts them and opens the **Memory** theme with
-  every row, and the four ORM and application-event checks stay out of the default list until their counterexample
-  fixtures pass. **Show all routes**, a search, a deep link, and the agent query `all` (formerly a plain text search), a
+  every row. **Show all routes**, a search, a deep link, and the agent query `all` (formerly a plain text search), a
   kind, or a route still reach every row, which says why it was left out ([Runtime
   Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-19).
 - **The documentation site and the Docker Hub sample images follow the released major.** Every branch declares its
@@ -558,6 +557,19 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Runtime Insights no longer judges a request that lost events to eviction or a clear.** A request or execution that
+  started before an event the runtime journal evicted, could not fit, or cleared (**Clear recording** while it ran) was
+  projected with only the events it kept, so `proxy-bypass` reported a `@Cacheable` method as bypassed when the
+  request's cache access was the event it lost. Such work is now left out whole, with a limitation counting it and
+  each check that would have examined it saying so, on Spring MVC, Spring WebFlux, and Quarkus; the agent view no
+  longer asks for traffic when requests were only left out. A partial check's reason no longer calls its counts a
+  floor, since a dropped transaction or cache access can make a finding appear. A cross-observation counterexample harness now replays every
+  observation kind's seeded case and counterexamples against every kind, with each event dropped in turn, the
+  recording cleared and the ring overflowing at every point, and each stack, SQL capture, source, and panel missing;
+  every kind passes it, including D29's four, which the default list therefore shows, and a container's `ERROR`
+  written after a request left out this way is not counted in Framework warnings' **No request** row
+  ([Runtime Insights](docs/features/overview.md#runtime-insights),
+  PLAN-v2 §2.2, M4-18e).
 - **A method probe reported active catches a class loaded right after.** A probe was marked active just before its
   transformer was registered, so a class its run loaded in that gap ran unprobed, and the probe waited for an
   invocation that had already happened. The transformer is now registered first, and its advice records nothing until
