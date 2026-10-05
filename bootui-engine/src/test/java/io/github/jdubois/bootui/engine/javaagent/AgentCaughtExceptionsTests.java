@@ -125,7 +125,8 @@ class AgentCaughtExceptionsTests {
         assertThat(payload.siteMethod()).isEqualTo("pay()V");
         assertThat(payload.foundBy()).isEqualTo(CaughtExceptionPayload.EXIT);
         assertThat(payload.foundAt()).isEqualTo("com.example.Checkout#run()V");
-        assertThat(payload.identity()).isEqualTo(((CaughtExceptionPayload) events.get(0).payload()).identity());
+        assertThat(payload.identity())
+                .isEqualTo(((CaughtExceptionPayload) events.get(0).payload()).identity());
         assertThat(events.get(1).requestId()).isEqualTo(REQUEST);
     }
 
@@ -141,7 +142,8 @@ class AgentCaughtExceptionsTests {
         CaughtExceptions.flushThread();
         claim.drainer().drainNow();
 
-        CaughtExceptionPayload last = (CaughtExceptionPayload) events.get(events.size() - 1).payload();
+        CaughtExceptionPayload last =
+                (CaughtExceptionPayload) events.get(events.size() - 1).payload();
         assertThat(last.kind()).isEqualTo(CaughtExceptionPayload.UNTRACKED);
         assertThat(last.count()).isEqualTo(3L);
         assertThat(last.identity()).isZero();
@@ -152,8 +154,7 @@ class AgentCaughtExceptionsTests {
         start(List.of(AgentSensorSettings.CAUGHT_EXCEPTIONS));
         try (RuntimeJournal journal = new RuntimeJournal(
                 new RuntimeJournalSettings(true, 100, 1_000_000, 2, 10, 10, JournalSource.all()),
-                RunIdentity.start(),
-                false)) {
+                RunIdentity.start())) {
             caught.setRuntimeEventSink(journal);
             int site = CaughtExceptions.site("com/example/Shop#clear()V#0#java/lang/RuntimeException", "x");
             context.set(CorrelationContext.forRequest(REQUEST));
@@ -195,7 +196,8 @@ class AgentCaughtExceptionsTests {
                 .isEqualTo("task-00000000000000cd");
         assertThat(AgentCaughtExceptions.executionId(0xcdL, AgentCaughtExceptions.EXECUTION_OWN))
                 .isEqualTo("00000000000000cd");
-        assertThat(AgentCaughtExceptions.executionId(0L, AgentCaughtExceptions.EXECUTION_OWN)).isNull();
+        assertThat(AgentCaughtExceptions.executionId(0L, AgentCaughtExceptions.EXECUTION_OWN))
+                .isNull();
     }
 
     private void start(List<String> sensors) {

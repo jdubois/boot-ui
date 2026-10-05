@@ -66,8 +66,7 @@ class CaughtExceptionsVisitTests {
                 tables(withAdvice("bootuicaughtapp.Handlers", original("bootuicaughtapp.Handlers")));
 
         // The method's own entry, then the visit's catch-any, then the advice's: each keeps its precedence.
-        assertThat(tables.get("rethrows()I"))
-                .containsExactly("java/lang/IllegalStateException", "leaving", "advice");
+        assertThat(tables.get("rethrows()I")).containsExactly("java/lang/IllegalStateException", "leaving", "advice");
         // javac splits the outer handler's range around the inner one: three entries of the method's own.
         assertThat(tables.get("nested()I"))
                 .containsExactly(
@@ -101,8 +100,7 @@ class CaughtExceptionsVisitTests {
         String[] swallowed = sites.get("bootuicaughtapp/Handlers#swallowed()I#0#java/io/IOException");
         assertThat(swallowed).isNotNull();
         assertThat(Integer.parseInt(swallowed[2])).as("line").isPositive();
-        assertThat(flags(swallowed))
-                .isEqualTo(CaughtExceptions.FLAG_EXIT_HANDLER | CaughtExceptions.FLAG_COMPLETE);
+        assertThat(flags(swallowed)).isEqualTo(CaughtExceptions.FLAG_EXIT_HANDLER | CaughtExceptions.FLAG_COMPLETE);
 
         String[] multi = sites.get("bootuicaughtapp/Handlers#multi(I)I#0#java/lang/IllegalStateException|"
                 + "java/lang/UnsupportedOperationException");
@@ -126,7 +124,8 @@ class CaughtExceptionsVisitTests {
                 .as("%s", sites.keySet())
                 .filteredOn(site -> site[1].equals("java/io/IOException"))
                 .singleElement()
-                .satisfies(site -> assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).isZero());
+                .satisfies(site ->
+                        assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).isZero());
         assertThat(resources)
                 .filteredOn(site -> site[1].equals("java/lang/Throwable"))
                 .isNotEmpty()
@@ -349,15 +348,18 @@ class CaughtExceptionsVisitTests {
     /** Per method, its exception table in order: each entry's type, or {@code leaving} or {@code advice} for added ones. */
     static Map<String, List<String>> tables(byte[] bytes) {
         Map<String, List<String>> tables = new LinkedHashMap<>();
-        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
-            @Override
-            public MethodVisitor visitMethod(
-                    int access, String name, String descriptor, String signature, String[] exceptions) {
-                List<String> table = new ArrayList<>();
-                tables.put(name + descriptor, table);
-                return new HandlerReader(table);
-            }
-        }, 0);
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                List<String> table = new ArrayList<>();
+                                tables.put(name + descriptor, table);
+                                return new HandlerReader(table);
+                            }
+                        },
+                        0);
         return tables;
     }
 
@@ -406,8 +408,7 @@ class CaughtExceptionsVisitTests {
         }
 
         @Override
-        public void visitMethodInsn(
-                int opcode, String owner, String name, String descriptor, boolean isInterface) {
+        public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
             seen++;
             if (current != null && seen <= 3 && owner.equals(CaughtExceptionsVisit.BRIDGE) && name.equals("leaving")) {
                 kinds.put(current, "leaving");
@@ -437,57 +438,74 @@ class CaughtExceptionsVisitTests {
     /** Per method, the bridge calls its handlers make within their first three instructions. */
     static Map<String, List<String>> handlerCalls(byte[] bytes) {
         Map<String, List<String>> calls = new LinkedHashMap<>();
-        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
-            @Override
-            public MethodVisitor visitMethod(
-                    int access, String name, String descriptor, String signature, String[] exceptions) {
-                List<String> found = new ArrayList<>();
-                calls.put(name + descriptor, found);
-                return new MethodVisitor(Opcodes.ASM9) {
-                    @Override
-                    public void visitMethodInsn(
-                            int opcode, String owner, String method, String methodDescriptor, boolean isInterface) {
-                        if (owner.equals(CaughtExceptionsVisit.BRIDGE) && method.equals("caught")) {
-                            found.add(method);
-                        }
-                    }
-                };
-            }
-        }, 0);
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                List<String> found = new ArrayList<>();
+                                calls.put(name + descriptor, found);
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public void visitMethodInsn(
+                                            int opcode,
+                                            String owner,
+                                            String method,
+                                            String methodDescriptor,
+                                            boolean isInterface) {
+                                        if (owner.equals(CaughtExceptionsVisit.BRIDGE) && method.equals("caught")) {
+                                            found.add(method);
+                                        }
+                                    }
+                                };
+                            }
+                        },
+                        0);
         return calls;
     }
 
     /** Per method, the locals of the exit handler's frame: the frame whose stack is one {@code java/lang/Throwable} last. */
     static Map<String, List<String>> exitFrames(byte[] bytes) {
         Map<String, List<String>> frames = new LinkedHashMap<>();
-        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
-            @Override
-            public MethodVisitor visitMethod(
-                    int access, String name, String descriptor, String signature, String[] exceptions) {
-                return new MethodVisitor(Opcodes.ASM9) {
-                    private List<String> last;
-                    private boolean leaving;
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    private List<String> last;
+                                    private boolean leaving;
 
-                    @Override
-                    public void visitFrame(int type, int numLocal, Object[] local, int numStack, Object[] stack) {
-                        last = new ArrayList<>();
-                        for (int i = 0; i < numLocal; i++) {
-                            last.add(describe(local[i]));
-                        }
-                        leaving = false;
-                    }
+                                    @Override
+                                    public void visitFrame(
+                                            int type, int numLocal, Object[] local, int numStack, Object[] stack) {
+                                        last = new ArrayList<>();
+                                        for (int i = 0; i < numLocal; i++) {
+                                            last.add(describe(local[i]));
+                                        }
+                                        leaving = false;
+                                    }
 
-                    @Override
-                    public void visitMethodInsn(
-                            int opcode, String owner, String method, String methodDescriptor, boolean isInterface) {
-                        if (owner.equals(CaughtExceptionsVisit.BRIDGE) && method.equals("leaving") && last != null) {
-                            frames.put(name + descriptor, last);
-                            leaving = true;
-                        }
-                    }
-                };
-            }
-        }, ClassReader.EXPAND_FRAMES);
+                                    @Override
+                                    public void visitMethodInsn(
+                                            int opcode,
+                                            String owner,
+                                            String method,
+                                            String methodDescriptor,
+                                            boolean isInterface) {
+                                        if (owner.equals(CaughtExceptionsVisit.BRIDGE)
+                                                && method.equals("leaving")
+                                                && last != null) {
+                                            frames.put(name + descriptor, last);
+                                            leaving = true;
+                                        }
+                                    }
+                                };
+                            }
+                        },
+                        ClassReader.EXPAND_FRAMES);
         return frames;
     }
 
@@ -575,20 +593,16 @@ class CaughtExceptionsVisitTests {
             m.visitLineNumber(20, start);
             m.visitTypeInsn(Opcodes.NEW, "java/lang/IllegalStateException");
             m.visitInsn(Opcodes.DUP);
-            m.visitMethodInsn(
-                    Opcodes.INVOKESPECIAL, "java/lang/IllegalStateException", "<init>", "()V", false);
+            m.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/IllegalStateException", "<init>", "()V", false);
             m.visitVarInsn(Opcodes.ILOAD, 0);
             m.visitJumpInsn(Opcodes.IFEQ, handler);
             m.visitInsn(Opcodes.ATHROW);
             m.visitLabel(end);
             m.visitLabel(handler);
             m.visitLineNumber(21, handler);
-            m.visitFrame(
-                    Opcodes.F_FULL,
-                    1,
-                    new Object[] {Opcodes.INTEGER},
-                    1,
-                    new Object[] {"java/lang/IllegalStateException"});
+            m.visitFrame(Opcodes.F_FULL, 1, new Object[] {Opcodes.INTEGER}, 1, new Object[] {
+                "java/lang/IllegalStateException"
+            });
             m.visitInsn(Opcodes.POP);
             m.visitInsn(Opcodes.ICONST_2);
             m.visitInsn(Opcodes.IRETURN);
@@ -650,7 +664,12 @@ class CaughtExceptionsVisitTests {
         private static ClassWriter start(String name, int version) {
             ClassWriter writer = new ClassWriter(0);
             writer.visit(
-                    version, Opcodes.ACC_PUBLIC | Opcodes.ACC_SUPER, name.replace('.', '/'), null, "java/lang/Object", null);
+                    version,
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SUPER,
+                    name.replace('.', '/'),
+                    null,
+                    "java/lang/Object",
+                    null);
             return writer;
         }
 

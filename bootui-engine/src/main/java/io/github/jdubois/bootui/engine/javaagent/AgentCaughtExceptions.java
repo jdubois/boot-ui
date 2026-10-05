@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.engine.javaagent;
 
 import io.github.jdubois.bootui.engine.journal.CaughtExceptionPayload;
-import io.github.jdubois.bootui.engine.journal.JournalListener;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
+import io.github.jdubois.bootui.engine.journal.JournalListener;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
@@ -76,6 +76,7 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
     private AgentRecordDrainer drainer;
     /** Whether {@link #start()} was asked for before a journal was installed, so the installation starts routing. */
     private boolean startWaiting;
+
     private long generation = Long.MIN_VALUE;
     /** The ring's interned strings of this generation, by id, as far as resolved. */
     private String[] strings = new String[1];
@@ -219,7 +220,8 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
             case TYPE_THROWN -> {
                 kind = CaughtExceptionPayload.THROWN;
                 int how = (int) (flags & 0xFFL);
-                foundBy = how == THROWN_CAUGHT_AGAIN ? CaughtExceptionPayload.CAUGHT_AGAIN : CaughtExceptionPayload.EXIT;
+                foundBy =
+                        how == THROWN_CAUGHT_AGAIN ? CaughtExceptionPayload.CAUGHT_AGAIN : CaughtExceptionPayload.EXIT;
                 String[] found = site((int) (flags >>> 32));
                 if (found != null) {
                     String[] foundKey = found[0].split("#", 4);

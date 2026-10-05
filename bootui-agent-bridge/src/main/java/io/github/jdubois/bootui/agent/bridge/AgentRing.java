@@ -66,9 +66,7 @@ public final class AgentRing {
     /** Caught exceptions (PLAN-v2 M5-6a). */
     public static final int SENSOR_CAUGHT_EXCEPTIONS = 3;
 
-    static final String[] SENSOR_NAMES = {
-        "other", CodeInventory.SENSOR, MethodProbes.SENSOR, CaughtExceptions.SENSOR
-    };
+    static final String[] SENSOR_NAMES = {"other", CodeInventory.SENSOR, MethodProbes.SENSOR, CaughtExceptions.SENSOR};
 
     public static final int DEFAULT_CAPACITY = 1 << 16;
     public static final int MIN_CAPACITY = 1 << 10;

@@ -1250,9 +1250,7 @@ final class ApplicationMethodsSensor {
                 visited = visited.visit(codePathsAdvice.on(new CodePathsMethods(recordComponents(type))));
                 applied |= VISIT_CODE_PATHS;
             }
-            if (caughtOn
-                    && (caughtProbe || !probe(name))
-                    && !caughtRejected.contains(name)) {
+            if (caughtOn && (caughtProbe || !probe(name)) && !caughtRejected.contains(name)) {
                 // Last, so it is the outermost visitor and reads the class's own exception tables.
                 visited = visited.visit(new CaughtExceptionsVisit());
                 applied |= VISIT_CAUGHT;
@@ -1464,12 +1462,8 @@ final class ApplicationMethodsSensor {
         boolean ran = "ok".equals(outcome);
         boolean rejected = caughtRejected.contains(CAUGHT_PROBE);
         Map<String, String> results = new LinkedHashMap<String, String>();
-        results.put(
-                CAUGHT_HOOKS[0][0],
-                hits[0] > 0 ? "passed" : ran ? "failed" : "not-exercised (" + outcome + ")");
-        results.put(
-                CAUGHT_HOOKS[1][0],
-                hits[1] > 0 ? "passed" : ran ? "failed" : "not-exercised (" + outcome + ")");
+        results.put(CAUGHT_HOOKS[0][0], hits[0] > 0 ? "passed" : ran ? "failed" : "not-exercised (" + outcome + ")");
+        results.put(CAUGHT_HOOKS[1][0], hits[1] > 0 ? "passed" : ran ? "failed" : "not-exercised (" + outcome + ")");
         caughtSelfTest = results;
         caughtSelfTestSteps = steps;
         if (ran && hits[0] > 0 && hits[1] > 0 && !rejected) {

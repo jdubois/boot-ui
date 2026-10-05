@@ -62,7 +62,8 @@ class CaughtExceptionsTests {
         long flags = record[AgentRing.PAYLOAD + 3];
         assertThat(interned(flags >>> 32)).isEqualTo("java.io.IOException");
         assertThat(flags & 0x3L).isEqualTo(CaughtExceptions.FAMILY_IO);
-        assertThat(interned((flags >>> 16) & 0xFFFFL)).isEqualTo(Thread.currentThread().getName());
+        assertThat(interned((flags >>> 16) & 0xFFFFL))
+                .isEqualTo(Thread.currentThread().getName());
         // Never the message: nothing interned holds it.
         assertThat(AgentRing.internedNow()).noneMatch(text -> text.contains("secret"));
         assertThat(CaughtExceptions.sites(site)[0])
@@ -84,7 +85,8 @@ class CaughtExceptionsTests {
         CaughtExceptions.leaving(thrown, site);
 
         List<long[]> records = drain(token);
-        assertThat(records).extracting(record -> record[AgentRing.TYPE])
+        assertThat(records)
+                .extracting(record -> record[AgentRing.TYPE])
                 .containsExactly((long) CaughtExceptions.TYPE_CAUGHT, (long) CaughtExceptions.TYPE_THROWN);
         long[] rethrown = records.get(1);
         assertThat(rethrown[AgentRing.PAYLOAD]).isEqualTo(REQUEST_BITS);
@@ -111,7 +113,8 @@ class CaughtExceptionsTests {
         CaughtExceptions.caught(carrier, outer);
 
         List<long[]> records = drain(token);
-        assertThat(records).extracting(record -> record[AgentRing.TYPE])
+        assertThat(records)
+                .extracting(record -> record[AgentRing.TYPE])
                 .containsExactly(
                         (long) CaughtExceptions.TYPE_CAUGHT,
                         (long) CaughtExceptions.TYPE_THROWN,
@@ -144,7 +147,9 @@ class CaughtExceptionsTests {
         CaughtExceptions.caught(hostile, site("hostile"));
 
         assertThat(drain(token)).hasSize(2);
-        assertThat(CaughtExceptions.status()).containsEntry("applicationErrors", 1L).containsEntry("errors", 0L);
+        assertThat(CaughtExceptions.status())
+                .containsEntry("applicationErrors", 1L)
+                .containsEntry("errors", 0L);
     }
 
     @Test
@@ -200,7 +205,8 @@ class CaughtExceptionsTests {
         CaughtExceptions.caught(new IllegalStateException(), site);
 
         List<long[]> records = drain(token);
-        assertThat(records).filteredOn(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_CAUGHT)
+        assertThat(records)
+                .filteredOn(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_CAUGHT)
                 .hasSize(CaughtExceptions.PER_SITE + 1);
         long[] untracked = records.stream()
                 .filter(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_UNTRACKED)
@@ -222,9 +228,11 @@ class CaughtExceptionsTests {
 
         CaughtExceptions.flushThread();
 
-        assertThat(drain(token)).filteredOn(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_UNTRACKED)
+        assertThat(drain(token))
+                .filteredOn(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_UNTRACKED)
                 .singleElement()
-                .satisfies(record -> assertThat((int) record[AgentRing.PAYLOAD + 2]).isEqualTo(2));
+                .satisfies(record ->
+                        assertThat((int) record[AgentRing.PAYLOAD + 2]).isEqualTo(2));
     }
 
     @Test

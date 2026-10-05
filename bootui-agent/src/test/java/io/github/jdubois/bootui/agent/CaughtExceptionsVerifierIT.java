@@ -104,7 +104,9 @@ class CaughtExceptionsVerifierIT {
         System.out.printf(
                 "Verifier stress test: %d classes from %d jars, %d link without the visit, %d sites registered%n",
                 classes.size(), targets.size(), classes.size() - control.size(), sites);
-        assertThat(broken).as("classes linking without the visit but not with it").isEmpty();
+        assertThat(broken)
+                .as("classes linking without the visit but not with it")
+                .isEmpty();
         assertThat(sites).as("handlers instrumented").isGreaterThan(5_000);
 
         // Beneath an advice checking every frame, as the code paths' does: never a verifier failure, and refusals rare.
@@ -144,7 +146,9 @@ class CaughtExceptionsVerifierIT {
         System.out.printf(
                 "Beneath an advice: %d classes advised, %d refused only with the visit %s%n",
                 advised.size(), refused, refusals);
-        assertThat(brokenBeneath).as("advised classes linking without the visit but not with it").isEmpty();
+        assertThat(brokenBeneath)
+                .as("advised classes linking without the visit but not with it")
+                .isEmpty();
         assertThat(refused * 1000L)
                 .as("classes refused only with the visit: %s", refusals)
                 .isLessThanOrEqualTo((long) MAX_REFUSED_PER_THOUSAND * advised.size());
@@ -167,7 +171,8 @@ class CaughtExceptionsVerifierIT {
                     }
                     try (InputStream in = file.getInputStream(entry)) {
                         classes.putIfAbsent(
-                                name.substring(0, name.length() - ".class".length()).replace('/', '.'),
+                                name.substring(0, name.length() - ".class".length())
+                                        .replace('/', '.'),
                                 in.readAllBytes());
                     }
                 }
@@ -183,7 +188,8 @@ class CaughtExceptionsVerifierIT {
     private static Map<String, String> link(
             Map<String, byte[]> classes, List<URL> others, Function<byte[], byte[]> transformation) throws IOException {
         Map<String, String> failed = new LinkedHashMap<>();
-        try (URLClassLoader parent = new URLClassLoader(others.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
+        try (URLClassLoader parent =
+                new URLClassLoader(others.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
             Defining loader = new Defining(classes, transformation, parent);
             for (String name : classes.keySet()) {
                 try {
@@ -203,7 +209,8 @@ class CaughtExceptionsVerifierIT {
             TypeDescription type = pool.describe(name).resolve();
             var builder = new ByteBuddy()
                     .decorate(type, locator)
-                    .visit(Advice.to(ExitAdvice.class).on(isMethod().and(not(isAbstract())).and(not(isNative()))));
+                    .visit(Advice.to(ExitAdvice.class)
+                            .on(isMethod().and(not(isAbstract())).and(not(isNative()))));
             if (visit) {
                 builder = builder.visit(new CaughtExceptionsVisit());
             }

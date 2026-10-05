@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.quarkus.javaagent;
 
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
-import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
+import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.quarkus.runtime.ShutdownEvent;

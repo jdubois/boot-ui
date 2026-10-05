@@ -502,8 +502,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                 super.visitLabel(exitEnd);
                 super.visitLabel(exitHandler);
                 Object[] locals = frameLocals();
-                super.visitFrame(
-                        Opcodes.F_NEW, locals.length, locals, 1, new Object[] {"java/lang/Throwable"});
+                super.visitFrame(Opcodes.F_NEW, locals.length, locals, 1, new Object[] {"java/lang/Throwable"});
                 super.visitInsn(Opcodes.DUP);
                 super.visitIntInsn(Opcodes.SIPUSH, exitSite);
                 super.visitMethodInsn(Opcodes.INVOKESTATIC, BRIDGE, "leaving", LEAVING_DESCRIPTOR, false);
@@ -543,8 +542,8 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                 slot = 1;
             }
             for (Type argument : Type.getArgumentTypes(descriptor)) {
-                boolean other = stores[slot] == OTHER_KIND
-                        || (argument.getSize() == 2 && stores[slot + 1] == OTHER_KIND);
+                boolean other =
+                        stores[slot] == OTHER_KIND || (argument.getSize() == 2 && stores[slot + 1] == OTHER_KIND);
                 if (other) {
                     locals.add(Opcodes.TOP);
                     if (argument.getSize() == 2) {

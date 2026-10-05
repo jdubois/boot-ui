@@ -123,7 +123,9 @@ class CaughtExceptionsBehaviorsIT {
                     "mockito-" + order);
 
             assertThat(output.exitCode()).as(output.toString()).isZero();
-            assertThat(output.value("SELF_TEST_caught-exceptions")).as(output.toString()).startsWith("true null");
+            assertThat(output.value("SELF_TEST_caught-exceptions"))
+                    .as(output.toString())
+                    .startsWith("true null");
             assertThat(output.value("MOCKITO")).as(output.toString()).isEqualTo("ok");
             assertThat(output.value("SPY"))
                     .as(output.toString())
@@ -141,16 +143,21 @@ class CaughtExceptionsBehaviorsIT {
     private static ChildJvm.Output run(List<String> jvm, String mode) throws Exception {
         List<String> options = new ArrayList<>(jvm);
         options.add("-Dcaught.app.jar=" + appJar());
-        return ChildJvm.runWithClassPaths(
-                options, appJar().toString(), null, "caught-exceptions-behaviors", mode);
+        return ChildJvm.runWithClassPaths(options, appJar().toString(), null, "caught-exceptions-behaviors", mode);
     }
 
     private static void assertAllPass(ChildJvm.Output output, boolean together) {
         assertThat(output.exitCode()).as(output.toString()).isZero();
-        assertThat(output.value("SELF_TEST_caught-exceptions")).as(output.toString()).startsWith("true null");
+        assertThat(output.value("SELF_TEST_caught-exceptions"))
+                .as(output.toString())
+                .startsWith("true null");
         if (together) {
-            assertThat(output.value("SELF_TEST_code-paths")).as(output.toString()).startsWith("true null");
-            assertThat(output.value("SELF_TEST_inventory")).as(output.toString()).startsWith("true null");
+            assertThat(output.value("SELF_TEST_code-paths"))
+                    .as(output.toString())
+                    .startsWith("true null");
+            assertThat(output.value("SELF_TEST_inventory"))
+                    .as(output.toString())
+                    .startsWith("true null");
         }
         assertThat(output.text().lines().filter(line -> line.startsWith("  FAIL")))
                 .as(output.toString())
@@ -165,9 +172,7 @@ class CaughtExceptionsBehaviorsIT {
         assertThat(output.value("STATUS")).as(output.toString()).contains("errors=0");
         assertThat(output.value("CAUGHT")).as(output.toString()).contains("errors=0");
         // No class of the claimed packages lost a visit: the frames passed the code paths' advice and the JVM.
-        assertThat(output.value("SENSOR"))
-                .as(output.toString())
-                .contains("rejectedTypes=0");
+        assertThat(output.value("SENSOR")).as(output.toString()).contains("rejectedTypes=0");
         if (together) {
             assertThat(output.value("SENSOR_inventory"))
                     .as(output.toString())

@@ -99,7 +99,8 @@ public final class CaughtExceptionsBehaviors {
         check(
                 "a rethrown exception is caught, then thrown from its method's exit (" + rethrown + ")",
                 rethrown.equals(List.of(
-                        "CAUGHT " + APP + "rethrows()I#0#java/lang/IllegalStateException java.lang.IllegalStateException",
+                        "CAUGHT " + APP
+                                + "rethrows()I#0#java/lang/IllegalStateException java.lang.IllegalStateException",
                         "THROWN-exit " + APP + "rethrows()I#0#java/lang/IllegalStateException")));
 
         withRequest(() -> expect(java.io.UncheckedIOException.class, handlers::wraps));
@@ -129,7 +130,8 @@ public final class CaughtExceptionsBehaviors {
                 nested.equals(List.of(
                         "CAUGHT " + APP + "nested()I#0#java/lang/IllegalStateException java.lang.IllegalStateException",
                         "THROWN-again " + APP + "nested()I#0#java/lang/IllegalStateException",
-                        "CAUGHT " + APP + "nested()I#1#java/lang/IllegalStateException java.lang.IllegalStateException")));
+                        "CAUGHT " + APP
+                                + "nested()I#1#java/lang/IllegalStateException java.lang.IllegalStateException")));
 
         withRequest(handlers::finallyOnly);
         withRequest(() -> handlers.multi(1));
@@ -148,8 +150,8 @@ public final class CaughtExceptionsBehaviors {
                 "a site caught often publishes its first occurrences, then counts the rest (" + loop.size() + " "
                         + loop.get(loop.size() - 1) + ")",
                 caught == CaughtExceptions.PER_SITE
-                        && loop.get(loop.size() - 1).equals("UNTRACKED " + APP
-                                + "loop(I)I#0#java/lang/IllegalStateException 4"));
+                        && loop.get(loop.size() - 1)
+                                .equals("UNTRACKED " + APP + "loop(I)I#0#java/lang/IllegalStateException 4"));
 
         withRequest(() -> new Handlers().built());
         withRequest(handlers::lambda);
@@ -189,8 +191,8 @@ public final class CaughtExceptionsBehaviors {
                             + records + ")",
                     Integer.valueOf(1).equals(answer)
                             && type.getClassLoader() == loader
-                            && records.equals(List.of(
-                                    "CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException"))
+                            && records.equals(
+                                    List.of("CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException"))
                             && CaughtExceptions.siteCount() == sitesBefore);
         }
     }
@@ -220,8 +222,8 @@ public final class CaughtExceptionsBehaviors {
                         + again.get("selfTestPassed") + ", " + on + ")",
                 off.isEmpty()
                         && Boolean.TRUE.equals(again.get("selfTestPassed"))
-                        && on.equals(List.of(
-                                "CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException")));
+                        && on.equals(
+                                List.of("CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException")));
     }
 
     static void awaitIdle(String id) throws Exception {
@@ -245,7 +247,9 @@ public final class CaughtExceptionsBehaviors {
         CaughtExceptions.beginSelfTest();
         handlers.swallowed();
         long[] hits = CaughtExceptions.endSelfTest();
-        check("release restores the classes (" + state + ", " + hits[0] + ")", "released".equals(state) && hits[0] == 0);
+        check(
+                "release restores the classes (" + state + ", " + hits[0] + ")",
+                "released".equals(state) && hits[0] == 0);
     }
 
     /**
@@ -369,10 +373,11 @@ public final class CaughtExceptionsBehaviors {
                     boolean owned = record[AgentRing.PAYLOAD] == REQUEST_BITS;
                     described.add((owned ? "CAUGHT " : "CAUGHT-unowned ") + key + " " + interned(record, flags >>> 32));
                 }
-                case CaughtExceptions.TYPE_THROWN -> described.add(
-                        ((flags & 0xFF) == CaughtExceptions.THROWN_EXIT ? "THROWN-exit " : "THROWN-again ") + key);
-                case CaughtExceptions.TYPE_UNTRACKED -> described.add(
-                        "UNTRACKED " + key + " " + (int) record[AgentRing.PAYLOAD + 2]);
+                case CaughtExceptions.TYPE_THROWN ->
+                    described.add(
+                            ((flags & 0xFF) == CaughtExceptions.THROWN_EXIT ? "THROWN-exit " : "THROWN-again ") + key);
+                case CaughtExceptions.TYPE_UNTRACKED ->
+                    described.add("UNTRACKED " + key + " " + (int) record[AgentRing.PAYLOAD + 2]);
                 default -> described.add("TYPE" + record[AgentRing.TYPE] + " " + key);
             }
         }
@@ -411,8 +416,9 @@ public final class CaughtExceptionsBehaviors {
                 "nonblocking-probe");
         probe.start();
         probe.join();
-        check("BlockHound watches the behaviors' thread (" + seen[0] + ")", seen[0] != null
-                && seen[0].getClass().getName().contains("BlockingOperationError"));
+        check(
+                "BlockHound watches the behaviors' thread (" + seen[0] + ")",
+                seen[0] != null && seen[0].getClass().getName().contains("BlockingOperationError"));
         return builder;
     }
 }

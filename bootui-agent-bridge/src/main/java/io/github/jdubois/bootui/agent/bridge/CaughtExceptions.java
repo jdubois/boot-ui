@@ -186,6 +186,7 @@ public final class CaughtExceptions {
     private static final LongAdder SITES_OVER_LIMIT = new LongAdder();
     /** Pending matches given up on because another thread held the entry: a rethrow possibly unrecorded. */
     private static final LongAdder MISSED = new LongAdder();
+
     private static final AtomicLong ERROR_COUNT = new AtomicLong();
     private static final AtomicLong SELF_TEST_CAUGHT = new AtomicLong();
     private static final AtomicLong SELF_TEST_THROWN = new AtomicLong();
@@ -567,8 +568,13 @@ public final class CaughtExceptions {
             evicted = true;
             EVICTED.increment();
             publishEvicted(
-                    P_REQUEST[slot], P_EXECUTION[slot], P_KIND[slot], P_SITE[slot], P_IDENTITY[slot],
-                    P_GENERATION[slot], now);
+                    P_REQUEST[slot],
+                    P_EXECUTION[slot],
+                    P_KIND[slot],
+                    P_SITE[slot],
+                    P_IDENTITY[slot],
+                    P_GENERATION[slot],
+                    now);
         }
         P_IDENTITY[slot] = identity;
         P_CLASS[slot] = classIdentity;
@@ -775,7 +781,8 @@ public final class CaughtExceptions {
             for (int i = start; i < count; i++) {
                 int line = SITE_LINES.get(i);
                 String key = SITE_KEYS.get(i);
-                copy[i - start] = key == null ? null : key + '\t' + SITE_TYPES.get(i) + '\t' + line + '\t' + SITE_FLAGS[i];
+                copy[i - start] =
+                        key == null ? null : key + '\t' + SITE_TYPES.get(i) + '\t' + line + '\t' + SITE_FLAGS[i];
             }
             return copy;
         } catch (Throwable ex) {
@@ -970,8 +977,18 @@ public final class CaughtExceptions {
         PENDING.set(0);
         COUNTS.remove();
         for (LongAdder adder : new LongAdder[] {
-            CAUGHT, PUBLISHED, THROWN, UNTRACKED, EVICTED, EXPIRED, SKIPPED, UNOWNED, LEAVING, APPLICATION_ERRORS,
-            SITES_OVER_LIMIT, MISSED
+            CAUGHT,
+            PUBLISHED,
+            THROWN,
+            UNTRACKED,
+            EVICTED,
+            EXPIRED,
+            SKIPPED,
+            UNOWNED,
+            LEAVING,
+            APPLICATION_ERRORS,
+            SITES_OVER_LIMIT,
+            MISSED
         }) {
             adder.reset();
         }
