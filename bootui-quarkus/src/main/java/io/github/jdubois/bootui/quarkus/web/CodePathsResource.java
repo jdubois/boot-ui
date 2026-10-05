@@ -85,7 +85,10 @@ public class CodePathsResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response startProbe(CodePathsProbeRequest request) {
-        return answer(() -> service.probes().start(request == null ? null : request.method()));
+        return answer(() -> service.probes()
+                .start(
+                        request == null ? null : request.method(),
+                        request != null && Boolean.TRUE.equals(request.recordShapes())));
     }
 
     @GET
@@ -114,12 +117,12 @@ public class CodePathsResource {
      * in-band tool error with the REST status.
      */
     public CodePathsProbeDto agentStartProbe(String method) {
-        return forAgents(() -> service.probes().start(method));
+        return forAgents(() -> service.probes().startForAgents(method));
     }
 
-    /** Method probes for agents: {@code get_method_probe} and {@code bootui probe show}. */
+    /** Method probes for agents: {@code get_method_probe} and {@code bootui probe show}, never with a shape. */
     public CodePathsProbeDto agentProbe(String id) {
-        return forAgents(() -> service.probes().probe(id));
+        return forAgents(() -> service.probes().probeForAgents(id));
     }
 
     private static CodePathsProbeDto forAgents(Supplier<CodePathsProbeDto> call) {

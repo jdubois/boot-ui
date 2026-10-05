@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -308,7 +309,102 @@ class MethodProbesTests {
     }
 
     @Test
+    void aShapesProbeRecordsArgumentAndReturnShapesJoinedByIndex() {
+        long token = claim("dev");
+        Map<String, Object> started = MethodProbes.start(token, Map.of("method", KEY, "shapes", Boolean.TRUE));
+        long id = id(started);
+        assertThat(probe(started)).containsEntry("shapes", Boolean.TRUE).containsEntry("shapesDropped", 0);
+        assertThat(calls.get(calls.size() - 1)).containsEntry("shapes", Boolean.TRUE);
+        MethodProbes.activate(0, id);
+
+        for (int i = 0; i < 2; i++) {
+            long start = MethodProbes.enter(0, id);
+            assertThat(start & MethodProbes.INDEX_MASK).isEqualTo(i);
+            Object[] arguments = new Object[11];
+            arguments[0] = "sku-" + i;
+            arguments[1] = List.of(1, 2);
+            MethodProbes.arguments(0, id, start, arguments);
+            MethodProbes.exit(0, id, start, null, i == 0 ? Optional.empty() : null);
+        }
+
+        List<long[]> records = drain(token);
+        // Per invocation: three argument records (nine of eleven arguments), the return record, then the hit.
+        assertThat(records).hasSize(10);
+        long[] firstArguments = records.get(0);
+        assertThat(firstArguments[AgentRing.TYPE]).isEqualTo(MethodProbes.PROBE_SHAPES);
+        assertThat(firstArguments[AgentRing.PAYLOAD] >>> 8).isEqualTo(id);
+        assertThat((firstArguments[AgentRing.PAYLOAD] >>> 3) & 31).isZero();
+        assertThat(firstArguments[AgentRing.PAYLOAD] & 7).isZero();
+        assertThat(ProbeShapes.kind(firstArguments[AgentRing.PAYLOAD + 1])).isEqualTo(ProbeShapes.STRING);
+        assertThat(ProbeShapes.summary(firstArguments[AgentRing.PAYLOAD + 1])).isEqualTo(5);
+        assertThat(ProbeShapes.kind(firstArguments[AgentRing.PAYLOAD + 2])).isEqualTo(ProbeShapes.COLLECTION);
+        assertThat(ProbeShapes.kind(firstArguments[AgentRing.PAYLOAD + 3])).isEqualTo(ProbeShapes.NULL);
+        assertThat(records.get(2)[AgentRing.PAYLOAD] & 7).isEqualTo(2);
+        long[] returned = records.get(3);
+        assertThat(returned[AgentRing.PAYLOAD] & 7).isEqualTo(MethodProbes.RETURN_PART);
+        assertThat(ProbeShapes.kind(returned[AgentRing.PAYLOAD + 1])).isEqualTo(ProbeShapes.OPTIONAL);
+        long[] hit = records.get(4);
+        assertThat(hit[AgentRing.TYPE]).isEqualTo(MethodProbes.PROBE_HIT);
+        assertThat((hit[AgentRing.PAYLOAD] >>> 3) & 31).isZero();
+        assertThat(hit[AgentRing.PAYLOAD + 1]).isNotNegative();
+        long[] secondHit = records.get(9);
+        assertThat(secondHit[AgentRing.TYPE]).isEqualTo(MethodProbes.PROBE_HIT);
+        assertThat((secondHit[AgentRing.PAYLOAD] >>> 3) & 31).isEqualTo(1);
+        assertThat(secondHit[AgentRing.PAYLOAD] >>> 8).isEqualTo(id);
+        assertThat(AgentRing.internedNow()).doesNotContain("sku-0", "sku-1");
+    }
+
+    @Test
+    void aShapesProbeRecordsNoReturnShapeForAThrowOrAVoidMethod() {
+        long token = claim("dev");
+        long id = id(MethodProbes.start(token, Map.of("method", "com.example.shop.S#m()V", "shapes", Boolean.TRUE)));
+        MethodProbes.activate(0, id);
+
+        long start = MethodProbes.enter(0, id);
+        MethodProbes.arguments(0, id, start, new Object[0]);
+        MethodProbes.exit(0, id, start, null, null);
+        long other = MethodProbes.enter(0, id);
+        MethodProbes.exit(0, id, other, new IllegalStateException(), null);
+
+        List<long[]> records = drain(token);
+        assertThat(records)
+                .hasSize(2)
+                .allSatisfy(record -> assertThat(record[AgentRing.TYPE]).isEqualTo(MethodProbes.PROBE_HIT));
+    }
+
+    @Test
+    void aMetadataProbeRecordsNoShapeAndKeepsItsExactStart() {
+        long token = claim("dev");
+        long id = id(MethodProbes.start(token, Map.of("method", KEY)));
+        MethodProbes.activate(0, id);
+
+        long start = MethodProbes.enter(0, id);
+        MethodProbes.arguments(0, id, start, new Object[] {"secret"});
+        MethodProbes.exit(0, id, start, null, "secret");
+
+        assertThat(only()).containsEntry("shapes", Boolean.FALSE);
+        List<long[]> records = drain(token);
+        assertThat(records)
+                .singleElement()
+                .satisfies(record -> assertThat(record[AgentRing.TYPE]).isEqualTo(MethodProbes.PROBE_HIT));
+    }
+
+    @Test
+    void anUnrecordedInvocationPublishesNoShape() {
+        long token = claim("dev");
+        long id = id(MethodProbes.start(token, Map.of("method", KEY, "shapes", Boolean.TRUE)));
+        // Not activated: enter answers 0, and the advice passes nothing on.
+        MethodProbes.arguments(0, id, 0L, new Object[] {"x"});
+        MethodProbes.exit(0, id, 0L, null, "x");
+
+        assertThat(drain(token)).isEmpty();
+    }
+
+    @Test
     void entryPointsNeverThrow() {
+        MethodProbes.arguments(99, 1, 5L, new Object[] {"x"});
+        MethodProbes.arguments(0, 1, 5L, null);
+        MethodProbes.exit(99, 1, 5L, null, "x");
         assertThat(MethodProbes.enter(-1, 1)).isZero();
         assertThat(MethodProbes.enter(99, 1)).isZero();
         MethodProbes.exit(99, 1, 5L, null);
