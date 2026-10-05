@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -54,6 +55,9 @@ class RuntimeInsightsResourceComparisonTests {
 
     @Mock
     Instance<CodePathsService> codePaths;
+
+    @Mock
+    Instance<SideEffectsService> sideEffects;
 
     @Mock
     Instance<SqlTraceRecorder> sql;
@@ -106,6 +110,7 @@ class RuntimeInsightsResourceComparisonTests {
                     agents,
                     inventory,
                     codePaths,
+                    sideEffects,
                     sql,
                     exposure,
                     new SmallRyeConfigBuilder().build());

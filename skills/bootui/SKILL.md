@@ -137,7 +137,7 @@ bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
 bootui code paths --json                        # with the agent: which methods each route spends its time in
-bootui side-effects --json                      # with the agent: which processes routes or background work started
+bootui side-effects --json                      # with the agent: processes, files, env reads per route or background work
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -216,8 +216,10 @@ assembly only.
 
 With the agent attached, run `bootui side-effects --json` (`get_side_effects`): every sensor's coverage first, then the
 most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
-environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`. Pass
-`--query processes`, a route, target, or call site to narrow it. Non-process sensor groups are listed as not available
+environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`. `files` records
+path patterns (`./` working directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and
+logging grouped apart; the opt-in `environment` records variable and property names, never values. Pass
+`--query files`, a sensor id, route, target, or call site to narrow it. Other sensor groups are listed as not available
 in this version.
 
 ### Read MySQL operational evidence

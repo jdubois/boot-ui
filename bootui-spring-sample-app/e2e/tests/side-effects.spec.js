@@ -54,13 +54,80 @@ test.describe('Side Effects view', () => {
     expect(JSON.stringify(report)).not.toContain('never-shown-by-bootui')
     expect(report.rows.some((row) => row.attribution === 'GET /api/side-effects/runtime-version')).toBe(false)
 
+    const GET = (path) => page.request.get(path)
+    // The files and environment seeds (M5-5d): a report written outside the temporary directory and a property read
+    // during the request, with a temporary file, a logging handler's file, and class loading as counterexamples.
+    for (const path of ['report', 'scratch', 'log']) {
+      expect((await GET(`/api/side-effects/${path}`)).ok()).toBeTruthy()
+    }
+    const reportRoute = 'GET /api/side-effects/report'
+    const reportRow = (rows) =>
+      rows?.find(
+        (candidate) =>
+          candidate.attribution === reportRoute &&
+          candidate.target.endsWith('/bootui-side-effects/report-{n}-{n}-{n}.csv')
+      )
+    await expect
+      .poll(
+        async () =>
+          reportRow((await (await GET('/bootui/api/side-effects/sensor?sensor=files&limit=500')).json()).rows)?.kind,
+        {
+          timeout: 30_000
+        }
+      )
+      .toBe('write')
+    await expect
+      .poll(
+        async () =>
+          (await (await GET('/bootui/api/side-effects/sensor?sensor=environment&limit=500')).json()).rows?.find(
+            (candidate) => candidate.attribution === reportRoute && candidate.target === 'sample.report.title'
+          )?.kind,
+        {timeout: 30_000}
+      )
+      .toBe('system property')
+    const files = await (await GET('/bootui/api/side-effects/sensor?sensor=files&limit=500')).json()
+    const environment = await (await GET('/bootui/api/side-effects/sensor?sensor=environment&limit=500')).json()
+    const written = reportRow(files.rows)
+    expect(written.origin).toBe('application')
+    expect(written.location).not.toBe('temporary-directory')
+    expect(written.callSite).toMatch(/ReportWriter#writeReport$/)
+    const scratch = files.rows.filter((candidate) => candidate.target.includes('bootui-scratch-'))
+    expect(scratch.length).toBeGreaterThan(0)
+    for (const candidate of scratch) {
+      expect(candidate.target.startsWith('$TMPDIR/')).toBe(true)
+      expect(candidate.location).toBe('temporary-directory')
+    }
+    const logged = files.rows.filter((candidate) => candidate.target.includes('bootui-sample-'))
+    expect(logged.length).toBeGreaterThan(0)
+    for (const candidate of logged) expect(candidate.origin).toBe('logging')
+    expect(files.rows.some((candidate) => /\.(class|jar)$/.test(candidate.target))).toBe(false)
+    expect(JSON.stringify(files) + JSON.stringify(environment)).not.toContain(
+      'sample-side-effects-contents-never-shown'
+    )
+
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Files and processes/}).click()
-    const table = page.locator('.side-effects-table')
+    const table = page
+      .locator('#side-effects-sensor-processes')
+      .locator('xpath=ancestor::section[1]')
+      .locator('.side-effects-table')
     const row = table.locator('tbody tr').filter({hasText: seed})
     await expect(row).toContainText('java')
     await expect(row).toContainText('JavaVersionReporter#version')
     await expect(table).not.toContainText('never-shown-by-bootui')
+    const filesSection = page.locator('#side-effects-sensor-files').locator('xpath=ancestor::section[1]')
+    const reportTableRow = filesSection
+      .locator('.side-effects-table')
+      .first()
+      .locator('tbody tr')
+      .filter({hasText: reportRoute})
+    await expect(reportTableRow.first()).toContainText('report-{n}-{n}-{n}.csv')
+    await expect(reportTableRow.first()).toContainText('Application')
+    await expect(filesSection.locator('details.side-effects-apart summary')).toContainText(
+      'Class path, JDK, and logging'
+    )
+    await page.getByRole('tab', {name: /Environment/}).click()
+    await expect(page.locator('main')).toContainText('sample.report.title')
     await page.getByRole('tab', {name: /Network/}).click()
     await expect(page.locator('main')).toContainText('Not available in this version.')
   })

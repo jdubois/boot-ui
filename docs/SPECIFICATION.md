@@ -784,9 +784,10 @@ Purpose: answer "Which processes and other side effects did this route or backgr
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. In M5-5a only the `processes` sensor records. The
-  `network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, and `security-sinks`
-  sensors are still listed but report `not-available` with reason `Not available in this version.`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `files` (M5-5d)
+  sensors record by default and `environment` (M5-5d) when opted in. The `network`, `thread-activity`, `thread-locals`,
+  `resources`, `blocking`, and `security-sinks` sensors are still listed but report `not-available` with reason
+  `Not available in this version.`
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -810,10 +811,26 @@ Features:
   or environment, and also records start failure, exit status, and lifetime when watched. Starts are published at once;
   exits are attributed as their starts were and carry the start time. Exits are watched on the agent-owned
   `bootui-agent-process-exits` executor, with at most 1,024 watched at once.
+- The `files` sensor hooks `FileInputStream`, `FileOutputStream`, and `RandomAccessFile`'s private `open` methods, the
+  `Files` methods that open (`newByteChannel`, `newInputStream`, `newOutputStream`), delete, move, and copy, and
+  `FileChannel.open`. The agent turns each path into a pattern before it leaves the hook: the working directory as `.`,
+  the temporary directory as `$TMPDIR`, the home as `~`, another user's home as `*`, ids collapsed to `{token}`,
+  `{uuid}`, `{id}`, `{hex}`, and `{n}`; BootUI masks a segment that looks like a secret value. Class files, archives,
+  archive file systems, Java's home, and class path directories are counted in buckets. Each row has a kind (`read`,
+  `write`, `delete`, `move from`, `move to`, `copy from`, `copy to`), a location (`working-directory`,
+  `temporary-directory`, `home`, `system`, `elsewhere`), and an origin (`application`, `library`, `class-path`, `jdk`,
+  `logging`, `unknown`); class path, JDK, and logging rows are grouped apart. Never contents.
+- The opt-in `environment` sensor hooks `System.getenv` and `System.getProperty` at entry, records a name the first time
+  a thread reads it for a request or execution, drops reads whose immediate caller is the JDK, and never records a
+  value or a default.
+- The runtime model gains `FILE_PATTERN` and `ENVIRONMENT_VARIABLE` nodes and `OPENS` and `READS` edges from routes,
+  GraphQL operations, and scheduled jobs, for application and library rows, while Side Effects is visible; change
+  impact's closure and its route reads and writes ignore them.
 - BootUI's own process starts, agent threads, BootUI threads, reentrant inner hooks, and starts during class
   transformation are not recorded. A failed self-test disables the sensor and removes its transformer. After 100
   internal side-effect-sensor errors, the sensors switch off for the JVM's life. The side-effect ring holds 1,024
-  records; the per-thread aggregation table is for hotter sensors in later slices.
+  records; file operations and environment reads in a request scope aggregate in the thread's table and flush when it
+  ends. A sensor whose hook fails its self-test is removed for the JVM's life; the others are reinstalled.
 - Rows are keyed by attribution, sensor, kind, normalized target, call site, and bean method stamp when available.
   Attribution prefers request route, then the execution no request owns as its journal event names it (a scheduled
   run, a consumed message, a WebSocket message; `work no request owns` when never named), startup, thread family with
@@ -844,7 +861,13 @@ Acceptance criteria:
 - With the agent and `side-effects-seed.scheduled-every` set, the Quarkus sample's scheduled
   `ScheduledJavaVersion#report` run shows a `java` process row of scope `execution`, named as the runtime journal names
   that scheduled run, with no exemplar request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, and `processes`; `threads` remains opt-in.
+- With the agent, `GET /api/side-effects/report` on the three samples shows a `write` of
+  `./target/bootui-side-effects/report-{n}-{n}-{n}.csv` (working directory, application origin) attributed to the
+  route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
+  value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
+  `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `files`; `threads` and
+  `environment` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

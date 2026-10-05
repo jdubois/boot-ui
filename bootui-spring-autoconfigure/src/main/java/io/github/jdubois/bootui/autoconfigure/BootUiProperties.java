@@ -2847,9 +2847,11 @@ public class BootUiProperties {
          * {@code inventory} records which application methods ran in this run and which jars loaded classes.
          * {@code code-paths} times the application's bean methods per request, as call trees.
          * {@code processes} records the processes the application starts, for Side Effects: the command's file name,
-         * never its arguments or environment. An unknown sensor id fails the application's start.
+         * never its arguments or environment. {@code files} records the files the application opens, deletes, moves,
+         * and copies, as path patterns, never contents. An unknown sensor id fails the application's start.
          * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
-         * into virtual threads.
+         * into virtual threads. {@code environment}, opt-in, records the names of the environment variables and system
+         * properties the application reads, never their values.
          */
         private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
 

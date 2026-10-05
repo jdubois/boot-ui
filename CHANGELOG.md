@@ -148,6 +148,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
+- **Files and environment sensors in the BootUI agent.** A new `files` agent sensor, on by default, records the files
+  application code opens, deletes, moves, and copies through `FileInputStream`, `FileOutputStream`,
+  `RandomAccessFile`, the `Files` methods, and `FileChannel.open`, as path patterns built inside the agent (`./` for the
+  working directory, `$TMPDIR`, `~`, another user's home as `*`, ids and digits as `{n}`, `{hex}`, `{uuid}`, `{id}`,
+  and `{token}`), never contents, with each row's kind, location, and origin; class files, archives, Java's home, and
+  class path directories are counted in buckets, and class loading, the JDK's own files, and logging appenders are
+  grouped apart from the application's files. A new opt-in `environment` sensor records the names of the environment
+  variables and system properties application code reads directly through `System.getenv` and `System.getProperty`,
+  never their values or defaults, skipping the JDK's own reads. A report written outside the temporary directory shows
+  as a write of its route on Spring MVC, Spring WebFlux, and Quarkus, and the runtime model gains file pattern and
+  environment variable nodes with opens and reads edges. A side-effect sensor whose hook fails its self-test is now
+  removed alone, and the others reinstalled ([Java Agent](docs/features/java-agent.md#the-files-sensor),
+  [environment](docs/features/java-agent.md#the-environment-sensor), PLAN-v2 §5.16, M5-5d).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their

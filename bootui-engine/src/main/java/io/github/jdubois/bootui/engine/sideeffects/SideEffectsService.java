@@ -12,6 +12,9 @@ import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.model.EdgeType;
+import io.github.jdubois.bootui.engine.model.NodeType;
+import io.github.jdubois.bootui.engine.model.SideEffectAccess;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.util.ArrayList;
@@ -65,13 +68,32 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final String LIMITATION_SCOPE = "Side Effects records only what the BootUI agent's side-effect sensors hook:"
             + " this version records the processes the application starts, through ProcessBuilder.start, which"
-            + " Runtime.exec and ProcessBuilder.startPipeline also reach. Network, files, environment, threads, blocking,"
-            + " and security sinks are not available in this version.";
+            + " Runtime.exec and ProcessBuilder.startPipeline also reach; the files it opens, deletes, moves, and copies,"
+            + " through FileInputStream, FileOutputStream, RandomAccessFile, the Files methods, and FileChannel.open; and,"
+            + " opt-in, the environment variables and system properties it reads by name through System.getenv and"
+            + " System.getProperty. Network, threads, blocking, and security sinks are not available in this version.";
 
     static final String LIMITATION_VALUES = "A process row shows the command's file name only, never its arguments or"
             + " its environment, which can hold secrets; its exit status and lifetime come from Process.onExit, whose JDK"
             + " stage runs on the common ForkJoin pool before BootUI's own thread records the exit. On Windows, the JDK waits"
-            + " for each watched live process on a reaper thread of its own, so up to 1,024 such threads.";
+            + " for each watched live process on a reaper thread of its own, so up to 1,024 such threads. A file row shows a"
+            + " path pattern, never the file's contents: the working directory as ./, the temporary directory as $TMPDIR,"
+            + " the home as ~, ids and digits collapsed ({n}, {hex}, {uuid}, {id}), and a segment that looks like a"
+            + " secret masked. An environment row shows the name read, never its value or a default.";
+
+    static final String LIMITATION_FILES = "Files: class files, JAR, WAR, and JMOD files, paths in archive file"
+            + " systems, Java's home, and the class path's directories are counted, not recorded per route; class"
+            + " loading, the JDK's own files, and logging appenders are grouped apart from the application's files."
+            + " File.delete, File.renameTo, File.createNewFile, AsynchronousFileChannel, memory-mapped access after the"
+            + " open, and native code are not seen. A move or a copy records its source and its destination.";
+
+    static final String LIMITATION_ENVIRONMENT = "Environment: a name is recorded the first time a thread reads it for"
+            + " a request or an execution, so a row counts the requests and threads that read it, not every call; on a"
+            + " thread no request scope owns, a name read again within a second counts once; a name the JDK read first for"
+            + " the same request on the same thread is not recorded again. Reads the JDK makes for"
+            + " itself, as an XML or SSL factory looking up its property, are not recorded. A framework reading the whole"
+            + " map (System.getenv() or System.getProperties()) and then a name from it shows as (all variables), or not"
+            + " at all for properties.";
 
     static final String LIMITATION_ATTRIBUTION =
             "A row is attributed to its request's route as HTTP Exchanges names it, else to the execution no request owns"
@@ -86,6 +108,12 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_ROUTES_HIDDEN =
             "The HTTP Exchanges panel is disabled: Side Effects attributes rows to"
                     + " request routes through it, so route rows are merged under one hidden route, without request ids.";
+
+    /** A files row's target past the agent's quota of distinct path patterns. */
+    static final String TOO_MANY_PATHS = "(path not kept: too many distinct paths or strings)";
+
+    /** An environment row's target past the agent's quota of distinct names. */
+    static final String TOO_MANY_NAMES = "(name not kept: too many distinct names or strings)";
 
     private final AgentBridgeAccess access;
     private final Supplier<AgentClaim> claims;
@@ -313,7 +341,7 @@ public final class SideEffectsService implements AutoCloseable {
         List<SideEffectsRowDto> all = List.of();
         if (current != null && sensor.available()) {
             synchronized (lock) {
-                all = current.store.rows(sensor.id(), read.requests(), codePathsShown());
+                all = rowsOf(current, sensor.id(), read.requests());
             }
         }
         int start = Math.min(from, all.size());
@@ -351,7 +379,7 @@ public final class SideEffectsService implements AutoCloseable {
                     if (!sensor.available() || (bySensor && !sensor.id().equals(asked))) {
                         continue;
                     }
-                    for (SideEffectsRowDto row : current.store.rows(sensor.id(), read.requests(), codePathsShown())) {
+                    for (SideEffectsRowDto row : rowsOf(current, sensor.id(), read.requests())) {
                         if (bySensor || needle.isEmpty() || matches(row, needle)) {
                             matching.add(row);
                         }
@@ -375,6 +403,172 @@ public final class SideEffectsService implements AutoCloseable {
                 List.copyOf(listed),
                 matching.size() - listed.size(),
                 limitations);
+    }
+
+    /** {@code sensor}'s rows of {@code current}, under the lock: the store's, then, for files, its bucket rows. */
+    private List<SideEffectsRowDto> rowsOf(Run current, String sensor, boolean routesVisible) {
+        List<SideEffectsRowDto> rows = current.store.rows(sensor, routesVisible, codePathsShown());
+        if (!SideEffectsCatalog.FILES_ID.equals(sensor)) {
+            return rows;
+        }
+        List<SideEffectsRowDto> all = new ArrayList<>(rows);
+        all.addAll(bucketRows(current));
+        return all;
+    }
+
+    /** The bucket labels, by the bridge's counter name. */
+    static final Map<String, String> BUCKET_LABELS = bucketLabels();
+
+    private static Map<String, String> bucketLabels() {
+        Map<String, String> labels = new LinkedHashMap<>();
+        labels.put("classFiles", "(class files)");
+        labels.put("archives", "(JAR, WAR, and JMOD files)");
+        labels.put("archiveFileSystems", "(paths in archive file systems)");
+        labels.put("classPathDirectories", "(files in class path directories)");
+        labels.put("javaHome", "(files in Java's home)");
+        return labels;
+    }
+
+    /**
+     * The files the agent counted in buckets since the claim or the last Clear recording, one row per bucket, grouped
+     * apart: never per route, thread, or call site.
+     */
+    private List<SideEffectsRowDto> bucketRows(Run current) {
+        Map<String, Long> counted = coverage(SideEffectsCatalog.FILES_ID, null).buckets();
+        List<SideEffectsRowDto> rows = new ArrayList<>();
+        for (Map.Entry<String, String> bucket : BUCKET_LABELS.entrySet()) {
+            long now = counted.getOrDefault(bucket.getKey(), 0L);
+            long base = current.bucketBaseline.getOrDefault(bucket.getKey(), 0L);
+            long count = now >= base ? now - base : now;
+            if (count <= 0) {
+                continue;
+            }
+            boolean javaHome = "javaHome".equals(bucket.getKey());
+            rows.add(new SideEffectsRowDto(
+                    SideEffectsRowDto.UNATTRIBUTED,
+                    BUCKETS_ATTRIBUTION,
+                    SideEffectsCatalog.FILES_ID,
+                    "open",
+                    bucket.getValue(),
+                    null,
+                    null,
+                    javaHome ? SideEffectOrigins.JDK : SideEffectOrigins.CLASS_PATH,
+                    javaHome ? SideEffectOrigins.JAVA_HOME : null,
+                    count,
+                    0,
+                    0,
+                    0,
+                    null,
+                    0,
+                    0,
+                    0,
+                    0,
+                    List.of()));
+        }
+        return rows;
+    }
+
+    /** Who a bucket row's files were opened by: every thread, counted, never attributed. */
+    static final String BUCKETS_ATTRIBUTION = "all threads (counted)";
+
+    /**
+     * The runtime model's edges from this run's files and environment rows ({@code docs/PLAN-v2.md} §5.4, §5.16):
+     * {@link EdgeType#OPENS} from a route, GraphQL operation, or scheduled job to a {@link NodeType#FILE_PATTERN}, and
+     * {@link EdgeType#READS} to an {@link NodeType#ENVIRONMENT_VARIABLE}, for the application's and its libraries' own
+     * rows only, never class loading, the JDK's, or logging; empty while Side Effects is hidden. Route rows only while
+     * HTTP Exchanges is visible too. Never starts a drain.
+     */
+    public List<SideEffectAccess> modelAccesses() {
+        try {
+            AgentEvidence.Read read = read();
+            if (!read.shown() || shownReason(read) != null) {
+                return List.of();
+            }
+            Run current;
+            synchronized (lock) {
+                current = run;
+            }
+            if (current == null) {
+                return List.of();
+            }
+            List<SideEffectAccess> accesses = new ArrayList<>();
+            synchronized (lock) {
+                current.resolve(true);
+                for (String sensor : List.of(SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID)) {
+                    for (SideEffectsRowDto row : current.store.rows(sensor, read.requests(), false)) {
+                        SideEffectAccess access = access(row);
+                        if (access != null) {
+                            accesses.add(access);
+                        }
+                    }
+                }
+            }
+            return accesses;
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
+    }
+
+    /** A cheap fingerprint of what {@link #modelAccesses()} reads: changes with every observation and clear. */
+    public long modelFingerprint() {
+        AgentEvidence.Read read = read();
+        if (!read.shown() || shownReason(read) != null) {
+            return read.key();
+        }
+        synchronized (lock) {
+            Run current = run;
+            if (current == null) {
+                return read.key();
+            }
+            // Attributions, not observations: a request's waits for its route before it becomes a row.
+            current.resolve(true);
+            return (current.generation * 1_000_003L + current.store.attributions()) * 31
+                    + current.clears * 7
+                    + read.key();
+        }
+    }
+
+    private static SideEffectAccess access(SideEffectsRowDto row) {
+        if (!SideEffectOrigins.APPLICATION.equals(row.origin()) && !SideEffectOrigins.LIBRARY.equals(row.origin())) {
+            return null;
+        }
+        NodeType from;
+        String fromKey;
+        if (SideEffectsRowDto.ROUTE.equals(row.scope())
+                && row.attribution() != null
+                && !SideEffectsStore.ROUTE_HIDDEN.equals(row.attribution())
+                && !SideEffectsStore.UNKNOWN_ROUTE.equals(row.attribution())) {
+            from = row.attribution().contains(" (") ? NodeType.GRAPHQL_OPERATION : NodeType.ROUTE;
+            fromKey = row.attribution();
+        } else if (SideEffectsRowDto.EXECUTION.equals(row.scope())
+                && row.attribution() != null
+                && row.attribution().startsWith("scheduled ")) {
+            from = NodeType.SCHEDULED_JOB;
+            fromKey = row.attribution().substring("scheduled ".length());
+        } else {
+            return null;
+        }
+        if (SideEffectsCatalog.FILES_ID.equals(row.sensor())) {
+            return new SideEffectAccess(
+                    from,
+                    fromKey,
+                    EdgeType.OPENS,
+                    NodeType.FILE_PATTERN,
+                    row.target(),
+                    row.count(),
+                    row.firstSeen(),
+                    row.lastSeen());
+        }
+        String prefix = SideEffectsCatalog.SYSTEM_PROPERTY.equals(row.kind()) ? "property:" : "env:";
+        return new SideEffectAccess(
+                from,
+                fromKey,
+                EdgeType.READS,
+                NodeType.ENVIRONMENT_VARIABLE,
+                prefix + row.target(),
+                row.count(),
+                row.firstSeen(),
+                row.lastSeen());
     }
 
     private static boolean matches(SideEffectsRowDto row, String needle) {
@@ -442,8 +636,8 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     private List<String> limitations(Run current, AgentEvidence.Read read) {
-        List<String> limitations =
-                new ArrayList<>(List.of(LIMITATION_SCOPE, LIMITATION_VALUES, LIMITATION_ATTRIBUTION));
+        List<String> limitations = new ArrayList<>(List.of(
+                LIMITATION_SCOPE, LIMITATION_VALUES, LIMITATION_FILES, LIMITATION_ENVIRONMENT, LIMITATION_ATTRIBUTION));
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
         }
@@ -604,6 +798,9 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 int rows = current.store.rowCount();
                 current.store.clear();
+                // Buckets are the bridge's counters since the claim: counted from now on.
+                current.bucketBaseline = new HashMap<>(
+                        coverage(SideEffectsCatalog.FILES_ID, null).buckets());
                 current.clearedAt = Math.max(current.clearedAt, epochMillis);
                 current.clears++;
                 publish(current);
@@ -642,6 +839,7 @@ public final class SideEffectsService implements AutoCloseable {
         long clears;
         long cleared;
         long clearedAt = lastClearedAt;
+        Map<String, Long> bucketBaseline = Map.of();
         long drainResolvedAt = Long.MIN_VALUE / 2;
 
         Run(AgentClaim claim, long readyAt) {
@@ -724,14 +922,32 @@ public final class SideEffectsService implements AutoCloseable {
                     return;
                 }
                 String target = string(record.target());
+                String origin = null;
+                String location = null;
+                String shown;
+                if (record.sensor() == SideEffectsCatalog.RECORD_PROCESSES) {
+                    shown = target == null ? "(unknown)" : normalizer.target(target);
+                } else {
+                    origin = SideEffectOrigins.origin(record.context(), outside, application);
+                    if (record.sensor() == SideEffectsCatalog.RECORD_FILES) {
+                        // The agent made the pattern ($TMPDIR, ./, ~, ids collapsed); masked per segment here.
+                        shown = target == null ? TOO_MANY_PATHS : SideEffectOrigins.maskPath(normalizer.target(target));
+                        location = SideEffectOrigins.location(target);
+                    } else {
+                        // A name, never normalized: its digits are part of it, and its value never reaches BootUI.
+                        shown = target == null ? TOO_MANY_NAMES : SideEffectOrigins.maskName(target);
+                    }
+                }
                 store.add(new SideEffectsStore.Observation(
                         record,
                         sensor.id(),
                         SideEffectsCatalog.kind(record.sensor(), record.kind()),
-                        target == null ? "(unknown)" : normalizer.target(target),
+                        shown,
                         application != null ? application : outside,
                         insideMethod(record.stamp()),
-                        normalizer.threadFamily(string(record.threadName()))));
+                        normalizer.threadFamily(string(record.threadName())),
+                        origin,
+                        location));
                 resolve(false);
                 publish(this);
             }

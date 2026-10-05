@@ -310,15 +310,17 @@ public final class CodePaths {
      */
     public static void begin() {
         long[] owner = null;
+        boolean attempted = false;
         try {
             try {
                 if (active) {
+                    attempted = true;
                     owner = beginFragment();
                 }
             } finally {
                 // The side-effect sensors' owner slot, with the owner captured here if any (PLAN-v2 M5-5 design B1),
                 // pushed even when the fragment failed, so the scopeEnd() of end() stays balanced.
-                SideEffects.scopeBegin(owner);
+                SideEffects.scopeBegin(owner, attempted);
             }
         } catch (Throwable ex) {
             failed(ex);
@@ -1172,6 +1174,15 @@ public final class CodePaths {
 
         /** The thread's side-effect aggregation table, created at its first aggregated record. */
         SideEffects.Table sideEffects;
+
+        /** The names the environment sensor recorded for the thread's current owner, created at its first read. */
+        SideEffects.Seen environmentSeen;
+
+        /**
+         * The frame summaries the files sensor walked for the thread's current owner, for operations no code-paths
+         * method stamps, created at the first one.
+         */
+        SideEffects.Seen fileSightings;
     }
 
     /**

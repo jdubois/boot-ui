@@ -79,11 +79,42 @@ public final class RuntimeModelProjection {
             long budgetNanos,
             Predicate<String> evictedRequestTraces,
             List<ClassInvocation> invocations) {
+        return project(
+                entries, routes, structure, evicted, clock, budgetNanos, evictedRequestTraces, invocations, List.of());
+    }
+
+    /**
+     * Projects {@code entries} as {@link #project(List, RouteTemplateResolver, StructureSnapshot, long, LongSupplier,
+     * long, Predicate, List)} does, with the files and environment variables Side Effects observed executions access,
+     * {@code accesses}, as {@link EdgeType#OPENS} and {@link EdgeType#READS} edges ({@code docs/PLAN-v2.md} §5.16,
+     * M5-5d).
+     */
+    public static RuntimeModel project(
+            List<JournalEntry> entries,
+            RouteTemplateResolver routes,
+            StructureSnapshot structure,
+            long evicted,
+            LongSupplier clock,
+            long budgetNanos,
+            Predicate<String> evictedRequestTraces,
+            List<ClassInvocation> invocations,
+            List<SideEffectAccess> accesses) {
         long started = clock.getAsLong();
         RuntimeModelBuilder builder = new RuntimeModelBuilder();
         List<String> limitations = new ArrayList<>();
         declare(builder, structure);
         invokes(builder, structure, invocations, limitations);
+        if (accesses != null) {
+            for (SideEffectAccess access : accesses) {
+                builder.observeRange(
+                        builder.node(access.fromType(), access.fromKey()),
+                        access.type(),
+                        builder.node(access.toType(), access.toKey()),
+                        access.count(),
+                        access.firstSeenEpochMillis(),
+                        access.lastSeenEpochMillis());
+            }
+        }
 
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));

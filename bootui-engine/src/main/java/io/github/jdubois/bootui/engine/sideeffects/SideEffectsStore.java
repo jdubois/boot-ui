@@ -61,7 +61,22 @@ final class SideEffectsStore {
             String target,
             String callSite,
             String insideMethod,
-            String threadFamily) {}
+            String threadFamily,
+            String origin,
+            String location) {
+
+        /** A process observation, with no origin or location. */
+        Observation(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily) {
+            this(record, sensor, kind, target, callSite, insideMethod, threadFamily, null, null);
+        }
+    }
 
     private record Key(
             String scope,
@@ -70,7 +85,9 @@ final class SideEffectsStore {
             String kind,
             String target,
             String callSite,
-            String insideMethod) {}
+            String insideMethod,
+            String origin,
+            String location) {}
 
     private static final class Row {
         final Key key;
@@ -106,6 +123,11 @@ final class SideEffectsStore {
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_IO_ERROR
                         || record.outcome() == SideEffectsCatalog.OUTCOME_ERROR) {
                     failed += record.count();
+                }
+                if (record.sensor() == SideEffectsCatalog.RECORD_FILES) {
+                    // A file operation's own time: opening, deleting, moving, or copying, never reading what it opened.
+                    nanos += record.nanos();
+                    maxNanos = Math.max(maxNanos, record.maxNanos());
                 }
             }
             firstSeen = Math.min(firstSeen, record.firstMillis());
@@ -145,6 +167,8 @@ final class SideEffectsStore {
                     key.target(),
                     key.callSite(),
                     key.insideMethod(),
+                    key.origin(),
+                    key.location(),
                     count,
                     failed,
                     completed,
@@ -191,6 +215,7 @@ final class SideEffectsStore {
     private final Map<String, Long> misses = new HashMap<>();
 
     private long observations;
+    private long attributions;
     private long folded;
 
     /** @param readyAt when the application finished starting, in epoch milliseconds: earlier observations are startup's */
@@ -345,6 +370,7 @@ final class SideEffectsStore {
     }
 
     private void aggregate(Observation observation, String scope, String attribution, String requestId) {
+        attributions++;
         String sensor = observation.sensor();
         Key key = new Key(
                 scope,
@@ -353,12 +379,15 @@ final class SideEffectsStore {
                 observation.kind(),
                 observation.target(),
                 observation.callSite(),
-                observation.insideMethod());
+                observation.insideMethod(),
+                observation.origin(),
+                observation.location());
         Row row = rows.get(key);
         if (row == null) {
             int perSensor = rowsPerSensor.getOrDefault(sensor, 0);
             if (perSensor >= maxRowsPerSensor || rows.size() >= maxRows) {
-                Key other = new Key(SideEffectsRowDto.OTHER, OTHER, sensor, observation.kind(), OTHER, null, null);
+                Key other = new Key(
+                        SideEffectsRowDto.OTHER, OTHER, sensor, observation.kind(), OTHER, null, null, null, null);
                 row = rows.get(other);
                 if (row == null) {
                     if (rows.size() >= maxRows + SideEffectsCatalog.SENSORS.size()) {
@@ -403,7 +432,9 @@ final class SideEffectsStore {
                     row.key.kind(),
                     row.key.target(),
                     row.key.callSite(),
-                    hideMethod ? null : row.key.insideMethod());
+                    hideMethod ? null : row.key.insideMethod(),
+                    row.key.origin(),
+                    row.key.location());
             // Always a copy: a read never changes the store's own rows.
             Row target = merged.get(shown);
             if (target == null) {
@@ -458,6 +489,11 @@ final class SideEffectsStore {
     /** The rows the run keeps apart before Other rows. */
     int maxRows() {
         return maxRows;
+    }
+
+    /** Observations attributed to a row since the run started: changes whenever a row does. */
+    long attributions() {
+        return attributions;
     }
 
     /** Observations added since the run started. */

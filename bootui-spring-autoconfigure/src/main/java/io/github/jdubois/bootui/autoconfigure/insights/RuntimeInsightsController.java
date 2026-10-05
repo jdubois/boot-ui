@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
@@ -122,6 +123,17 @@ public class RuntimeInsightsController {
                 () -> {
                     CodePathsService paths = codePaths.getIfUnique();
                     return paths == null ? 0L : paths.routeTreesFingerprint();
+                });
+        // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
+        ObjectProvider<SideEffectsService> sideEffects = context.getBeanProvider(SideEffectsService.class);
+        models.setSideEffects(
+                () -> {
+                    SideEffectsService service = sideEffects.getIfUnique();
+                    return service == null ? List.of() : service.modelAccesses();
+                },
+                () -> {
+                    SideEffectsService service = sideEffects.getIfUnique();
+                    return service == null ? 0L : service.modelFingerprint();
                 });
         // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
         this.impact.setCodePaths(wanted -> {

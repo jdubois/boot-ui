@@ -326,14 +326,19 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_side_effects",
                     "Return Side Effects: what the application does outside the JVM, from the BootUI agent's "
-                            + "side-effect sensors; this version records the processes it starts. Advertised only while "
+                            + "side-effect sensors; this version records the processes it starts, the files it opens, "
+                            + "deletes, moves, and copies, and, opt-in, the environment variables and system properties it "
+                            + "reads. Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
                             + "(20) rows, most frequent first, matching query: a sensor id such as processes, or part of "
                             + "a route, target, or call site. A row is attributed to a request's route, work no request "
                             + "owns, startup, or a thread family, with the call site, the bean method it ran inside, "
                             + "counts, failures, exits, and up to three request ids. A process row names the command's "
-                            + "file name only, never its arguments or environment."),
+                            + "file name only, never its arguments or environment; a file row a path pattern (./ for the "
+                            + "working directory, $TMPDIR, ~, ids as {n}) with its kind, location, and origin "
+                            + "(application, library, class-path, jdk, logging), never contents; an environment row a "
+                            + "name, never its value."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
