@@ -6,7 +6,8 @@ import {expect, test} from './fixtures.js'
  * panel is unavailable with the Java Agent panel's reason and links there; the agent suite (playwright.agent.config.js)
  * sets the `agentAttached` fixture option and asserts the seeded route's `java` process shows by its file name only,
  * and the counterexample's route not at all; and (M5-5b) that an SDK's own socket is a Network row not captured by any
- * panel, while a call through the recorded REST client never is.
+ * panel, while a call through the recorded REST client never is; and (M5-5c) the blocking sensor not applicable, Spring
+ * MVC running no event loop.
  */
 test.describe('Side Effects view', () => {
   test('shows the seeded process by its file name only, or says why it cannot', async ({
@@ -161,5 +162,35 @@ test.describe('Side Effects view', () => {
     )
     await page.getByRole('tab', {name: /Environment/}).click()
     await expect(page.locator('main')).toContainText('sample.report.title')
+  })
+
+  test('says the blocking sensor is not applicable on Spring MVC, which runs no event loop', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the blocking sensor needs the BootUI agent')
+    await expect
+      .poll(
+        async () =>
+          (await (await page.request.get('/bootui/api/side-effects')).json()).sensors.find(
+            (sensor) => sensor.id === 'blocking'
+          ).state,
+        {timeout: 30_000}
+      )
+      .toBe('not-applicable')
+    const report = await (await page.request.get('/bootui/api/side-effects')).json()
+    const blocking = report.sensors.find((sensor) => sensor.id === 'blocking')
+    expect(blocking.reason).toContain('Spring MVC')
+    expect(blocking.hooks.map((hook) => hook.id)).toEqual(
+      expect.arrayContaining(['LockSupport.park', 'Thread.sleep call sites', 'Object.wait call sites'])
+    )
+    const rows = await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()
+    expect(rows.rows).toEqual([])
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Blocking/}).click()
+    await expect(page.locator('.side-effects-state')).toHaveText('Not applicable')
+    await expect(page.locator('.side-effects-state-note')).toContainText('no event loop to block')
   })
 })

@@ -143,6 +143,72 @@ class SideEffectsSharingTests {
         assertThat(frame.sideEffectOpen).isEqualTo(SideEffects.MASK_FILES);
     }
 
+    // ---- the blocking sensor's hooks on an event loop (M5-5c) -----------------------------------------------------
+
+    @Test
+    void aParkInsideAnOpenNetworkOrFilesHookIsThatHooksAndNeverRecords() {
+        claimAllOnAnEventLoop();
+        CodePaths.Frame frame = CodePaths.frame();
+
+        for (int open : new int[] {SideEffects.MASK_NETWORK, SideEffects.MASK_FILES}) {
+            frame.sideEffectOpen = open;
+            frame.sideEffectSince = System.nanoTime();
+            assertThat(Blocking.starting(SideEffects.HOOK_PARK))
+                    .as("a park inside an open hook of mask %s", open)
+                    .isZero();
+            assertThat(frame.sideEffectOpen).isEqualTo(open);
+        }
+        frame.sideEffectOpen = 0;
+        long park = Blocking.starting(SideEffects.HOOK_PARK);
+        assertThat(park).as("outside every hook, a park on the loop records").isNotZero();
+        assertThat(frame.sideEffectOpen).isEqualTo(SideEffects.MASK_BLOCKING);
+        Blocking.done(park, Blocking.KIND_PARK, SideEffects.HOOK_PARK, null);
+        assertThat(frame.sideEffectOpen).isZero();
+    }
+
+    @Test
+    void aFileOperationInsideAnOpenBlockingHookIsSilencedWhileAConnectStillRecords() {
+        claimAllOnAnEventLoop();
+        CodePaths.Frame frame = CodePaths.frame();
+
+        long sleep = Blocking.starting(SideEffects.HOOK_SLEEP);
+        assertThat(sleep).isNotZero();
+        assertThat(SideEffects.fileOpening(SideEffects.HOOK_FILE_INPUT_STREAM)).isZero();
+        long connect = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+        assertThat(connect).as("network records inside a blocking hook").isNotZero();
+        assertThat(frame.sideEffectOpen).isEqualTo(SideEffects.MASK_BLOCKING | SideEffects.MASK_NETWORK);
+        SideEffects.connected(
+                connect,
+                SideEffects.HOOK_SOCKET_CONNECT,
+                null,
+                InetSocketAddress.createUnresolved("db.example", 5432),
+                true,
+                null);
+        assertThat(frame.sideEffectOpen).isEqualTo(SideEffects.MASK_BLOCKING);
+        Blocking.done(sleep, Blocking.KIND_SLEEP, SideEffects.HOOK_SLEEP, null);
+        assertThat(frame.sideEffectOpen).isZero();
+    }
+
+    @Test
+    void aStaleBlockingHookNoLongerSilencesTheThread() {
+        claimAllOnAnEventLoop();
+        CodePaths.Frame frame = CodePaths.frame();
+
+        assertThat(Blocking.starting(SideEffects.HOOK_PARK)).isNotZero();
+        // Its exit never ran.
+        assertThat(Blocking.starting(SideEffects.HOOK_PARK)).isZero();
+        assertThat(SideEffects.fileOpening(SideEffects.HOOK_DELETE)).isZero();
+        frame.sideEffectSince -= SideEffects.STALE_DEPTH_NANOS + 1;
+
+        assertThat(Blocking.starting(SideEffects.HOOK_PARK)).isNotZero();
+        assertThat(frame.sideEffectOpen).isEqualTo(SideEffects.MASK_BLOCKING);
+        frame.sideEffectSince -= SideEffects.STALE_DEPTH_NANOS + 1;
+        assertThat(SideEffects.fileOpening(SideEffects.HOOK_DELETE))
+                .as("a files hook recovers from a stale blocking hook too")
+                .isNotZero();
+        assertThat(frame.sideEffectOpen).isEqualTo(SideEffects.MASK_FILES);
+    }
+
     // ---- the string table's rooms --------------------------------------------------------------------------------
 
     @Test
@@ -335,6 +401,32 @@ class SideEffectsSharingTests {
             total += (Long) count;
         }
         return total;
+    }
+
+    /** Every side-effect sensor, blocking included, with the test's thread registered as an event loop. */
+    private long claimAllOnAnEventLoop() {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("application", "shop");
+        request.put("mode", "dev");
+        request.put("packages", List.of("com.example"));
+        request.put(
+                "sensors",
+                List.of(
+                        SideEffects.PROCESSES,
+                        SideEffects.NETWORK,
+                        SideEffects.FILES,
+                        SideEffects.ENVIRONMENT,
+                        SideEffects.BLOCKING));
+        Supplier<Object> capture = () -> null;
+        Function<Object, AutoCloseable> reopen = snapshot -> null;
+        keep.add(capture);
+        keep.add(reopen);
+        Map<String, Object> result = AgentBridge.claim(request, capture, reopen);
+        assertThat(result.get("status")).isEqualTo(AgentBridge.ARMED);
+        SideEffects.enable(ALL | SideEffects.MASK_BLOCKING);
+        Blocking.registerEventLoop();
+        assertThat(SideEffects.mask & SideEffects.MASK_LOOPS).isNotZero();
+        return (Long) result.get("token");
     }
 
     private long claimAll() {

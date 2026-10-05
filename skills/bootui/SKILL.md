@@ -223,8 +223,10 @@ environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe
 records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
 recognized from the calling frames, never a byte sent or received; the opt-in `files` records path patterns (`./` working
 directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
-opt-in `environment` records variable and property names, never values. Pass `--query not-captured` to list the
-outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, a route, target,
+opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
+`Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
+Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC. Pass `--query not-captured` to list the
+outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`, a route, target,
 client, or call site to narrow it. The other sensor groups are listed as not available in this version.
 
 ### Read MySQL operational evidence
