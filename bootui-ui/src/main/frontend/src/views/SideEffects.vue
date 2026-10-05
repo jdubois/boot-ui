@@ -216,6 +216,8 @@ function rowKey(row) {
     row.target,
     row.callSite,
     row.insideMethod,
+    row.client,
+    row.capture,
     row.firstSeen
   ].join('|')
 }
@@ -248,6 +250,33 @@ function formatSeen(epochMillis) {
 
 function formatLifetime(row) {
   return `${formatMillis(row.totalMillis)} / ${formatMillis(row.maxMillis)}`
+}
+
+const CAPTURE = {
+  captured: {label: 'Captured', badge: 'text-bg-success'},
+  'not-captured': {label: 'Not captured by any panel', badge: 'text-bg-warning'},
+  infrastructure: {label: 'Infrastructure', badge: 'text-bg-secondary'}
+}
+
+const PANEL_ROUTES = {
+  'rest-client-trace': {path: '/rest-client-trace', label: 'REST Client Trace'},
+  'sql-trace': {path: '/sql-trace', label: 'SQL Trace'},
+  kafka: {path: '/kafka', label: 'Kafka'},
+  rabbitmq: {path: '/rabbitmq', label: 'RabbitMQ'},
+  jms: {path: '/jms', label: 'JMS'},
+  email: {path: '/email', label: 'Email'}
+}
+
+function captureOf(row) {
+  return CAPTURE[row.capture] ?? null
+}
+
+function capturingPanel(row) {
+  return PANEL_ROUTES[row.capturedBy] ?? (row.capturedBy ? {path: null, label: row.capturedBy} : null)
+}
+
+function isNetwork(sensor) {
+  return sensor?.id === 'network'
 }
 
 function hookStatus(value, label) {
@@ -300,7 +329,8 @@ function hookStatus(value, label) {
           </h3>
           <p class="text-muted small mb-0">
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
-            executable name; arguments and environment are never recorded.
+            executable name; arguments and environment are never recorded. Network rows show only a host and port, never
+            a byte sent or received.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>
@@ -395,7 +425,9 @@ function hookStatus(value, label) {
                 {{
                   sensor.id === 'processes'
                     ? 'No process started yet in this run.'
-                    : `No ${sensor.label.toLowerCase()} row has been recorded yet.`
+                    : isNetwork(sensor)
+                      ? 'No connection, datagram, or name lookup recorded yet in this run.'
+                      : `No ${sensor.label.toLowerCase()} row has been recorded yet.`
                 }}
               </UnavailableState>
 
@@ -408,7 +440,22 @@ function hookStatus(value, label) {
                         sensor.label
                       }}
                     </caption>
-                    <thead>
+                    <thead v-if="isNetwork(sensor)">
+                      <tr>
+                        <th scope="col">Attribution</th>
+                        <th scope="col">Host / name</th>
+                        <th scope="col">Client</th>
+                        <th scope="col">Captured</th>
+                        <th scope="col">Call site</th>
+                        <th scope="col" class="text-end">Count</th>
+                        <th scope="col" class="text-end">Failed</th>
+                        <th scope="col" class="text-end">Connected</th>
+                        <th scope="col" class="text-end">Time (total / max ms)</th>
+                        <th scope="col">Last seen</th>
+                        <th scope="col">Requests</th>
+                      </tr>
+                    </thead>
+                    <thead v-else>
                       <tr>
                         <th scope="col">Attribution</th>
                         <th scope="col">Command / target</th>
@@ -438,6 +485,26 @@ function hookStatus(value, label) {
                           <code class="bootui-break-anywhere">{{ row.target || '—' }}</code>
                           <div v-if="row.kind" class="small text-muted">{{ row.kind }}</div>
                         </td>
+                        <template v-if="isNetwork(sensor)">
+                          <td>
+                            <span v-if="row.client">{{ row.client }}</span>
+                            <span v-else class="text-muted">unrecognized</span>
+                          </td>
+                          <td>
+                            <template v-if="captureOf(row)">
+                              <span :class="['badge', captureOf(row).badge, 'side-effects-capture']">{{
+                                captureOf(row).label
+                              }}</span>
+                              <div v-if="capturingPanel(row)" class="small mt-1">
+                                <router-link v-if="capturingPanel(row).path" :to="capturingPanel(row).path">{{
+                                  capturingPanel(row).label
+                                }}</router-link>
+                                <span v-else>{{ capturingPanel(row).label }}</span>
+                              </div>
+                            </template>
+                            <span v-else class="text-muted">—</span>
+                          </td>
+                        </template>
                         <td>
                           <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
                           <span v-else class="text-muted">—</span>
@@ -447,7 +514,10 @@ function hookStatus(value, label) {
                         </td>
                         <td class="text-end">{{ formatNumber(row.count) }}</td>
                         <td class="text-end">{{ formatNumber(row.failed) }}</td>
-                        <td class="text-end">
+                        <td v-if="isNetwork(sensor)" class="text-end">
+                          {{ row.kind === 'connect' ? formatNumber(row.completed) : '—' }}
+                        </td>
+                        <td v-else class="text-end">
                           {{ formatNumber(row.completed) }}
                           <div v-if="row.nonZeroExits > 0" class="small">
                             <span class="badge text-bg-warning">{{ formatNumber(row.nonZeroExits) }} non-zero</span>

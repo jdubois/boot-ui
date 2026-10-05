@@ -79,11 +79,32 @@ public final class RuntimeModelProjection {
             long budgetNanos,
             Predicate<String> evictedRequestTraces,
             List<ClassInvocation> invocations) {
+        return project(
+                entries, routes, structure, evicted, clock, budgetNanos, evictedRequestTraces, invocations, List.of());
+    }
+
+    /**
+     * Projects {@code entries} as {@link #project(List, RouteTemplateResolver, StructureSnapshot, long, LongSupplier,
+     * long, Predicate, List)} does, with the hosts the BootUI agent's {@code network} sensor saw routes, scheduled jobs,
+     * and application classes open, {@code opens}, as observed {@link EdgeType#OPENS} edges to {@link NodeType#HOST}
+     * nodes keyed {@code host:port} ({@code docs/PLAN-v2.md} §5.16, M5-5b).
+     */
+    public static RuntimeModel project(
+            List<JournalEntry> entries,
+            RouteTemplateResolver routes,
+            StructureSnapshot structure,
+            long evicted,
+            LongSupplier clock,
+            long budgetNanos,
+            Predicate<String> evictedRequestTraces,
+            List<ClassInvocation> invocations,
+            List<HostOpen> opens) {
         long started = clock.getAsLong();
         RuntimeModelBuilder builder = new RuntimeModelBuilder();
         List<String> limitations = new ArrayList<>();
         declare(builder, structure);
         invokes(builder, structure, invocations, limitations);
+        opens(builder, structure, opens);
 
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
@@ -200,6 +221,46 @@ public final class RuntimeModelProjection {
         if (resolved.unmappedCalls() > 0) {
             limitations.add(resolved.unmappedCalls() + " calls Code Paths observed are between classes that are not"
                     + " each exactly one bean's, so they are in no invokes edge.");
+        }
+    }
+
+    /**
+     * The hosts routes, jobs, and application classes opened, as {@link EdgeType#OPENS} edges with their counts; a
+     * class reaches the model only as the one bean of its type.
+     */
+    private static void opens(RuntimeModelBuilder builder, StructureSnapshot structure, List<HostOpen> opens) {
+        if (opens == null || opens.isEmpty()) {
+            return;
+        }
+        Map<String, List<StructureSnapshot.Bean>> beansByType = new HashMap<>();
+        if (structure != null) {
+            for (StructureSnapshot.Bean bean : structure.beans()) {
+                if (bean.type() != null) {
+                    beansByType
+                            .computeIfAbsent(bean.type(), type -> new ArrayList<>())
+                            .add(bean);
+                }
+            }
+        }
+        for (HostOpen open : opens) {
+            int from = -1;
+            switch (open.from()) {
+                case HostOpen.ROUTE ->
+                    from = builder.node(
+                            open.key().contains(" (") ? NodeType.GRAPHQL_OPERATION : NodeType.ROUTE, open.key());
+                case HostOpen.SCHEDULED_JOB -> from = builder.node(NodeType.SCHEDULED_JOB, open.key());
+                case HostOpen.CLASS -> {
+                    List<StructureSnapshot.Bean> beans = beansByType.getOrDefault(open.key(), List.of());
+                    if (beans.size() == 1) {
+                        StructureSnapshot.Bean bean = beans.get(0);
+                        from = builder.node(bean.repository() ? NodeType.REPOSITORY : NodeType.BEAN, bean.name());
+                    }
+                }
+                default -> from = -1;
+            }
+            if (from >= 0) {
+                builder.observeTimes(from, EdgeType.OPENS, builder.node(NodeType.HOST, open.target()), open.count());
+            }
         }
     }
 

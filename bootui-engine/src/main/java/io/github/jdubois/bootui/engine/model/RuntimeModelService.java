@@ -38,6 +38,8 @@ public final class RuntimeModelService {
     private long cachedVisibleInvocations = Long.MIN_VALUE;
     private Supplier<List<ClassInvocation>> invocations = List::of;
     private LongSupplier invocationsFingerprint = () -> 0L;
+    private Supplier<List<HostOpen>> opens = List::of;
+    private LongSupplier opensFingerprint = () -> 0L;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -66,11 +68,33 @@ public final class RuntimeModelService {
         this.cachedVisible = null;
     }
 
+    /**
+     * Installs the hosts Side Effects' {@code network} sensor saw routes, jobs, and application classes open, such as
+     * {@code SideEffectsService::hostOpens}, which the model shows as {@link EdgeType#OPENS} edges ({@code
+     * docs/PLAN-v2.md} §5.16, M5-5b), and a cheap fingerprint of them, such as {@code
+     * SideEffectsService::hostOpensFingerprint}. Side Effects applies its own panel's and HTTP Exchanges' visibility.
+     */
+    public synchronized void setHostOpens(Supplier<List<HostOpen>> opens, LongSupplier fingerprint) {
+        this.opens = opens == null ? List::of : opens;
+        this.opensFingerprint = fingerprint == null ? () -> 0L : fingerprint;
+        this.cached = null;
+        this.cachedVisible = null;
+    }
+
     private long invocationsFingerprint() {
         try {
-            return invocationsFingerprint.getAsLong();
+            return invocationsFingerprint.getAsLong() * 31 + opensFingerprint.getAsLong();
         } catch (RuntimeException ex) {
             return 0L;
+        }
+    }
+
+    private List<HostOpen> opens() {
+        try {
+            List<HostOpen> observed = opens.get();
+            return observed == null ? List.of() : observed;
+        } catch (RuntimeException ex) {
+            return List.of();
         }
     }
 
@@ -121,7 +145,8 @@ public final class RuntimeModelService {
                 System::nanoTime,
                 RuntimeModelProjection.READ_BUDGET_NANOS,
                 journal::evictedARequestOf,
-                invocations());
+                invocations(),
+                opens());
         cachedInvocations = fingerprint;
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
@@ -144,7 +169,8 @@ public final class RuntimeModelService {
             snapshotRun = status.runId();
         }
         boolean codePaths = visibility.getOrDefault(CODE_PATHS_PANEL, false);
-        long fingerprint = codePaths ? invocationsFingerprint() : 0L;
+        boolean sideEffects = visibility.getOrDefault(SIDE_EFFECTS_PANEL, false);
+        long fingerprint = codePaths || sideEffects ? invocationsFingerprint() : 0L;
         if (cachedVisible != null
                 && cachedVisibleInvocations == fingerprint
                 && cachedVisibleWatermark == status.lastSequence()
@@ -172,7 +198,8 @@ public final class RuntimeModelService {
                 System::nanoTime,
                 RuntimeModelProjection.READ_BUDGET_NANOS,
                 traceId -> false,
-                codePaths ? invocations() : List.of());
+                codePaths ? invocations() : List.of(),
+                sideEffects ? opens() : List.of());
         cachedVisibleInvocations = fingerprint;
         cachedVisibility = Map.copyOf(visibility);
         cachedVisibleSnapshot = snapshot;
@@ -185,6 +212,9 @@ public final class RuntimeModelService {
 
     /** The panel whose evidence the {@link EdgeType#INVOKES} edges are: hidden with it. */
     static final String CODE_PATHS_PANEL = "code-paths";
+
+    /** The panel whose evidence the {@link EdgeType#OPENS} edges are: hidden with it. */
+    static final String SIDE_EFFECTS_PANEL = "side-effects";
 
     /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */
     public synchronized StructureSnapshot structure() {

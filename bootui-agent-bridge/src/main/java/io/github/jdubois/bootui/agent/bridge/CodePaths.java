@@ -330,6 +330,11 @@ public final class CodePaths {
                     owner = beginFragment();
                 }
             } finally {
+                // Without an owner from code paths, as without the sensor, for a nested begin(), or after an internal
+                // error, a side-effect sensor with a hot hook still needs the scope's owner in its slot.
+                if (owner == null) {
+                    owner = SideEffects.scopeOwner();
+                }
                 // The side-effect sensors' owner slot, with the owner captured here if any (PLAN-v2 M5-5 design B1),
                 // pushed even when the fragment failed, so the scopeEnd() of end() stays balanced.
                 SideEffects.scopeBegin(owner);
@@ -1192,8 +1197,30 @@ public final class CodePaths {
         /** The side-effect hooks open on the thread: only the outermost records. */
         int sideEffectDepth;
 
+        /**
+         * When the open side-effect hook started, from {@link System#nanoTime()}: a depth older than {@code
+         * SideEffects.STALE_DEPTH_NANOS} is stale, left by an exit that never ran, and no longer silences the thread.
+         */
+        long sideEffectSince;
+
         /** The thread's side-effect aggregation table, created at its first aggregated record. */
         SideEffects.Table sideEffects;
+
+        /** The thread name the network sensor last interned for this thread, its family's id, and that id's generation. */
+        String sideEffectThreadName;
+
+        int sideEffectThreadId;
+        long sideEffectThreadGeneration = -1L;
+
+        /** Whether this thread, under that name, is a Netty or Vert.x event loop, whose hooks never capture an owner. */
+        boolean sideEffectEventLoop;
+
+        /** The network sensor's last datagram address on this thread, by identity, its port, target id, and generation. */
+        Object sideEffectAddress;
+
+        int sideEffectPort;
+        int sideEffectTarget;
+        long sideEffectTargetGeneration = -1L;
     }
 
     /**

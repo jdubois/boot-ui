@@ -211,8 +211,10 @@ were already framework-neutral in practice, not just in the engine underneath th
     armed for the run and the bridge supports Side Effects. The WebFlux adapter records a process attributed through
     the request's context when it starts on a thread carrying BootUI's context, captured at the start since the
     request scope's owner slot is not yet filled on the schedulers Reactor restores the context on (pending for the
-    hot sensors of later slices); otherwise the row is attributed under its thread family. M5-5a records only `processes`; the other sensor groups are listed as not available in this
-    version.
+    hot sensors of later slices); otherwise the row is attributed under its thread family. The `network` sensor
+    (M5-5b) records connects, datagrams, and lookups the same way; a WebClient's connect on a Reactor Netty event loop
+    is unowned and captured by a REST client call at the same time. The other sensor groups are listed as not
+    available in this version.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
     handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and

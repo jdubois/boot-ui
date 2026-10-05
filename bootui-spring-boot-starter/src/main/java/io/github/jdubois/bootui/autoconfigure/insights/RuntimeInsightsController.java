@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
@@ -128,6 +129,17 @@ public class RuntimeInsightsController {
                 () -> {
                     CodePathsService paths = codePaths.getIfUnique();
                     return paths == null ? 0L : paths.routeTreesFingerprint();
+                });
+        // The hosts Side Effects' network sensor saw routes, jobs, and beans open (docs/PLAN-v2.md §5.16, M5-5b).
+        ObjectProvider<SideEffectsService> sideEffects = context.getBeanProvider(SideEffectsService.class);
+        models.setHostOpens(
+                () -> {
+                    SideEffectsService effects = sideEffects.getIfUnique();
+                    return effects == null ? List.of() : effects.hostOpens();
+                },
+                () -> {
+                    SideEffectsService effects = sideEffects.getIfUnique();
+                    return effects == null ? 0L : effects.hostOpensFingerprint();
                 });
         // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
         this.impact.setCodePaths(wanted -> {
