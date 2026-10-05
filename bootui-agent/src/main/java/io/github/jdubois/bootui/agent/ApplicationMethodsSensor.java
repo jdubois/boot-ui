@@ -481,6 +481,11 @@ final class ApplicationMethodsSensor {
         return map;
     }
 
+    /** Whether a claim ever asked for the caught-exceptions sensor: its status row is reported from then on. */
+    boolean caughtEver() {
+        return caughtEver;
+    }
+
     /** The caught-exceptions sensor's status row. */
     Map<String, Object> caughtStatus() {
         Map<String, Object> map = new LinkedHashMap<String, Object>();

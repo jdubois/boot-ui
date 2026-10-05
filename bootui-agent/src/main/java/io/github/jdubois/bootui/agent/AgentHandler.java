@@ -293,7 +293,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         if (applicationMethods != null) {
             sensors.add(active(applicationMethods.inventoryStatus()));
             sensors.add(active(applicationMethods.codePathsStatus()));
-            sensors.add(active(applicationMethods.caughtStatus()));
+            if (applicationMethods.caughtEver()) {
+                // Opt-in: reported once a claim asked for it, as the other opt-in sensors are.
+                sensors.add(active(applicationMethods.caughtStatus()));
+            }
         }
         if (sideEffects != null) {
             for (Map<String, Object> row : sideEffects.status()) {
