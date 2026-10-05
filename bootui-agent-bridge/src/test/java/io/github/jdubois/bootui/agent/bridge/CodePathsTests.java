@@ -428,6 +428,42 @@ class CodePathsTests {
         assertThat(drain(token)).isNotEmpty();
     }
 
+    @Test
+    void anExitOfAnEarlierEpochClosesACallWhoseExitWasLostSinceTheFrameReset() {
+        long token = claim();
+        int a = id("A");
+        int b = id("B");
+        // A is entered before its request is known, so it only counts depth.
+        int outer = CodePaths.enter(a);
+        assertThat(CodePaths.depth()).isEqualTo(1);
+        // The request's scope opens inside A, and its capture overflows: the frame is reset, so A's token is stale.
+        captureError.set(new StackOverflowError());
+        CodePaths.begin();
+        captureError.set(null);
+        assertThat(CodePaths.depth()).isZero();
+        // B is entered since the reset and its exit is lost, as when a second overflow escapes the entry that counted
+        // it, before the frame could be reset again.
+        context.set(owner(REQUEST, null));
+        assertThat(CodePaths.enter(b)).isNotZero();
+        assertThat(CodePaths.depth()).isEqualTo(1);
+        CodePaths.end();
+
+        CodePaths.exit(outer);
+
+        assertThat(CodePaths.depth()).isZero();
+        assertThat(CodePaths.recordingFragment()).isFalse();
+        // The thread records again: B's abandoned fragment is dropped, not left open to swallow the next calls.
+        call(a, null);
+        List<long[]> blobs = drain(token);
+        assertThat(blobs).hasSize(1);
+        assertThat(nodes(blobs.get(0))).containsExactly("-1:A:1");
+        assertThat(CodePaths.status())
+                .containsEntry("off", false)
+                .containsEntry("errors", 0L)
+                .containsEntry("applicationErrors", 1L)
+                .containsEntry("abandonedFragments", 1L);
+    }
+
     private static void recurse(int id) {
         int token = CodePaths.enter(id);
         try {
