@@ -147,6 +147,48 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void anAgentRecordBootUisDrainThreadPublishesIsRecordedButNoOtherSourceIs() throws Exception {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        RuntimeEvent caught = new RuntimeEvent(
+                JournalSource.AGENT_CAUGHT_EXCEPTIONS,
+                1,
+                -1,
+                "00000000000000ab",
+                null,
+                null,
+                "http-nio-exec-1",
+                null,
+                false,
+                new CaughtExceptionPayload(
+                        CaughtExceptionPayload.CAUGHT,
+                        "com.example.Shop",
+                        "buy()V",
+                        12,
+                        List.of("java/io/IOException"),
+                        0,
+                        "java.io.IOException",
+                        "io",
+                        1L,
+                        null,
+                        null,
+                        42));
+        CompletableFuture<List<Boolean>> fromDrainer = new CompletableFuture<>();
+        Thread drainer = new Thread(
+                () -> fromDrainer.complete(List.of(
+                        journal.offer(caught),
+                        journal.offerAgentRecord(caught),
+                        journal.offerAgentRecord(sql(2, false)))),
+                "bootui-agent-drainer");
+        drainer.start();
+
+        assertThat(fromDrainer.get(5, TimeUnit.SECONDS)).containsExactly(false, true, false);
+        journal.dispatchPending();
+        assertThat(journal.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.event().thread()).isEqualTo("http-nio-exec-1"));
+    }
+
+    @Test
     void aClassifiedImportedAiEventBypassesOnlyTheReceiversBootUiScope() {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         RuntimeEvent ai = new RuntimeEvent(
