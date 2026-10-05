@@ -18,7 +18,8 @@ import {
   isMachineColumn,
   numericColumns,
   textParts,
-  unlistedSummary
+  unlistedSummary,
+  validationOf
 } from '../utils/runtimeInsights.js'
 import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -123,13 +124,17 @@ const evaluated = computed(() =>
   (report.value?.checks ?? []).filter((check) => check.status === 'EVALUATED' || check.status === 'PARTIAL')
 )
 const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
+const selectedValidation = computed(() =>
+  validationOf(report.value?.checks?.find((check) => check.kind === selected.value?.kind))
+)
 watch(selectedId, () => (aiExport.value = null))
 
 function openAiExport() {
   const check = report.value?.checks?.find((candidate) => candidate.kind === selected.value?.kind)
   aiExport.value = insightMarkdown(detail.value, {
     title: check?.title,
-    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null
+    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null,
+    validation: validationOf(check)?.reason
   })
 }
 // A breakdown's share column becomes bars, so the phase that took the time stands out before any number is read.
@@ -432,7 +437,15 @@ const windowText = computed(() => {
             <div class="col-lg-5">
               <nav aria-label="Observations">
                 <div v-for="group in groups" :key="group.kind" class="mb-3">
-                  <h2 class="h6 mb-2 insight-group-title">{{ group.title }}</h2>
+                  <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+                    <h2 class="h6 mb-0 insight-group-title">{{ group.title }}</h2>
+                    <span
+                      v-if="group.validation"
+                      class="badge rounded-pill text-bg-secondary insight-validation"
+                      :title="group.validation.reason ?? undefined"
+                      >{{ group.validation.marker }}</span
+                    >
+                  </div>
                   <div class="list-group">
                     <button
                       v-for="observation in group.observations"
@@ -495,6 +508,12 @@ const windowText = computed(() => {
                       <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
                     </button>
                   </div>
+                  <p
+                    v-if="selectedValidation?.reason && selectedValidation.reason !== selected.unlistedReason"
+                    class="small mb-2 insight-validation-reason"
+                  >
+                    {{ selectedValidation.marker }}: {{ selectedValidation.reason }}
+                  </p>
                   <p v-if="!isListed(selected)" class="small mb-2 insight-unlisted-reason">
                     {{
                       selected.unlistedReason
@@ -807,7 +826,8 @@ const windowText = computed(() => {
 }
 
 .insight-unlisted-label,
-.insight-unlisted-reason {
+.insight-unlisted-reason,
+.insight-validation-reason {
   color: var(--bs-secondary-color);
   font-style: italic;
 }

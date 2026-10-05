@@ -128,4 +128,22 @@ public record Finding(
                 tier,
                 reason);
     }
+
+    /** This finding, left out of the default list for {@code reason}, which replaces any reason it already had. */
+    public Finding unlistedWhole(String reason) {
+        return new Finding(
+                key,
+                subject,
+                sufficient,
+                sentence,
+                eligible,
+                affected,
+                whatToCheck,
+                exemplarRequestIds,
+                columns,
+                rows,
+                limitations,
+                tier,
+                reason);
+    }
 }
