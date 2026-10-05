@@ -26,7 +26,6 @@ import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
-import io.github.jdubois.bootui.autoconfigure.journal.BootUiApplicationEventMulticaster;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
@@ -163,7 +162,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.context.support.AbstractApplicationContext;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
@@ -317,18 +315,6 @@ public class BootUiEngineConfiguration {
     RunStartPublisher bootUiRunStartPublisher(
             RuntimeJournal journal, ApplicationContext context, ObjectProvider<BootUiSelfDataFilter> selfData) {
         return new RunStartPublisher(journal, context, selfData.getIfAvailable());
-    }
-
-    /**
-     * Records application events and their listeners' runs in the runtime journal ({@code docs/PLAN-v2.md} §5.18,
-     * M4-8), as the context's event multicaster, unless the application defines its own. The context creates it before
-     * other beans, so its method is static and reads the journal only when an event is published.
-     */
-    @Bean(name = AbstractApplicationContext.APPLICATION_EVENT_MULTICASTER_BEAN_NAME)
-    @ConditionalOnMissingBean(name = AbstractApplicationContext.APPLICATION_EVENT_MULTICASTER_BEAN_NAME)
-    static BootUiApplicationEventMulticaster bootUiApplicationEventMulticaster(
-            org.springframework.beans.factory.BeanFactory beanFactory, ObjectProvider<RuntimeJournal> journal) {
-        return new BootUiApplicationEventMulticaster(beanFactory, journal::getIfAvailable);
     }
 
     /**

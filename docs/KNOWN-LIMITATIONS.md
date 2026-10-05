@@ -52,6 +52,13 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
   application events are recorded on the observer side only.
 - **The Java agent runs in dev and test modes only**, never in native mode or in production (`LaunchMode.NORMAL`).
 
+## Spring MVC and Spring WebFlux
+
+- **No application events beside the application's own event multicaster.** BootUI records application events as the
+  context's `applicationEventMulticaster`, and backs off when the application defines its own, as Spring Modulith's
+  event publication registry does. Then no application event is recorded, `transactional-listener-skipped` and
+  `after-commit-writes` report `UNAVAILABLE`, and change impact and run comparison say so.
+
 ## Spring MVC
 
 - **CPU on virtual threads** is not read by the per-request scope readings; use the opt-in JFR attribution (**Profile

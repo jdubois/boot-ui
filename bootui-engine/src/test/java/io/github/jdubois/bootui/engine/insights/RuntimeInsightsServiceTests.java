@@ -911,6 +911,70 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void checksThatReadApplicationEventsAreUnavailableWhereThisApplicationsEventsAreNotRecorded() {
+        for (int i = 0; i < 3; i++) {
+            request("GET", "/api/orders/{id}");
+        }
+        RuntimeInsightsService service = service();
+        service.setAppEventCapture(() -> AppEventCapture.notRecorded(AppEventCapture.CUSTOM_MULTICASTER));
+
+        RuntimeInsightsReportDto report = service.report();
+
+        Map<String, RuntimeInsightCheckDto> checks = checks(report);
+        for (String kind : new String[] {TransactionalListenerSkipped.KIND, AfterCommitWrites.KIND}) {
+            assertThat(checks.get(kind).status()).as(kind).isEqualTo("UNAVAILABLE");
+            assertThat(checks.get(kind).reason()).as(kind).isEqualTo(AppEventCapture.CUSTOM_MULTICASTER);
+            assertThat(checks.get(kind).eligibleRequests()).as(kind).isZero();
+            assertThat(checks.get(kind).findings()).as(kind).isZero();
+        }
+        assertThat(AppEventCapture.CUSTOM_MULTICASTER)
+                .contains("its own application event multicaster", "Spring Modulith", "does not record");
+        assertThat(report.limitations()).contains(AppEventCapture.CUSTOM_MULTICASTER);
+        assertThat(checks.get(RepeatedSelects.KIND).status())
+                .as("a check reading no application event is evaluated as before")
+                .isEqualTo("EVALUATED");
+
+        service.setAppEventCapture(AppEventCapture::capturing);
+        RuntimeInsightsReportDto recorded = service.report();
+        assertThat(checks(recorded).get(TransactionalListenerSkipped.KIND).status())
+                .as("once application events are recorded, the same requests are eligible")
+                .isEqualTo("EVALUATED");
+        assertThat(recorded.limitations()).doesNotContain(AppEventCapture.CUSTOM_MULTICASTER);
+
+        service.setAppEventCapture(() -> {
+            throw new IllegalStateException("closed");
+        });
+        assertThat(checks(service.report()).get(TransactionalListenerSkipped.KIND))
+                .as("a capture that cannot be read never reads as recorded")
+                .satisfies(check -> {
+                    assertThat(check.status()).isEqualTo("UNAVAILABLE");
+                    assertThat(check.reason()).contains("IllegalStateException");
+                });
+    }
+
+    @Test
+    void unrecordedApplicationEventsKeepWhatAlreadyExplainsTheirAbsence() {
+        request("GET", "/api/orders/{id}");
+        RuntimeInsightsService quarkus = new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null);
+        quarkus.setAppEventCapture(() -> AppEventCapture.notRecorded(null));
+        assertThat(checks(quarkus.report())
+                        .get(TransactionalListenerSkipped.KIND)
+                        .status())
+                .as("not applicable on Quarkus, whatever the capture says")
+                .isEqualTo("NOT_APPLICABLE");
+
+        journal = journal(EnumSet.of(JournalSource.HTTP, JournalSource.SQL, JournalSource.TRANSACTION));
+        request("GET", "/api/orders/{id}");
+        RuntimeInsightsService service = service();
+        service.setAppEventCapture(() -> AppEventCapture.notRecorded(null));
+        RuntimeInsightsReportDto report = service.report();
+        assertThat(checks(report).get(TransactionalListenerSkipped.KIND).status())
+                .as("the journal does not record the app-event source, which the check names")
+                .isEqualTo("NOT_APPLICABLE");
+        assertThat(report.limitations()).doesNotContain(AppEventCapture.CUSTOM_MULTICASTER);
+    }
+
+    @Test
     void aLiveExposureSwitchReProjectsTheQuotedTemplateAtAnUnchangedWatermark() {
         request(
                 "GET",

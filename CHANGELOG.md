@@ -546,6 +546,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **A Spring Modulith application starts with BootUI.** BootUI's application event multicaster, which records
+  application events in the runtime journal, claimed the context's `applicationEventMulticaster` bean name before
+  Spring Modulith's event publication registry, whose own definition then failed the application's start with a
+  `BeanDefinitionOverrideException`. BootUI now installs it from an auto-configuration of its own, ordered after Spring
+  Modulith's and every other auto-configuration, and backs off from any multicaster the application or a library
+  defines. Then it records no application event, and says so: `transactional-listener-skipped` and
+  `after-commit-writes` report `UNAVAILABLE` with the reason, Runtime Insights, change impact, and the run comparison
+  name it among their limitations, and the run's comparability facts leave the `app-event` source out, on Spring MVC
+  and Spring WebFlux ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.18, M4-8).
 - **A method probe reported active catches a class loaded right after.** A probe was marked active just before its
   transformer was registered, so a class its run loaded in that gap ran unprobed, and the probe waited for an
   invocation that had already happened. The transformer is now registered first, and its advice records nothing until
