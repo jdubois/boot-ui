@@ -1794,6 +1794,15 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
                 .isEqualTo(23);
+        for (JsonNode observation : report.path("observations")) {
+            // The default list (docs/PLAN-v2.md M4-19): every row says whether it is listed, and why when it is not.
+            assertThat(observation.path("listed").isBoolean())
+                    .as("observation %s says whether it is listed by default", observation.path("id"))
+                    .isTrue();
+            assertThat(observation.path("unlistedReason").isTextual())
+                    .as("observation %s says why it is left out exactly when it is", observation.path("id"))
+                    .isEqualTo(!observation.path("listed").asBoolean());
+        }
         boolean httpCovered = false;
         for (JsonNode coverage : report.path("coverage")) {
             httpCovered |= "http".equals(coverage.path("source").asText())

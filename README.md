@@ -16,7 +16,8 @@ local development.
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
 > **BootUI 2.0 is in progress on the `v2` branch**, with exact correlation, a runtime journal, Runtime Insights, and run
-> comparison. It is not published yet: [build it locally to try it](docs/V2-EARLY-ADOPTERS.md), and share feedback in
+> comparison. It is not published yet: [build it locally to try it](docs/V2-EARLY-ADOPTERS.md), read its
+> [known limitations](docs/KNOWN-LIMITATIONS.md), and share feedback in
 > [GitHub Discussions](https://github.com/jdubois/boot-ui/discussions).
 
 ## Quick links
@@ -31,6 +32,7 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 | Command line | <https://www.julien-dubois.com/boot-ui/cli> |
 | Sample app | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
 | Repository docs | <https://www.julien-dubois.com/boot-ui/repository> |
+| Known limitations of 2.0 | [Known limitations](docs/KNOWN-LIMITATIONS.md) |
 
 ## Use with AI agents
 

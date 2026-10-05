@@ -29,6 +29,8 @@ import java.util.List;
  * @param traceId its distributed-trace id, or {@code null} without tracing
  * @param thread the thread its HTTP event was recorded on, or {@code null}
  * @param kind whether it is an HTTP request, a scheduled run, or a consumed message
+ * @param failed whether it ended in failure: a 5xx response, or an exception that escaped its scheduled run or message
+ *     handler, so nothing caught it
  */
 public record ProjectedRequest(
         String requestId,
@@ -43,7 +45,8 @@ public record ProjectedRequest(
         ResourceUsage resources,
         String traceId,
         String thread,
-        Kind kind) {
+        Kind kind,
+        boolean failed) {
 
     public ProjectedRequest {
         children = List.copyOf(children);

@@ -83,6 +83,12 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         "org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription$NameValueExpressionDescription"
     };
 
+    /** The Spring pools whose task decorator BootUI composes with, never replaces (M4-22). */
+    static final java.util.List<String> TASK_DECORATOR_POOLS = java.util.List.of(
+            "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor",
+            "org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler",
+            "org.springframework.core.task.SimpleAsyncTaskExecutor");
+
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
         hints.resources()
@@ -114,6 +120,18 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection()
                 .registerTypeIfPresent(
                         classLoader, MODULITH_APPLICATION_MODULE_IDENTIFIERS, MemberCategory.INVOKE_PUBLIC_METHODS);
+
+        // Request propagation (M4-22): BootUiExecutorDecoration reads each Spring pool's private taskDecorator field,
+        // which has no getter, so it never replaces an application's decorator. Without the hint it skips the pool.
+        for (String pool : TASK_DECORATOR_POOLS) {
+            if (ClassUtils.isPresent(pool, classLoader)) {
+                java.lang.reflect.Field field = org.springframework.util.ReflectionUtils.findField(
+                        ClassUtils.resolveClassName(pool, classLoader), "taskDecorator");
+                if (field != null) {
+                    hints.reflection().registerField(field);
+                }
+            }
+        }
 
         // Mappings panel: the /bootui/api/mappings compatibility endpoint serializes Actuator's raw
         // ApplicationMappingsDescriptor. While introspecting the nested media-type / name-value

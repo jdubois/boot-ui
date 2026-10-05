@@ -100,6 +100,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<List<MappingDto>> declaredMappings;
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
+    private volatile List<String> unrecordedWork = List.of();
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
     private volatile LongSupplier codePathsFingerprint;
@@ -340,6 +341,15 @@ public final class RuntimeInsightsService {
      */
     public synchronized void setSqlCapture(Supplier<SqlCapture> sqlCapture) {
         this.sqlCapture = sqlCapture;
+        this.cached = null;
+    }
+
+    /**
+     * Installs what this application can run that the journal does not record ({@link UnrecordedWork}), which the
+     * report names first among its limitations ({@code docs/PLAN-v2.md} M4-22).
+     */
+    public synchronized void setUnrecordedWork(List<String> unrecordedWork) {
+        this.unrecordedWork = unrecordedWork == null ? List.of() : List.copyOf(unrecordedWork);
         this.cached = null;
     }
 
@@ -755,6 +765,7 @@ public final class RuntimeInsightsService {
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
+        List<Evaluated> evaluated = new ArrayList<>();
         for (Observation observation : observations) {
             List<String> hiddenPanels = projected.hiddenPanels(observation);
             String missing = missingSource(observation, snapshot, visibility, hiddenPanels);
@@ -797,12 +808,22 @@ public final class RuntimeInsightsService {
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
                     reasons.isEmpty() ? null : String.join(" ", reasons)));
-            for (Finding finding : evaluation.findings()) {
+            evaluated.add(new Evaluated(observation, evaluation.findings(), partial, unseen));
+        }
+        List<Finding> repeatedSelects = evaluated.stream()
+                .filter(done -> RepeatedSelects.KIND.equals(done.observation().kind()))
+                .flatMap(done -> done.findings().stream())
+                .toList();
+        for (Evaluated done : evaluated) {
+            Observation observation = done.observation();
+            String partial = done.partial();
+            for (Finding found : done.findings()) {
+                Finding finding = DefaultListing.apply(observation.kind(), found, repeatedSelects);
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
                 List<String> limitations = new ArrayList<>(finding.limitations());
                 limitations.addAll(touchedBy(snapshot.markers(), finding));
-                limitations.addAll(unseen);
+                limitations.addAll(done.unseen());
                 if (partial != null) {
                     limitations.add(partial);
                 }
@@ -823,7 +844,9 @@ public final class RuntimeInsightsService {
                                                 MAX_EXEMPLARS,
                                                 finding.exemplarRequestIds().size())),
                         Math.min(MAX_EVIDENCE_ROWS, finding.rows().size()),
-                        limitations);
+                        limitations,
+                        finding.listed(),
+                        finding.unlisted());
                 rows.add(row);
                 details.put(row.id(), new Detail(row, finding));
             }
@@ -842,7 +865,8 @@ public final class RuntimeInsightsService {
                         counts[3],
                         counts[2],
                         snapshot.dropped(source))));
-        List<String> limitations = new ArrayList<>();
+        // What the journal cannot see at all comes first, before what this run's events miss (D39, M4-22).
+        List<String> limitations = new ArrayList<>(upFront(capture));
         String markers = markersDuring(snapshot.markers());
         if (markers != null) {
             limitations.add(markers);
@@ -875,6 +899,21 @@ public final class RuntimeInsightsService {
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
         return new Cached(
                 watermark, evicted, visibility, capture, text, report, details, status.clears(), status.dropped(), 0L);
+    }
+
+    /**
+     * The limitations a reader needs before any observation: database access the journal cannot record, R2DBC
+     * statements (D39), and work it does not record, such as Kafka Streams processing. An application without a
+     * database at all gets no line, and SQL capture turned off stays with the checks it affects.
+     */
+    private List<String> upFront(SqlCapture capture) {
+        List<String> lines = new ArrayList<>();
+        String reason = capture.reason();
+        if (SqlCapture.R2DBC_ONLY.equals(reason) || SqlCapture.R2DBC_NOT_RECORDED.equals(reason)) {
+            lines.add(reason);
+        }
+        lines.addAll(unrecordedWork);
+        return lines;
     }
 
     /**
@@ -1133,6 +1172,9 @@ public final class RuntimeInsightsService {
     }
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
+
+    /** One observation's findings, kept until every observation ran, since listing one may depend on another's. */
+    private record Evaluated(Observation observation, List<Finding> findings, String partial, List<String> unseen) {}
 
     private record VisibleEntries(List<JournalEntry> entries, Map<ProjectedRequest.Kind, List<String>> panelsByKind) {
         List<String> hiddenPanels(Observation observation) {

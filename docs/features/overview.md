@@ -413,8 +413,13 @@ frames of your own code that issued them, skipping framework classes and generat
 with a `traceparent` header keeps the trace that sent it. SQL events from named JDBC pools retain the pool name even
 when connection recording is disabled. A task a request hands to a framework-managed executor, such
 as an `@Async` method on Spring Boot's auto-configured executor or scheduler, or a Quarkus `ManagedExecutor` task, runs
-as an execution of that request, so its work stays with the request; on Spring this applies when the application
-defines no task decorator of its own, which BootUI never displaces. Without the BootUI agent, raw executors and
+as an execution of that request, so its work stays with the request. On Spring, the application's own
+`ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans get the same, including one
+wrapped by another executor bean, as JHipster's `AsyncConfigurer` wraps its pool: an executor without a task decorator
+gets BootUI's, and one with the application's keeps it, with BootUI's composed inside it, never in its place. An
+executor that is not a bean, such as one an `AsyncConfigurer` creates without `@Bean` or a `FactoryBean` builds, keeps no
+request link. A periodic or trigger-based (cron) task belongs to the request that scheduled it on its first run only,
+and a task is propagated once even when Spring Boot's composite of task decorators already carries BootUI's. Without the BootUI agent, raw executors and
 `CompletableFuture` are not followed; with it attached, they are propagated too ([Java Agent](java-agent.md)). It keeps running aggregates per route, statement, exception group, and thread family, which
 count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
 it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
@@ -644,7 +649,10 @@ Twenty-two observations run over the completed requests and garbage collections 
 | --- | --- |
 | `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls (a model call reported by Spring AI or Quarkus LangChain4j is placed over the HTTP call that carried it, so that time counts once, as AI; one known only from a GenAI span is placed by its wall-clock start, to the millisecond, and adds only its time inside the handler that no placed call covers; tool and retrieval operations stay in the handler they wrap), synchronous message sends (RabbitMQ and JMS; a Kafka send is timed until the broker's asynchronous acknowledgement, so it stays in the handler's time and the row says so), other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold. On Spring MVC and Quarkus, a request that reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with 401 or 403, is never split as handler work: it is left out of its route's phases, and a route whose requests mostly did is reported insufficient with its recorded calls. On WebFlux, which marks no handler or response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is insufficient, since its breakdown would be one unattributed span. With the [BootUI agent](java-agent.md)'s `code-paths` sensor, a route whose tree is not assembly only has its other handler work split into its top five application methods by own time, their self time minus the recorded calls stamped to them, named `Handler: Class.method`, with the rest as **Other handler time**; the parts never exceed the handler's work, and a recorded call without a stamp, as one recorded on another thread, stays in its method's own time, which the observation says; the handler is not split when none of its calls carried a stamp, or when calls without one take 10 % of its handler phase or more ([Code Paths](java-agent.md#code-paths)) |
 | `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them; specific checks follow captured exception subclasses and causes, preferring the deepest cause over a serialization wrapper |
-| `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; matching exceptions a retry or fallback recovered are listed apart, without hiding other errors in the same request |
+| `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, had one of its own tasks fail, wrote an `ERROR` log, or received a downstream 5xx; matching exceptions a retry or fallback recovered are listed apart, without hiding other errors in the same request. A task is work the request handed to an executor BootUI decorates or the BootUI agent follows: its exception, `ERROR` log, `WARN` log carrying an exception (as JHipster's `@Async` mail sender logs a failed send), or a task the agent saw fail after the response started counts as the task's failure, never the request thread's; a
+failed task the request joined is not counted from the agent's outcome alone. On Quarkus, a `ManagedExecutor` task that
+runs where its request's context is already current keeps the request's execution, so its failures count as the
+request's own |
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests; with the [BootUI agent](java-agent.md)'s `code-paths` sensor, the application method that issued the repeats, such as a service method looping over a repository; for a repository or DAO class of the application's own, which the sensor instruments, the first method above it that is not one, through the repository method ([Code Paths](java-agent.md#code-paths)) |
 | `connections-per-request` | Requests that held two or more connections of one data source at the same time, with the known pool maximum and a hold-and-wait concurrency estimate: floor((pool − 1) ÷ (held − 1)) + 1 |
 | `safe-method-dml` | GET or HEAD requests with executed writes, or on Quarkus with unverified Hibernate write preparations; these are separate findings, worded as questions rather than proof that a prepared statement ran |
@@ -660,11 +668,41 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
 | `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
 | `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |
-| `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
+| `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it and to `gc-inflated-latency`. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
-| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
+| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route, and in one row of its own, the framework `ERROR` events that carried no request or execution id, such as a container's errors while parsing requests or a failure at startup. An error written on the thread of a request that failed, within a second after it ended, as Tomcat logs an exception a servlet threw once the request's filters returned, is taken as that request's and left out of that count, which a limitation says. That row's affected count is its error events, so it ranks among the kind's other rows |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 | `changed-code-not-executed` | Per class, the methods changed or added since the previous run that the agent tracked and that nothing executed in this run, worded "your change has not run yet", with the routes that executed the class's other methods. Reads [Code Inventory](java-agent.md#code-inventory): needs the [BootUI agent](java-agent.md)'s `inventory` sensor and a previous run of the application kept in this JVM, and is not applicable, with the reason, without either, or while the Code Inventory panel is disabled; a changed method that executed, or one the agent could not track, is never reported |
+
+**The default list** shows less than the report holds, so the rows worth reading first are not buried under the others.
+A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the toggle **Show
+all routes**, any search, a deep link to the row, such as **Why this route is slow** in a request's drawer, and an agent
+query naming its kind or route, or `all`, reach it. The panel counts what it left out under the list, keeps the open row
+in view when a refresh leaves it out, marks such a row **Not listed by default**, and says why in its detail and in
+**Copy for AI**. The default list leaves out:
+
+- a `route-time-breakdown` that is not prominent: listed when its warm median is 20 ms or more, when authorization
+  takes 20 % or more of its warm requests' time, or when its requests make a median of 50 authorization decisions or
+  more. Authorization replaces a separate authorization-cost check. A route whose time is not split into phases, such as
+  an Actuator route or one on WebFlux without a recorded call, is listed by its median or its decisions only. Five warm
+  requests are needed to split a route into phases; a route with fewer is listed, as not enough evidence with its warm
+  median and its slowest requests, only when two to four warm requests have a median of 100 ms or more, so a single
+  slow request, which may be warm-up, is not;
+- an `exception-hotspots` group that no request answered with 5xx, no scheduled run or message failed for, that is not
+  new since the previous run, and that was seen only behind 2xx or 4xx responses or in runs and messages that
+  completed; a redirect or a request recorded without a status keeps it listed. The groups seen only behind 4xx
+  responses, usually intended, are collapsed into one counted row, **Behind 4xx responses**, and those caught in
+  scheduled runs or messages that completed into another, **Caught in completed runs or messages**, both listed after
+  the others; Errors behind 2xx responses reports the 2xx ones;
+- a `lazy-sql-after-handler` statement that `repeated-selects` already reports, listed, on the same route from the same
+  call site;
+- a `framework-warnings-by-route` `WARN` message without a specific check, and Spring MVC's `Resolved [...]` note when
+  every request it was written in answered 4xx;
+- every `gc-inflated-latency` and `heap-growth-after-gc` row: garbage collection and heap rows are reached from the
+  Memory panel, which counts them beside its link, read from this panel's report each time it loads its own, and whose
+  link opens this panel on the **Memory** theme with every row shown;
+- every `transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, and `large-persistence-context` row,
+  until their counterexample fixtures pass across observations.
 
 Both anonymous-access checks use only proven anonymity on every stack. With the required sources recorded and visible
 but no request proving anonymity, they report an **INSUFFICIENT** check with zero eligible requests, not invented
@@ -695,6 +733,8 @@ can exhaust the pool at lower concurrency. Neither overlapping connections nor t
 Every observation reports whether it ran. With no eligible work, a check reports **Not enough evidence**, not that it
 ran. Eligibility follows the evidence's unit: `heap-growth-after-gc` examines collections, so it can run with zero
 requests; a stable heap names the collections examined without inventing a request count or a finding.
+What the journal cannot record at all comes first among the report's limitations: R2DBC statements, which BootUI does
+not record (it records JDBC), and Kafka Streams processing when Kafka Streams is on the classpath, since the records a topology consumes and produces are neither executions nor messages here.
 One whose journal source is not recorded, whose panel is disabled, or which
 does not apply to this stack says so with its reason, so an empty list never reads as healthy. One that reads SQL is
 **unavailable** when this application's SQL cannot be recorded: BootUI records JDBC statements through a traced

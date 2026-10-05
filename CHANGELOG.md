@@ -9,6 +9,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
+  `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
+  executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of
+  that request: BootUI's task decorator is set where there is none and composed inside the application's where there is
+  one, never replacing it. `errors-behind-2xx` reports a 2xx whose own task failed (an exception, an `ERROR` log, a
+  `WARN` log carrying an exception, or a task the BootUI agent saw fail after the response, not one the request joined),
+  such as a swallowed activation-email failure behind a `201`. A periodic or cron task scheduled during a request
+  belongs to it on its first run only, and a task is propagated once even under Spring Boot's composite of task
+  decorators. Runtime Insights names first among its limitations what the journal cannot record: R2DBC statements on
+  Spring (also stated up front in the WebFlux documentation), and Kafka Streams processing when Kafka Streams is on the
+  classpath, on Spring MVC, Spring WebFlux, and Quarkus. No new observation kind ([Runtime
+  Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-22).
+- **Known limitations of 2.0.** A [Known limitations](docs/KNOWN-LIMITATIONS.md) page lists what 2.0 does not do, per
+  stack (R2DBC statements not recorded on WebFlux, no transaction capture on Quarkus, and the panels each stack lacks),
+  the BootUI Java agent's shipped and still-planned scope, and the overhead budget. The validation report gains a
+  [release sign-off](docs/V2-VALIDATION-REPORT.md#release-sign-off) template recording each success measure against
+  its target, the per-kind gates, and every exception (PLAN-v2 M4-23).
 - **One help call instead of many, and answers that name the next call.** `bootui --help` lists every command with
   its arguments, what it returns, where its `<id>` comes from, the words its `--query` understands, and one example,
   and `bootui <group> --help` lists a group the same way; every example is generated from the MCP tool registry and run
@@ -265,15 +282,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Runtime Insights lists less noise by default.** The panel, `get_runtime_insights`, and `bootui insights list` now
+  show a default list, and every observation carries `listed` and, when left out, `unlistedReason`. A route's time
+  breakdown is listed only when prominent: a warm median of 20 ms or more, authorization taking 20 % of its time, or a
+  median of 50 authorization decisions a request, which replaces the planned authorization-cost check; a route with two
+  to four warm requests is listed as not enough evidence when their median reaches 100 ms. Exception hotspots lists
+  groups behind a 5xx, a failed run or message, a redirect, or not seen in the previous run, and collapses those seen
+  only behind 4xx responses, and those caught in runs or messages that completed, into one counted row each. SQL after
+  the handler drops a statement Repeated SELECTs already lists from the same call site. Framework warnings leaves out
+  `WARN` messages without a specific check and counts, in a **No request** row, the framework `ERROR` events that
+  carried no request id, except those a container wrote on a failed request's thread just after it ended. Garbage
+  collection and heap rows are reached from the Memory panel, which counts them and opens the **Memory** theme with
+  every row, and the four ORM and application-event checks stay out of the default list until their counterexample
+  fixtures pass. **Show all routes**, a search, a deep link, and the agent query `all` (formerly a plain text search), a
+  kind, or a route still reach every row, which says why it was left out ([Runtime
+  Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-19).
+- **The documentation site and the Docker Hub sample images follow the released major.** Every branch declares its
+  release line in `.github/release-line`, and `pages.yml` and `docker-publish.yml` publish a branch only when its line
+  has a release on Maven Central and no newer major does, so merging `v2` into `main` publishes no 2.0 site or image
+  before 2.0.0 is out. The Release workflow releases only versions of the branch's own line, so `main` after the merge
+  cannot release 1.x and a `1.x` maintenance branch cannot release 2.0.0 (a branch containing the 2.0-only `bootui-agent`
+  must declare at least line 2); it releases only from `main` or an `N.x`
+  maintenance branch, and fails when its documentation run skipped the deploy. `rehearse_v2_merge.py` rehearses the merge
+  on a candidate that is never published, and [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the merge and the
+  `1.x` branch (PLAN-v2 M4-23, D40).
 - **Less runtime-journal work on request threads.** A recorded statement, REST client call, or cache access now only
   selects its application frames on the application thread; the journal's dispatcher formats them, with the same
   `Class.method(File.java:42)` text and masking as before. An offer to the journal takes one lock instead of three,
   checks the queue's reserved share and inserts atomically, and no longer wakes the dispatcher for every event: the
-  dispatcher drains in batches, recording an event at most about a millisecond later. On the Spring MVC sample under
-  load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about 8.4 % to 3.5 %.
-  An event offered after the run ended is now counted as dropped rather than accepted. A frame whose class is
-  redefined, by the BootUI agent or a hot swap, while its event waits for the dispatcher reads `(Unknown Source)`
-  (PLAN-v2 M4-18d).
+  dispatcher drains in batches, recording an event at most about a millisecond later, or one timer tick on systems
+  with a coarser timer (about 15.6 ms on Windows by default). A burst that fills half the queue's routine share ends
+  that pause at once, so a small `queue-capacity` does not drop events while the dispatcher waits. On the Spring MVC
+  sample under load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about
+  8.4 % to 3.5 %. An event offered after the run ended is now counted as dropped rather than accepted, even when a
+  listener keeps the dispatcher from stopping. A frame whose class is redefined, by the BootUI agent or a hot swap,
+  while its event waits for the dispatcher reads `(Unknown Source)` (PLAN-v2 M4-18d).
 - **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
   Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
   attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,

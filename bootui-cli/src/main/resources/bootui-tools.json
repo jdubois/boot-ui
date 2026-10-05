@@ -612,9 +612,9 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, and a verify line.",
+      "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, a verify line, and whether the default list shows it.",
       "example": "bootui insights list --query security",
-      "queryHelp": "empty (every observation), new, security, diff, latency, an observation kind such as repeated-selects, or a route, table, bean, or class"
+      "queryHelp": "empty (the default list), all (every observation), new, security, diff, latency, an observation kind such as repeated-selects, or a route, table, bean, or class"
     },
     {
       "name": "get_runtime_insight",

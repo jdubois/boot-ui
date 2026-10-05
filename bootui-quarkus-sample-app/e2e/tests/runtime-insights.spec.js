@@ -4,7 +4,7 @@ import {expect, test} from './fixtures.js'
 /**
  * Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained requests projected into observations.
  * Seven calls to one route give it the five warm requests `route-time-breakdown` needs, so the panel always has one
- * observation to open, whatever ran before.
+ * observation to open, whatever ran before; a short route is reached with **Show all routes** (M4-19).
  */
 test.describe('Runtime Insights view', () => {
   test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({openView, page}) => {
@@ -13,12 +13,14 @@ test.describe('Runtime Insights view', () => {
       expect(search.ok()).toBeTruthy()
     }
 
-    await openView('runtime-insights', 'Runtime Insights')
+    // ?all=1 is Show all routes (M4-19): a short route's breakdown is reachable but not listed by default.
+    await openView('runtime-insights?all=1', 'Runtime Insights')
 
     await expect(page.getByText('What this run did that no single panel shows.')).toBeVisible()
     await expect(page.locator('.insight-window')).toContainText('This run')
     await expect(page.locator('.insight-coverage-legend')).toContainText('request id')
 
+    await expect(page.locator('.insight-show-all')).toHaveAttribute('aria-pressed', 'true')
     const breakdowns = page.getByRole('heading', {name: 'Route time breakdown', level: 2})
     await expect(breakdowns).toBeVisible({timeout: 15_000})
     const item = page.locator('.insight-item', {hasText: '/api/sample/product-search'}).first()
