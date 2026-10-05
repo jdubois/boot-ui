@@ -141,6 +141,16 @@ public class RuntimeInsightsController {
                     SideEffectsService effects = sideEffects.getIfUnique();
                     return effects == null ? 0L : effects.hostOpensFingerprint();
                 });
+        // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
+        models.setSideEffects(
+                () -> {
+                    SideEffectsService service = sideEffects.getIfUnique();
+                    return service == null ? List.of() : service.modelAccesses();
+                },
+                () -> {
+                    SideEffectsService service = sideEffects.getIfUnique();
+                    return service == null ? 0L : service.modelFingerprint();
+                });
         // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
         this.impact.setCodePaths(wanted -> {
             CodePathsService paths = codePaths.getIfUnique();

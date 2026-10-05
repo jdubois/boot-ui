@@ -159,6 +159,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
+- **Files and environment sensors in the BootUI agent.** The opt-in `files` and `environment` agent sensors record
+  the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
+  and the environment variables and system properties it reads, by name; never contents or values, with class loading,
+  the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor), M5-5d).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their

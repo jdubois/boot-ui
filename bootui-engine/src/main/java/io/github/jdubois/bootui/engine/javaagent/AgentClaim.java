@@ -324,6 +324,14 @@ public final class AgentClaim {
         return access.drainSideEffects(granted, sink);
     }
 
+    /** This claim's recording was cleared: the side-effect sensors' intern quotas count again. */
+    public void sideEffectsRecordingCleared() {
+        Long current = generation;
+        if (current != null) {
+            access.sideEffectsRecordingCleared(current);
+        }
+    }
+
     /**
      * The strings this claim's side-effect records refer to, from id {@code from}, or {@code null} when the bridge's
      * table belongs to another claim generation.

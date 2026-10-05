@@ -437,20 +437,21 @@ reactive or asynchronous result, not the work that runs later.
 ### What side effects did the application start?
 
 With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
-side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor
-and its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM
-resolves, each with the recognized client and whether any panel captured the work. Ask with `query` `not captured` for
-the outbound calls no panel shows (an SDK's own socket, say).
+side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor,
+its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
+each with the recognized client and whether any panel captured the work, and, opt-in, the files it opens, deletes, moves,
+and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
+sensor. Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes` or `network`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, or `files`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
 
 Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
 `(route hidden: HTTP Exchanges is disabled)` and expose no request ids. When Code Paths is disabled, rows lose their
-inside bean method. A disabled Side Effects panel shows no rows. Non-process sensor groups are listed as `not-available`
-with reason `Not available in this version.`
+inside bean method. A disabled Side Effects panel shows no rows. Sensor groups this version does not ship are listed as
+`not-available` with reason `Not available in this version.`
 
 ### MySQL operational evidence
 

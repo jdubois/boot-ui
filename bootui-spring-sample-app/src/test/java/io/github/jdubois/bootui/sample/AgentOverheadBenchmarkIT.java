@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.sample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.sample.CaptureOverheadBenchmarkTest.Result;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,8 +21,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 /**
  * The agent's cumulative overhead ({@code docs/PLAN-v2.md} §5.13 and §8, M5-12): the sample's executable jar, BootUI on
- * in both configurations, without the agent and with it attached and every default sensor claimed ({@code executors},
- * {@code inventory}, {@code code-paths}). It drives the capture overhead scenario's SQL-backed route at the same fixed
+ * in both configurations, without the agent and with it attached and every default sensor claimed
+ * ({@link AgentSensorSettings#DEFAULT_SENSORS}). It drives the capture overhead scenario's SQL-backed route at the same fixed
  * concurrency as {@link CaptureOverheadBenchmarkTest}, after one discarded run, in pairs whose order alternates so drift
  * favours neither configuration, and writes per-run throughput and latency, each pair's throughput ratio, and their
  * median to {@code target/agent-overhead/spring-mvc-agent.md}, with the median overhead in
@@ -255,14 +256,14 @@ class AgentOverheadBenchmarkIT {
 
     private static String describe(String sensors) {
         return sensors.isBlank()
-                ? "the default sensors (executors, inventory, code-paths, processes, network)"
+                ? "the default sensors (" + String.join(", ", AgentSensorSettings.DEFAULT_SENSORS) + ")"
                 : "sensors " + sensors;
     }
 
     /** The agent run measured what it claims: every sensor it asked for installed and active, code-paths recording. */
     private static void assertSensorsRecorded(JsonNode report, String sensors) {
         List<String> expected = sensors.isBlank()
-                ? List.of("executors", "inventory", "code-paths", "processes", "network")
+                ? AgentSensorSettings.DEFAULT_SENSORS
                 : Arrays.stream(sensors.split(",")).map(String::trim).toList();
         List<String> active = new ArrayList<>();
         for (JsonNode sensor : report.path("sensors")) {

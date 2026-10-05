@@ -99,12 +99,53 @@ public final class RuntimeModelProjection {
             Predicate<String> evictedRequestTraces,
             List<ClassInvocation> invocations,
             List<HostOpen> opens) {
+        return project(
+                entries,
+                routes,
+                structure,
+                evicted,
+                clock,
+                budgetNanos,
+                evictedRequestTraces,
+                invocations,
+                opens,
+                List.of());
+    }
+
+    /**
+     * Projects {@code entries} as {@link #project(List, RouteTemplateResolver, StructureSnapshot, long, LongSupplier,
+     * long, Predicate, List, List)} does, with the files and environment variables Side Effects observed executions
+     * access, {@code accesses}, as {@link EdgeType#OPENS} edges to {@link NodeType#FILE_PATTERN} and {@link
+     * EdgeType#READS} edges to {@link NodeType#ENVIRONMENT_VARIABLE} nodes ({@code docs/PLAN-v2.md} §5.16, M5-5d).
+     */
+    public static RuntimeModel project(
+            List<JournalEntry> entries,
+            RouteTemplateResolver routes,
+            StructureSnapshot structure,
+            long evicted,
+            LongSupplier clock,
+            long budgetNanos,
+            Predicate<String> evictedRequestTraces,
+            List<ClassInvocation> invocations,
+            List<HostOpen> opens,
+            List<SideEffectAccess> accesses) {
         long started = clock.getAsLong();
         RuntimeModelBuilder builder = new RuntimeModelBuilder();
         List<String> limitations = new ArrayList<>();
         declare(builder, structure);
         invokes(builder, structure, invocations, limitations);
         opens(builder, structure, opens);
+        if (accesses != null) {
+            for (SideEffectAccess access : accesses) {
+                builder.observeRange(
+                        builder.node(access.fromType(), access.fromKey()),
+                        access.type(),
+                        builder.node(access.toType(), access.toKey()),
+                        access.count(),
+                        access.firstSeenEpochMillis(),
+                        access.lastSeenEpochMillis());
+            }
+        }
 
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));

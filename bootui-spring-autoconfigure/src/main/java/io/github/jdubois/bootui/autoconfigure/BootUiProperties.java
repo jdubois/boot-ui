@@ -2850,8 +2850,10 @@ public class BootUiProperties {
          * never its arguments or environment. {@code network} records the hosts the application connects to, the
          * datagrams it sends, and the names the JVM resolves, for Side Effects: a host and port, never a byte sent or
          * received. An unknown sensor id fails the application's start.
-         * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
-         * into virtual threads.
+         * {@code files}, opt-in, records the files the application opens, deletes, moves, and copies, as path
+         * patterns, never contents. {@code threads}, opt-in, also propagates a request's context into threads started from application code and
+         * into virtual threads. {@code environment}, opt-in, records the names of the environment variables and system
+         * properties the application reads, never their values.
          */
         private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
 

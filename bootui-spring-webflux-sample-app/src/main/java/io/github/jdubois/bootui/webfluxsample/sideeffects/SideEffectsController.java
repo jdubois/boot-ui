@@ -17,6 +17,9 @@ import reactor.core.scheduler.Schedulers;
  * GET /api/side-effects/sdk-call} connects to this application through an SDK's own blocking socket on {@code
  * boundedElastic} ({@link LicenseSdkClient}), a Network row <b>not captured by any panel</b>; the counterexample {@code
  * GET /api/side-effects/rest-call} calls the same endpoint through the recorded {@link WebClient}.
+ * M5-5d: {@code GET /api/side-effects/report} writes a report in the working directory, outside the temporary directory,
+ * and reads a system property ({@link ReportWriter}); its counterexamples {@code /scratch} and {@code /log} write a
+ * temporary file and a JDK logging handler's file.
  */
 @RestController
 @RequestMapping("/api/side-effects")
@@ -26,13 +29,38 @@ public class SideEffectsController {
     private final LicenseSdkClient licenses;
     private final WebClient webClient;
     private final Environment environment;
+    private final ReportWriter reports;
 
     public SideEffectsController(
-            JavaVersionReporter reporter, LicenseSdkClient licenses, WebClient webClient, Environment environment) {
+            JavaVersionReporter reporter,
+            LicenseSdkClient licenses,
+            WebClient webClient,
+            Environment environment,
+            ReportWriter reports) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.webClient = webClient;
         this.environment = environment;
+        this.reports = reports;
+    }
+
+    /** Writes a report outside the temporary directory and reads a system property, on boundedElastic (M5-5d). */
+    @GetMapping("/report")
+    public Mono<Map<String, String>> report() {
+        return Mono.fromCallable(() -> Map.of("report", reports.writeReport()))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The counterexample: a temporary file, written and deleted. */
+    @GetMapping("/scratch")
+    public Mono<Map<String, String>> scratch() {
+        return Mono.fromCallable(() -> Map.of("scratch", reports.scratch())).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The counterexample: a JDK logging handler's file, grouped apart as logging. */
+    @GetMapping("/log")
+    public Mono<Map<String, String>> log() {
+        return Mono.fromCallable(() -> Map.of("log", reports.log())).subscribeOn(Schedulers.boundedElastic());
     }
 
     @GetMapping("/java-version")

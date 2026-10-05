@@ -1,15 +1,20 @@
 package io.github.jdubois.bootui.agent.bridge;
 
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
@@ -71,15 +76,25 @@ public final class SideEffects {
     /** The network sensor's id (M5-5b). */
     public static final String NETWORK = "network";
 
+    /** The files sensor's id (M5-5d). */
+    public static final String FILES = "files";
+
+    /** The environment sensor's id (M5-5d), opt-in. */
+    public static final String ENVIRONMENT = "environment";
+
     /** Sensor ids in records and bit positions in the mask: 0 is unused. */
     public static final int SENSOR_PROCESSES = 1;
 
     public static final int SENSOR_NETWORK = 2;
+    public static final int SENSOR_FILES = 3;
+    public static final int SENSOR_ENVIRONMENT = 4;
 
-    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK};
+    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK, FILES, ENVIRONMENT};
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
     public static final int MASK_NETWORK = 1 << SENSOR_NETWORK;
+    public static final int MASK_FILES = 1 << SENSOR_FILES;
+    public static final int MASK_ENVIRONMENT = 1 << SENSOR_ENVIRONMENT;
 
     /** The sensors with a hot hook, which read their owner from the thread's slot only. */
     static final int HOT_SENSORS = MASK_NETWORK;
@@ -94,6 +109,20 @@ public final class SideEffects {
     public static final int HOOK_DATAGRAM_CHANNEL_SEND = 5;
     public static final int HOOK_DATAGRAM_SOCKET_SEND = 6;
     public static final int HOOK_LOOKUP = 7;
+    public static final int HOOK_FILE_INPUT_STREAM = 8;
+    public static final int HOOK_FILE_OUTPUT_STREAM = 9;
+    public static final int HOOK_RANDOM_ACCESS_FILE = 10;
+    public static final int HOOK_NEW_BYTE_CHANNEL = 11;
+    public static final int HOOK_NEW_INPUT_STREAM = 12;
+    public static final int HOOK_NEW_OUTPUT_STREAM = 13;
+    public static final int HOOK_DELETE = 14;
+    public static final int HOOK_DELETE_IF_EXISTS = 15;
+    public static final int HOOK_MOVE = 16;
+    public static final int HOOK_COPY = 17;
+    public static final int HOOK_FILE_CHANNEL = 18;
+    public static final int HOOK_GETENV = 19;
+    public static final int HOOK_GETENV_ALL = 20;
+    public static final int HOOK_GET_PROPERTY = 21;
 
     static final String[] HOOKS = {
         "ProcessBuilder.start",
@@ -103,7 +132,21 @@ public final class SideEffects {
         "SocketChannel.finishConnect",
         "DatagramChannel.send",
         "DatagramSocket.send",
-        "InetAddress.lookup"
+        "InetAddress.lookup",
+        "FileInputStream.open",
+        "FileOutputStream.open",
+        "RandomAccessFile.open",
+        "Files.newByteChannel",
+        "Files.newInputStream",
+        "Files.newOutputStream",
+        "Files.delete",
+        "Files.deleteIfExists",
+        "Files.move",
+        "Files.copy",
+        "FileChannel.open",
+        "System.getenv",
+        "System.getenvAll",
+        "System.getProperty"
     };
     static final int[] HOOK_SENSORS = {
         SENSOR_PROCESSES,
@@ -113,7 +156,21 @@ public final class SideEffects {
         SENSOR_NETWORK,
         SENSOR_NETWORK,
         SENSOR_NETWORK,
-        SENSOR_NETWORK
+        SENSOR_NETWORK,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_FILES,
+        SENSOR_ENVIRONMENT,
+        SENSOR_ENVIRONMENT,
+        SENSOR_ENVIRONMENT
     };
 
     /** Record kinds. */
@@ -133,6 +190,23 @@ public final class SideEffects {
     /** A host name the JVM resolved, its address cache missing it. */
     public static final int KIND_LOOKUP = 6;
 
+    /** A file opened for reading. */
+    public static final int KIND_FILE_READ = 7;
+
+    /** A file opened for writing, created, truncated, or appended to. */
+    public static final int KIND_FILE_WRITE = 8;
+
+    public static final int KIND_FILE_DELETE = 9;
+    public static final int KIND_FILE_MOVE_FROM = 10;
+    public static final int KIND_FILE_MOVE_TO = 11;
+    public static final int KIND_FILE_COPY_FROM = 12;
+    public static final int KIND_FILE_COPY_TO = 13;
+
+    /** An environment variable read by name, or every variable through {@code System.getenv()}. */
+    public static final int KIND_ENVIRONMENT_VARIABLE = 14;
+
+    public static final int KIND_SYSTEM_PROPERTY = 15;
+
     /** Outcomes. */
     public static final int OUTCOME_STARTED = 1;
 
@@ -144,6 +218,47 @@ public final class SideEffects {
     public static final int OUTCOME_SENT = 7;
     public static final int OUTCOME_RESOLVED = 8;
     public static final int OUTCOME_UNKNOWN_HOST = 9;
+
+    /** A file operation or an environment read that returned normally. */
+    public static final int OUTCOME_DONE = 10;
+
+    /**
+     * The JDK context of a file operation or an environment read, from its frame summary, in {@link #R_FLAGS} bits
+     * 32–39: none, the JDK's own logging ({@code java.util.logging}), class loading (a class loader, a module, a service
+     * loader, a {@code jar:} URL), or only JDK frames within {@value #MAX_FRAMES}. The engine classifies the first frame
+     * outside the JDK itself.
+     */
+    public static final int CONTEXT_NONE = 0;
+
+    public static final int CONTEXT_JDK_LOGGING = 1;
+    public static final int CONTEXT_CLASS_LOADING = 2;
+    public static final int CONTEXT_JDK_ONLY = 3;
+
+    /** The files sensor's buckets: counted, never recorded, interned, or walked (PLAN-v2 M5-5 design B2). */
+    public static final int BUCKET_CLASS_FILES = 0;
+
+    public static final int BUCKET_ARCHIVES = 1;
+    public static final int BUCKET_ARCHIVE_FILE_SYSTEMS = 2;
+    public static final int BUCKET_JAVA_HOME = 3;
+    public static final int BUCKET_CLASS_PATH_DIRECTORIES = 4;
+
+    /** Any other file a class loader read, as a resource outside the class path's directories (Quarkus dev mode). */
+    public static final int BUCKET_CLASS_LOADING = 5;
+
+    static final String[] BUCKETS = {
+        "classFiles", "archives", "archiveFileSystems", "javaHome", "classPathDirectories", "classLoading"
+    };
+
+    /** Interned targets per claim generation, at most, for the files and environment sensors. */
+    public static final int FILES_INTERN_QUOTA = 3_000;
+
+    public static final int ENVIRONMENT_INTERN_QUOTA = 1_000;
+
+    /** The longest path pattern or name kept, in characters. */
+    static final int MAX_PATTERN = 200;
+
+    /** An unowned thread's environment reads are recorded again after this long. */
+    static final long UNOWNED_SEEN_MILLIS = 1_000L;
 
     /** Thread kinds. */
     public static final int THREAD_PLATFORM = 1;
@@ -185,7 +300,8 @@ public final class SideEffects {
     /**
      * Outcome (bits 0–7), thread kind (8–11), execution kind (12–15), the interned thread name of an unowned record,
      * or of every network record, as its family, digit runs folded (16–31), and a process's exit status or a network
-     * record's interned client frame (32–63).
+     * record's interned client frame (32–63), or a file operation's or an environment read's JDK context ({@link
+     * #CONTEXT_NONE}, 32–39).
      */
     public static final int R_FLAGS = 9;
 
@@ -246,6 +362,13 @@ public final class SideEffects {
     private static final AtomicReference<AgentRing.Ring> RING = new AtomicReference<AgentRing.Ring>();
     private static final AtomicReference<AgentRing.Interns> INTERNS = new AtomicReference<AgentRing.Interns>();
     private static final StackWalker WALKER = StackWalker.getInstance();
+    /**
+     * The files and environment sensors' walker, which tells a JDK module's frames by their class: created by {@link
+     * #warm()} on the agent's own thread, as a security manager may require a permission for it; until then, or
+     * without it, the plain walker, by class name only.
+     */
+    private static volatile StackWalker classWalker;
+
     private static final ExitQueue EXITS = new ExitQueue();
     private static final AtomicBoolean EXIT_WORKER_HANDED_OUT = new AtomicBoolean();
 
@@ -276,6 +399,29 @@ public final class SideEffects {
     private static volatile int budgetOff;
 
     private static final String[] DISABLED_REASONS = new String[SENSOR_NAMES.length];
+
+    private static final LongAdder[] BUCKET_COUNTS = adders(BUCKETS.length);
+    private static final LongAdder[] QUOTA_EXCEEDED = adders(SENSOR_NAMES.length);
+    private static final LongAdder WALKS = new LongAdder();
+    private static final LongAdder SIGHTINGS_FULL = new LongAdder();
+    private static final LongAdder JDK_READS = new LongAdder();
+    private static final LongAdder FRAMEWORK_READS = new LongAdder();
+
+    /** The context of an environment read whose immediate caller is a configuration framework: not recorded. */
+    static final int INDIRECT_FRAMEWORK = -2;
+
+    private static final Sightings SIGHTINGS = new Sightings();
+    /** The interned targets of the files and environment sensors in the current intern table's generation. */
+    private static final AtomicInteger[] INTERNED = atomics(SENSOR_NAMES.length);
+
+    /** The directories path patterns are relative to, read by {@link #warm()} on the agent's own thread. */
+    private static volatile Places places = Places.NONE;
+
+    /**
+     * {@link #mask}, with every bit set while a self-test runs: what the inlined advice of a hot hook reads before it
+     * calls the bridge at all ({@link #gate()}).
+     */
+    private static volatile int gate;
 
     /** The sensors recording now, a bit per sensor id: read first by every hook. */
     static volatile int mask;
@@ -1304,6 +1450,267 @@ public final class SideEffects {
         }
     }
 
+    // ---- the files and environment sensors' advice (M5-5d) ------------------------------------------------------
+
+    /**
+     * What the inlined advice of a file or environment hook reads before it calls the bridge: the bits of the sensors
+     * recording now, every bit while a self-test runs. One volatile read; a hook whose sensor's bit is clear costs
+     * nothing more.
+     */
+    public static int gate() {
+        return gate;
+    }
+
+    /**
+     * A file hook's entry: a token for its exit, 0 when nothing is recorded for the call (the sensor is off, the
+     * thread's work is skipped, or a side-effect hook is already open on the thread, so only the outermost of nested
+     * file operations records). The self-test's thread is counted per hook and records nothing. Never throws.
+     */
+    public static long fileOpening(int hook) {
+        return starting(hook, MASK_FILES);
+    }
+
+    /**
+     * {@code FileInputStream.open(String)} ({@link #KIND_FILE_READ}) or {@code FileOutputStream.open(String, boolean)}
+     * ({@link #KIND_FILE_WRITE}) exit, normal or not: records the file's path pattern, never its contents. Never throws.
+     */
+    public static void fileOpened(long token, int hook, int kind, String name, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        files(token, hook, kind, name, 0, null, thrown);
+    }
+
+    /**
+     * {@code RandomAccessFile.open(String, int)} exit: read when the mode holds the JDK's {@code O_RDONLY} bit (1), as
+     * {@code "r"} gives, else write ({@code "rw"}, {@code "rws"}, {@code "rwd"}). Never throws.
+     */
+    public static void randomAccessOpened(long token, String name, int mode, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        files(
+                token,
+                HOOK_RANDOM_ACCESS_FILE,
+                (mode & 1) != 0 ? KIND_FILE_READ : KIND_FILE_WRITE,
+                name,
+                0,
+                null,
+                thrown);
+    }
+
+    /**
+     * {@code Files.newByteChannel(Path, Set, FileAttribute[])} or {@code FileChannel.open(Path, Set,
+     * FileAttribute[])} exit: write when the options hold {@code WRITE} or {@code APPEND}, else read. Never throws.
+     */
+    public static void channelOpened(long token, int hook, Object path, Set<?> options, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        int kind = KIND_FILE_READ;
+        try {
+            if (options != null
+                    && (options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND))) {
+                kind = KIND_FILE_WRITE;
+            }
+        } catch (Throwable ex) {
+            // An application's own Set: read, as the JDK would for an option set it cannot read.
+        }
+        files(token, hook, kind, path, 0, null, thrown);
+    }
+
+    /**
+     * {@code Files.newInputStream}, {@code newOutputStream}, {@code delete}, or {@code deleteIfExists} exit, with the
+     * kind the hook records. Never throws.
+     */
+    public static void pathUsed(long token, int hook, int kind, Object path, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        files(token, hook, kind, path, 0, null, thrown);
+    }
+
+    /**
+     * {@code Files.move(Path, Path, CopyOption[])} or a {@code Files.copy} overload exit: each {@code Path} argument
+     * is one observation, the source's kind {@code fromKind} and the destination's {@code toKind}; a stream argument
+     * of {@code copy} records nothing. Never throws.
+     */
+    public static void pathsUsed(
+            long token, int hook, int fromKind, Object from, int toKind, Object to, Throwable thrown) {
+        if (token == 0L) {
+            return;
+        }
+        files(
+                token,
+                hook,
+                fromKind,
+                from instanceof Path ? from : null,
+                toKind,
+                to instanceof Path ? to : null,
+                thrown);
+    }
+
+    private static void files(
+            long token, int hook, int kind, Object target, int secondKind, Object second, Throwable thrown) {
+        CodePaths.Frame frame = null;
+        try {
+            frame = CodePaths.FRAME.get();
+            long nanos = System.nanoTime() - token;
+            Claim claim = AgentBridge.current();
+            if (!recording(claim, MASK_FILES)) {
+                return;
+            }
+            int outcome = thrown == null
+                    ? OUTCOME_DONE
+                    : thrown instanceof java.io.IOException ? OUTCOME_IO_ERROR : OUTCOME_ERROR;
+            if (target != null) {
+                recordFile(frame, claim, hook, kind, target, outcome, nanos);
+            }
+            if (second != null) {
+                recordFile(frame, claim, hook, secondKind, second, outcome, nanos);
+            }
+        } catch (Throwable ex) {
+            failed(SENSOR_FILES, ex);
+        } finally {
+            if (frame != null) {
+                frame.sideEffectDepth = 0;
+            }
+        }
+    }
+
+    /** One file operation: counted in its bucket, or recorded with its path pattern, owner, and frame summary. */
+    private static void recordFile(
+            CodePaths.Frame frame, Claim claim, int hook, int kind, Object target, int outcome, long nanos) {
+        Places where = places;
+        String text;
+        if (target instanceof Path) {
+            Path path = (Path) target;
+            if (where.fileSystem == null || path.getFileSystem() != where.fileSystem) {
+                // A zip, jar:, nested:, or jrt: file system's path: its toString() is never called.
+                BUCKET_COUNTS[BUCKET_ARCHIVE_FILE_SYSTEMS].increment();
+                return;
+            }
+            text = path.toString();
+        } else if (target instanceof String) {
+            text = (String) target;
+        } else {
+            return;
+        }
+        if (text.isEmpty()) {
+            return;
+        }
+        int bucket = bucketOfName(text);
+        if (bucket >= 0) {
+            BUCKET_COUNTS[bucket].increment();
+            return;
+        }
+        String absolute = absolute(text, where);
+        bucket = bucketOfPath(absolute, where);
+        if (bucket >= 0) {
+            BUCKET_COUNTS[bucket].increment();
+            return;
+        }
+        String pattern = pattern(absolute, where);
+        long stamp = CodePaths.stamp();
+        // The summary first: a file a class loader reads is a bucket, never interned, owned, or recorded (design B2).
+        long[] summary = summary(claim, hook, pattern.hashCode(), stamp, false);
+        if (summary[1] == CONTEXT_CLASS_LOADING) {
+            BUCKET_COUNTS[BUCKET_CLASS_LOADING].increment();
+            return;
+        }
+        RECORDED[hook].increment();
+        int id = internQuota(pattern, SENSOR_FILES);
+        Owner owner = owner(frame, claim);
+        record(frame, owner, SENSOR_FILES, kind, id, outcome, (int) summary[1], stamp, summary[0], nanos);
+    }
+
+    /**
+     * {@code System.getenv(String)} ({@link #KIND_ENVIRONMENT_VARIABLE}, {@code name} {@code null} for {@code
+     * getenv()}) or {@code System.getProperty} ({@link #KIND_SYSTEM_PROPERTY}) entry: records the name, never the value,
+     * which the advice never sees, the first time the thread reads it for its current owner, and only for a direct
+     * call, not the JDK's own reads. Never throws.
+     */
+    public static void environmentRead(int hook, int kind, String name) {
+        CodePaths.Frame frame = null;
+        try {
+            Thread current = Thread.currentThread();
+            Thread self = selfTestThread;
+            if (self != null && self == current) {
+                SELF_TEST_HITS[hook].increment();
+                return;
+            }
+            if ((mask & MASK_ENVIRONMENT) == 0
+                    || (name != null && name.isEmpty())
+                    || Reentrancy.sideEffectsSkipped()
+                    || current.getName().startsWith("bootui-")) {
+                return;
+            }
+            CodePaths.Frame candidate = CodePaths.frame();
+            long since = System.nanoTime();
+            if (candidate.sideEffectDepth != 0) {
+                if (since - candidate.sideEffectSince < STALE_DEPTH_NANOS) {
+                    return;
+                }
+                // An exit that never ran, as when calling it overflowed the stack: the thread records again.
+                STALE_DEPTHS.increment();
+            }
+            frame = candidate;
+            frame.sideEffectDepth = 1;
+            // Stamped as every hook's entry does, so a depth left open by an exit that never ran is recovered from.
+            frame.sideEffectSince = since;
+            long now = generation;
+            boolean slotted = slotted(frame, now);
+            int top = frame.slots - 1;
+            Seen seen = frame.environmentSeen;
+            if (seen == null) {
+                seen = new Seen(true);
+                frame.environmentSeen = seen;
+            }
+            seen.own(
+                    now,
+                    slotted ? frame.slotRequest[top] : 0L,
+                    slotted ? frame.slotExecution[top] : 0L,
+                    slotted,
+                    slotted ? 0L : System.currentTimeMillis());
+            long key = Seen.key(hook, kind, name == null ? 0 : name.hashCode());
+            if (seen.find(key, name) >= 0) {
+                return;
+            }
+            seen.put(key, name, 0L, 0);
+            Claim claim = AgentBridge.current();
+            if (claim == null || !claim.armed || claim.generation != now) {
+                return;
+            }
+            String target = name == null
+                    ? "(all variables)"
+                    : name.length() > MAX_PATTERN ? name.substring(0, MAX_PATTERN) : name;
+            long stamp = CodePaths.stamp();
+            // Walked before the name is interned, its cache keyed by the name's hash: an indirect read, never
+            // recorded, takes nothing of the generation's table.
+            long[] summary = summary(claim, hook, target.hashCode(), stamp, true);
+            if (summary[1] == INDIRECT_FRAMEWORK) {
+                // A configuration framework resolving its own property, as SmallRye Config or Spring's Environment.
+                FRAMEWORK_READS.increment();
+                return;
+            }
+            if (summary[1] < 0) {
+                // A read the JDK made for itself, as a property lookup inside an XML or SSL factory: not direct.
+                JDK_READS.increment();
+                return;
+            }
+            int id = internQuota(target, SENSOR_ENVIRONMENT);
+            RECORDED[hook].increment();
+            Owner owner = owner(frame, claim);
+            record(frame, owner, SENSOR_ENVIRONMENT, kind, id, OUTCOME_DONE, (int) summary[1], stamp, summary[0], 0L);
+        } catch (Throwable ex) {
+            failed(SENSOR_ENVIRONMENT, ex);
+        } finally {
+            if (frame != null) {
+                frame.sideEffectDepth = 0;
+            }
+        }
+    }
+
     // ---- the owner slots ---------------------------------------------------------------------------------------
 
     /** Owner slots kept per thread; deeper ones name no owner, and a hook captures its owner instead. */
@@ -1312,9 +1719,11 @@ public final class SideEffects {
     /**
      * An adapter opened a request's scope on this thread ({@link CodePaths#begin()}), with the owner the code-paths
      * sensor captured there, or {@code null}: a slot is pushed for the scope, naming that owner, or no owner, so that a
-     * hook inside captures its own. No capture is made here. Never throws.
+     * hook inside captures its own. When the code-paths sensor made no capture ({@code attempted} false, as when it is
+     * not claimed) and the files or environment sensor records, whose hooks read only the slot on their hot path, the
+     * owner is captured here, once per scope (PLAN-v2 M5-5 design B1). Never throws.
      */
-    static void scopeBegin(long[] captured) {
+    static void scopeBegin(long[] captured, boolean attempted) {
         try {
             CodePaths.Frame frame;
             if (mask == 0) {
@@ -1325,6 +1734,25 @@ public final class SideEffects {
                 }
             } else {
                 frame = CodePaths.frame();
+            }
+            if (captured == null && !attempted && (mask & (MASK_FILES | MASK_ENVIRONMENT)) != 0) {
+                Claim claim = AgentBridge.current();
+                Owner owner = new Owner();
+                boolean owned = false;
+                try {
+                    owned = claim != null
+                            && claim.armed
+                            && claim.generation == generation
+                            && !Reentrancy.sideEffectsSkipped()
+                            && ownerOf(CodePaths.capture(claim), owner);
+                } catch (Throwable ex) {
+                    // The slot is pushed all the same, naming no owner, so the scope's end stays balanced.
+                    failed(ex);
+                }
+                if (owned) {
+                    push(frame, SLOT_SCOPE, generation, owner.request, owner.execution, owner.executionKind);
+                    return;
+                }
             }
             if (captured == null) {
                 push(frame, SLOT_SCOPE, 0L, 0L, 0L, 0);
@@ -1567,6 +1995,798 @@ public final class SideEffects {
             }
             return new long[] {((long) outside << 32) | (application & 0xFFFFFFFFL)};
         }
+    }
+
+    // ---- the files and environment sensors' frame summaries, caches, and path patterns (M5-5d) ------------------
+
+    /**
+     * The frame summary and JDK context of an operation, {@code {frames, context}}, the context -1 or {@link
+     * #INDIRECT_FRAMEWORK} for an environment read that is not direct: walked once per {@code (hook, code-paths method,
+     * target)} in the generation (PLAN-v2 M5-5 design B3), a file operation no method stamps once per {@code (hook,
+     * target)}, so a call site's summary is walked once, not once per request; an environment read no method stamps is
+     * walked at each first read of an owner, which its per-thread cache bounds. The target is its pattern's or name's
+     * 32-bit hash, so two targets of one hook and method may rarely share a summary. Without room in the generation's
+     * cache, nothing is walked.
+     */
+    static long[] summary(Claim claim, int hook, int targetHash, long stamp, boolean env) {
+        int method = stamp > 0L ? CodePaths.stampMethod(stamp) : -1;
+        if (env && method < 0) {
+            return walk(claim, true);
+        }
+        long key = ((long) (hook + 1) << 56) | ((long) ((method + 1) & 0xFFFFFF) << 32) | (targetHash & 0xFFFFFFFFL);
+        long[] found = new long[2];
+        int result = SIGHTINGS.find(generation, key, found);
+        if (result == Sightings.FOUND) {
+            return found;
+        }
+        if (result == Sightings.FULL) {
+            SIGHTINGS_FULL.increment();
+            return new long[] {0L, CONTEXT_NONE};
+        }
+        long[] walked = walk(claim, env);
+        SIGHTINGS.put(generation, key, walked[0], (int) walked[1]);
+        return walked;
+    }
+
+    private static long[] walk(Claim claim, boolean environment) {
+        WALKS.increment();
+        StackWalker walker = classWalker;
+        long[] walked = (walker == null ? WALKER : walker).walk(new ContextSummary(claim, environment));
+        return walked == null ? new long[] {0L, CONTEXT_NONE} : walked;
+    }
+
+    /**
+     * Whether a frame outside the JDK is a class loader's: a {@code ClassLoader} subclass, when the walker retains
+     * classes, or one of the class loaders of Quarkus, Spring Boot, JBoss Modules, and Tomcat by name.
+     */
+    static boolean loader(StackWalker.StackFrame frame, String className) {
+        if (className.startsWith("io.quarkus.bootstrap.classloading.")
+                || className.startsWith("org.springframework.boot.loader.")
+                || className.startsWith("org.jboss.modules.")
+                || className.startsWith("org.apache.catalina.loader.")) {
+            return true;
+        }
+        try {
+            return ClassLoader.class.isAssignableFrom(frame.getDeclaringClass());
+        } catch (UnsupportedOperationException ex) {
+            // The plain walker: by name only.
+            return false;
+        }
+    }
+
+    /** JDK classes whose frames make an operation class loading's. */
+    static boolean classLoading(String className) {
+        return className.startsWith("java.lang.ClassLoader")
+                || className.equals("java.lang.Class")
+                || className.equals("java.lang.Module")
+                || className.equals("java.net.URLClassLoader")
+                || className.equals("java.security.SecureClassLoader")
+                || className.equals("java.util.ServiceLoader")
+                || className.startsWith("java.util.ServiceLoader$")
+                || className.startsWith("java.lang.module.")
+                || className.startsWith("jdk.internal.loader.")
+                || className.startsWith("jdk.internal.module.")
+                || className.startsWith("jdk.internal.jimage.")
+                || className.startsWith("sun.net.www.protocol.jar.");
+    }
+
+    /**
+     * JDK frames a direct read passes through, as {@code Optional.map(System::getenv)}, a stream's {@code
+     * map(System::getProperty)}, or a reflective call: an environment read's immediate caller is looked for past them.
+     */
+    static boolean transparent(String className) {
+        return className.startsWith("java.util.Optional")
+                || className.startsWith("java.util.stream.")
+                || className.startsWith("java.util.function.")
+                || className.startsWith("java.util.Spliterator")
+                || className.startsWith("java.util.ArrayList")
+                || className.startsWith("java.util.Iterator")
+                || className.startsWith("java.lang.Iterable")
+                || className.startsWith("jdk.internal.reflect.")
+                || className.startsWith("java.lang.reflect.")
+                || className.startsWith("java.lang.invoke.");
+    }
+
+    /**
+     * Configuration frameworks, which read system properties and environment variables to resolve their own
+     * properties: such a read is the framework's, not a direct one (PLAN-v2 M5-5 design I4).
+     */
+    static boolean configuration(String className) {
+        return className.startsWith("io.smallrye.config.")
+                || className.startsWith("org.eclipse.microprofile.config.")
+                || className.startsWith("io.quarkus.runtime.configuration.")
+                || className.startsWith("org.springframework.core.env.")
+                || className.startsWith("org.springframework.boot.env.")
+                || className.startsWith("org.springframework.boot.context.config.")
+                || className.equals("org.springframework.core.SpringProperties");
+    }
+
+    /** Whether {@code className} is the JDK's by its name. */
+    static boolean jdk(String className) {
+        return className.startsWith("java.")
+                || className.startsWith("jdk.")
+                || className.startsWith("sun.")
+                || className.startsWith("com.sun.");
+    }
+
+    /**
+     * Whether a frame is the JDK's: by its class's name, or by its module, a {@code java.} or {@code jdk.} module of
+     * the boot layer, as {@code javax.xml.parsers} in {@code java.xml} or {@code org.w3c.dom}.
+     */
+    static boolean jdk(StackWalker.StackFrame frame) {
+        if (jdk(frame.getClassName())) {
+            return true;
+        }
+        Module module;
+        try {
+            module = frame.getDeclaringClass().getModule();
+        } catch (UnsupportedOperationException ex) {
+            // The plain walker, when the agent could not get one retaining classes: by name only.
+            return false;
+        }
+        String name = module.getName();
+        return module.isNamed()
+                && name != null
+                && (name.startsWith("java.") || name.startsWith("jdk."))
+                && module.getLayer() == ModuleLayer.boot();
+    }
+
+    /**
+     * Walks at most {@value #MAX_FRAMES} frames, skipping the agent's, for a file operation's or an environment read's
+     * summary: a JDK logging or class-loading frame before any frame outside the JDK gives that context and stops the
+     * walk; otherwise the first frame outside the JDK and the first in the claimed packages, interned, packed as {@link
+     * #R_FRAMES}, and the context {@link #CONTEXT_JDK_ONLY} when no frame is outside the JDK. For an environment read,
+     * the immediate caller, past {@code System} and the {@code Boolean}, {@code Integer}, and {@code Long} lookups,
+     * decides first: a JDK class's read gives context -1, not recorded.
+     */
+    static final class ContextSummary implements Function<Stream<StackWalker.StackFrame>, long[]> {
+
+        private final Claim claim;
+        private final boolean environment;
+
+        ContextSummary(Claim claim, boolean environment) {
+            this.claim = claim;
+            this.environment = environment;
+        }
+
+        @Override
+        public long[] apply(Stream<StackWalker.StackFrame> frames) {
+            Iterator<StackWalker.StackFrame> iterator = frames.iterator();
+            int outside = 0;
+            int application = 0;
+            boolean immediate = environment;
+            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && application == 0; i++) {
+                StackWalker.StackFrame frame = iterator.next();
+                String className = frame.getClassName();
+                if (className.startsWith("io.github.jdubois.bootui.agent.")) {
+                    continue;
+                }
+                if (className.indexOf("$$Lambda") >= 0) {
+                    // A lambda or method reference's hidden class, shown by the class walker: its outer class, the
+                    // JDK's or not, decides whether an environment read is direct; it is never a summary frame.
+                    if (immediate) {
+                        immediate = false;
+                        if (jdk(className)) {
+                            return new long[] {0L, -1L};
+                        }
+                    }
+                    continue;
+                }
+                if (immediate) {
+                    if (className.equals("java.lang.System")
+                            || className.equals("java.lang.Boolean")
+                            || className.equals("java.lang.Integer")
+                            || className.equals("java.lang.Long")
+                            || transparent(className)) {
+                        continue;
+                    }
+                    immediate = false;
+                    if (jdk(frame)) {
+                        return new long[] {0L, -1L};
+                    }
+                    if (configuration(className)) {
+                        return new long[] {0L, INDIRECT_FRAMEWORK};
+                    }
+                }
+                if (jdk(frame)) {
+                    if (outside == 0) {
+                        if (className.startsWith("jdk.internal.platform.") || className.startsWith("sun.net.dns.")) {
+                            // The JDK's own container and resolver reads, as a metrics scrape's processor count.
+                            return new long[] {0L, CONTEXT_JDK_ONLY};
+                        }
+                        if (className.startsWith("java.util.logging.")) {
+                            return new long[] {0L, CONTEXT_JDK_LOGGING};
+                        }
+                        if (classLoading(className)) {
+                            return new long[] {0L, CONTEXT_CLASS_LOADING};
+                        }
+                    }
+                    continue;
+                }
+                if (outside == 0 && !environment && loader(frame, className)) {
+                    // A class loader outside the JDK, as Quarkus' or Spring Boot's, reading a resource: never interned.
+                    return new long[] {0L, CONTEXT_CLASS_LOADING};
+                }
+                if (outside == 0) {
+                    outside = intern(className + "#" + frame.getMethodName());
+                }
+                if (claim != null && ThreadPropagation.inPackages(className, claim)) {
+                    application = intern(className + "#" + frame.getMethodName());
+                }
+            }
+            long packed = ((long) outside << 32) | (application & 0xFFFFFFFFL);
+            return new long[] {packed, outside == 0 ? CONTEXT_JDK_ONLY : CONTEXT_NONE};
+        }
+    }
+
+    /**
+     * The generation's cache of frame summaries by {@code (hook, target, method)}: {@value #SIZE} open-addressed entries,
+     * at most {@value #PROBES} probes, lock-free, as the bridge takes no monitor. A writer claims a free slot by
+     * compare-and-set to {@value #RESERVED}, writes the summary, then publishes the key; a reader skips a reserved slot.
+     * A new generation replaces the whole table; full, it stores nothing more.
+     */
+    static final class Sightings {
+
+        static final int SIZE = 4_096;
+        static final int PROBES = 8;
+        static final long RESERVED = -1L;
+
+        static final int FOUND = 1;
+        static final int MISSING = 0;
+        static final int FULL = -1;
+
+        private final AtomicReference<Table> table = new AtomicReference<Table>();
+
+        static final class Table {
+            final long generation;
+            final AtomicLongArray keys = new AtomicLongArray(SIZE);
+            final AtomicLongArray frames = new AtomicLongArray(SIZE);
+            final AtomicIntegerArray contexts = new AtomicIntegerArray(SIZE);
+
+            Table(long generation) {
+                this.generation = generation;
+            }
+        }
+
+        private static int hash(long key) {
+            long mixed = key * 0x9E3779B97F4A7C15L;
+            return (int) (mixed ^ (mixed >>> 32));
+        }
+
+        private Table of(long generation, boolean create) {
+            while (true) {
+                Table current = table.get();
+                if (current != null && current.generation == generation) {
+                    return current;
+                }
+                if (!create) {
+                    return null;
+                }
+                Table fresh = new Table(generation);
+                if (table.compareAndSet(current, fresh)) {
+                    return fresh;
+                }
+            }
+        }
+
+        /** {@link #FOUND} with {@code out} filled, {@link #MISSING} with room to put, or {@link #FULL}. */
+        int find(long generation, long key, long[] out) {
+            Table current = of(generation, false);
+            if (current == null) {
+                return MISSING;
+            }
+            int hash = hash(key);
+            for (int probe = 0; probe < PROBES; probe++) {
+                int slot = (hash + probe) & (SIZE - 1);
+                long known = current.keys.get(slot);
+                if (known == key) {
+                    out[0] = current.frames.get(slot);
+                    out[1] = current.contexts.get(slot);
+                    return FOUND;
+                }
+                if (known == 0L) {
+                    return MISSING;
+                }
+            }
+            return FULL;
+        }
+
+        void put(long generation, long key, long frame, int context) {
+            Table current = of(generation, true);
+            int hash = hash(key);
+            for (int probe = 0; probe < PROBES; probe++) {
+                int slot = (hash + probe) & (SIZE - 1);
+                long known = current.keys.get(slot);
+                if (known == key) {
+                    return;
+                }
+                if (known == 0L && current.keys.compareAndSet(slot, 0L, RESERVED)) {
+                    current.frames.set(slot, frame);
+                    current.contexts.set(slot, context);
+                    current.keys.set(slot, key);
+                    return;
+                }
+            }
+        }
+
+        void clear() {
+            table.set(null);
+        }
+    }
+
+    /**
+     * A thread's small cache for one owner: the environment names it recorded ({@code named}), or, unnamed, keys only. {@value #SIZE} entries, at most {@value #PROBES} probes, then the home entry
+     * is overwritten, so a lookup is bounded. Valid for the owner it was filled for, and, for a thread no slot owns,
+     * {@value #UNOWNED_SEEN_MILLIS} ms; any other owner clears it.
+     */
+    static final class Seen {
+
+        static final int SIZE = 32;
+        static final int PROBES = 4;
+
+        final boolean named;
+        final long[] keys = new long[SIZE];
+        final String[] names;
+        final long[] frames;
+        final int[] contexts;
+        long generation = Long.MIN_VALUE;
+        long request;
+        long execution;
+        boolean slot;
+        long sinceMillis;
+
+        Seen(boolean named) {
+            this.named = named;
+            this.names = named ? new String[SIZE] : null;
+            this.frames = named ? null : new long[SIZE];
+            this.contexts = named ? null : new int[SIZE];
+        }
+
+        /** A key, never 0. */
+        static long key(int hook, int kind, int value) {
+            return ((long) (hook + 1) << 48) | ((long) (kind & 0xFFFF) << 32) | (value & 0xFFFFFFFFL);
+        }
+
+        /** Makes the cache the given owner's, clearing it when it was another's or an unowned one's that expired. */
+        void own(long ownerGeneration, long ownerRequest, long ownerExecution, boolean ownerSlot, long nowMillis) {
+            boolean same = generation == ownerGeneration
+                    && slot == ownerSlot
+                    && request == ownerRequest
+                    && execution == ownerExecution
+                    && (ownerSlot || nowMillis - sinceMillis < UNOWNED_SEEN_MILLIS);
+            if (same) {
+                return;
+            }
+            java.util.Arrays.fill(keys, 0L);
+            if (names != null) {
+                java.util.Arrays.fill(names, null);
+            }
+            generation = ownerGeneration;
+            request = ownerRequest;
+            execution = ownerExecution;
+            slot = ownerSlot;
+            sinceMillis = nowMillis;
+        }
+
+        int find(long key, String name) {
+            int home = (int) (key ^ (key >>> 32)) & (SIZE - 1);
+            for (int probe = 0; probe < PROBES; probe++) {
+                int index = (home + probe) & (SIZE - 1);
+                long known = keys[index];
+                if (known == 0L) {
+                    return -1;
+                }
+                if (known == key && (!named || equal(names[index], name))) {
+                    return index;
+                }
+            }
+            return -1;
+        }
+
+        void put(long key, String name, long frame, int context) {
+            int home = (int) (key ^ (key >>> 32)) & (SIZE - 1);
+            int index = home;
+            for (int probe = 0; probe < PROBES; probe++) {
+                int candidate = (home + probe) & (SIZE - 1);
+                if (keys[candidate] == 0L) {
+                    index = candidate;
+                    break;
+                }
+            }
+            keys[index] = key;
+            if (named) {
+                names[index] = name;
+            } else {
+                frames[index] = frame;
+                contexts[index] = context;
+            }
+        }
+
+        private static boolean equal(String a, String b) {
+            return a == null ? b == null : a.equals(b);
+        }
+    }
+
+    /** The id of {@code text} in the generation's table, within {@code sensor}'s quota; 0 past it, counted. */
+    static int internQuota(String text, int sensor) {
+        AgentRing.Interns interns = INTERNS.get();
+        if (text == null || interns == null) {
+            return 0;
+        }
+        Integer known = interns.ids.get(text);
+        if (known != null) {
+            return known.intValue();
+        }
+        AtomicInteger count = INTERNED[sensor];
+        int quota = sensor == SENSOR_ENVIRONMENT ? ENVIRONMENT_INTERN_QUOTA : FILES_INTERN_QUOTA;
+        if (count.get() >= quota) {
+            QUOTA_EXCEEDED[sensor].increment();
+            return 0;
+        }
+        int id = interns.intern(text);
+        if (id != 0) {
+            count.incrementAndGet();
+        }
+        return id;
+    }
+
+    /**
+     * The directories path patterns are relative to: the working directory ({@code .}), the temporary directory
+     * ({@code $TMPDIR}), the user's home ({@code ~}), each as the JVM names it and canonical, without a trailing
+     * separator; Java's home and the class path's directories, whose files are counted in buckets; and the default
+     * file system, the only one whose paths are turned into text.
+     */
+    static final class Places {
+
+        static final Places NONE = new Places(
+                null, null, new String[0], new String[0], new String[0], new String[0], new String[0], false);
+
+        final java.nio.file.FileSystem fileSystem;
+        final String workingDirectory;
+        final String[] workingDirectories;
+        final String[] temporaryDirectories;
+        final String[] homes;
+        final String[] javaHomes;
+        final String[] classPathDirectories;
+        final boolean windows;
+
+        Places(
+                java.nio.file.FileSystem fileSystem,
+                String workingDirectory,
+                String[] workingDirectories,
+                String[] temporaryDirectories,
+                String[] homes,
+                String[] javaHomes,
+                String[] classPathDirectories,
+                boolean windows) {
+            this.fileSystem = fileSystem;
+            this.workingDirectory = workingDirectory;
+            this.workingDirectories = workingDirectories;
+            this.temporaryDirectories = temporaryDirectories;
+            this.homes = homes;
+            this.javaHomes = javaHomes;
+            this.classPathDirectories = classPathDirectories;
+            this.windows = windows;
+        }
+
+        /** Read from the system properties and the file system: only on the agent's own thread, never in a hook. */
+        static Places read() {
+            boolean windows = java.io.File.separatorChar == '\\';
+            String cwd = System.getProperty("user.dir");
+            String[] working = forms(cwd, windows);
+            String workingDirectory = working.length == 0 ? null : working[0];
+            List<String> classPath = new java.util.ArrayList<String>();
+            String path = System.getProperty("java.class.path");
+            if (path != null) {
+                for (String entry : path.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))) {
+                    if (entry.isEmpty() || !new java.io.File(entry).isDirectory()) {
+                        continue;
+                    }
+                    for (String form : forms(new java.io.File(entry).getAbsolutePath(), windows)) {
+                        // Never a directory holding the working directory: its files would all become buckets.
+                        if (workingDirectory != null && (under(workingDirectory, form, windows))) {
+                            continue;
+                        }
+                        classPath.add(form);
+                    }
+                }
+            }
+            return new Places(
+                    java.nio.file.FileSystems.getDefault(),
+                    workingDirectory,
+                    working,
+                    forms(System.getProperty("java.io.tmpdir"), windows),
+                    forms(System.getProperty("user.home"), windows),
+                    forms(System.getProperty("java.home"), windows),
+                    classPath.toArray(new String[0]),
+                    windows);
+        }
+
+        /** {@code directory} as given and canonical, '/'-separated, without a trailing separator; none for a root. */
+        static String[] forms(String directory, boolean windows) {
+            if (directory == null || directory.isEmpty()) {
+                return new String[0];
+            }
+            List<String> forms = new java.util.ArrayList<String>(2);
+            add(forms, directory);
+            try {
+                add(forms, new java.io.File(directory).getCanonicalPath());
+            } catch (Throwable ex) {
+                // The literal form only.
+            }
+            return forms.toArray(new String[0]);
+        }
+
+        private static void add(List<String> forms, String directory) {
+            String form = clean(directory.replace('\\', '/'));
+            while (form.length() > 1 && form.endsWith("/")) {
+                form = form.substring(0, form.length() - 1);
+            }
+            boolean root = form.equals("/") || (form.length() <= 3 && form.length() >= 2 && form.charAt(1) == ':');
+            if (!root && !forms.contains(form)) {
+                forms.add(form);
+            }
+        }
+    }
+
+    /** The directories path patterns are relative to, now: tests set them. */
+    static void places(Places where) {
+        places = where == null ? Places.NONE : where;
+    }
+
+    /** A bucket by the file's name alone, before any allocation: a class file or an archive; -1 for none. */
+    static int bucketOfName(String text) {
+        int length = text.length();
+        if (endsWith(text, length, ".class")) {
+            return BUCKET_CLASS_FILES;
+        }
+        if (endsWith(text, length, ".jar") || endsWith(text, length, ".war") || endsWith(text, length, ".jmod")) {
+            return BUCKET_ARCHIVES;
+        }
+        return -1;
+    }
+
+    private static boolean endsWith(String text, int length, String suffix) {
+        int from = length - suffix.length();
+        return from >= 0 && text.regionMatches(true, from, suffix, 0, suffix.length());
+    }
+
+    /** A bucket by the file's absolute path: under Java's home, or a class path directory; -1 for none. */
+    static int bucketOfPath(String absolute, Places where) {
+        for (String home : where.javaHomes) {
+            if (under(absolute, home, where.windows)) {
+                return BUCKET_JAVA_HOME;
+            }
+        }
+        for (String directory : where.classPathDirectories) {
+            if (under(absolute, directory, where.windows)) {
+                return BUCKET_CLASS_PATH_DIRECTORIES;
+            }
+        }
+        return -1;
+    }
+
+    /** Whether {@code path} is {@code directory} or inside it, case-insensitively on Windows. */
+    static boolean under(String path, String directory, boolean windows) {
+        int length = directory.length();
+        return path.length() >= length
+                && path.regionMatches(windows, 0, directory, 0, length)
+                && (path.length() == length || path.charAt(length) == '/');
+    }
+
+    /**
+     * {@code text}, a path as the application named it, made absolute against the working directory, '/'-separated,
+     * with its {@code .} and {@code ..} segments and repeated separators collapsed, lexically: no file-system call.
+     */
+    static String absolute(String text, Places where) {
+        String path = text.indexOf('\\') >= 0 ? text.replace('\\', '/') : text;
+        boolean absolute = path.startsWith("/")
+                || (path.length() >= 2 && path.charAt(1) == ':' && Character.isLetter(path.charAt(0)));
+        if (!absolute && where.workingDirectory != null) {
+            path = where.workingDirectory + "/" + path;
+        }
+        return clean(path);
+    }
+
+    /** {@code path} with its {@code .} and {@code ..} segments and repeated separators collapsed. */
+    static String clean(String path) {
+        if (path.indexOf("/.") < 0 && path.indexOf("//") < 0 && !path.startsWith(".")) {
+            return path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
+        }
+        String[] segments = path.split("/", -1);
+        String[] kept = new String[segments.length];
+        int size = 0;
+        for (int i = 0; i < segments.length; i++) {
+            String segment = segments[i];
+            if (i == 0) {
+                kept[size++] = segment;
+                continue;
+            }
+            if (segment.isEmpty() || segment.equals(".")) {
+                continue;
+            }
+            if (segment.equals("..")) {
+                if (size > 1) {
+                    size--;
+                }
+                continue;
+            }
+            kept[size++] = segment;
+        }
+        StringBuilder cleaned = new StringBuilder(path.length());
+        for (int i = 0; i < size; i++) {
+            if (i > 0) {
+                cleaned.append('/');
+            }
+            cleaned.append(kept[i]);
+        }
+        return cleaned.length() == 0 ? "/" : cleaned.toString();
+    }
+
+    /**
+     * The pattern of an absolute path: the longest of the temporary directory ({@code $TMPDIR}), the working
+     * directory ({@code .}), and the home ({@code ~}) replaced; another user's home collapsed to {@code /Users/*},
+     * {@code /home/*}, or {@code C:/Users/*}; ids collapsed ({@link #collapse}); at most {@value #MAX_PATTERN}
+     * characters. A raw path, and the user name in it, never reaches the intern table.
+     */
+    static String pattern(String absolute, Places where) {
+        String prefix = null;
+        int length = -1;
+        for (String directory : where.temporaryDirectories) {
+            if (directory.length() > length && under(absolute, directory, where.windows)) {
+                prefix = "$TMPDIR";
+                length = directory.length();
+            }
+        }
+        for (String directory : where.workingDirectories) {
+            if (directory.length() > length && under(absolute, directory, where.windows)) {
+                prefix = ".";
+                length = directory.length();
+            }
+        }
+        for (String directory : where.homes) {
+            if (directory.length() > length && under(absolute, directory, where.windows)) {
+                prefix = "~";
+                length = directory.length();
+            }
+        }
+        String pattern;
+        if (prefix != null) {
+            pattern = prefix + collapse(absolute.substring(length));
+        } else {
+            int user = otherHome(absolute);
+            pattern = user > 0
+                    ? absolute.substring(0, absolute.lastIndexOf('/', user - 1) + 1) + "*"
+                            + collapse(absolute.substring(user))
+                    : collapse(absolute);
+        }
+        return pattern.length() > MAX_PATTERN ? pattern.substring(0, MAX_PATTERN) : pattern;
+    }
+
+    /**
+     * The end of the user name in another user's home directory, -1 when the path is in none: a segment {@code Users}
+     * (any case) among the first five, as {@code /Users/x}, {@code C:/Users/x}, a UNC {@code //server/Users/x}, or
+     * {@code //?/C:/Users/x}, or {@code home} as the first segment or after {@code var} or {@code export}, as {@code
+     * /home/x}, {@code /var/home/x}, or {@code /export/home/x}, followed by the user's segment.
+     */
+    static int otherHome(String absolute) {
+        int start = 0;
+        int index = 0;
+        String previous = null;
+        while (start < absolute.length() && index <= 5) {
+            int end = absolute.indexOf('/', start);
+            end = end < 0 ? absolute.length() : end;
+            String segment = absolute.substring(start, end);
+            boolean users = segment.equalsIgnoreCase("Users") && index <= 4;
+            boolean home = segment.equals("home")
+                    && (index == 1 || (index == 2 && ("var".equals(previous) || "export".equals(previous))));
+            if ((users || home) && end < absolute.length()) {
+                int userEnd = absolute.indexOf('/', end + 1);
+                userEnd = userEnd < 0 ? absolute.length() : userEnd;
+                return userEnd > end + 1 ? userEnd : -1;
+            }
+            previous = segment;
+            start = end + 1;
+            index++;
+        }
+        return -1;
+    }
+
+    /**
+     * Ids collapsed in {@code text}: a JWT-like segment ({@code eyJ…} with a dot) becomes {@code {token}}, a UUID
+     * {@code {uuid}}, a run of 8 or more hexadecimal characters holding a digit {@code {hex}}, an alphanumeric run of 12
+     * or more characters mixing letters and digits, or of 24 or more letters mixing upper and lower case, {@code {id}},
+     * and any other run of digits {@code {n}}; a shorter run of letters is kept.
+     */
+    static String collapse(String text) {
+        int length = text.length();
+        StringBuilder out = new StringBuilder(length);
+        int i = 0;
+        while (i < length) {
+            char c = text.charAt(i);
+            if (c == '/') {
+                out.append(c);
+                i++;
+                continue;
+            }
+            int segmentEnd = text.indexOf('/', i);
+            segmentEnd = segmentEnd < 0 ? length : segmentEnd;
+            if (text.startsWith("eyJ", i) && text.indexOf('.', i) > 0 && text.indexOf('.', i) < segmentEnd) {
+                out.append("{token}");
+                i = segmentEnd;
+                continue;
+            }
+            if (alphanumeric(c)) {
+                if ((i == 0 || !alphanumeric(text.charAt(i - 1))) && uuidAt(text, i)) {
+                    out.append("{uuid}");
+                    i += 36;
+                    continue;
+                }
+                int end = i;
+                boolean letters = false;
+                boolean digits = false;
+                boolean hex = true;
+                boolean upper = false;
+                boolean lower = false;
+                while (end < length && alphanumeric(text.charAt(end))) {
+                    char d = text.charAt(end);
+                    if (d >= '0' && d <= '9') {
+                        digits = true;
+                    } else {
+                        letters = true;
+                        upper |= d >= 'A' && d <= 'Z';
+                        lower |= d >= 'a' && d <= 'z';
+                        hex &= (d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F');
+                    }
+                    end++;
+                }
+                int run = end - i;
+                if (digits && !letters) {
+                    out.append("{n}");
+                } else if (digits && hex && run >= 8) {
+                    out.append("{hex}");
+                } else if ((digits && run >= 12) || (!digits && upper && lower && run >= 24)) {
+                    out.append("{id}");
+                } else if (digits) {
+                    for (int j = i; j < end; j++) {
+                        char d = text.charAt(j);
+                        if (d >= '0' && d <= '9') {
+                            if (j == i || !(text.charAt(j - 1) >= '0' && text.charAt(j - 1) <= '9')) {
+                                out.append("{n}");
+                            }
+                        } else {
+                            out.append(d);
+                        }
+                    }
+                } else {
+                    out.append(text, i, end);
+                }
+                i = end;
+                continue;
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    private static boolean alphanumeric(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    }
+
+    /** Whether a UUID, 8-4-4-4-12 hexadecimal characters, starts at {@code from} and ends at a boundary. */
+    private static boolean uuidAt(String text, int from) {
+        if (text.length() - from < 36) {
+            return false;
+        }
+        for (int i = 0; i < 36; i++) {
+            char c = text.charAt(from + i);
+            boolean dash = i == 8 || i == 13 || i == 18 || i == 23;
+            if (dash ? c != '-' : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                return false;
+            }
+        }
+        return from + 36 == text.length() || !alphanumeric(text.charAt(from + 36));
     }
 
     // ---- aggregation and the ring -----------------------------------------------------------------------------------
@@ -2018,6 +3238,24 @@ public final class SideEffects {
     }
 
     /**
+     * The engine cleared the recording of claim generation {@code requested} (M5-11): the files and environment
+     * sensors' intern quotas count again from zero, so a run that hit them records new targets again, within the
+     * generation's table. Never throws.
+     */
+    public static void recordingCleared(long requested) {
+        try {
+            AgentRing.Interns interns = INTERNS.get();
+            if (interns != null && interns.generation == requested) {
+                for (AtomicInteger interned : INTERNED) {
+                    interned.set(0);
+                }
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /**
      * Drains the published records in order, at most one ring's worth, into {@code sink}, which receives one reused
      * {@code long[]} of {@value #RECORD} longs per record and must copy what it keeps. Only the current claim's token
      * drains, one caller at a time; the drain stops at the first record of a newer claim generation. Never throws.
@@ -2083,6 +3321,11 @@ public final class SideEffects {
                 if (INTERNS.compareAndSet(
                         current,
                         new AgentRing.Interns(claim.generation, DEFAULT_INTERNS, COUNTERS.internOverflow, true))) {
+                    for (AtomicInteger interned : INTERNED) {
+                        interned.set(0);
+                    }
+                    // A new run: its buckets count from its claim.
+                    resetAll(BUCKET_COUNTS);
                     break;
                 }
             }
@@ -2110,9 +3353,23 @@ public final class SideEffects {
             mask = claim != null && claim.armed && claim.generation == generation && !off
                     ? claimedMask(claim) & enabled & ~budgetOff
                     : 0;
+            updateGate();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
+    }
+
+    /**
+     * Recomputes {@link #gate} after {@link #mask} or the self-test's thread changed, without a monitor, which the
+     * bridge never takes: each writer writes the gate, then checks it against the state again and rewrites it when
+     * another writer changed the state meanwhile, so once every writer returns the gate matches the state.
+     */
+    private static void updateGate() {
+        int value;
+        do {
+            value = mask | (selfTestThread != null ? -1 : 0);
+            gate = value;
+        } while ((mask | (selfTestThread != null ? -1 : 0)) != value);
     }
 
     /** The agent enables the sensors of {@code bits} once their hooks passed their self-test. */
@@ -2219,6 +3476,46 @@ public final class SideEffects {
             packetAddress(new java.net.DatagramPacket(new byte[0], 0, java.net.InetAddress.getLoopbackAddress(), 1));
             status(PROCESSES);
             status(NETWORK);
+            // The files and environment sensors: their places, read here, on the agent's own thread, never in a hook,
+            // and every class their hooks link, so a hook inside class loading loads nothing.
+            places = Places.read();
+            try {
+                classWalker = StackWalker.getInstance(java.util.EnumSet.of(
+                        StackWalker.Option.RETAIN_CLASS_REFERENCE, StackWalker.Option.SHOW_HIDDEN_FRAMES));
+            } catch (Throwable ex) {
+                // Class names only.
+            }
+            Places where = places;
+            String probe = absolute("warm/./1/../report-2026.csv", where);
+            pattern(probe, where);
+            collapse("/a/0123456789abcdef/550e8400-e29b-41d4-a716-446655440000/eyJx.y/abcdefghij0123456789");
+            bucketOfName(probe);
+            bucketOfPath(probe, where);
+            otherHome("/home/warm/x");
+            Seen seen = new Seen(true);
+            seen.own(0L, 0L, 0L, false, 0L);
+            seen.put(Seen.key(0, 0, 1), "warm", 0L, 0);
+            seen.find(Seen.key(0, 0, 1), "warm");
+            Seen sightings = new Seen(false);
+            sightings.put(Seen.key(0, 0, 1), null, 0L, 0);
+            sightings.find(Seen.key(0, 0, 1), null);
+            long[] found = new long[2];
+            new Sightings().find(0L, 1L, found);
+            walk(null, true);
+            walk(null, false);
+            transparent("warm");
+            configuration("warm");
+            classLoading("warm");
+            jdk("warm");
+            StandardOpenOption.WRITE.getClass();
+            java.util.Collections.emptySet().contains(StandardOpenOption.APPEND);
+            java.nio.file.FileSystems.getDefault()
+                    .getPath("warm")
+                    .getFileSystem()
+                    .getClass();
+            new java.io.IOException("warm").getClass();
+            status(FILES);
+            status(ENVIRONMENT);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -2230,6 +3527,7 @@ public final class SideEffects {
             SELF_TEST_HITS[i].reset();
         }
         selfTestThread = Thread.currentThread();
+        updateGate();
     }
 
     /**
@@ -2238,11 +3536,13 @@ public final class SideEffects {
      */
     public static void selfTestOn(Thread thread) {
         selfTestThread = thread;
+        updateGate();
     }
 
     /** Ends the self-test: the hooks it ran, by hook id, with how often each fired. */
     public static Map<String, Object> endSelfTest() {
         selfTestThread = null;
+        updateGate();
         Map<String, Object> hits = new LinkedHashMap<String, Object>();
         for (int i = 0; i < HOOKS.length; i++) {
             hits.put(HOOKS[i], Long.valueOf(SELF_TEST_HITS[i].sum()));
@@ -2294,6 +3594,7 @@ public final class SideEffects {
                 off = true;
                 offReason = "switched off after " + MAX_ERRORS + " internal errors, the last: " + ex;
                 mask = 0;
+                updateGate();
                 AgentBridge.message("the side-effect sensors were " + offReason);
             }
         } catch (Throwable ignored) {
@@ -2334,6 +3635,25 @@ public final class SideEffects {
                 map.put("connectsUnpaired", Long.valueOf(CONNECTS_UNPAIRED.sum()));
                 map.put("datagramMemo", Integer.valueOf(network == null ? 0 : network.memo.size()));
                 map.put("jdkLoopbackSkipped", Long.valueOf(JDK_LOOPBACK_SKIPPED.sum()));
+            }
+            if (sensor == SENSOR_FILES) {
+                Map<String, Object> buckets = new LinkedHashMap<String, Object>();
+                for (int i = 0; i < BUCKETS.length; i++) {
+                    buckets.put(BUCKETS[i], Long.valueOf(BUCKET_COUNTS[i].sum()));
+                }
+                map.put("buckets", buckets);
+            }
+            if (sensor == SENSOR_FILES || sensor == SENSOR_ENVIRONMENT) {
+                map.put(
+                        "internQuota",
+                        Integer.valueOf(sensor == SENSOR_FILES ? FILES_INTERN_QUOTA : ENVIRONMENT_INTERN_QUOTA));
+                map.put("internQuotaExceeded", Long.valueOf(QUOTA_EXCEEDED[sensor].sum()));
+                map.put("walks", Long.valueOf(WALKS.sum()));
+                map.put("sightingsFull", Long.valueOf(SIGHTINGS_FULL.sum()));
+            }
+            if (sensor == SENSOR_ENVIRONMENT) {
+                map.put("jdkReads", Long.valueOf(JDK_READS.sum()));
+                map.put("frameworkReads", Long.valueOf(FRAMEWORK_READS.sum()));
             }
             if (sensor == SENSOR_PROCESSES) {
                 map.put("exitsWatched", Long.valueOf(EXITS_WATCHED.sum()));
@@ -2399,6 +3719,16 @@ public final class SideEffects {
         NETWORK_STATE.set(null);
         PENDING_EXITS.set(0);
         ERROR_COUNT.set(0);
+        resetAll(BUCKET_COUNTS);
+        resetAll(QUOTA_EXCEEDED);
+        WALKS.reset();
+        SIGHTINGS_FULL.reset();
+        JDK_READS.reset();
+        FRAMEWORK_READS.reset();
+        SIGHTINGS.clear();
+        for (AtomicInteger interned : INTERNED) {
+            interned.set(0);
+        }
         for (AtomicLong errors : SENSOR_ERRORS) {
             errors.set(0);
         }
@@ -2407,6 +3737,7 @@ public final class SideEffects {
             DISABLED_REASONS[i] = null;
         }
         mask = 0;
+        gate = 0;
         enabled = 0;
         generation = -1L;
         off = false;
@@ -2421,6 +3752,7 @@ public final class SideEffects {
             frame.sideEffectSince = 0L;
             frame.sideEffectThreadName = null;
             frame.sideEffectThreadGeneration = -1L;
+            frame.environmentSeen = null;
         }
     }
 
@@ -2432,6 +3764,14 @@ public final class SideEffects {
     /** Tests only: whether the exits' worker is marked running, as a test that runs exits by hand sets. */
     static void exitWorkerRunning(boolean running) {
         exitWorkerRunning = running;
+    }
+
+    private static AtomicInteger[] atomics(int count) {
+        AtomicInteger[] atomics = new AtomicInteger[count];
+        for (int i = 0; i < count; i++) {
+            atomics[i] = new AtomicInteger();
+        }
+        return atomics;
     }
 
     private static AtomicLong[] longs(int count) {
