@@ -207,7 +207,37 @@ final class SideEffectsStore {
             String client,
             String captureKey,
             String origin,
-            String location) {}
+            String location,
+            boolean startupThread) {
+
+        /** A row's key without whether startup's own thread did it, which only side-effect keys read. */
+        Key(
+                String scope,
+                String attribution,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String client,
+                String captureKey,
+                String origin,
+                String location) {
+            this(
+                    scope,
+                    attribution,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    client,
+                    captureKey,
+                    origin,
+                    location,
+                    false);
+        }
+    }
 
     private static final class Row {
         final Key key;
@@ -385,6 +415,9 @@ final class SideEffectsStore {
 
     private NetworkCapture capture = NetworkCapture.NONE;
 
+    /** The family of the thread that finished starting, whose startup observations alone are keys (M5-7b). */
+    private String startupThread;
+
     /** @param readyAt when the application finished starting, in epoch milliseconds: earlier observations are startup's */
     SideEffectsStore(long readyAt) {
         this(readyAt, MAX_ROWS, MAX_ROWS_PER_SENSOR, MAX_PENDING);
@@ -432,6 +465,15 @@ final class SideEffectsStore {
         folded = 0;
         foldedPerSensor.clear();
         version++;
+    }
+
+    /** Names the thread that finished starting: only its startup observations are side-effect keys. */
+    void setStartupThread(String family) {
+        this.startupThread = family;
+    }
+
+    private boolean startupThread(Observation observation) {
+        return startupThread == null || startupThread.equals(observation.threadFamily());
     }
 
     /** When the application finished starting: earlier observations are startup's. */
@@ -671,7 +713,8 @@ final class SideEffectsStore {
                 observation.client(),
                 observation.captureKey(),
                 observation.origin(),
-                observation.location());
+                observation.location(),
+                SideEffectsRowDto.STARTUP.equals(scope) && startupThread(observation));
         Row row = rows.get(key);
         if (row == null) {
             int perSensor = rowsPerSensor.getOrDefault(sensor, 0);
@@ -802,10 +845,19 @@ final class SideEffectsStore {
     Keys keys() {
         Map<String, KeyCount> merged = new LinkedHashMap<>();
         Map<String, Long> omitted = new HashMap<>();
+        Set<String> foldedCounted = new HashSet<>();
         for (Row row : rows.values()) {
             Key key = row.key;
             if (SideEffectsRowDto.OTHER.equals(key.scope())) {
-                omitted.merge(key.sensor(), Math.max(1L, foldedPerSensor.getOrDefault(key.sensor(), 1L)), Long::sum);
+                // One Other row per kind: the sensor's folded operations are counted once.
+                if (foldedCounted.add(key.sensor())) {
+                    omitted.merge(
+                            key.sensor(), Math.max(1L, foldedPerSensor.getOrDefault(key.sensor(), 1L)), Long::sum);
+                }
+                continue;
+            }
+            if (SideEffectsRowDto.STARTUP.equals(key.scope()) && !key.startupThread()) {
+                // Another thread's early work may land on either side of the end of startup from run to run.
                 continue;
             }
             addKey(
@@ -826,7 +878,7 @@ final class SideEffectsStore {
             String scope;
             String owner;
             if (waiting.key() == null) {
-                if (observation.record().firstMillis() >= readyAt) {
+                if (observation.record().firstMillis() >= readyAt || !startupThread(observation)) {
                     continue;
                 }
                 scope = SideEffectsRowDto.STARTUP;

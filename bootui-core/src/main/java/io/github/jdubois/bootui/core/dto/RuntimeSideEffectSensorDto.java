@@ -7,9 +7,9 @@ package io.github.jdubois.bootui.core.dto;
  *     environment}
  * @param status {@value #COMPARED}, {@value #PARTIAL} when a run kept only part of its keys, or {@value #NOT_COMPARED}
  * @param reason why it is not compared, or partial, or why its startup is not compared, or {@code null}
- * @param added its keys new in this run
+ * @param added its keys new in this run, whose owner the previous run exercised
  * @param removed its keys gone from this run, whose owner this run exercised
- * @param notExercised its keys of the previous run whose owner this run did not exercise
+ * @param notExercised its keys of one run whose owner the other run did not exercise
  */
 public record RuntimeSideEffectSensorDto(
         String sensor, String status, String reason, int added, int removed, int notExercised) {

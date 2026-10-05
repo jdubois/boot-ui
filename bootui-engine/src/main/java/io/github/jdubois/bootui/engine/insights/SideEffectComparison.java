@@ -15,8 +15,8 @@ import java.util.function.BiPredicate;
 /**
  * Compares two runs' side effects ({@code docs/PLAN-v2.md} §5.8, §5.16, M5-7b): the side-effect keys one run has and
  * the other does not, per sensor, said only when the sensor recorded the whole of both runs. A key is new when this run
- * has it and the previous did not; gone when the previous had it, this run exercised its owner, and this run does not
- * have it; otherwise its owner was not exercised. A sensor that kept only part of its keys in a run withholds the rows
+ * has it, the previous did not, and the previous run exercised its owner; gone when the previous had it, this run
+ * exercised its owner, and this run does not have it; otherwise its owner was not exercised in one of the runs. A sensor that kept only part of its keys in a run withholds the rows
  * that part could make wrong: new keys when the previous run's were cut, gone keys when this run's were.
  */
 final class SideEffectComparison {
@@ -36,12 +36,12 @@ final class SideEffectComparison {
             + " the application's start for startup's keys, without losing a record; work on a thread no request or"
             + " execution owns is not compared, since the agent may still hold its records.";
 
-    static final String LIMITATION_EXERCISED = "A key the previous run had is gone only when this run exercised its"
-            + " owner: its route served a request, its job ran, or it did something else outside the JVM; otherwise"
-            + " its owner was not exercised in this run.";
+    static final String LIMITATION_EXERCISED = "A key is new only when the previous run exercised its owner, and gone"
+            + " only when this run did: its route served a request, its job ran, or it did something else outside the"
+            + " JVM; otherwise its owner was not exercised in one of the runs, and the key is not compared.";
 
     static final String LIMITATION_HIDDEN_ROUTES = "HTTP Exchanges was hidden in one of the runs, or is now, so every"
-            + " route is compared as one hidden route, and none of its keys is reported gone.";
+            + " route is compared as one hidden route, and none of its keys is reported new or gone.";
 
     private static final List<String> SENSORS = List.of("network", "files", "processes", "environment");
 
@@ -50,12 +50,14 @@ final class SideEffectComparison {
     /**
      * {@code previous} and {@code current} compared.
      *
+     * @param exercisedBefore whether the previous run exercised an owner, by scope and owner
      * @param exercised whether this run exercised an owner, by scope and owner
      * @param routesHiddenNow whether HTTP Exchanges is hidden for this read
      */
     static RuntimeSideEffectChangesDto compare(
             RunSideEffects previous,
             RunSideEffects current,
+            BiPredicate<String, String> exercisedBefore,
             BiPredicate<String, String> exercised,
             boolean routesHiddenNow) {
         boolean hideRoutes = routesHiddenNow || previous.routesHidden() || current.routesHidden();
@@ -63,6 +65,8 @@ final class SideEffectComparison {
         Map<String, RunSideEffects.Key> after = keys(current, hideRoutes);
         java.util.Set<String> currentOwners = new java.util.HashSet<>();
         after.values().forEach(key -> currentOwners.add(key.scope() + '\u0000' + key.owner()));
+        java.util.Set<String> previousOwners = new java.util.HashSet<>();
+        before.values().forEach(key -> previousOwners.add(key.scope() + '\u0000' + key.owner()));
         List<RuntimeSideEffectSensorDto> sensors = new ArrayList<>();
         List<RuntimeSideEffectChangeDto> changes = new ArrayList<>();
         boolean partial = false;
@@ -90,12 +94,17 @@ final class SideEffectComparison {
                         || (STARTUP.equals(key.scope()) && startupNotCompared != null)) {
                     continue;
                 }
+                if (!exercised(key, previousOwners, exercisedBefore)) {
+                    notExercised++;
+                    changes.add(change(key, RuntimeSideEffectChangeDto.NOT_EXERCISED, false));
+                    continue;
+                }
                 if (previousCut) {
                     withheldAdded++;
                     continue;
                 }
                 added++;
-                changes.add(change(key, RuntimeSideEffectChangeDto.ADDED));
+                changes.add(change(key, RuntimeSideEffectChangeDto.ADDED, true));
             }
             for (Map.Entry<String, RunSideEffects.Key> entry : before.entrySet()) {
                 RunSideEffects.Key key = entry.getValue();
@@ -104,18 +113,14 @@ final class SideEffectComparison {
                         || (STARTUP.equals(key.scope()) && startupNotCompared != null)) {
                     continue;
                 }
-                boolean ownerExercised = STARTUP.equals(key.scope())
-                        || (!HIDDEN_ROUTE.equals(key.owner())
-                                && (currentOwners.contains(key.scope() + '\u0000' + key.owner())
-                                        || exercised.test(key.scope(), key.owner())));
-                if (!ownerExercised) {
+                if (!exercised(key, currentOwners, exercised)) {
                     notExercised++;
-                    changes.add(change(key, RuntimeSideEffectChangeDto.NOT_EXERCISED));
+                    changes.add(change(key, RuntimeSideEffectChangeDto.NOT_EXERCISED, true));
                 } else if (currentCut) {
                     withheldRemoved++;
                 } else {
                     removed++;
-                    changes.add(change(key, RuntimeSideEffectChangeDto.REMOVED));
+                    changes.add(change(key, RuntimeSideEffectChangeDto.REMOVED, true));
                 }
             }
             List<String> notes = new ArrayList<>();
@@ -157,6 +162,18 @@ final class SideEffectComparison {
                         : changes.subList(0, RuntimeRunComparisonDto.MAX_ROWS),
                 total,
                 limitations);
+    }
+
+    /**
+     * Whether a run exercised {@code key}'s owner: startup always; one hidden route never, as it may stand for another
+     * route; any owner with a key in that run, or one {@code exercised} names.
+     */
+    private static boolean exercised(
+            RunSideEffects.Key key, java.util.Set<String> owners, BiPredicate<String, String> exercised) {
+        return STARTUP.equals(key.scope())
+                || (!HIDDEN_ROUTE.equals(key.owner())
+                        && (owners.contains(key.scope() + '\u0000' + key.owner())
+                                || exercised.test(key.scope(), key.owner())));
     }
 
     /** Why sensor {@code id} is not compared at all, or {@code null}. */
@@ -231,7 +248,7 @@ final class SideEffectComparison {
         return keys;
     }
 
-    private static RuntimeSideEffectChangeDto change(RunSideEffects.Key key, String change) {
+    private static RuntimeSideEffectChangeDto change(RunSideEffects.Key key, String change, boolean previousRun) {
         return new RuntimeSideEffectChangeDto(
                 key.sensor(),
                 key.kind(),
@@ -241,11 +258,20 @@ final class SideEffectComparison {
                 change,
                 key.client(),
                 key.count(),
-                sentence(key, change));
+                sentence(key, change, previousRun));
     }
 
-    /** The change as one sentence: {@code `GET /orders` now connects to `api.example.com:443` (JDK HttpClient).} */
+    /** {@link #sentence(RunSideEffects.Key, String, boolean)} for a key of the previous run. */
     static String sentence(RunSideEffects.Key key, String change) {
+        return sentence(key, change, true);
+    }
+
+    /**
+     * The change as one sentence: {@code `GET /orders` now connects to `api.example.com:443` (JDK HttpClient).} A key not
+     * exercised in one run says which: {@code previousRun} for a key of the previous run whose owner this run did not
+     * exercise, else a key of this run whose owner the previous run did not.
+     */
+    static String sentence(RunSideEffects.Key key, String change, boolean previousRun) {
         String owner = "`" + key.owner() + "`";
         String target = "`" + key.target() + "`";
         String what = what(key);
@@ -255,8 +281,11 @@ final class SideEffectComparison {
             case RuntimeSideEffectChangeDto.REMOVED ->
                 owner + " no longer " + what + " " + target + client + suffix(key) + ".";
             default ->
-                owner + " " + past(what) + " " + target + client + " in the previous run, and was not exercised"
-                        + " in this run: not compared.";
+                previousRun
+                        ? owner + " " + past(what) + " " + target + client + " in the previous run, and was not"
+                                + " exercised in this run: not compared."
+                        : owner + " " + what + " " + target + client + suffix(key) + " in this run, and was not"
+                                + " exercised in the previous run: not compared.";
         };
     }
 

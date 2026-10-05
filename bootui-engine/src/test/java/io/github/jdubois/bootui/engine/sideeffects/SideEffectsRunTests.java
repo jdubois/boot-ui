@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
+import io.github.jdubois.bootui.core.dto.SideEffectsRowDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
@@ -56,6 +57,7 @@ class SideEffectsRunTests {
     private final AgentEvidence evidence = new AgentEvidence(
             panel -> panel.equals(BootUiPanels.HTTP_EXCHANGES) ? routesVisible.get() : panelVisible.get(), null);
     private final AtomicLong dropped = new AtomicLong();
+    private final AtomicLong refused = new AtomicLong();
     private final AtomicBoolean recordingNow = new AtomicBoolean(true);
     private final AtomicBoolean recordingAtArm = new AtomicBoolean(true);
     private SideEffectsService service;
@@ -154,9 +156,33 @@ class SideEffectsRunTests {
         service.sensorSwitched("files");
         assertThat(service.runSideEffects().sensor("files").reason()).isEqualTo("it was switched during the run");
 
+        refused.set(2);
+        assertThat(service.runSideEffects().sensor("environment").reason())
+                .isEqualTo("the agent's string table refused 2 strings, so records lost a call site, a thread, or a"
+                        + " target");
+        refused.set(0);
+
         evidence.clear();
         assertThat(service.runSideEffects().sensor("network").reason())
                 .isEqualTo("the recording was cleared during the run");
+    }
+
+    @Test
+    void anotherThreadsWorkBeforeTheApplicationWasReadyIsNoStartupKey() throws Exception {
+        clock.set(System.currentTimeMillis() + 60_000L);
+        start();
+        Thread consumer = new Thread(() -> Launcher.failedStart("consumer-tool"), "kafka-consumer-1");
+        consumer.start();
+        consumer.join();
+        Launcher.failedStart("migrate-tool");
+
+        assertThat(service.runSideEffects().keys())
+                .extracting(RunSideEffects.Key::target)
+                .containsExactly("migrate-tool");
+        assertThat(service.sensor("processes", null, null).rows())
+                .as("the panel still shows both as startup's")
+                .hasSize(2)
+                .allSatisfy(row -> assertThat(row.scope()).isEqualTo(SideEffectsRowDto.STARTUP));
     }
 
     @Test
@@ -280,8 +306,17 @@ class SideEffectsRunTests {
                 clock::get,
                 "/home/someone");
         service.setSamplers(
-                id -> new SideEffectsSample(recordingNow.get(), dropped.get(), 0L, 0L, 0L),
-                (ignored, id) -> new SideEffectsSample(recordingAtArm.get(), 0L, 0L, 0L, 0L));
+                () -> {
+                    Map<String, SideEffectsSample> samples = new LinkedHashMap<>();
+                    for (String id : SideEffectsService.COMPARED_SENSORS) {
+                        samples.put(
+                                id,
+                                new SideEffectsSample(
+                                        recordingNow.get(), dropped.get(), 0L, 0L, 0L, refused.get(), -1L));
+                    }
+                    return samples;
+                },
+                (ignored, id) -> new SideEffectsSample(recordingAtArm.get(), 0L, 0L, 0L, 0L, 0L, -1L));
         service.setRequestRoutes(ids -> {
             Map<String, String> named = new LinkedHashMap<>();
             for (String id : ids) {

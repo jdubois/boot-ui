@@ -181,6 +181,8 @@ export function sideEffectChanges(comparison) {
     available: true,
     reason: null,
     partial: Boolean(changes.partial),
+    // "Nothing changed" only when a sensor was compared and no row was withheld.
+    settled: !changes.partial && (changes.sensors ?? []).some((sensor) => sensor.status === 'COMPARED'),
     sensors: (changes.sensors ?? []).map(sideEffectSensor),
     rows: (changes.changes ?? []).map((change, index) => ({
       key: `${change.change}-${change.sensor}-${change.owner}-${change.kind}-${change.target}-${index}`,

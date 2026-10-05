@@ -28,7 +28,8 @@ class SideEffectComparisonTests {
         RunSideEffects current = run(
                 whole(), key("network", "connect", "api.example.com:443", "route", "GET /orders", "JDK HttpClient", 2));
 
-        RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, false);
+        RuntimeSideEffectChangesDto changes =
+                SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, ORDERS_EXERCISED, false);
 
         assertThat(changes.available()).isTrue();
         assertThat(changes.partial()).isFalse();
@@ -58,13 +59,31 @@ class SideEffectComparisonTests {
     }
 
     @Test
+    void aKeyOfARouteThePreviousRunNeverServedIsNotReportedNew() {
+        RunSideEffects previous = run(whole());
+        RunSideEffects current = run(whole(), key("network", "connect", "api.example.com:443", "route", "GET /new"));
+
+        RuntimeSideEffectChangesDto changes =
+                SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, (scope, owner) -> true, false);
+
+        assertThat(changes.changes()).singleElement().satisfies(change -> {
+            assertThat(change.change()).isEqualTo(RuntimeSideEffectChangeDto.NOT_EXERCISED);
+            assertThat(change.sentence())
+                    .isEqualTo("`GET /new` connects to `api.example.com:443` in this run, and was not exercised in the"
+                            + " previous run: not compared.");
+        });
+        assertThat(changes.sensors().get(0).added()).isZero();
+        assertThat(changes.sensors().get(0).notExercised()).isEqualTo(1);
+    }
+
+    @Test
     void anOwnerThatDidSomethingElseOutsideTheJvmThisRunCountsAsExercised() {
         RunSideEffects previous = run(whole(), key("processes", "process", "git", "execution", "scheduled Sync.run"));
         RunSideEffects current =
                 run(whole(), key("environment", "environment variable", "HOME", "execution", "scheduled Sync.run"));
 
-        RuntimeSideEffectChangesDto changes =
-                SideEffectComparison.compare(previous, current, (scope, owner) -> false, false);
+        RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(
+                previous, current, (scope, owner) -> false, (scope, owner) -> false, false);
 
         assertThat(changes.changes())
                 .extracting(RuntimeSideEffectChangeDto::sentence)
@@ -96,7 +115,8 @@ class SideEffectComparisonTests {
                 key("network", "connect", "new:443", "route", "GET /orders"),
                 key("processes", "process", "git", "route", "GET /orders"));
 
-        RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, false);
+        RuntimeSideEffectChangesDto changes =
+                SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, ORDERS_EXERCISED, false);
 
         assertThat(changes.changes()).isEmpty();
         assertThat(changes.sensors().get(0)).satisfies(sensor -> {
@@ -128,7 +148,8 @@ class SideEffectComparisonTests {
                 key("environment", "environment variable", "STRIPE_KEY", "startup", "startup"),
                 key("environment", "environment variable", "REGION", "route", "GET /orders"));
 
-        RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, false);
+        RuntimeSideEffectChangesDto changes =
+                SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, ORDERS_EXERCISED, false);
 
         assertThat(changes.changes())
                 .extracting(RuntimeSideEffectChangeDto::target)
@@ -156,7 +177,7 @@ class SideEffectComparisonTests {
         RunSideEffects current = run(whole(), key("network", "connect", "new:443", "route", "GET /orders"));
 
         RuntimeSideEffectChangesDto previousCut =
-                SideEffectComparison.compare(cutBefore, current, ORDERS_EXERCISED, false);
+                SideEffectComparison.compare(cutBefore, current, ORDERS_EXERCISED, ORDERS_EXERCISED, false);
 
         assertThat(previousCut.partial()).isTrue();
         assertThat(previousCut.changes())
@@ -175,6 +196,7 @@ class SideEffectComparisonTests {
         RuntimeSideEffectChangesDto currentCut = SideEffectComparison.compare(
                 run(whole(), key("network", "connect", "gone:443", "route", "GET /orders")),
                 cutNow,
+                ORDERS_EXERCISED,
                 ORDERS_EXERCISED,
                 false);
 
@@ -198,13 +220,14 @@ class SideEffectComparisonTests {
                 key("network", "connect", "a:443", "route", "GET /orders"),
                 key("network", "connect", "c:443", "route", "GET /orders"));
 
-        RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, false);
+        RuntimeSideEffectChangesDto changes =
+                SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, ORDERS_EXERCISED, false);
 
         assertThat(changes.changes())
                 .extracting(RuntimeSideEffectChangeDto::target, RuntimeSideEffectChangeDto::change)
                 .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("c:443", RuntimeSideEffectChangeDto.ADDED),
-                        org.assertj.core.groups.Tuple.tuple("b:443", RuntimeSideEffectChangeDto.NOT_EXERCISED));
+                        org.assertj.core.groups.Tuple.tuple("b:443", RuntimeSideEffectChangeDto.NOT_EXERCISED),
+                        org.assertj.core.groups.Tuple.tuple("c:443", RuntimeSideEffectChangeDto.NOT_EXERCISED));
         assertThat(changes.changes())
                 .allSatisfy(change -> assertThat(change.owner()).isEqualTo(SideEffectComparison.HIDDEN_ROUTE));
         assertThat(changes.limitations()).contains(SideEffectComparison.LIMITATION_HIDDEN_ROUTES);
@@ -217,7 +240,11 @@ class SideEffectComparisonTests {
             keys.add(key("network", "connect", "host-" + i + ":443", "route", "GET /orders"));
         }
         RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(
-                run(whole()), new RunSideEffects(null, false, whole(), keys), ORDERS_EXERCISED, false);
+                run(whole()),
+                new RunSideEffects(null, false, whole(), keys),
+                ORDERS_EXERCISED,
+                ORDERS_EXERCISED,
+                false);
 
         assertThat(changes.changes()).hasSize(RuntimeRunComparisonDto.MAX_ROWS);
         assertThat(changes.changesTotal()).isEqualTo(RuntimeRunComparisonDto.MAX_ROWS + 5);

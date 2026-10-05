@@ -9,7 +9,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param target the normalized, masked target: a host and port, a path pattern, a file name, or a variable name
  * @param scope its owner's kind: {@code route}, {@code execution}, or {@code startup}
  * @param owner the route, the execution's label, or {@code startup}
- * @param change {@value #ADDED}, {@value #REMOVED}, or {@value #NOT_EXERCISED} when its owner did not run in this run
+ * @param change {@value #ADDED}, {@value #REMOVED}, or {@value #NOT_EXERCISED} when its owner did not run in the other
+ *     run, so it is not compared
  * @param client the network client recognized, or {@code null}
  * @param count how many operations it counts in the run that has it
  * @param sentence the change as one sentence, with names in backticks

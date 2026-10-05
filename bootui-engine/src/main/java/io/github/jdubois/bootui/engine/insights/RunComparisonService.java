@@ -232,9 +232,24 @@ public final class RunComparisonService {
                     }
                 });
             }
+            Set<String> previousRoutes = new HashSet<>();
+            Set<String> previousExecutions = new HashSet<>();
+            previous.aggregates().routes().forEach(route -> {
+                if (route.requests() > 0) {
+                    previousRoutes.add(route.route());
+                }
+            });
+            previous.aggregates().executions().forEach(execution -> {
+                if (execution.stats().requests() > 0) {
+                    previousExecutions.add(execution.stats().route());
+                }
+            });
             return SideEffectComparison.compare(
                     before,
                     now,
+                    (scope, owner) -> SideEffectComparison.ROUTE.equals(scope)
+                            ? previousRoutes.contains(owner)
+                            : SideEffectComparison.EXECUTION.equals(scope) && previousExecutions.contains(owner),
                     (scope, owner) -> SideEffectComparison.ROUTE.equals(scope)
                             ? routes.contains(owner)
                             : SideEffectComparison.EXECUTION.equals(scope) && executions.contains(owner),

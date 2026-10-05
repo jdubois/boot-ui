@@ -190,7 +190,7 @@ public final class SideEffectsService implements AutoCloseable {
     private boolean replaced;
 
     /** Reads a sensor's state from the bridge now, and when the claim was armed (M5-7b); replaced by tests. */
-    private volatile Function<String, SideEffectsSample> sampler = this::bridgeSample;
+    private volatile Supplier<Map<String, SideEffectsSample>> sampler = this::bridgeSamples;
 
     private volatile java.util.function.BiFunction<AgentClaim, String, SideEffectsSample> armedSampler =
             AgentClaim::armedSideEffects;
@@ -489,6 +489,7 @@ public final class SideEffectsService implements AutoCloseable {
                                     existing.count() + key.count()));
         }
         merged.forEach((sensor, values) -> bySensor.put(sensor, new ArrayList<>(values.values())));
+        Map<String, SideEffectsSample> end = samples();
         List<RunSideEffects.Sensor> sensors = new ArrayList<>();
         List<RunSideEffects.Key> kept = new ArrayList<>();
         for (String id : COMPARED_SENSORS) {
@@ -515,7 +516,7 @@ public final class SideEffectsService implements AutoCloseable {
                     omitted++;
                 }
             }
-            String reason = reason(current, id, sample(id));
+            String reason = reason(current, id, end.getOrDefault(id, SideEffectsSample.NONE));
             String startupReason = reason != null ? reason : startupReason(current, id);
             sensors.add(new RunSideEffects.Sensor(id, reason, startupReason, omitted));
         }
@@ -537,6 +538,10 @@ public final class SideEffectsService implements AutoCloseable {
         if (!end.recording()) {
             return "it was not recording when the run ended";
         }
+        if ((start.generation() >= 0 && start.generation() != current.generation)
+                || (end.generation() >= 0 && end.generation() != current.generation)) {
+            return "the agent recorded for another claim during the run";
+        }
         if (current.switched.contains(id)) {
             return "it was switched during the run";
         }
@@ -554,6 +559,9 @@ public final class SideEffectsService implements AutoCloseable {
         if (unknown > 0) {
             return unknown + (unknown == 1 ? " record's target was" : " records' targets were")
                     + " not kept: the agent reached its bound of distinct targets";
+        }
+        if (current.malformed > 0) {
+            return current.malformed + (current.malformed == 1 ? " record" : " records") + " could not be read";
         }
         long dropped = current.store.dropped(id);
         if (dropped > 0) {
@@ -590,23 +598,28 @@ public final class SideEffectsService implements AutoCloseable {
         return null;
     }
 
-    /** Sensor {@code id}'s state now; not recording when it cannot be read. */
-    private SideEffectsSample sample(String id) {
+    /** The compared sensors' states now, from one read of the bridge; not recording when it cannot be read. */
+    private Map<String, SideEffectsSample> samples() {
         try {
-            SideEffectsSample sample = sampler.apply(id);
-            return sample == null ? SideEffectsSample.NONE : sample;
+            Map<String, SideEffectsSample> samples = sampler.get();
+            return samples == null ? Map.of() : samples;
         } catch (RuntimeException ex) {
-            return SideEffectsSample.NONE;
+            return Map.of();
         }
     }
 
-    private SideEffectsSample bridgeSample(String id) {
-        return SideEffectsSample.read(access.status(), id);
+    private Map<String, SideEffectsSample> bridgeSamples() {
+        Map<String, Object> status = access.status();
+        Map<String, SideEffectsSample> samples = new HashMap<>();
+        for (String id : COMPARED_SENSORS) {
+            samples.put(id, SideEffectsSample.read(status, id));
+        }
+        return samples;
     }
 
     /** Replaces how sensors' states are read, now and at arm time: for tests. */
     void setSamplers(
-            Function<String, SideEffectsSample> now,
+            Supplier<Map<String, SideEffectsSample>> now,
             java.util.function.BiFunction<AgentClaim, String, SideEffectsSample> armed) {
         this.sampler = now;
         this.armedSampler = armed;
@@ -622,12 +635,17 @@ public final class SideEffectsService implements AutoCloseable {
         if (dropped > 0) {
             return "the agent dropped " + dropped + (dropped == 1 ? " record" : " records") + ": its ring was full";
         }
+        // A missing frame or thread name changes a record's origin, client, or owner, so whether it is a key.
+        long interns = (to.internOverflow() - from.internOverflow()) + (to.internRefused() - from.internRefused());
+        if (interns > 0) {
+            return "the agent's string table refused " + interns + (interns == 1 ? " string" : " strings")
+                    + ", so records lost a call site, a thread, or a target";
+        }
         if (SideEffectsCatalog.FILES_ID.equals(id) || SideEffectsCatalog.ENVIRONMENT_ID.equals(id)) {
             long sightings = to.sightingsFull() - from.sightingsFull();
-            long interns = to.internOverflow() - from.internOverflow();
-            if (sightings > 0 || interns > 0) {
-                return "the agent's tables were full, so " + (sightings + interns)
-                        + " records lost their call site or a string";
+            if (sightings > 0) {
+                return "the agent's table of call sites was full, so " + sightings
+                        + (sightings == 1 ? " record" : " records") + " lost their origin";
             }
         }
         return null;
@@ -1389,9 +1407,14 @@ public final class SideEffectsService implements AutoCloseable {
                     evidence.scaled(SideEffectsStore.MAX_ROWS_PER_SENSOR, 50),
                     evidence.scaled(SideEffectsStore.MAX_PENDING, 500));
             this.store.setCapture(networkCapture);
+            Map<String, SideEffectsSample> now = samples();
             for (String id : COMPARED_SENSORS) {
-                started.put(id, sample(id));
+                started.put(id, now.getOrDefault(id, SideEffectsSample.NONE));
             }
+            // Only the thread that finished starting owns startup's keys: other threads' early work may land on either
+            // side of the end of startup from one run to the next (M5-7b).
+            this.store.setStartupThread(
+                    normalizer.threadFamily(Thread.currentThread().getName()));
         }
 
         void start() {

@@ -164,7 +164,7 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
               <span v-if="sensor.reason" class="d-block text-muted">{{ sensor.reason }}</span>
             </li>
           </ul>
-          <p v-if="outside.rows.length === 0" class="small text-muted mb-0">
+          <p v-if="outside.rows.length === 0 && outside.settled" class="small text-muted mb-0">
             No compared route, job, or startup reached a new or different host, file, process, or variable.
           </p>
           <ul v-else class="list-unstyled mb-0 insight-comparison-rows">
