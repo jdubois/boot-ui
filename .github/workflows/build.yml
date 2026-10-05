@@ -351,14 +351,39 @@ jobs:
             report-name: Custom-path end-to-end tests (Playwright)
             report-dir: playwright-report-custom-path
             results-dir: test-results-custom-path
-          # The MVC sample with the BootUI agent attached (PLAN-v2 M5-2): the executors sensor, propagated work in
-          # Live Activity, and work-after-response. Its agent jar comes from the install step's -am build.
+          # The whole MVC suite with the BootUI agent attached (PLAN-v2 M5-2, M5-12): every spec holds with the agent,
+          # and the agent's own specs check the executors sensor, propagated work in Live Activity, work-after-response,
+          # and every sensor's self-test. Its agent jar comes from the install step's -am build.
           - id: agent
             name: MVC with the BootUI agent
             script: test:agent
             report-name: Agent end-to-end tests (Playwright)
             report-dir: playwright-report-agent
             results-dir: test-results-agent
+            agent: true
+          # The agent's evidence specs with another agent beside it (PLAN-v2 §5.13, M5-12): the OpenTelemetry Java agent
+          # before and after it, exporting its spans to BootUI's OTLP receiver, and JaCoCo's agent, serving its coverage
+          # over TCP. Both jars come from Maven Central through the sample's build (target/agent-companions).
+          - id: agent-opentelemetry-first
+            name: MVC with the OpenTelemetry and BootUI agents
+            script: test:agent:opentelemetry-first
+            report-name: Agent beside OpenTelemetry (first) end-to-end tests (Playwright)
+            report-dir: playwright-report-agent-opentelemetry-first
+            results-dir: test-results-agent-opentelemetry-first
+            agent: true
+          - id: agent-opentelemetry-last
+            name: MVC with the BootUI and OpenTelemetry agents
+            script: test:agent:opentelemetry-last
+            report-name: Agent beside OpenTelemetry (last) end-to-end tests (Playwright)
+            report-dir: playwright-report-agent-opentelemetry-last
+            results-dir: test-results-agent-opentelemetry-last
+            agent: true
+          - id: agent-jacoco
+            name: MVC with the JaCoCo and BootUI agents
+            script: test:agent:jacoco
+            report-name: Agent beside JaCoCo end-to-end tests (Playwright)
+            report-dir: playwright-report-agent-jacoco
+            results-dir: test-results-agent-jacoco
             agent: true
           # The whole WebFlux suite with the BootUI agent attached (PLAN-v2 M5-12): every spec holds with the agent, and
           # the Java Agent, Code Inventory, and Code Paths specs assert the armed claim and the recorded run instead.
@@ -404,7 +429,8 @@ jobs:
           -am -DskipTests install
 
       # The agent legs attach bootui-agent/target/bootui-agent-*.jar, which the -am build above produces as the Spring
-      # sample's test-scope dependency: fail here, clearly, rather than with a raw ENOENT from Playwright's config.
+      # sample's test-scope dependency, and the companion legs the agents the sample's build copies to
+      # target/agent-companions: fail here, clearly, rather than with a raw ENOENT from Playwright's config.
       - name: Check the BootUI agent jar
         if: env.SKIP_LEG != 'true' && (matrix.suite.agent)
         run: |
@@ -412,6 +438,12 @@ jobs:
             echo "::error::bootui-agent/target/bootui-agent-*.jar is missing: the Spring sample build must build bootui-agent (-am)."
             exit 1
           fi
+          for jar in opentelemetry-javaagent.jar jacocoagent.jar; do
+            if [ ! -f "bootui-spring-sample-app/target/agent-companions/$jar" ]; then
+              echo "::error::bootui-spring-sample-app/target/agent-companions/$jar is missing: the sample's build copies it."
+              exit 1
+            fi
+          done
 
       - name: Install Playwright dependencies
         if: env.SKIP_LEG != 'true'

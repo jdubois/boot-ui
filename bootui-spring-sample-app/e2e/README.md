@@ -87,16 +87,31 @@ run `export BOOTUI_MAVEN_REPO_LOCAL="$PWD/.m2"` from the repository root.
 
 ## Agent suite
 
-`tests-agent/` runs the Spring MVC sample with the BootUI agent attached (`-javaagent`), where the default suites assert
-the Java Agent panel reports it not attached. It checks the armed claim and the executors sensor's hooks and counters,
-the `ASYNC` entry Live Activity nests under the `work-after-response` seed's request, and that Runtime Insights reports
-the seed but not its counterexample. It also reruns the Live Activity, app-shell, and Java Agent view specs from
-`tests/`; the Java Agent view spec reads the `agentAttached` fixture option, which only this suite sets, and asserts the
-armed claim and its sensor rows there instead of the not-attached state. Build the agent first (`./mvnw install -pl bootui-agent -am`), or set
-`BOOTUI_AGENT_JAR`, then run:
+`playwright.agent.config.js` runs the whole Spring MVC suite (`tests/`) against the sample with the BootUI agent
+attached (`-javaagent`), plus the agent-only specs in `tests-agent/`: the armed claim, every sensor installed and passing
+its self-test with no failed transformation, the executors sensor's hooks and counters, the `ASYNC` entry Live Activity
+nests under the `work-after-response` seed's request, and that Runtime Insights reports the seed but not its
+counterexample. The Java Agent, Code Inventory, Code Paths, and Side Effects specs read the `agentAttached` fixture
+option, which only the agent suites set, and assert the armed claim and the recorded run instead of the not-attached
+state; the read-only spec starts its own samples with the suite's JVM arguments (the `sampleJvmArguments` option), so
+they run with the agent too. Build the sample and the agent first (`./mvnw install -pl bootui-spring-sample-app -am`),
+or set `BOOTUI_AGENT_JAR`, then run:
 
 ```bash
 npm run test:agent
+```
+
+The companion suites (PLAN-v2 §5.13) start the sample with another agent beside BootUI's and run the agent's evidence
+specs (claims and self-tests, Live Activity, Code Paths, Code Inventory, Side Effects) plus a spec in
+`tests-agent-companion/` proving the other agent still works: the OpenTelemetry Java agent, before or after BootUI's,
+exports the sample's request spans to BootUI's OTLP receiver under a service name of its own; JaCoCo's agent records the
+coverage of the requests through the sample, read from its TCP server. Their jars are the ones the sample's build copies
+from Maven Central to `../target/agent-companions`. Set `BOOTUI_JACOCO_PORT` to move JaCoCo off port `6300`:
+
+```bash
+npm run test:agent:opentelemetry-first
+npm run test:agent:opentelemetry-last
+npm run test:agent:jacoco
 ```
 
 To explore the sample with the agent attached by hand, against PostgreSQL, run

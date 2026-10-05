@@ -17,8 +17,12 @@ test.describe.configure({mode: 'serial'})
 test.describe('Read-only properties', () => {
   test.setTimeout(300_000)
 
-  test('global read-only locks action panels in the API and browser UI', async ({page, request}) => {
-    const app = await startSampleApp({'bootui.read-only': 'true'})
+  test('global read-only locks action panels in the API and browser UI', async ({
+    page,
+    request,
+    sampleJvmArguments
+  }) => {
+    const app = await startSampleApp({'bootui.read-only': 'true'}, sampleJvmArguments)
 
     try {
       const panels = await fetchPanels(request, app.baseUrl)
@@ -55,8 +59,8 @@ test.describe('Read-only properties', () => {
     }
   })
 
-  test('per-panel read-only locks only the configured action panel', async ({page, request}) => {
-    const app = await startSampleApp({'bootui.panels.http-probe.read-only': 'true'})
+  test('per-panel read-only locks only the configured action panel', async ({page, request, sampleJvmArguments}) => {
+    const app = await startSampleApp({'bootui.panels.http-probe.read-only': 'true'}, sampleJvmArguments)
 
     try {
       const panels = await fetchPanels(request, app.baseUrl)
@@ -153,7 +157,11 @@ async function assertBlockedPanelAccess(response, panel, reason) {
 /**
  * @param {Record<string, string>} properties
  */
-async function startSampleApp(properties) {
+/**
+ * @param {Record<string, string>} properties
+ * @param {string} jvmArguments the suite's sample JVM arguments, so the agent suite attaches the agent here too
+ */
+async function startSampleApp(properties, jvmArguments) {
   const port = await findAvailablePort()
   const baseUrl = `http://127.0.0.1:${port}`
   const output = createOutputBuffer()
@@ -176,7 +184,7 @@ async function startSampleApp(properties) {
       path.join(sampleAppDir, 'pom.xml'),
       '-q',
       'spring-boot:run',
-      '-Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false',
+      `-Dspring-boot.run.jvmArguments=${jvmArguments}`,
       `-Dspring-boot.run.arguments=${springArguments}`
     ],
     {

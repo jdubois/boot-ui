@@ -22,14 +22,16 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   Spring and Quarkus Playwright suites. To keep it fast, the per-extension Quarkus integration-test modules run in a
   parallel `quarkus-extension-its` job (the main build passes `-Dbootui.skipQuarkusExtensionIts`; the `base` module
   stays in the main build because it feeds the coverage aggregate), and each Spring and Quarkus Playwright suite,
-  including the agent-attached ones, is its own matrix leg. The `agent-overhead` job records the BootUI agent's
+  including the agent-attached ones and the companion legs that attach the OpenTelemetry Java agent (both orders) or
+  JaCoCo's agent beside BootUI's, is its own matrix leg. Companion agent jars come from Maven Central through the
+  sample's build (`target/agent-companions`), never from a download in a workflow step. The `agent-overhead` job records the BootUI agent's
   overhead benchmark, warns above its 10 % budget, and fails only above 30 %. The agent-attached legs, `agent-overhead`,
   and the JDK lanes run on every push to `main` and `v2`, every pull request into `main`, and the nightly schedule; a
   pull request into `v2` runs them only when it changes a path listed in `.github/scripts/agent-changes.sh` or carries
   the `agent` label (otherwise the agent legs pass without starting anything). Keep that path list in step with new
   agent-backed code. `jdk-compatibility.yml` covers
-  Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, and the Spring sample's agent integration
-  tests, plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
+  Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, the Spring sample's agent integration
+  tests, and the whole Spring MVC browser suite with the agent attached (`agent-e2e`), plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
 - Quarkus/Hibernate build-time augmentation is gated to the JDKs the shared Quarkus LTS platform supports. Preserve the
   JDK skip profile and the matrix gating rather than widening a job onto an unsupported JDK.
