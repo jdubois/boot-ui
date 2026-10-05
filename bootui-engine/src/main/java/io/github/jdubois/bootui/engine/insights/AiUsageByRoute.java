@@ -16,13 +16,20 @@ import java.util.Set;
  * {@code ai-usage-by-route} ({@code docs/PLAN-v2.md} §5.5): the AI operations each route's requests or jobs made, each
  * stamped with its request or execution when the AI framework reported it (M3-9), or else linked by its GenAI span's
  * trace id: model calls per request, which reveals agent loops, latency, errors, tokens with their coverage, input
- * growth across a request's successive model calls, and calls stopped at the length limit. Never a money figure.
+ * that grew by half or more across a request's successive model calls, and calls stopped at the length limit. Never a
+ * money figure.
  */
 public final class AiUsageByRoute implements Observation {
 
     public static final String KIND = "ai-usage-by-route";
 
     static final int MIN_OPERATIONS = 3;
+
+    /**
+     * How many times its first model call's input a request's last one must reach for its input to have grown (M4-20's
+     * adjudication follow-up 2): a tool round-trip resends the question with a short tool result, which is not growth.
+     */
+    static final double MIN_GROWTH = 1.5;
 
     /** The tokens of one model call above which a single call is enough to report the route. */
     public static final long DEFAULT_TOKEN_THRESHOLD = 8_000;
@@ -132,7 +139,7 @@ public final class AiUsageByRoute implements Observation {
         }
         sentence.append('.');
         if (usage.growingRequests > 0) {
-            sentence.append(" Input tokens grew across successive model calls in ")
+            sentence.append(" Input tokens grew by half or more across successive model calls in ")
                     .append(InsightText.counted(usage.growingRequests, "request"))
                     .append(", up to ")
                     .append(String.format(Locale.ROOT, "%.1f", usage.largestGrowth))
@@ -158,13 +165,21 @@ public final class AiUsageByRoute implements Observation {
                     + " caps its iterations.");
         }
         if (usage.growingRequests > 0) {
-            checks.add("Input that grows with each call resends the conversation: trim or summarize what is sent.");
+            checks.add(
+                    usage.mostCallsInOneRequest > 2
+                            ? "Input that grows with each call resends the conversation: trim or summarize what is sent."
+                            : "The second call's input grew with what the first call returned, such as a tool's result:"
+                                    + " check what that tool returns if it is large.");
         }
         if (usage.lengthLimited > 0) {
             checks.add("A length-limited answer is cut off: raise the output limit or ask for a shorter answer.");
         }
         if (checks.isEmpty()) {
-            checks.add("Open an exemplar request's trace to see each operation in order.");
+            checks.add(
+                    usage.mostCallsInOneRequest == 2
+                            ? "Two model calls in one request is the shape of one tool call and its answer: open an"
+                                    + " exemplar request's trace to see each operation in order."
+                            : "Open an exemplar request's trace to see each operation in order.");
         }
         List<String> limitations = new ArrayList<>();
         if (usage.traceLinked > 0) {
@@ -269,7 +284,7 @@ public final class AiUsageByRoute implements Observation {
             outputTokens += requestOut;
             mostCallsInOneRequest = Math.max(mostCallsInOneRequest, calls);
             callsPerRequest.put(request.requestId(), calls);
-            if (calls >= 2 && firstInput != null && firstInput > 0 && lastInput > firstInput) {
+            if (calls >= 2 && firstInput != null && firstInput > 0 && lastInput >= firstInput * MIN_GROWTH) {
                 growingRequests++;
                 largestGrowth = Math.max(largestGrowth, (double) lastInput / firstInput);
             }
