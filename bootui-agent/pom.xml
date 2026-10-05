@@ -92,6 +92,50 @@
             <version>${jacoco-agent.version}</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            Test only: the caught-exceptions visit's verifier stress test (CaughtExceptionsVerifierIT) defines every class
+            of these frameworks with and without the visit, so their bytecode, not just javac's on the fixtures, proves
+            the visit's frames and exception tables. Never on the agent's runtime class path.
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-http</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- kotlinc's output: coroutine state machines, $default methods, and inlined lambdas. -->
+            <groupId>org.jetbrains.kotlinx</groupId>
+            <artifactId>kotlinx-coroutines-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-vertx-http</artifactId>
+            <version>${quarkus.platform.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test only: the caught-exceptions sensor's records on a thread BlockHound watches. -->
+            <groupId>io.projectreactor.tools</groupId>
+            <artifactId>blockhound</artifactId>
+            <version>${blockhound.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <!-- Test only: JaCoCo's agent beside the BootUI agent must still write its coverage. -->
             <groupId>org.jacoco</groupId>
@@ -300,6 +344,11 @@
                 <configuration>
                     <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
                     <skipTests>${skipTests}</skipTests>
+                    <!--
+                        The compiled classes, not the shaded jar, whose agent classes are hidden from the class path by
+                        design: the verifier stress test applies the caught-exceptions visit in this JVM.
+                    -->
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <bootui.agent.jar>${bootui.agent.jar}</bootui.agent.jar>

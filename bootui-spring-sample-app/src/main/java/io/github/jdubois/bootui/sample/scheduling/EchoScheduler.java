@@ -10,7 +10,7 @@ public class EchoScheduler {
 
     private static final Logger logger = LoggerFactory.getLogger(EchoScheduler.class);
 
-    @Scheduled(fixedRate = 30_000)
+    @Scheduled(fixedRate = 300_000)
     public void echo() {
         logger.info("echo");
     }

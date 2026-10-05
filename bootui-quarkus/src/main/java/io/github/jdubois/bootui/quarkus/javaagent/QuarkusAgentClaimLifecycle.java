@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.javaagent;
 
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
@@ -18,7 +19,7 @@ import java.util.function.Supplier;
 /**
  * Follows this start's claim on the BootUI Java agent through the application's lifecycle ({@code docs/PLAN-v2.md}
  * D34): refines it once the application started, attaches the engine's {@link AgentHandoffs}, and starts Code
- * Inventory and Code Paths, and disarms it when the application stops, which a live reload does
+ * Inventory, Code Paths, Side Effects, and the caught exceptions' routing, and disarms it when the application stops, which a live reload does
  * before the next start claims again. Disarming is idempotent, so the shutdown event and the bean's destruction may
  * both disarm.
  */
@@ -30,6 +31,7 @@ public class QuarkusAgentClaimLifecycle {
     private final Supplier<CodeInventoryService> codeInventory;
     private final Supplier<CodePathsService> codePaths;
     private final Supplier<SideEffectsService> sideEffects;
+    private Supplier<AgentCaughtExceptions> caughtExceptions = () -> null;
 
     @Inject
     public QuarkusAgentClaimLifecycle(
@@ -37,13 +39,15 @@ public class QuarkusAgentClaimLifecycle {
             Instance<AgentHandoffs> handoffs,
             Instance<CodeInventoryService> codeInventory,
             Instance<CodePathsService> codePaths,
-            Instance<SideEffectsService> sideEffects) {
+            Instance<SideEffectsService> sideEffects,
+            Instance<AgentCaughtExceptions> caughtExceptions) {
         this(
                 claim.isResolvable() ? claim.get().claim() : null,
                 handoffs.isResolvable() ? handoffs.get() : null,
                 () -> codeInventory.isResolvable() ? codeInventory.get() : null,
                 () -> codePaths.isResolvable() ? codePaths.get() : null,
                 () -> sideEffects.isResolvable() ? sideEffects.get() : null);
+        this.caughtExceptions = () -> caughtExceptions.isResolvable() ? caughtExceptions.get() : null;
     }
 
     QuarkusAgentClaimLifecycle(AgentClaim claim) {
@@ -97,6 +101,11 @@ public class QuarkusAgentClaimLifecycle {
             CodePathsService paths = codePaths.get();
             if (paths != null) {
                 paths.start();
+            }
+            // Caught exceptions into the runtime journal (PLAN-v2 M5-6a), when the claim asked for the sensor.
+            AgentCaughtExceptions caught = caughtExceptions.get();
+            if (caught != null) {
+                caught.start();
             }
             // Side Effects' rows from the side-effect sensors (PLAN-v2 §5.16): startup ends here for its attribution.
             SideEffectsService effects = sideEffects.get();
