@@ -30,7 +30,7 @@
         </dependency>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-spring-autoconfigure</artifactId>
+            <artifactId>bootui-spring-boot-starter</artifactId>
         </dependency>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>

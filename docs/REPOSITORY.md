@@ -4,14 +4,14 @@
 
 - `bootui-core`: shared DTOs, secret masking, and core helpers.
 - `bootui-engine`: framework-neutral services/advisors and SPI ports.
-- `bootui-spring-autoconfigure`: Spring MVC/WebFlux adapter (auto-configuration, endpoints, safety).
-- `bootui-spring-boot-starter`: Spring MVC starter dependency.
-- `bootui-spring-boot-starter-reactive`: Spring WebFlux starter dependency.
+- `bootui-spring-boot-starter`: the Spring MVC/WebFlux adapter and its starter (auto-configuration, endpoints, safety,
+  and the bundled UI). It brings no web stack; the application's own web starter decides.
 - `bootui-ui`: Vue 3 frontend packaged into `META-INF/resources/bootui/`.
 - `bootui-conformance`: shared HTTP contract suite and golden panel manifests for all adapters.
 - `bootui-coverage`: aggregated coverage report (built by the `coverage` profile only).
-- `bootui-client`: dependency-free client for the command-line endpoint; depends on nothing, not even `bootui-core`.
-- `bootui-cli`: the `bootui` command-line interface, generated from the engine's MCP tool catalog.
+- `bootui-cli`: the `bootui` command-line interface, generated from the engine's MCP tool catalog, and the
+  dependency-free client it is built on (package `io.github.jdubois.bootui.client`, nothing outside the JDK; picocli is
+  optional, and the runnable artifact is the shaded `all` classifier).
 - `bootui-agent-bridge`: the JDK-only contract between the engine and the Java agent, loaded by the bootstrap class
   loader. Built and shaded into `bootui-agent`, never published on its own.
 - `bootui-agent`: the optional, development-time `-javaagent` jar, published to Maven Central with no dependency for its
@@ -37,6 +37,16 @@ When these are updated, refresh matching documentation references in the same pu
 `bootui-quarkus-parent`, which imports the Quarkus BOM closer than the root parent imports Spring Boot's BOM. This keeps
 the two frameworks' shared transitive dependencies isolated while giving the extension, tests, and sample app one
 Quarkus LTS version.
+
+## Published artifacts
+
+Maven Central receives eight coordinates under `com.julien-dubois.bootui`: `bootui-core`, `bootui-engine`, `bootui-ui`,
+`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli` (with its `all` classifier),
+and `bootui-agent`. Their POMs are flattened by `flatten-maven-plugin`: no `<parent>`, every dependency version
+resolved, and the project metadata inlined, so neither `bootui-parent` nor `bootui-quarkus-parent` is published. Every
+other module is built but never published. `.github/scripts/stage-release-candidate.sh` builds the exact Central bundle
+into a local file repository, and `.github/scripts/consumer-smoke-tests.sh <version> <directory>` runs the release's
+consumer smoke tests against it.
 
 ## Documentation website
 

@@ -1,5 +1,5 @@
 ---
-applyTo: "bootui-cli/**,bootui-client/**,bootui-engine/**/mcp/**,bootui-engine/**/cli/**,docs/AI-AGENTS.md,docs/CLI.md,skills/**"
+applyTo: "bootui-cli/**,bootui-engine/**/mcp/**,bootui-engine/**/cli/**,docs/AI-AGENTS.md,docs/CLI.md,skills/**"
 ---
 
 # CLI, client, and MCP tools
@@ -11,8 +11,11 @@ applyTo: "bootui-cli/**,bootui-client/**,bootui-engine/**/mcp/**,bootui-engine/*
   fails when the catalog, the command paths, and the checked-in manifest disagree.
 - Command paths must be unique, and no path may be a prefix of another. `bootui traces` cannot be both a command and the
   parent of `bootui traces clear`, because picocli would make one of the two tools uninvokable.
-- `bootui-client` stays dependency-free. It depends on nothing at runtime, not even `bootui-core`, so it can be dropped
-  into any build; keep its JSON handling self-contained rather than reaching for a JSON library or a shared DTO.
+- The client, the `io.github.jdubois.bootui.client` package of `bootui-cli`, stays dependency-free. It reaches nothing
+  outside the JDK, not even `bootui-core` or the CLI's own picocli code, so tooling can depend on `bootui-cli` for it;
+  keep its JSON handling self-contained rather than reaching for a JSON library or a shared DTO. `ClientDependencyTests`
+  enforces this. picocli stays `<optional>` in `bootui-cli`'s POM; the runnable CLI is the shaded `all` classifier,
+  never the thin jar.
 - Adding an MCP tool is a lockstep change: `McpToolCatalog` and `McpToolDescriptions` (plus their tests), the Spring MVC
   `BootUiMcpTools`, the WebFlux `ReactiveBootUiMcpTools`, the Quarkus `QuarkusMcpTools` where the capability exists,
   their adapter bean/producer methods, the CLI command path and manifest, and `docs/AI-AGENTS.md`, `docs/CLI.md`, and

@@ -4,8 +4,8 @@
 
 BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
 running application. It runs on **Spring Boot 4 (servlet or WebFlux) and Quarkus** from a single codebase: each stack
-ships a thin adapter — a Spring Boot starter (`bootui-spring-boot-starter` for servlet, `bootui-spring-boot-starter-reactive`
-for WebFlux) or a Quarkus extension — over a shared, framework-neutral engine, so all three serve the
+ships a thin adapter — one Spring Boot starter (`bootui-spring-boot-starter`, for servlet and WebFlux alike) or a
+Quarkus extension — over a shared, framework-neutral engine, so all three serve the
 **same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
 Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development
 loop of a single application.
@@ -2843,11 +2843,8 @@ BootUI/
 ├── bootui-engine/
 ├── bootui-conformance/
 ├── bootui-ui/
-├── bootui-client/
 ├── bootui-cli/
-├── bootui-spring-autoconfigure/
 ├── bootui-spring-boot-starter/
-├── bootui-spring-boot-starter-reactive/
 ├── bootui-spring-sample-app/
 ├── bootui-spring-webflux-sample-app/
 ├── bootui-quarkus-parent/
@@ -2869,18 +2866,19 @@ Shared modules:
 - `bootui-conformance`: the shared HTTP contract suite and golden panel manifests run against every adapter.
 - `bootui-ui`: the Vue 3 / Composition API / Vite / Bootstrap 5.3 SPA, built once into
   `META-INF/resources/bootui/` and served unchanged by every adapter.
-- `bootui-client`: the dependency-free client for the command-line endpoint — URL and token handling, tool invocation,
-  outcome mapping, and an opaque JSON tree. Depends on nothing, not even `bootui-core`, so it stays version-compatible
-  with applications it was not built against.
 - `bootui-cli`: the `bootui` command-line interface, a picocli tree generated from the engine's tool catalog and
-  published as a runnable uber-jar.
+  published as a runnable uber-jar (the `all` classifier), together with the dependency-free client for the
+  command-line endpoint, the `io.github.jdubois.bootui.client` package — URL and token handling, tool invocation,
+  outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even `bootui-core` or
+  picocli, so it stays version-compatible with applications it was not built against; picocli is an optional
+  dependency of `bootui-cli`, so tooling that depends on it for the client gets no dependency at all.
 
 Spring Boot modules:
 
-- `bootui-spring-autoconfigure`: shared Spring MVC/WebFlux auto-configuration, thin endpoint bindings, Spring SPI
-  implementations, safety filters, and Spring bootstrap integrations.
-- `bootui-spring-boot-starter`: drop-in Spring MVC/servlet starter.
-- `bootui-spring-boot-starter-reactive`: drop-in Spring WebFlux/reactive starter.
+- `bootui-spring-boot-starter`: the drop-in Spring MVC and Spring WebFlux starter: shared auto-configuration, thin
+  endpoint bindings, Spring SPI implementations, safety filters, Spring bootstrap integrations, and the bundled UI. It
+  brings no web stack, so the application's own `spring-boot-starter-web` or `spring-boot-starter-webflux` decides
+  which binding activates.
 - `bootui-spring-sample-app`: Spring MVC reference app and Playwright end-to-end suite.
 - `bootui-spring-webflux-sample-app`: Spring WebFlux reference app and conformance target.
 
@@ -2893,8 +2891,10 @@ Quarkus modules:
 - `bootui-quarkus-sample-app`: Quarkus reference app.
 
 Dependency direction is one-way: `bootui-engine` depends on `bootui-core`, and each framework adapter depends on both.
-`bootui-client` sits outside that chain entirely and depends on nothing; `bootui-cli` depends on it and on picocli, and
-on `bootui-engine` only in test scope, to generate its command manifest.
+`bootui-cli` sits outside that chain entirely: its client package depends on nothing, its command line on picocli
+(optional), and it uses `bootui-engine` only in test scope, to generate its command manifest. Maven Central receives
+eight coordinates, each with a flattened, parentless POM: `bootui-core`, `bootui-engine`, `bootui-ui`,
+`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`.
 The shared `core`, `engine`, `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing and
 serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
 
@@ -3431,8 +3431,10 @@ Design rules:
 ### 6.9 The `bootui` command-line interface
 
 `bootui-cli` is the terminal front-end over that endpoint: one subcommand per tool, `--json` for the exact payload,
-and an exit code a script can branch on. `bootui-client` is the transport underneath it, kept separate so a future
-Maven plugin or third-party tooling has the same foundation without inheriting a CLI's argument parsing.
+and an exit code a script can branch on. The transport underneath it is the dependency-free
+`io.github.jdubois.bootui.client` package of the same artifact, so a future Maven plugin or third-party tooling has the
+same foundation without inheriting a CLI's argument parsing: picocli is an optional dependency of `bootui-cli`, and the
+runnable CLI is the shaded `bootui-cli-<version>-all.jar`, never the thin jar.
 
 Design rules:
 
@@ -3442,8 +3444,8 @@ Design rules:
   over the catalog. Adding an MCP tool without giving it a command therefore fails the build, and a hand-written
   command for a tool that no longer exists cannot survive either. A second test runs every command against a stub and
   asserts it reaches the tool it claims to, so a tree that builds but shadows a leaf is caught as well.
-- **No compile-time coupling to BootUI's types.** `bootui-client` depends on nothing — not `bootui-core`, not Jackson,
-  not an HTTP library beyond the JDK's — and treats payloads as opaque JSON re-emitted verbatim. A CLI from one
+- **No compile-time coupling to BootUI's types.** The client package depends on nothing — not `bootui-core`, not
+  Jackson, not picocli, not an HTTP library beyond the JDK's, enforced by `ClientDependencyTests` — and treats payloads as opaque JSON re-emitted verbatim. A CLI from one
   release has to keep working against an application running another, which rules out sharing DTO records with it.
   The engine is a *test-scoped* dependency of `bootui-cli`, used only to generate the manifest.
 - **Runtime discovery is authoritative.** The bundled manifest exists so `--help` works with nothing running. What a

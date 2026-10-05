@@ -105,6 +105,11 @@
 
     <build>
         <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <!-- The agent's heap walk, for BootUiAgentLiveReloadLeakIT. -->
                 <groupId>org.codehaus.mojo</groupId>

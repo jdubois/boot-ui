@@ -12,30 +12,99 @@
 
     <artifactId>bootui-spring-boot-starter</artifactId>
     <name>BootUI :: Spring Boot Starter</name>
-    <description>Drop-in starter that adds the BootUI developer console to any Spring Boot 4 application.</description>
+    <description>Adds the BootUI developer console to a Spring Boot 4 application, on Spring MVC or Spring WebFlux:
+        the auto-configuration and the bundled UI. It brings no web stack; the application's own
+        spring-boot-starter-web or spring-boot-starter-webflux decides which one BootUI binds to.</description>
 
     <dependencies>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-spring-autoconfigure</artifactId>
+            <artifactId>bootui-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-engine</artifactId>
         </dependency>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-ui</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.tngtech.archunit</groupId>
-            <artifactId>archunit</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!--
+          The web stack is the application's choice, never BootUI's. Both stacks are compiled against
+          (the servlet binding and the reactive binding, BootUiReactiveAutoConfiguration and its
+          WebFilter/WebFluxConfigurer ports) but are provided by the application at run time: a WebFlux
+          application that received spring-boot-starter-web from this starter would become a SERVLET
+          application, and a Spring MVC application that received the reactive stack would carry Netty.
+          The maven-enforcer-plugin execution below fails the build if either stack ever reaches this
+          starter's compile or runtime dependencies.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!--
+          Micrometer Context Propagation, optional: the reactive adapter registers a ThreadLocalAccessor for
+          BootUI's request correlation only when the application has it (it arrives with Micrometer Tracing).
+          The accessor is loaded solely from a @ConditionalOnClass nested configuration.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          Spring for GraphQL, optional: BootUI names each GraphQL operation's route from the graphql.request
+          observation (docs/PLAN-v2.md §5.1). Loaded only from a @ConditionalOnClass nested configuration.
+        -->
+        <dependency>
+            <groupId>org.springframework.graphql</groupId>
+            <artifactId>spring-graphql</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          RestClientCustomizer/RestTemplateCustomizer (org.springframework.boot.restclient) and
+          WebClientCustomizer (org.springframework.boot.webclient) each moved to their own Spring Boot 4
+          module and are not transitively pulled in by spring-boot-starter-web/-webflux. Both are gated by
+          @ConditionalOnClass nested configuration in BootUiAutoConfiguration for the REST Client
+          panel, so they stay optional here too.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webclient</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- BootUI's Traces panel reads the spans the application records through Micrometer Tracing with the
+             OpenTelemetry bridge, so the starter brings both. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
@@ -44,46 +113,575 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-tracing-bridge-otel</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-actuator-autoconfigure</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-health</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-commons</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-jpa</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          Hibernate ORM, optional (not transitive): needed solely to compile the Hibernate Session
+          Monitoring panel (SpringHibernateStatisticsProvider), which unwraps the application's
+          EntityManagerFactory to org.hibernate.SessionFactory and reads org.hibernate.stat.Statistics.
+          optional=true keeps it out of a Hibernate-absent application's classpath; the provider class is
+          only loaded (JVM class-loading, not just referenced) from within the
+          @ConditionalOnClass(name = {"jakarta.persistence.EntityManagerFactory", "org.hibernate.SessionFactory"})
+          HibernateAdvisorConfiguration nested class, so R2 (no optional-dependency classloading trap) holds.
+        -->
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jdbc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          Fault Tolerance panel providers. Resilience4j ships each protection as its own artifact and an
+          application typically adopts only some of them, so every module stays optional and each is read by
+          a separately loaded reader class. Spring Retry is likewise optional and unmanaged by the Spring
+          Boot 4.1 BOM, so both carry explicit versions from the root pom.
+        -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>${resilience4j.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-retry</artifactId>
+            <version>${resilience4j.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-ratelimiter</artifactId>
+            <version>${resilience4j.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-bulkhead</artifactId>
+            <version>${resilience4j.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-timelimiter</artifactId>
+            <version>${resilience4j.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.retry</groupId>
+            <artifactId>spring-retry</artifactId>
+            <version>${spring-retry.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+            <!-- Explicit Spring Kafka 4.1 override aligned with the Spring Boot 4.1 / Spring
+                 Framework 7 baseline. -->
+            <version>4.1.1</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <!-- spring-jms: JmsTemplate and AbstractJmsListenerContainerFactory for the JMS
+                 producer/consumer capture post-processors. Version is managed by the Spring Boot
+                 parent BOM (org.springframework:spring-jms). Optional so it is not propagated to
+                 applications; JmsBackendConfiguration's classpath gate handles safe absence. -->
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jms</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <!-- jakarta.jms-api: the JMS 3.1 API types (Queue, Topic, Message, etc.) used by
+                 spring-jms. spring-jms declares this as a Gradle compileOnly dep but not in its
+                 published Maven POM, so we must add it explicitly here. Version is managed by
+                 the Spring Boot BOM. Optional so it is not propagated to applications. -->
+            <groupId>jakarta.jms</groupId>
+            <artifactId>jakarta.jms-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.amqp</groupId>
+            <artifactId>spring-rabbit</artifactId>
+            <!-- Optional: only compiled against and activated when spring-boot-starter-amqp
+                 (which provides spring-rabbit) is on the classpath; the BPP beans are gated
+                 on @ConditionalOnClass(RabbitTemplate) so they never wire in its absence. -->
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <!-- spring-websocket: WebSocketHandlerMapping/WebSocketHandlerDecorator for the
+                 WebSockets panel's topology reader and STOMP capture decorator. Version is managed
+                 by the Spring Boot parent BOM. Optional so it is not propagated to applications;
+                 WebSocketBackendConfiguration's classpath gate handles safe absence. -->
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-websocket</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <!-- spring-messaging: SimpAnnotationMethodMessageHandler and the STOMP channel
+                 interceptor types the WebSockets panel reads destinations from. Declared optional in
+                 spring-websocket's own POM, so it must be listed explicitly here. -->
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-messaging</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-config</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-resource-server</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-webauthn</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-security</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-security-oauth2-resource-server</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry.proto</groupId>
+            <artifactId>opentelemetry-proto</artifactId>
+            <version>${opentelemetry-proto.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Test-scope only: PostgresDatabaseAdvisorLiveTests and MariaDbDatabaseAdvisorLiveTests exercise the
+          Database Advisor's vendor catalog augmentation against real servers, because partition/sequence
+          ownership (PostgreSQL) and the information_schema column set (MySQL 8.0's IS_VISIBLE versus
+          MariaDB 10.6's IGNORED) cannot be proven against a hand-built model. The activity package's
+          *ActivityStoreLiveTests likewise run the Live Activity durable store against real PostgreSQL, MySQL,
+          MariaDB and Oracle servers, whose DDL and row-limit syntax H2 cannot stand in for. All skip without
+          Docker.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mariadb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mariadb.jdbc</groupId>
+            <artifactId>mariadb-java-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Test-scope only: OracleDatabaseAdvisorLiveTests exercises the Database Advisor's Oracle ALL_*
+          catalog augmentation against a real 23ai (Oracle Database Free, a 19c+ superset) server, because
+          index/constraint/sequence catalog shapes cannot be proven against a hand-built model, and
+          OracleActivityStoreLiveTests proves the Live Activity durable store's Oracle DDL (NUMBER(19), since
+          Oracle has no BIGINT). There is no production ojdbc dependency anywhere else in this project; the
+          engine reads Oracle through plain java.sql.* against whatever Connection the host application's own
+          datasource supplies. Skips without Docker.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-oracle-free</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Test-scope only: LiveActivityControllerTests exercises the "Use the existing datasource"
+          switch action's success path against a real, disposable database rather than mocking
+          java.sql.*, mirroring bootui-engine's ActivitySwitchServiceTests/JdbcActivityStoreTests. H2's
+          version is managed by the imported spring-boot-dependencies BOM.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Spring Data Redis, optional (not transitive): compiled against by RedisSpringCacheInspector, which
+          reads a RedisCache's configured time-to-live and locally recorded statistics for the Cache panel's
+          tier view. optional=true keeps it out of a Redis-absent application's classpath; the inspector class
+          is only instantiated (and therefore only class-loaded) after SpringCacheInspectors' ClassUtils
+          presence check, so R2 (no optional-dependency classloading trap) holds. Also used at test scope by
+          CracRuntimeInventoryCollectorTests, which constructs a real RedisCacheManager over a mocked
+          RedisConnectionFactory (no live Redis needed). Version is managed by the Spring Boot BOM imported at
+          the root pom.
+        -->
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          Caffeine, optional (not transitive): compiled against by CaffeineSpringCacheInspector, which reads a
+          Caffeine cache's public Policy (maximum size, expiry) and CacheStats counters. Gated the same way as
+          Spring Data Redis above.
+        -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          spring-context-support, optional (not transitive): provides Spring's CaffeineCacheManager, which
+          CaffeineSpringCacheManagerInspector classifies. Gated on both this type and Caffeine itself, because
+          an application can carry Caffeine for another purpose (a JCache region factory) without it.
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context-support</artifactId>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
+            <!--
+                The starter must never choose the application's web stack. Spring Boot deduces the web application
+                type from the classpath: a WebFlux application that received the servlet stack (Spring MVC, Tomcat,
+                the Servlet API) from BootUI would start as a SERVLET application, and a Spring MVC application that
+                received the reactive stack would carry Netty. Both stacks are therefore provided-scope above, and
+                this rule fails the build if a servlet or reactive web-server artifact reaches the starter's compile
+                or runtime dependencies through any other dependency, optional ones included. One case it cannot see:
+                Maven keeps a direct dependency's own scope, so if a compile dependency ever pulled in one of the two
+                provided web starters itself, that starter would still be reported as provided. The release consumer
+                smoke tests (.github/scripts/consumer-smoke-tests.sh, also run by build.yml) check the consumer's
+                real runtime classpath and catch that. check-release-integrity.sh pins this execution.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
+                <artifactId>maven-enforcer-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>prepare-empty-javadocs</id>
-                        <phase>generate-resources</phase>
+                        <id>no-web-stack</id>
+                        <phase>validate</phase>
                         <goals>
-                            <goal>run</goal>
+                            <goal>enforce</goal>
                         </goals>
                         <configuration>
-                            <target>
-                                <mkdir dir="${project.build.directory}/empty-javadocs"/>
-                            </target>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>org.springframework.boot:spring-boot-starter-web:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-webmvc:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-tomcat:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-tomcat-runtime:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-jetty:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-jetty-runtime:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-undertow:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-webflux:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-reactor-netty:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-webmvc:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-webflux:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-tomcat:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-jetty:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-reactor-netty:*:*:compile</exclude>
+                                        <exclude>org.springframework:spring-webmvc:*:*:compile</exclude>
+                                        <exclude>org.apache.tomcat.embed:*:*:*:compile</exclude>
+                                        <exclude>org.eclipse.jetty:*:*:*:compile</exclude>
+                                        <exclude>org.eclipse.jetty.ee11:*:*:*:compile</exclude>
+                                        <exclude>io.undertow:*:*:*:compile</exclude>
+                                        <exclude>jakarta.servlet:jakarta.servlet-api:*:*:compile</exclude>
+                                        <exclude>io.projectreactor.netty:reactor-netty-http:*:*:compile</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-web:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-webmvc:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-tomcat:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-tomcat-runtime:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-jetty:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-jetty-runtime:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-undertow:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-webflux:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-starter-reactor-netty:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-webmvc:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-webflux:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-tomcat:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-jetty:*:*:runtime</exclude>
+                                        <exclude>org.springframework.boot:spring-boot-reactor-netty:*:*:runtime</exclude>
+                                        <exclude>org.springframework:spring-webmvc:*:*:runtime</exclude>
+                                        <exclude>org.apache.tomcat.embed:*:*:*:runtime</exclude>
+                                        <exclude>org.eclipse.jetty:*:*:*:runtime</exclude>
+                                        <exclude>org.eclipse.jetty.ee11:*:*:*:runtime</exclude>
+                                        <exclude>io.undertow:*:*:*:runtime</exclude>
+                                        <exclude>jakarta.servlet:jakarta.servlet-api:*:*:runtime</exclude>
+                                        <exclude>io.projectreactor.netty:reactor-netty-http:*:*:runtime</exclude>
+                                    </excludes>
+                                    <message>bootui-spring-boot-starter must not bring a web stack: the application's own spring-boot-starter-web or spring-boot-starter-webflux decides it.</message>
+                                </bannedDependencies>
+                            </rules>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!--
+                      The tests predate the merge of bootui-spring-autoconfigure into this starter, and were written
+                      against the auto-configuration alone: a fixture META-INF/resources/bootui shell instead of the
+                      real bundle, and no Spring Boot OpenTelemetry tracing auto-configuration joining every context.
+                      The starter's own compile dependencies on the bundled UI and the tracing bridge stay off the
+                      test classpath so the tests keep that meaning; the sample apps cover the starter as shipped.
+                    -->
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-ui</classpathDependencyExclude>
+                        <classpathDependencyExclude>org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry</classpathDependencyExclude>
+                        <classpathDependencyExclude>io.micrometer:micrometer-tracing-bridge-otel</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
                 <executions>
                     <execution>
-                        <id>attach-empty-javadocs</id>
-                        <phase>package</phase>
+                        <id>default-test</id>
+                        <configuration>
+                            <excludedGroups>spring-modulith</excludedGroups>
+                            <!-- So -Dtest naming only the other execution's class does not fail this one. -->
+                            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                        </configuration>
+                    </execution>
+                    <!--
+                      SpringModulithEventPublicationTests starts a context with Spring Modulith's real
+                      EventPublicationAutoConfiguration, which defines the applicationEventMulticaster bean
+                      unconditionally, to pin that BootUI's own multicaster backs off rather than fail the
+                      application's start. Spring Modulith is added to this execution's classpath only: on the
+                      module's test classpath, its auto-configurations would join every other test's
+                      @EnableAutoConfiguration and fail without an event publication repository. Its own
+                      dependencies are excluded, so the Spring jars on this classpath stay the ones Spring Boot
+                      manages; the two Modulith jars need nothing else. spring-modulith.version is shared with
+                      bootui-engine, since spring-boot-dependencies does not manage Spring Modulith; production code
+                      names its auto-configuration by string only, so BootUI adds no Spring Modulith dependency to a
+                      host application.
+                    -->
+                    <execution>
+                        <id>spring-modulith</id>
                         <goals>
-                            <goal>jar</goal>
+                            <goal>test</goal>
                         </goals>
                         <configuration>
-                            <classifier>javadoc</classifier>
-                            <classesDirectory>${project.build.directory}/empty-javadocs</classesDirectory>
-                            <skipIfEmpty>false</skipIfEmpty>
+                            <groups>spring-modulith</groups>
+                            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                            <additionalClasspathDependencies>
+                                <additionalClasspathDependency>
+                                    <groupId>org.springframework.modulith</groupId>
+                                    <artifactId>spring-modulith-events-core</artifactId>
+                                    <version>${spring-modulith.version}</version>
+                                    <exclusions>
+                                        <exclusion>
+                                            <groupId>*</groupId>
+                                            <artifactId>*</artifactId>
+                                        </exclusion>
+                                    </exclusions>
+                                </additionalClasspathDependency>
+                                <additionalClasspathDependency>
+                                    <groupId>org.springframework.modulith</groupId>
+                                    <artifactId>spring-modulith-events-api</artifactId>
+                                    <version>${spring-modulith.version}</version>
+                                    <exclusions>
+                                        <exclusion>
+                                            <groupId>*</groupId>
+                                            <artifactId>*</artifactId>
+                                        </exclusion>
+                                    </exclusions>
+                                </additionalClasspathDependency>
+                            </additionalClasspathDependencies>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>macos-aarch64-netty-dns-tests</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-resolver-dns-native-macos</artifactId>
+                    <classifier>osx-aarch_64</classifier>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>macos-x86_64-netty-dns-tests</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-resolver-dns-native-macos</artifactId>
+                    <classifier>osx-x86_64</classifier>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

@@ -12,18 +12,27 @@
 
     <artifactId>bootui-cli</artifactId>
     <name>BootUI :: CLI</name>
-    <description>The bootui command-line interface: one subcommand per BootUI MCP tool.</description>
+    <description>The bootui command-line interface, one subcommand per BootUI MCP tool, and the dependency-free Java
+        client it is built on (package io.github.jdubois.bootui.client). Run the shaded "all" classifier.</description>
 
+    <!--
+        Two things share this artifact. The io.github.jdubois.bootui.client package is a framework-free Java client
+        for the BootUI command-line endpoint, deliberately dependency-free at runtime, on the JDK's own HTTP client and
+        a minimal JSON reader: a client is embedded in other people's builds, where an extra Jackson (2 or 3) on the
+        classpath is a version conflict waiting to happen, and responses must stay opaque, because a client built
+        against one BootUI version has to keep working against another, so it must not bind server payloads to DTO
+        types from bootui-core. ClientDependencyTests fails the build if the package reaches outside the JDK.
+
+        The io.github.jdubois.bootui.cli package is the command line on top of it, which needs picocli. picocli is
+        optional, so tooling that depends on this artifact for the client gets no dependency at all; the runnable
+        artifact is the shaded "all" classifier below, which contains picocli.
+    -->
     <dependencies>
-        <dependency>
-            <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-client</artifactId>
-            <version>${project.version}</version>
-        </dependency>
         <dependency>
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
             <version>${picocli.version}</version>
+            <optional>true</optional>
         </dependency>
 
         <!--
@@ -48,10 +57,20 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -67,10 +86,11 @@
             <!--
                 The artifact people actually run is the shaded one: `java -jar` and JBang both need every
                 dependency in a single file, and the CLI's dependency set is small enough — picocli plus the
-                dependency-free client — that shading costs nothing and removes the classpath step.
+                dependency-free client — that shading costs nothing and removes the classpath step. The shade
+                plugin includes optional dependencies, so picocli is in it.
 
                 It is attached under a classifier rather than replacing the main jar, so a build plugin can
-                depend on the CLI without inheriting a shaded, unrelocatable picocli.
+                depend on the client without inheriting a shaded, unrelocatable picocli, or any picocli at all.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -310,6 +310,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
+  2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
+  `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:
+  - **Spring WebFlux:** replace `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`.
+  - **Spring MVC:** nothing changes, as long as the application declares its own `spring-boot-starter-web` (or
+    `spring-boot-starter-webmvc`), as Spring MVC applications do. The starter no longer brings a web stack; an
+    application that had none of its own starts no web server, and BootUI stays off.
+  - **WebFlux applications that relied on BootUI's servlet starter for Tomcat:** these now start as REACTIVE on Netty,
+    which is what `spring-boot-starter-webflux` alone gives them.
+  - **A direct `bootui-spring-autoconfigure` dependency:** depend on `bootui-spring-boot-starter`. The auto-configuration
+    moved into it, keeping its `io.github.jdubois.bootui.autoconfigure` packages.
+  - **A direct `bootui-client` dependency:** depend on `bootui-cli`. The client keeps its
+    `io.github.jdubois.bootui.client` package and stays dependency-free: picocli is an optional dependency of
+    `bootui-cli`. The runnable CLI is still the shaded `bootui-cli-<version>-all.jar`, which is what JBang and the
+    installers use.
+  - **`bootui-parent` and `bootui-quarkus-parent`:** no longer published, and nothing to change. Every published POM
+    is now flattened: no parent, every dependency version resolved.
+
+  The starter's build now fails if a servlet or reactive web-server artifact reaches its dependencies. The release
+  stages its Central bundle as a local repository and runs the consumer smoke tests against it before the release tag
+  is created, and again before upload. The smoke tests cover Spring MVC on Tomcat, WebFlux on Netty with no Servlet API
+  on the classpath, the CLI and its client without picocli, Quarkus, and the agent ([Setup](docs/SETUP.md),
+  [Spring WebFlux](docs/setup/webflux.md), [Command line](docs/CLI.md#building-on-it)).
+
 - **Runtime Insights lists less noise by default.** The panel, `get_runtime_insights`, and `bootui insights list` now
   show a default list, and every observation carries `listed` and, when left out, `unlistedReason`. A route's time
   breakdown is listed only when prominent: a warm median of 20 ms or more, authorization taking 20 % of its time, or a
