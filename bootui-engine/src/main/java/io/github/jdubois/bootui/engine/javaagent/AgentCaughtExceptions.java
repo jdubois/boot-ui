@@ -74,6 +74,8 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
     private final AtomicLong unresolved = new AtomicLong();
 
     private AgentRecordDrainer drainer;
+    /** Whether {@link #start()} was asked for before a journal was installed, so the installation starts routing. */
+    private boolean startWaiting;
     private long generation = Long.MIN_VALUE;
     /** The ring's interned strings of this generation, by id, as far as resolved. */
     private String[] strings = new String[1];
@@ -102,13 +104,23 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
             runtime.addListener(watermark);
             listened = runtime;
         }
+        if (startWaiting && journal != null) {
+            // Started first, as when Quarkus runs the claim's startup observer before the journal's.
+            start();
+        }
     }
 
     /**
-     * Starts routing this run's records, once its claim is armed: does nothing when the claim did not ask for the
-     * sensor, the attached agent predates it, or it already routes.
+     * Starts routing this run's records, once its claim is armed and a journal is installed, else once it is: does
+     * nothing when the claim did not ask for the sensor, the attached agent predates it, or it already routes.
      */
     public synchronized void start() {
+        if (sink == RuntimeEventSink.NONE) {
+            // Nothing to publish into yet: routing starts once the journal is installed.
+            startWaiting = true;
+            return;
+        }
+        startWaiting = false;
         AgentClaim current = claims.get();
         if (drainer != null
                 || current == null
@@ -252,41 +264,46 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
                 payload);
     }
 
-    /** The site {@code id}, resolved from the bridge as far as it registered, or {@code null}. */
+    /**
+     * The site {@code id}, resolved from the bridge, or {@code null}: an id not yet known, or known while its key was
+     * not written yet, is fetched again from that id.
+     */
     private String[] site(int id) {
         if (id < 0) {
             return null;
         }
         if (id >= sites.size() || sites.get(id) == null) {
-            String[] more = access.caughtExceptionSites(sites.size());
-            for (String entry : more) {
-                sites.add(entry == null ? null : entry.split("\t", -1));
-            }
-            // An id read before its key was written: asked for again from that id on next time.
-            for (int i = sites.size() - 1; i >= 0 && sites.get(i) == null; i--) {
-                sites.remove(i);
+            int from = Math.min(id, sites.size());
+            String[] more = access.caughtExceptionSites(from);
+            for (int i = 0; i < more.length; i++) {
+                String[] parsed = more[i] == null ? null : more[i].split("\t", -1);
+                if (from + i < sites.size()) {
+                    sites.set(from + i, parsed);
+                } else {
+                    sites.add(parsed);
+                }
             }
         }
         String[] site = id < sites.size() ? sites.get(id) : null;
         return site == null || site.length < 4 ? null : site;
     }
 
-    /** The ring's interned string {@code id} of this generation, or {@code null}. */
+    /**
+     * The ring's interned string {@code id} of this generation, or {@code null}: an id not yet known, or known while
+     * it was not filled yet, is fetched again from that id.
+     */
     private String string(int id) {
         if (id <= 0) {
             return null;
         }
         if (id >= strings.length || strings[id] == null) {
-            String[] more = access.interned(generation, strings.length);
+            int from = Math.min(id, strings.length);
+            String[] more = access.interned(generation, from);
             if (more != null && more.length > 0) {
-                String[] grown = Arrays.copyOf(strings, strings.length + more.length);
-                System.arraycopy(more, 0, grown, strings.length, more.length);
-                // A trailing id read before it was filled is asked for again next time.
-                int length = grown.length;
-                while (length > 1 && grown[length - 1] == null) {
-                    length--;
+                if (from + more.length > strings.length) {
+                    strings = Arrays.copyOf(strings, from + more.length);
                 }
-                strings = Arrays.copyOf(grown, length);
+                System.arraycopy(more, 0, strings, from, more.length);
             }
         }
         return id < strings.length ? strings[id] : null;

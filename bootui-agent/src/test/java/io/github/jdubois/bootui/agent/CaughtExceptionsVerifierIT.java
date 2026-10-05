@@ -30,7 +30,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The caught-exceptions visit (PLAN-v2 M5-6a) on real frameworks' bytecode, verified by the JVM it runs on (CI runs it
- * on 17, 21, and the newest): every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, and Quarkus is
+ * on 17, 21, and the newest): every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, Quarkus, and,
+ * compiled by kotlinc, Kotlin's standard library and coroutines (whose state machines reload spilled values into their
+ * locals) is
  * defined and linked (so verified) without the visit, with it alone, and with it beneath an advice that checks every
  * frame, each in its own class loader. A class that links without the visit must link with it; a class the advice
  * accepts alone must be accepted with the visit too, except where the visit's frame has a {@code TOP} parameter, which
@@ -58,7 +60,9 @@ class CaughtExceptionsVerifierIT {
             "vertx-web-",
             "quarkus-core-",
             "quarkus-vertx-http-",
-            "arc-");
+            "arc-",
+            "kotlin-stdlib-",
+            "kotlinx-coroutines-core-");
 
     /** The most classes of all targets the advice may refuse only with the visit, per thousand. */
     private static final int MAX_REFUSED_PER_THOUSAND = 5;

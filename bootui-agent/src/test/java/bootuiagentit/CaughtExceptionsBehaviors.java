@@ -77,6 +77,7 @@ public final class CaughtExceptionsBehaviors {
             behaviors.call();
         }
         aFreshClassLoaderGetsTheVisitAsItDefinesAClassWithTheSameSites();
+        aClaimSwitchingTheSensorOffThenOnRunsItsSelfTestAgainBeforeRecording(sensors, early);
         releaseRestores(early);
         System.out.println("SENSOR=" + sensor(CaughtExceptions.SENSOR));
         System.out.println("SENSOR_inventory=" + sensor("inventory"));
@@ -191,6 +192,41 @@ public final class CaughtExceptionsBehaviors {
                             && records.equals(List.of(
                                     "CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException"))
                             && CaughtExceptions.siteCount() == sitesBefore);
+        }
+    }
+
+    /**
+     * A claim without the sensor removes its visit (with no other application-methods sensor, the whole transformer);
+     * the next claim asking for it again self-tests it again, while it records nothing, then records.
+     */
+    static void aClaimSwitchingTheSensorOffThenOnRunsItsSelfTestAgainBeforeRecording(
+            List<String> sensors, Handlers handlers) throws Exception {
+        List<String> without = new ArrayList<>(sensors);
+        without.remove(CaughtExceptions.SENSOR);
+        token = claim(without, List.of("bootuicaughtapp.Handlers"));
+        if (!without.isEmpty()) {
+            awaitSelfTest(without.get(0));
+        }
+        awaitIdle(CaughtExceptions.SENSOR);
+        drain();
+        withRequest(handlers::swallowed);
+        List<String> off = drain();
+        token = claim(sensors, List.of("bootuicaughtapp.Handlers"));
+        Map<String, Object> again = SensorWait.awaitSettled(CaughtExceptions.SENSOR);
+        withRequest(handlers::swallowed);
+        List<String> on = drain();
+        check(
+                "a claim switching the sensor off then on runs its self-test again before recording (" + off + ", "
+                        + again.get("selfTestPassed") + ", " + on + ")",
+                off.isEmpty()
+                        && Boolean.TRUE.equals(again.get("selfTestPassed"))
+                        && on.equals(List.of(
+                                "CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException")));
+    }
+
+    static void awaitIdle(String id) throws Exception {
+        for (int i = 0; i < 400 && !Boolean.TRUE.equals(sensor(id).get("idle")); i++) {
+            Thread.sleep(25);
         }
     }
 

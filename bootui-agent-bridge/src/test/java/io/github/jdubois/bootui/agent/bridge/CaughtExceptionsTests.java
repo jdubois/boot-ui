@@ -298,23 +298,56 @@ class CaughtExceptionsTests {
     }
 
     @Test
-    void aDisarmedOrReleasedClaimRecordsNothingAndANewGenerationForgetsPendingIdentities() {
+    void aDisarmedClaimRecordsNothingAndANewGenerationForgetsPendingIdentities() {
         long token = claim();
         context.set(owner(REQUEST, null));
         int site = site("generation");
         IllegalStateException thrown = new IllegalStateException();
         CaughtExceptions.caught(thrown, site);
         drain(token);
+        assertThat(CaughtExceptions.pending()).isEqualTo(1);
 
         AgentBridge.disarm(token);
         CaughtExceptions.caught(new IllegalStateException(), site);
         assertThat(CaughtExceptions.status()).containsEntry("caught", 1L);
 
         long next = claim();
+        // The previous run's pending identity is freed with its run: never reported as the new run's rethrow.
+        assertThat(CaughtExceptions.pending()).isZero();
         CaughtExceptions.leaving(thrown, site);
-        // The previous run's pending identity is still matched, with its own generation: the engine drops it.
-        List<long[]> records = drain(next);
-        assertThat(records).allSatisfy(record -> assertThat(record[AgentRing.GENERATION]).isLessThan(generation()));
+        assertThat(drain(next)).isEmpty();
+    }
+
+    @Test
+    void aSelfTestWhileARunRecordsCountsItsHitsAndRecordsNothing() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("probe");
+
+        CaughtExceptions.beginSelfTest();
+        IllegalStateException thrown = new IllegalStateException();
+        CaughtExceptions.caught(thrown, site);
+        CaughtExceptions.leaving(thrown, site);
+        long[] hits = CaughtExceptions.endSelfTest();
+
+        assertThat(hits).containsExactly(1L, 1L);
+        assertThat(drain(token)).isEmpty();
+        assertThat(CaughtExceptions.pending()).isZero();
+    }
+
+    @Test
+    void aSuspendedSensorRecordsNothingUntilItsNextSelfTestPassed() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("suspended");
+
+        CaughtExceptions.suspend();
+        CaughtExceptions.caught(new IllegalStateException(), site);
+        assertThat(drain(token)).isEmpty();
+
+        CaughtExceptions.enable();
+        CaughtExceptions.caught(new IllegalStateException(), site);
+        assertThat(drain(token)).hasSize(1);
     }
 
     @Test

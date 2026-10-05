@@ -17,7 +17,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   request or execution, never its message. The visit inserts straight-line calls at handler entries and one rethrowing
   catch-any handler per method, computing no frames and loading no class inside the transformer; the Java Agent panel
   shows the sensor's two hooks and self-test. A stress test defines every class of Spring Framework, Hibernate ORM,
-  Jackson, Netty, Vert.x, and Quarkus with and without the visit on JDK 17, 21, and 26. The Exceptions panel's
+  Jackson, Netty, Vert.x, Quarkus, and Kotlin's standard library and coroutines with and without the visit on JDK 17,
+  21, and 26. The Exceptions panel's
   **Caught in application code** section, `exceptions-caught-in-code` rows, and the decision on its default follow.
   ([PLAN-v2 M5-6](docs/PLAN-v2.md))
 

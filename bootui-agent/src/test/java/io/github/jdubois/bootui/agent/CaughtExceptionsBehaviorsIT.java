@@ -37,6 +37,7 @@ class CaughtExceptionsBehaviorsIT {
             "without an owner nothing is recorded",
             "transformed methods answer as before",
             "a class a fresh class loader defines gets the visit as it loads, with the same site ids",
+            "a claim switching the sensor off then on runs its self-test again before recording",
             "release restores the classes");
 
     @Test

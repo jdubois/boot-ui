@@ -615,17 +615,20 @@ The identities of the exception and of up to 8 throwables of its cause and suppr
 60 seconds, in a table of 4,096: a pending one leaving an instrumented method by a throw, wrapped or not, or caught
 again by an instrumented handler, is recorded as thrown, with the owner it was caught under. An entry evicted for room
 is recorded as such, so its fate is never taken as known. On one thread, a site caught more than 16 times for one owner
-is only counted after that, and the count is recorded when the thread's owner changes. Nothing is recorded without an
-owner, on BootUI's own threads or work, or before the sensor's self-test passed.
+is only counted after that, and the count is recorded when the thread's next caught exception has another owner.
+Nothing is recorded without an owner, on BootUI's own threads or work, or before the sensor's self-test passed, which
+runs again whenever the sensor is switched on again or reinstalled.
 
 **Self-test and failure isolation.** A bundled probe class, loaded after the transformer installed, so the JVM verifies
 the visit's output as it defines the class, holds the shapes the visit must keep valid (wide and reassigned parameters,
 a constructor, a lambda, a multi-catch, a `finally`, try-with-resources) and a rethrow through a helper: both hooks must
 fire. A failed self-test removes only this sensor's visit. A class whose transformation fails with it, or whose
 retransformation the JVM rejects with it, never gets it again and is transformed again with the other sensors' visits.
-A stress test defines every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, and Quarkus with and
-without the visit on JDK 17, 21, and 26: each class that verifies without it verifies with it, also beneath an advice
-that checks every frame.
+A stress test defines every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, Quarkus, and Kotlin's
+standard library and coroutines (compiled by kotlinc) with and without the visit on JDK 17, 21, and 26: each class that
+verifies without it verifies with it, also beneath an advice that checks every frame. Should an application class still
+fail to load with a `VerifyError` naming `CaughtExceptions`, remove `caught-exceptions` from `bootui.agent.sensors`
+and report the class.
 
 **Cost.** None on the normal path: the inserted code runs only when an exception is caught, or leaves a method that
 catches some, where a bridge call is added to the exception's own cost.

@@ -681,6 +681,8 @@ final class ApplicationMethodsSensor {
         if (!caught) {
             caughtSelfTestPassed = false;
             caughtSelfTest = new LinkedHashMap<String, String>();
+            // Switched on again later, it records only once its new self-test passed.
+            CaughtExceptions.suspend();
         }
         // The inventory's and the caught exceptions' visits apply to every claimed class, the code paths' to beans.
         boolean everyClass = inventoryChanged || caughtChanged;
@@ -936,6 +938,7 @@ final class ApplicationMethodsSensor {
         selfTestPassed = false;
         codePathsSelfTestPassed = false;
         caughtSelfTestPassed = false;
+        CaughtExceptions.suspend();
         synchronized (this) {
             retransformedPackages = Collections.emptyList();
             appliedInventory = false;
@@ -1478,6 +1481,7 @@ final class ApplicationMethodsSensor {
             caughtSelfTestPassed = false;
             caughtSelfTestError = "self-test failed: handler entries " + hits[0] + ", exits " + hits[1]
                     + (rejected ? ", the probe's transformation was rejected" : "") + " " + steps;
+            CaughtExceptions.suspend();
             CaughtExceptions.disable(generation, false, caughtSelfTestError);
             AgentBridge.message("the BootUI agent's caught-exceptions sensor failed its self-test and was removed: "
                     + caughtSelfTestError);
