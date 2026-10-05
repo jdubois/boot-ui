@@ -199,6 +199,19 @@ class SideEffectsSharingTests {
     }
 
     @Test
+    void manyUnownedThreadNamesNeverTakeTheCommandNamesRoom() {
+        claimAll();
+
+        int threads = intern(SideEffects.DEFAULT_INTERNS, i -> SideEffects.threadName("Thread-" + i));
+
+        assertThat(threads).isEqualTo(SideEffects.ROOM_GUARANTEED[SideEffects.ROOM_THREADS]);
+        assertThat(refused("threads")).isPositive();
+        assertThat(string(SideEffects.intern("(other hosts)"))).isEqualTo(SideEffects.OTHER_HOSTS);
+        int commands = SideEffects.ROOM_GUARANTEED[SideEffects.ROOM_OTHER] - 64;
+        assertThat(intern(commands, i -> SideEffects.intern("command-" + i))).isEqualTo(commands);
+    }
+
+    @Test
     void manyThreadNamesNeverLeaveTheFilesWithoutTheirGuaranteedRoom() {
         claimAll();
 

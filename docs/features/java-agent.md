@@ -574,9 +574,10 @@ scheduler thread; `processes`, a rare hook, captures the context instead, as `fi
 
 The Side Effects bridge has its own ring of 1,024 records and string table of 8,192 strings a run. A full ring drops
 and counts records instead of blocking application code. The table keeps room for every sensor: path patterns,
-environment names, network targets, looked-up names, and frames are each guaranteed part of it (1,024, 512, 512, 512,
-and 1,024 strings) and borrow beyond only while the others' unused part and 1,024 strings for command and thread names
-stay free, so one sensor's many distinct strings never leave another's targets unknown. The agent's status counts what
+environment names, network targets, looked-up names, frames, and command names and thread families are each
+guaranteed part of it (1,024, 512, 512, 512, 1,024, and 512 strings) and borrow beyond only while the others' unused
+part stays free, so one sensor's many distinct strings never leave another's targets unknown. The names of threads no
+owner names have 512 strings that never borrow; past them, a thread is named by its family. The agent's status counts what
 each could not intern (`internRoomRefused`). The per-thread aggregation table is for the hotter side-effect sensors in later slices,
 not for process starts. After 100 internal errors of its own recording, a side-effect sensor switches off for the
 JVM's life, alone, and the report says why; 100 errors in the sensors' shared code switch them all off.

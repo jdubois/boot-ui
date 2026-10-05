@@ -271,12 +271,18 @@ public final class SideEffects {
 
     static final int ROOM_FRAMES = 4;
 
-    /** The strings no quota bounds: command names, thread names, and thread families. */
+    /** The strings no quota bounds: command names, thread families, and {@value #OTHER_HOSTS}. */
     static final int ROOM_OTHER = 5;
 
-    static final int[] ROOM_GUARANTEED = {1_024, 512, 512, 512, 1_024, 1_024};
+    /**
+     * The raw names of the threads no owner names, which never borrow: past this room, a thread is named by its family,
+     * so many {@code Thread-N} names never take the command names' room.
+     */
+    static final int ROOM_THREADS = 6;
 
-    static final String[] ROOMS = {"files", "environment", "targets", "lookups", "frames", "other"};
+    static final int[] ROOM_GUARANTEED = {1_024, 512, 512, 512, 1_024, 512, 512};
+
+    static final String[] ROOMS = {"files", "environment", "targets", "lookups", "frames", "other", "threads"};
 
     /** The longest path pattern or name kept, in characters. */
     static final int MAX_PATTERN = 200;
@@ -1990,8 +1996,8 @@ public final class SideEffects {
         }
         if ((!capture || !ownerOf(CodePaths.capture(claim), owner)) && threadName) {
             String name = thread.getName();
-            int id = intern(name);
-            // Past the table's room, the thread's family, which many threads share, still names it.
+            int id = threadName(name);
+            // Past the thread names' room, the thread's family, which many threads share, still names it.
             owner.threadName = id != 0 ? id : intern(threadFamily(name));
         }
         return owner;
@@ -2517,6 +2523,23 @@ public final class SideEffects {
             count.incrementAndGet();
         }
         return id;
+    }
+
+    /** A raw thread name's id, within {@link #ROOM_THREADS}, which never borrows; 0 past it. */
+    static int threadName(String name) {
+        AgentRing.Interns interns = INTERNS.get();
+        if (name == null || interns == null) {
+            return 0;
+        }
+        Integer known = interns.ids.get(name);
+        if (known != null) {
+            return known.intValue();
+        }
+        if (ROOM_USED[ROOM_THREADS].get() >= ROOM_GUARANTEED[ROOM_THREADS]) {
+            ROOM_REFUSED[ROOM_THREADS].increment();
+            return 0;
+        }
+        return interns.intern(name, ROOM_USED[ROOM_THREADS]);
     }
 
     /** The id of {@code text} in the generation's table, interned within {@code room}; 0 when it has no room. */
@@ -3434,15 +3457,16 @@ public final class SideEffects {
                 if (current != null && current.generation >= claim.generation) {
                     break;
                 }
+                // Counted from zero before the new table is visible, so no intern into it is lost from its room.
+                for (AtomicInteger interned : INTERNED) {
+                    interned.set(0);
+                }
+                for (AtomicInteger used : ROOM_USED) {
+                    used.set(0);
+                }
                 if (INTERNS.compareAndSet(
                         current,
                         new AgentRing.Interns(claim.generation, DEFAULT_INTERNS, COUNTERS.internOverflow, true))) {
-                    for (AtomicInteger interned : INTERNED) {
-                        interned.set(0);
-                    }
-                    for (AtomicInteger used : ROOM_USED) {
-                        used.set(0);
-                    }
                     // A new run: its buckets count from its claim.
                     resetAll(BUCKET_COUNTS);
                     break;
