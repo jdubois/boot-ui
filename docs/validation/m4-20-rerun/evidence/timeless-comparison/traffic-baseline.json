@@ -1,0 +1,34 @@
+{
+  "application": "timeless",
+  "baseUrl": "http://localhost:18189",
+  "runId": "188744790",
+  "iterations": 40,
+  "pauseMs": 500,
+  "startedAt": "2026-10-05T08:25:44.790Z",
+  "durationSeconds": 62.4,
+  "requests": 879,
+  "statuses": {
+    "200": 240,
+    "201": 160,
+    "204": 120,
+    "400": 80,
+    "401": 120,
+    "403": 39,
+    "404": 40,
+    "409": 40,
+    "500": 40
+  },
+  "byRoute": {
+    "DELETE /api/records/{id}": 40,
+    "GET /api/records": 160,
+    "GET /api/users/{id}": 119,
+    "GET /q/health": 40,
+    "POST /api/messages": 120,
+    "POST /api/records": 160,
+    "POST /api/sign-in": 80,
+    "POST /api/sign-up": 120,
+    "PUT /api/users": 40
+  },
+  "unexpected": [],
+  "unexpectedCount": 0
+}

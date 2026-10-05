@@ -1,0 +1,104 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "",
+  "requests": 0,
+  "coverage": [
+    {
+      "source": "sql",
+      "events": 2036,
+      "byRequestId": 0,
+      "byExecutionId": 1034,
+      "byTraceId": 0,
+      "unlinked": 1002,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 1717,
+      "byRequestId": 0,
+      "byExecutionId": 717,
+      "byTraceId": 0,
+      "unlinked": 1000,
+      "dropped": 0
+    },
+    {
+      "source": "connection",
+      "events": 1720,
+      "byRequestId": 0,
+      "byExecutionId": 717,
+      "byTraceId": 0,
+      "unlinked": 1003,
+      "dropped": 0
+    },
+    {
+      "source": "messaging",
+      "events": 600,
+      "byRequestId": 0,
+      "byExecutionId": 600,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 12,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 12,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 717,
+      "byRequestId": 0,
+      "byExecutionId": 717,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checksNotRun": [
+    "route-time-breakdown: INSUFFICIENT, No eligible work was recorded for this check.",
+    "errors-behind-2xx: INSUFFICIENT, No eligible work was recorded for this check.",
+    "safe-method-dml: INSUFFICIENT, No eligible work was recorded for this check.",
+    "proxy-bypass: INSUFFICIENT, No eligible work was recorded for this check.",
+    "anonymous-data-reach: INSUFFICIENT, No eligible work was recorded for this check.",
+    "anonymous-success-on-restricted-route: INSUFFICIENT, No eligible work was recorded for this check.",
+    "transaction-across-remote-call: INSUFFICIENT, No eligible work was recorded for this check.",
+    "lazy-sql-after-handler: INSUFFICIENT, No eligible work was recorded for this check.",
+    "event-loop-blocking: NOT_APPLICABLE, Spring MVC serves requests on worker threads, not on event loops.",
+    "gc-inflated-latency: INSUFFICIENT, No eligible work was recorded for this check.",
+    "heap-growth-after-gc: INSUFFICIENT, No eligible work was recorded for this check.",
+    "ai-usage-by-route: NOT_APPLICABLE, Without tracing, or Spring AI or Quarkus LangChain4j reporting its calls, AI usage is unknown.",
+    "work-after-response: NOT_APPLICABLE, This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "changed-code-not-executed: NOT_APPLICABLE, This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+  ],
+  "observations": [],
+  "omitted": 0,
+  "notExercised": [],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "requests counts completed HTTP exchanges only. See the limitation that starts with \"Retained non-HTTP executions, which requests does not count:\".",
+    "Retained non-HTTP executions, which requests does not count: 0 scheduled runs and 400 consumed messages.",
+    "Latency rows are included for prominent routes: a warm median of 20 ms or more, or authorization taking 20 % of the time or 50 decisions a request."
+  ],
+  "next": [
+    {
+      "command": "bootui insights list",
+      "tool": "get_runtime_insights",
+      "arguments": {},
+      "why": "again after running the application's tests or sending it traffic"
+    }
+  ]
+}

@@ -254,6 +254,36 @@ public final class SideEffects {
 
     public static final int ENVIRONMENT_INTERN_QUOTA = 1_000;
 
+    /**
+     * The rooms of the generation's string table ({@value #DEFAULT_INTERNS} entries) whose strings a quota bounds:
+     * path patterns, environment names, network targets, looked-up names, and frames. The quotas add up past the table,
+     * so each room is guaranteed {@link #ROOM_GUARANTEED} entries and may borrow beyond them only while the table keeps
+     * every other room's unused guarantee free: one sensor's many distinct strings never leave another's targets
+     * unknown. Concurrent interns may each overshoot by one string.
+     */
+    static final int ROOM_FILES = 0;
+
+    static final int ROOM_ENVIRONMENT = 1;
+
+    static final int ROOM_TARGETS = 2;
+
+    static final int ROOM_LOOKUPS = 3;
+
+    static final int ROOM_FRAMES = 4;
+
+    /** The strings no quota bounds: command names, thread families, and {@value #OTHER_HOSTS}. */
+    static final int ROOM_OTHER = 5;
+
+    /**
+     * The raw names of the threads no owner names, which never borrow: past this room, a thread is named by its family,
+     * so many {@code Thread-N} names never take the command names' room.
+     */
+    static final int ROOM_THREADS = 6;
+
+    static final int[] ROOM_GUARANTEED = {1_024, 512, 512, 512, 1_024, 512, 512};
+
+    static final String[] ROOMS = {"files", "environment", "targets", "lookups", "frames", "other", "threads"};
+
     /** The longest path pattern or name kept, in characters. */
     static final int MAX_PATTERN = 200;
 
@@ -413,6 +443,10 @@ public final class SideEffects {
     private static final Sightings SIGHTINGS = new Sightings();
     /** The interned targets of the files and environment sensors in the current intern table's generation. */
     private static final AtomicInteger[] INTERNED = atomics(SENSOR_NAMES.length);
+    /** The entries each room holds in the current string table, kept through a clear of the recording. */
+    private static final AtomicInteger[] ROOM_USED = atomics(ROOM_GUARANTEED.length);
+    /** Strings a room could not intern, the table keeping its room for the others. */
+    private static final LongAdder[] ROOM_REFUSED = adders(ROOM_GUARANTEED.length);
 
     /** The directories path patterns are relative to, read by {@link #warm()} on the agent's own thread. */
     private static volatile Places places = Places.NONE;
@@ -473,20 +507,36 @@ public final class SideEffects {
             }
             CodePaths.Frame frame = CodePaths.frame();
             long now = System.nanoTime();
-            if (frame.sideEffectDepth != 0) {
-                if (now - frame.sideEffectSince < STALE_DEPTH_NANOS) {
-                    return 0L;
-                }
+            int open = frame.sideEffectOpen;
+            if (open != 0 && now - frame.sideEffectSince >= STALE_DEPTH_NANOS) {
                 // An exit that never ran, as when calling it overflowed the stack: the thread records again.
                 STALE_DEPTHS.increment();
+                open = 0;
             }
-            frame.sideEffectDepth = 1;
-            frame.sideEffectSince = now;
+            if ((open & silencedBy(bit)) != 0) {
+                return 0L;
+            }
+            if (open == 0) {
+                // The first hook opened: a hook nested in it never makes an open one look newer than it is.
+                frame.sideEffectSince = now;
+            }
+            frame.sideEffectOpen = open | bit;
             return now == 0L ? 1L : now;
         } catch (Throwable ex) {
             failed(hook >= 0 && hook < HOOK_SENSORS.length ? HOOK_SENSORS[hook] : 0, ex);
             return 0L;
         }
+    }
+
+    /**
+     * The sensors whose open hook keeps a hook of sensor {@code bit} from recording on the same thread. A files or
+     * environment hook records only outside every other hook, so a file the JDK reads to resolve a name, as the hosts
+     * file, is not a file of the application. A network or process hook records only outside the network and process
+     * hooks, so a connect a file system provider makes (an S3, GCS, or SFTP {@code Path}), or one a {@code
+     * Files.copy(InputStream, Path)} stream makes, still shows.
+     */
+    static int silencedBy(int bit) {
+        return (bit & (MASK_NETWORK | MASK_PROCESSES)) != 0 ? MASK_NETWORK | MASK_PROCESSES : ~0;
     }
 
     /**
@@ -525,7 +575,7 @@ public final class SideEffects {
             failed(SENSOR_PROCESSES, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_PROCESSES;
             }
         }
     }
@@ -698,7 +748,7 @@ public final class SideEffects {
             failed(SENSOR_NETWORK, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_NETWORK;
             }
         }
     }
@@ -749,7 +799,7 @@ public final class SideEffects {
             failed(SENSOR_NETWORK, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_NETWORK;
             }
         }
     }
@@ -827,7 +877,7 @@ public final class SideEffects {
             failed(SENSOR_NETWORK, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_NETWORK;
             }
         }
     }
@@ -879,7 +929,7 @@ public final class SideEffects {
             failed(SENSOR_NETWORK, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_NETWORK;
             }
         }
     }
@@ -1125,16 +1175,16 @@ public final class SideEffects {
     /** A network target interned, at most {@value #MAX_NETWORK_TARGETS} distinct ones per generation. */
     static int networkTarget(String text) {
         Network state = NETWORK_STATE.get();
-        return state == null ? intern(text) : quota(state.targets, text);
+        return state == null ? intern(text) : quota(state.targets, text, ROOM_TARGETS);
     }
 
     /** A looked-up name interned, at most {@value #MAX_NETWORK_TARGETS} distinct ones, apart from the targets. */
     static int lookupTarget(String text) {
         Network state = NETWORK_STATE.get();
-        return state == null ? intern(text) : quota(state.lookups, text);
+        return state == null ? intern(text) : quota(state.lookups, text, ROOM_LOOKUPS);
     }
 
-    private static int quota(java.util.concurrent.ConcurrentHashMap<String, Integer> known, String text) {
+    private static int quota(java.util.concurrent.ConcurrentHashMap<String, Integer> known, String text, int room) {
         Integer id = known.get(text);
         if (id != null) {
             return id.intValue();
@@ -1143,10 +1193,12 @@ public final class SideEffects {
             NETWORK_TARGETS_OVERFLOW.increment();
             return intern(OTHER_HOSTS);
         }
-        int interned = intern(text);
-        if (interned != 0) {
-            known.putIfAbsent(text, Integer.valueOf(interned));
+        int interned = internRoom(text, room);
+        if (interned == 0) {
+            NETWORK_TARGETS_OVERFLOW.increment();
+            return intern(OTHER_HOSTS);
         }
+        known.putIfAbsent(text, Integer.valueOf(interned));
         return interned;
     }
 
@@ -1224,7 +1276,12 @@ public final class SideEffects {
             int outside = 0;
             int application = 0;
             int infrastructure = 0;
-            for (int i = 0; i < MAX_NETWORK_FRAMES && iterator.hasNext() && application == 0; i++) {
+            // Whether a frame was found, apart from its id, which is 0 when the frames' room is full.
+            boolean clientFound = false;
+            boolean infrastructureFound = false;
+            boolean outsideFound = false;
+            boolean applicationFound = false;
+            for (int i = 0; i < MAX_NETWORK_FRAMES && iterator.hasNext() && !applicationFound; i++) {
                 StackWalker.StackFrame frame = iterator.next();
                 String className = frame.getClassName();
                 if (className.startsWith("sun.nio.ch.PipeImpl")) {
@@ -1238,23 +1295,27 @@ public final class SideEffects {
                 boolean plumbing = plumbing(className);
                 if (!plumbing && infrastructure(className)) {
                     // The outermost infrastructure frame: an exporter or a container tool, whose transport is a client.
+                    infrastructureFound = true;
                     infrastructure = frameId(state, className, frame.getMethodName());
                 }
-                if (client == 0 && !plumbing) {
+                if (!clientFound && !plumbing) {
+                    clientFound = true;
                     client = frameId(state, className, frame.getMethodName());
                 }
                 if (jdkOrAgent(className)) {
                     continue;
                 }
-                if (outside == 0) {
+                if (!outsideFound) {
+                    outsideFound = true;
                     outside = frameId(state, className, frame.getMethodName());
                 }
                 if (claim != null && ThreadPropagation.inPackages(className, claim)) {
+                    applicationFound = true;
                     application = frameId(state, className, frame.getMethodName());
                 }
             }
             return new long[] {
-                ((long) outside << 32) | (application & 0xFFFFFFFFL), infrastructure != 0 ? infrastructure : client
+                ((long) outside << 32) | (application & 0xFFFFFFFFL), infrastructureFound ? infrastructure : client
             };
         }
     }
@@ -1281,10 +1342,31 @@ public final class SideEffects {
                 || className.startsWith("org.apache.logging.log4j.");
     }
 
+    /**
+     * A frame's interned {@code Class#method} in the frames' room, at most {@value #MAX_FRAME_IDS} distinct ones per
+     * table; 0 beyond, or when the room is full.
+     */
+    static int internFrame(String className, String method) {
+        String text = className + "#" + method;
+        AgentRing.Interns interns = INTERNS.get();
+        if (interns == null) {
+            return 0;
+        }
+        Integer known = interns.ids.get(text);
+        if (known != null) {
+            return known.intValue();
+        }
+        if (ROOM_USED[ROOM_FRAMES].get() >= MAX_FRAME_IDS) {
+            ROOM_REFUSED[ROOM_FRAMES].increment();
+            return 0;
+        }
+        return internRoom(interns, text, ROOM_FRAMES);
+    }
+
     /** A frame's interned {@code Class#method}, remembered per generation so a walk concatenates nothing it saw before. */
     static int frameId(Network state, String className, String method) {
         if (state == null) {
-            return intern(className + "#" + method);
+            return internFrame(className, method);
         }
         java.util.concurrent.ConcurrentHashMap<String, Integer> methods = state.frames.get(className);
         if (methods != null) {
@@ -1293,7 +1375,7 @@ public final class SideEffects {
                 return id.intValue();
             }
         }
-        int id = intern(className + "#" + method);
+        int id = internFrame(className, method);
         if (id != 0 && state.frameIds.get() < MAX_FRAME_IDS) {
             if (methods == null) {
                 java.util.concurrent.ConcurrentHashMap<String, Integer> created =
@@ -1573,7 +1655,7 @@ public final class SideEffects {
             failed(SENSOR_FILES, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_FILES;
             }
         }
     }
@@ -1647,7 +1729,8 @@ public final class SideEffects {
             }
             CodePaths.Frame candidate = CodePaths.frame();
             long since = System.nanoTime();
-            if (candidate.sideEffectDepth != 0) {
+            int open = candidate.sideEffectOpen;
+            if (open != 0) {
                 if (since - candidate.sideEffectSince < STALE_DEPTH_NANOS) {
                     return;
                 }
@@ -1655,7 +1738,7 @@ public final class SideEffects {
                 STALE_DEPTHS.increment();
             }
             frame = candidate;
-            frame.sideEffectDepth = 1;
+            frame.sideEffectOpen = MASK_ENVIRONMENT;
             // Stamped as every hook's entry does, so a depth left open by an exit that never ran is recovered from.
             frame.sideEffectSince = since;
             long now = generation;
@@ -1706,7 +1789,7 @@ public final class SideEffects {
             failed(SENSOR_ENVIRONMENT, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~MASK_ENVIRONMENT;
             }
         }
     }
@@ -1747,7 +1830,7 @@ public final class SideEffects {
                             && ownerOf(CodePaths.capture(claim), owner);
                 } catch (Throwable ex) {
                     // The slot is pushed all the same, naming no owner, so the scope's end stays balanced.
-                    failed(ex);
+                    failed((mask & MASK_FILES) != 0 ? SENSOR_FILES : SENSOR_ENVIRONMENT, ex);
                 }
                 if (owned) {
                     push(frame, SLOT_SCOPE, generation, owner.request, owner.execution, owner.executionKind);
@@ -1912,7 +1995,10 @@ public final class SideEffects {
             return owner;
         }
         if ((!capture || !ownerOf(CodePaths.capture(claim), owner)) && threadName) {
-            owner.threadName = intern(thread.getName());
+            String name = thread.getName();
+            int id = threadName(name);
+            // Past the thread names' room, the thread's family, which many threads share, still names it.
+            owner.threadName = id != 0 ? id : intern(threadFamily(name));
         }
         return owner;
     }
@@ -1980,17 +2066,21 @@ public final class SideEffects {
             Iterator<StackWalker.StackFrame> iterator = frames.iterator();
             int outside = 0;
             int application = 0;
-            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && application == 0; i++) {
+            boolean outsideFound = false;
+            boolean applicationFound = false;
+            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && !applicationFound; i++) {
                 StackWalker.StackFrame frame = iterator.next();
                 String className = frame.getClassName();
                 if (jdkOrAgent(className)) {
                     continue;
                 }
-                if (outside == 0) {
-                    outside = intern(className + "#" + frame.getMethodName());
+                if (!outsideFound) {
+                    outsideFound = true;
+                    outside = internFrame(className, frame.getMethodName());
                 }
                 if (claim != null && ThreadPropagation.inPackages(className, claim)) {
-                    application = intern(className + "#" + frame.getMethodName());
+                    applicationFound = true;
+                    application = internFrame(className, frame.getMethodName());
                 }
             }
             return new long[] {((long) outside << 32) | (application & 0xFFFFFFFFL)};
@@ -2154,8 +2244,11 @@ public final class SideEffects {
             Iterator<StackWalker.StackFrame> iterator = frames.iterator();
             int outside = 0;
             int application = 0;
+            // Whether a frame was found, apart from its id, which is 0 when the frames' room is full.
+            boolean outsideFound = false;
+            boolean applicationFound = false;
             boolean immediate = environment;
-            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && application == 0; i++) {
+            for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && !applicationFound; i++) {
                 StackWalker.StackFrame frame = iterator.next();
                 String className = frame.getClassName();
                 if (className.startsWith("io.github.jdubois.bootui.agent.")) {
@@ -2189,7 +2282,7 @@ public final class SideEffects {
                     }
                 }
                 if (jdk(frame)) {
-                    if (outside == 0) {
+                    if (!outsideFound) {
                         if (className.startsWith("jdk.internal.platform.") || className.startsWith("sun.net.dns.")) {
                             // The JDK's own container and resolver reads, as a metrics scrape's processor count.
                             return new long[] {0L, CONTEXT_JDK_ONLY};
@@ -2203,19 +2296,21 @@ public final class SideEffects {
                     }
                     continue;
                 }
-                if (outside == 0 && !environment && loader(frame, className)) {
+                if (!outsideFound && !environment && loader(frame, className)) {
                     // A class loader outside the JDK, as Quarkus' or Spring Boot's, reading a resource: never interned.
                     return new long[] {0L, CONTEXT_CLASS_LOADING};
                 }
-                if (outside == 0) {
-                    outside = intern(className + "#" + frame.getMethodName());
+                if (!outsideFound) {
+                    outsideFound = true;
+                    outside = internFrame(className, frame.getMethodName());
                 }
                 if (claim != null && ThreadPropagation.inPackages(className, claim)) {
-                    application = intern(className + "#" + frame.getMethodName());
+                    applicationFound = true;
+                    application = internFrame(className, frame.getMethodName());
                 }
             }
             long packed = ((long) outside << 32) | (application & 0xFFFFFFFFL);
-            return new long[] {packed, outside == 0 ? CONTEXT_JDK_ONLY : CONTEXT_NONE};
+            return new long[] {packed, outsideFound ? CONTEXT_NONE : CONTEXT_JDK_ONLY};
         }
     }
 
@@ -2423,11 +2518,56 @@ public final class SideEffects {
             QUOTA_EXCEEDED[sensor].increment();
             return 0;
         }
-        int id = interns.intern(text);
+        int id = internRoom(interns, text, sensor == SENSOR_ENVIRONMENT ? ROOM_ENVIRONMENT : ROOM_FILES);
         if (id != 0) {
             count.incrementAndGet();
         }
         return id;
+    }
+
+    /** A raw thread name's id, within {@link #ROOM_THREADS}, which never borrows; 0 past it. */
+    static int threadName(String name) {
+        AgentRing.Interns interns = INTERNS.get();
+        if (name == null || interns == null) {
+            return 0;
+        }
+        Integer known = interns.ids.get(name);
+        if (known != null) {
+            return known.intValue();
+        }
+        if (ROOM_USED[ROOM_THREADS].get() >= ROOM_GUARANTEED[ROOM_THREADS]) {
+            ROOM_REFUSED[ROOM_THREADS].increment();
+            return 0;
+        }
+        return interns.intern(name, ROOM_USED[ROOM_THREADS]);
+    }
+
+    /** The id of {@code text} in the generation's table, interned within {@code room}; 0 when it has no room. */
+    static int internRoom(String text, int room) {
+        AgentRing.Interns interns = INTERNS.get();
+        if (text == null || interns == null) {
+            return 0;
+        }
+        Integer known = interns.ids.get(text);
+        return known != null ? known.intValue() : internRoom(interns, text, room);
+    }
+
+    private static int internRoom(AgentRing.Interns interns, String text, int room) {
+        AtomicInteger used = ROOM_USED[room];
+        if (used.get() >= ROOM_GUARANTEED[room]) {
+            // Beyond its guarantee, a room borrows only what every other room's unused guarantee leaves.
+            int kept = 0;
+            for (int i = 0; i < ROOM_GUARANTEED.length; i++) {
+                if (i != room) {
+                    kept += Math.max(0, ROOM_GUARANTEED[i] - ROOM_USED[i].get());
+                }
+            }
+            if (interns.max - interns.size() <= kept) {
+                ROOM_REFUSED[room].increment();
+                return 0;
+            }
+        }
+        return interns.intern(text, used);
     }
 
     /**
@@ -3211,13 +3351,12 @@ public final class SideEffects {
 
     // ---- strings and the drain ----------------------------------------------------------------------------------
 
-    /** The id of {@code text} in the current generation's table, from 1; 0 for {@code null} or a full table. */
+    /**
+     * The id of {@code text} in the current generation's table, from 1, in the room of the strings no quota bounds; 0
+     * for {@code null} or when that room is full.
+     */
     static int intern(String text) {
-        AgentRing.Interns interns = INTERNS.get();
-        if (text == null || interns == null) {
-            return 0;
-        }
-        return interns.intern(text);
+        return internRoom(text, ROOM_OTHER);
     }
 
     /**
@@ -3318,12 +3457,16 @@ public final class SideEffects {
                 if (current != null && current.generation >= claim.generation) {
                     break;
                 }
+                // Counted from zero before the new table is visible, so no intern into it is lost from its room.
+                for (AtomicInteger interned : INTERNED) {
+                    interned.set(0);
+                }
+                for (AtomicInteger used : ROOM_USED) {
+                    used.set(0);
+                }
                 if (INTERNS.compareAndSet(
                         current,
                         new AgentRing.Interns(claim.generation, DEFAULT_INTERNS, COUNTERS.internOverflow, true))) {
-                    for (AtomicInteger interned : INTERNED) {
-                        interned.set(0);
-                    }
                     // A new run: its buckets count from its claim.
                     resetAll(BUCKET_COUNTS);
                     break;
@@ -3460,7 +3603,7 @@ public final class SideEffects {
             network.sweep(Long.MAX_VALUE);
             network.pending.remove(Identity.of(network));
             network.pending.isEmpty();
-            quota(network.lookups, "warm");
+            quota(network.lookups, "warm", ROOM_LOOKUPS);
             table.known(0, 0, 0, 0, 0L);
             frameId(network, "warm", "warm");
             CodePaths.Frame warmFrame = new CodePaths.Frame();
@@ -3673,6 +3816,11 @@ public final class SideEffects {
             AgentRing.Interns interns = INTERNS.get();
             map.put("interned", Integer.valueOf(interns == null ? 0 : interns.size()));
             map.put("internOverflow", Long.valueOf(COUNTERS.internOverflow.sum()));
+            Map<String, Object> refused = new LinkedHashMap<String, Object>();
+            for (int i = 0; i < ROOMS.length; i++) {
+                refused.put(ROOMS[i], Long.valueOf(ROOM_REFUSED[i].sum()));
+            }
+            map.put("internRoomRefused", refused);
             map.put("errors", Long.valueOf(ERROR_COUNT.get() + SENSOR_ERRORS[sensor].get()));
             map.put("applicationErrors", Long.valueOf(APPLICATION_ERRORS.sum()));
             boolean sensorOff = sensor != 0 && (budgetOff & (1 << sensor)) != 0;
@@ -3729,6 +3877,10 @@ public final class SideEffects {
         for (AtomicInteger interned : INTERNED) {
             interned.set(0);
         }
+        for (AtomicInteger used : ROOM_USED) {
+            used.set(0);
+        }
+        resetAll(ROOM_REFUSED);
         for (AtomicLong errors : SENSOR_ERRORS) {
             errors.set(0);
         }
@@ -3748,7 +3900,7 @@ public final class SideEffects {
         if (frame != null) {
             frame.slots = 0;
             frame.sideEffects = null;
-            frame.sideEffectDepth = 0;
+            frame.sideEffectOpen = 0;
             frame.sideEffectSince = 0L;
             frame.sideEffectThreadName = null;
             frame.sideEffectThreadGeneration = -1L;

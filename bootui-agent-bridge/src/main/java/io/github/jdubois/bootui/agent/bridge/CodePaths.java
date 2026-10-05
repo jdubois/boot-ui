@@ -1196,12 +1196,15 @@ public final class CodePaths {
         /** The slots pushed, which may exceed the stack's size: those past it name no owner. */
         int slots;
 
-        /** The side-effect hooks open on the thread: only the outermost records. */
-        int sideEffectDepth;
+        /**
+         * The sensor bits ({@code SideEffects.MASK_*}) of the side-effect hooks open on the thread: a files or
+         * environment hook records only outside every other, a network or process hook only outside each other.
+         */
+        int sideEffectOpen;
 
         /**
-         * When the open side-effect hook started, from {@link System#nanoTime()}: a depth older than {@code
-         * SideEffects.STALE_DEPTH_NANOS} is stale, left by an exit that never ran, and no longer silences the thread.
+         * When the latest side-effect hook opened, from {@link System#nanoTime()}: open hooks older than {@code
+         * SideEffects.STALE_DEPTH_NANOS} are stale, left by an exit that never ran, and no longer silence the thread.
          */
         long sideEffectSince;
 

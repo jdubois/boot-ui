@@ -1,0 +1,195 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:3c23ce8a37",
+    "kind": "exception-hotspots",
+    "subject": "GET /api/records",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/records` recorded `UnauthorizedException` in 40 of 160 requests (40 occurrences).",
+    "eligible": 160,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "c9ffa3e64d7e3126",
+      "37d8586252d92aa0",
+      "54d64f71c1aa5312"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "c9ffa3e64d7e3126",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "37d8586252d92aa0",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "54d64f71c1aa5312",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "e8a98d3d052b8262",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "5c83acd873edf057",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "6d364eb0eeeb6ac8",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "274a3d6cd80e6151",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "fc2d0835f5bb4d7d",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "71fbac6a7db6dbfa",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "efaa632f5e05cae9",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "4421098d5f897ea1",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "6d277fed8b371a48",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "553c2fc5ffeb873c",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "f86386ab62092fe2",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "c4d4c4355483ee16",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "aedae255c19eb3c5",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "e30ca1a3188f1f84",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "561bb6a21168f6dc",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "78caa1cde8f68a83",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    },
+    {
+      "cells": [
+        "f36e26b6b9f9ae13",
+        "401",
+        "1",
+        "da5724898f62c3ae"
+      ]
+    }
+  ],
+  "truncated": 20
+}

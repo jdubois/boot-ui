@@ -1,0 +1,87 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:2667652a92",
+    "kind": "route-time-breakdown",
+    "subject": "GET /owners/find",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/find`: warm median 4.3 ms over 183 requests; Response write 89 %, Other filters 7 %, Other handler time 5 %. Median CPU 4.3 ms and 606 KB allocated per request.",
+    "eligible": 183,
+    "affected": 183,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "00d783af57075aba",
+      "ce5ee905fad6d671",
+      "eef1d51e13a8e4b5"
+    ],
+    "evidenceRows": 6,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 299 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "53",
+        "7 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.setAllowedFields",
+        "0.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.findOwner",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.initFindForm",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "38",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "710",
+        "89 %",
+        "3.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

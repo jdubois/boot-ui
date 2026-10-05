@@ -13,7 +13,7 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     {@code network}, and {@code files}, and the opt-in {@code threads}, {@code environment}, and
+ *     and {@code network}, and the opt-in {@code threads}, {@code files}, {@code environment}, and
  *     {@code caught-exceptions}; the Side Effects sensors this version does not ship are accepted
  *     ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate

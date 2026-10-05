@@ -1,0 +1,177 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "split-transaction-writes:3bb9ca6432",
+    "kind": "split-transaction-writes",
+    "subject": "POST /orders",
+    "status": "OBSERVED",
+    "sentence": "`POST /orders` committed its writes in up to 8 independent units in 40 of 40 requests that wrote: if these writes must succeed together, one may persist while another fails.",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "If these writes must succeed together, run them in one transaction.",
+      "If one is meant to commit alone, such as an audit or outbox write, check that a failure after it leaves consistent data."
+    ],
+    "exemplarRequestIds": [
+      "0d8d8fa7e7dc06a6",
+      "c9704c2d5636f988",
+      "3eb8af295863b04a"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "A unit is a transaction that began its own physical transaction or a statement run outside every recorded transaction, which autocommits; a manual JDBC transaction is not recognized."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Units",
+    "Boundaries"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "0d8d8fa7e7dc06a6",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "c9704c2d5636f988",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "3eb8af295863b04a",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "f5a3afd43fc3f0ab",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "9e1036ee5fe73a7b",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "fa271fa796db976a",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "80d95534e1106903",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "3d82963a47b725f3",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "2e82ed012aa9ea84",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "d41697d172f09fc5",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "b097ba95a17ae6fd",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "b974ee6e881a82ee",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "3526b53edd0678b6",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "e81c3d6d6a7d07c2",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "ae1d52c94d94832f",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "ed10e39e8bd55353",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "77b2650e689e6c6f",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "77a159fcbd0de1be",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "229ae29b7a5bd9f7",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    },
+    {
+      "cells": [
+        "8a198c29f4c0712b",
+        "8",
+        "com.sivalabs.bookstore.orders.domain.OrderService.createOrder: 4 writes, first `INSERT INTO events.EVENT_PUBLICATION (ID, EVENT_TYPE, LISTENER_ID, PUBLICATION_…`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markProcessing: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ? WHERE ID = ? AND STATUS != ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`; com.sivalabs.bookstore.inventory.eventhandlers.OrderEventInventoryHandler.handle: 1 write, first `update inventory.inventory set product_code=?,quantity=? where id=?`; org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted: 1 write, first `UPDATE events.EVENT_PUBLICATION SET STATUS = ?, COMPLETION_DATE = ? WHERE ID = ?`"
+      ]
+    }
+  ],
+  "truncated": 20
+}

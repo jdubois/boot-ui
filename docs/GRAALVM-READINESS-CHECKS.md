@@ -269,7 +269,7 @@ BootUI did not generate.
 ### BootUI's own hints
 
 Separately from the scan, BootUI registers Spring AOT runtime hints for its own needs in
-[`BootUiRuntimeHints`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java),
+[`BootUiRuntimeHints`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java),
 covering its runtime-scanned classpath resources, its Jackson DTO records, and the reflective calls the Heap Dump,
 Security, and Pentesting panels use. `BootUiAutoConfiguration` contributes them, so applications using the starter do
 not need to copy BootUI-specific hints into their own configuration.

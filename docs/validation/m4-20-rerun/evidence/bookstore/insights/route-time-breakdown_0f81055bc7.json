@@ -1,0 +1,69 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:0f81055bc7",
+    "kind": "route-time-breakdown",
+    "subject": "POST /login",
+    "status": "INSUFFICIENT",
+    "sentence": "`POST /login`: warm median 80 ms over 40 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. Recorded calls: SQL 2 %, Connection wait 0 %. First request 270 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+    ],
+    "exemplarRequestIds": [
+      "76e1d4d1f1ba85ac",
+      "a473118708a2c767",
+      "54ba4b30826829d7"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "3401",
+        "98 %",
+        "79"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "67",
+        "2 %",
+        "1.3"
+      ]
+    },
+    {
+      "cells": [
+        "Unattributed",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    }
+  ],
+  "truncated": 0
+}

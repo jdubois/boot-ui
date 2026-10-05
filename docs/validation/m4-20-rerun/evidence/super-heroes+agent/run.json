@@ -1,0 +1,5 @@
+{"app": "super-heroes", "role": "tuned", "stack": "quarkus", "agent": true, "change": true, "comparison": false,
+ "iterationsOverride": null,
+ "services": [], "appCommit": "d472e71d6c886f1699598c1ef06297473653000d", "bootuiVersion": "1.19.0",
+ "bootuiCommit": "5bd7cb76eb532f1a72bf3a1ab8b018190c6214a2", "engineSha256": "e913e36b5bc024761081f3133367374f98b7a83ebce581c4e2449cf815e3b9fe", "harnessSha256": "939f58d70727be8773ba4bdc89d45303081075a37a380fd1301dcafa6fb3c1a7",
+ "collectedAt": "2026-10-05T08:00:13Z"}

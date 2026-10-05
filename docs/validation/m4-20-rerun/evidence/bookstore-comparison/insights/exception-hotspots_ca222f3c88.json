@@ -1,0 +1,195 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:ca222f3c88",
+    "kind": "exception-hotspots",
+    "subject": "GET /admin/catalog/products/{code}",
+    "status": "OBSERVED",
+    "sentence": "`GET /admin/catalog/products/{code}` recorded `ProductNotFoundException` in 40 of 80 requests (40 occurrences).",
+    "eligible": 80,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "e4d89b00471c8cfc",
+      "4f9302515da5da53",
+      "719d0425e8122828"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e4d89b00471c8cfc",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "4f9302515da5da53",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "719d0425e8122828",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "952effdf5294b0ed",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "b08e88f263c52a24",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "e62282187b3058c4",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "30286e0b4400115b",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "ffa8f949b82a0377",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "143df76380863d5c",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "36784339b9319efc",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "c0c8640899c0070a",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "bc2801df73b1006a",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "643519eaa8775283",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "f515787b6577f2bf",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "9396dd2d0266dc0a",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "6def8a04a2808cc1",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "b14d4623b1f12892",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "eeb6a9445e1accfd",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "64c38d2680dfe58a",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    },
+    {
+      "cells": [
+        "f7f4850bdf97b46c",
+        "404",
+        "1",
+        "c7c921819c2a1d7f"
+      ]
+    }
+  ],
+  "truncated": 20
+}

@@ -1,0 +1,102 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:3bb9ca6432",
+    "kind": "route-time-breakdown",
+    "subject": "POST /orders",
+    "status": "OBSERVED",
+    "sentence": "`POST /orders`: warm median 11 ms over 79 requests; Handler, other work 37 %, SQL 28 %, Response write 25 %. First request 17 ms (cold).",
+    "eligible": 79,
+    "affected": 79,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "a69b8d61b3ac2415",
+      "420aa9f7bb9c76ae",
+      "9b8ebfd3d68e6b60"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "The handler is not split by method: 273 recorded calls carried no code-paths stamp, as recorded on another thread than the one that issued them, and take 83 % of its time, which the methods that waited for them would keep and so take the handler's other work."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "6.9",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "23",
+        "3 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "16",
+        "2 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "224",
+        "28 %",
+        "3.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "36",
+        "4 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "298",
+        "37 %",
+        "4.3"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "201",
+        "25 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Overlapping calls, counted once above",
+        "24",
+        "",
+        ""
+      ]
+    }
+  ],
+  "truncated": 0
+}

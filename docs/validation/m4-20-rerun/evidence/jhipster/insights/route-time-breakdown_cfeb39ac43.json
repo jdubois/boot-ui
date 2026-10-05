@@ -1,0 +1,99 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:cfeb39ac43",
+    "kind": "route-time-breakdown",
+    "subject": "DELETE /api/labels/{id}",
+    "status": "OBSERVED",
+    "sentence": "`DELETE /api/labels/{id}`: warm median 5.4 ms over 12 requests; Handler, other work 37 %, Other filters 25 %, Response write 11 %. Median CPU 5.3 ms and 194 KB allocated per request. First request 7.2 ms (cold).",
+    "eligible": 12,
+    "affected": 12,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "8edd1a86708a77bd",
+      "186e096e7c334703",
+      "60f3f033c59b4897"
+    ],
+    "evidenceRows": 8,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "8.0",
+        "11 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "1.7",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "19",
+        "25 %",
+        "1.1"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "2.0",
+        "3 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "7.7",
+        "10 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "28",
+        "37 %",
+        "2.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "8.1",
+        "11 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

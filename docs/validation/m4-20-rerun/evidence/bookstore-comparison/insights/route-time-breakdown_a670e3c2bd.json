@@ -1,0 +1,93 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:a670e3c2bd",
+    "kind": "route-time-breakdown",
+    "subject": "POST /buy",
+    "status": "OBSERVED",
+    "sentence": "`POST /buy`: warm median 5.0 ms over 79 requests; Handler, other work 50 %, SQL 36 %, Other filters 7 %. First request 14 ms (cold).",
+    "eligible": 79,
+    "affected": 79,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "5464ae3ce2b6084e",
+      "cc89f98157945cd5",
+      "b2ca776bf983d5cd"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "6.7",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "27",
+        "7 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.7",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "145",
+        "36 %",
+        "1.7"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "199",
+        "50 %",
+        "2.4"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "20",
+        "5 %",
+        "0.2"
+      ]
+    }
+  ],
+  "truncated": 0
+}

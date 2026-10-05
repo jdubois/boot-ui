@@ -1,0 +1,89 @@
+{
+  "available": true,
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "observation": {
+    "affected": 41,
+    "eligible": 41,
+    "evidenceRows": 6,
+    "exemplarRequestIds": [
+      "b4e814c877ee22e0",
+      "d5c6999f7722eb3b",
+      "4d3c8e09311c7d83"
+    ],
+    "id": "route-time-breakdown:d9c348a22a",
+    "kind": "route-time-breakdown",
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 41 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named. 20 recorded calls carried no stamp, as recorded on another thread than the one that issued them: under 10 % of the handler's time, which stays in the own time of a method that waited for them.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.",
+      "The security-logs panel is not available in this application, so its evidence is not counted: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events.",
+      "The rest-client-trace panel is not available in this application, so its evidence is not counted: this application does not use Quarkus REST Client Reactive. Add the quarkus-rest-client extension (with at least one REST Client interface) to enable the REST Client panel."
+    ],
+    "listed": false,
+    "minimumTier": "REQUEST_ID",
+    "sentence": "`DELETE /api/villains/{id}`: warm median 3.5 ms over 41 requests; Handler: VillainService.deleteVillain 45 %, SQL 43 %, Other handler time 5 %. First request 7.8 ms (cold).",
+    "status": "OBSERVED",
+    "subject": "DELETE /api/villains/{id}",
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent.",
+    "whatToCheck": [
+      "Most of the time is in VillainService.deleteVillain: open Code Paths for this route to see what it calls and who calls it."
+    ]
+  },
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "3.4",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "76",
+        "43 %",
+        "1.4"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "7.4",
+        "4 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: VillainService.deleteVillain",
+        "79",
+        "45 %",
+        "1.8"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "8.8",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "1.2",
+        "1 %",
+        "0.0"
+      ]
+    }
+  ],
+  "truncated": 0
+}

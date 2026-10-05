@@ -1,0 +1,237 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "ai-usage-by-route:6d11138a0f",
+    "kind": "ai-usage-by-route",
+    "subject": "POST /api/messages",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/messages` made 160 AI operations in 80 of 120 requests: 160 model calls, up to 2 in one request, a median 154 ms each, 133216 input and 3040 output tokens (reported by 160 of 160 calls). Input tokens grew across successive model calls in 80 requests, up to 1.0 times the first call's.",
+    "eligible": 120,
+    "affected": 80,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Input that grows with each call resends the conversation: trim or summarize what is sent."
+    ],
+    "exemplarRequestIds": [
+      "e038c05b9c33ad67",
+      "f83a2c2614d7ec9a",
+      "4ac6a7fb75d75fcb"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Operations",
+    "Model calls",
+    "Models",
+    "Input tokens",
+    "Output tokens"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e038c05b9c33ad67",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1667",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "f83a2c2614d7ec9a",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1658",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "4ac6a7fb75d75fcb",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1658",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "38d88e95dbfebc00",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1664",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "6b05a3729b2646c1",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1664",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "d089f4582aca26eb",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1665",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "a1549653fafa3dab",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1665",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "60a6b0c5feeb7ac6",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1672",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "7eb99dc4363ff365",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1672",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "e78564b2aa8b9b79",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1667",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "3b30da92f85c08e6",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1667",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "e94ce8bd51f5ebc8",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1658",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "4174072e9ef9f111",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1658",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "8db6d91ecdbb71f8",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1664",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "56ed09284a268649",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1664",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "3a6a5c95cfeb3c72",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1665",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "dacefbcda3b02a14",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1665",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "0d5c344f5513fa22",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1672",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "bce7280542bd9f97",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1672",
+        "38"
+      ]
+    },
+    {
+      "cells": [
+        "0794666d96e73851",
+        "2",
+        "2",
+        "gpt-4o-mini",
+        "1667",
+        "38"
+      ]
+    }
+  ],
+  "truncated": 60
+}

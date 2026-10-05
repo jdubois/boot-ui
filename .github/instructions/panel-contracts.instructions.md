@@ -1,5 +1,5 @@
 ---
-applyTo: "bootui-core/**,bootui-engine/**,bootui-spring-autoconfigure/**,bootui-spring-boot-starter-reactive/**,bootui-spring-sample-app/**,bootui-spring-webflux-sample-app/**,bootui-quarkus/**,bootui-quarkus-deployment/**,bootui-quarkus-sample-app/**,bootui-conformance/**,bootui-ui/**,docs/**"
+applyTo: "bootui-core/**,bootui-engine/**,bootui-spring-boot-starter/**,bootui-spring-sample-app/**,bootui-spring-webflux-sample-app/**,bootui-quarkus/**,bootui-quarkus-deployment/**,bootui-quarkus-sample-app/**,bootui-conformance/**,bootui-ui/**,docs/**"
 ---
 
 # Panel, API, and safety contracts

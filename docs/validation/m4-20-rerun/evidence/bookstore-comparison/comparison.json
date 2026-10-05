@@ -1,0 +1,45 @@
+{
+  "status": "COMPARED",
+  "reason": null,
+  "current": {
+    "runId": "1e0289c2",
+    "ordinal": 1,
+    "startedAt": 1791188645701,
+    "endedAt": null,
+    "requests": 1683,
+    "source": "CURRENT"
+  },
+  "previous": {
+    "runId": "2ddb5db4",
+    "ordinal": 1,
+    "startedAt": 1791188586056,
+    "endedAt": 1791188647825,
+    "requests": 1683,
+    "source": "BASELINE_FILE"
+  },
+  "runs": [
+    {
+      "runId": "2ddb5db4",
+      "ordinal": 1,
+      "startedAt": 1791188586056,
+      "endedAt": 1791188647825,
+      "requests": 1683,
+      "source": "BASELINE_FILE"
+    }
+  ],
+  "notComparableReasons": [],
+  "behavior": [],
+  "edges": [],
+  "restartCost": {
+    "status": "UNAVAILABLE",
+    "reason": "A baseline file may come from another JVM; restart cost needs adjacent restarts in the same JVM.",
+    "readyMsBefore": null,
+    "readyMsAfter": null,
+    "beans": []
+  },
+  "latency": [],
+  "limitations": [
+    "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events. Its application event edges are not compared."
+  ],
+  "codeChanges": null
+}

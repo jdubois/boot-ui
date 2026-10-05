@@ -1,0 +1,103 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:eb33c83b20",
+    "kind": "route-time-breakdown",
+    "subject": "GET /orders",
+    "status": "OBSERVED",
+    "sentence": "`GET /orders`: warm median 5.8 ms over 80 requests; Response write 39 %, Other handler time 18 %, SQL 13 %. First request 4.7 ms (cold).",
+    "eligible": 80,
+    "affected": 80,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization."
+    ],
+    "exemplarRequestIds": [
+      "c4dadd577dd2f7cf",
+      "e674c7c7fad0b442",
+      "63bf99d311f4a14a"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "39 warm requests reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so they are left out of the phases.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 79 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "7.9",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "25",
+        "5 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "50",
+        "10 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "66",
+        "13 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OrderService.findOrders",
+        "64",
+        "13 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "91",
+        "18 %",
+        "1.0"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "197",
+        "39 %",
+        "1.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

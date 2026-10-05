@@ -1,0 +1,93 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:3b351119e5",
+    "kind": "gc-inflated-latency",
+    "subject": "GET /owners/{ownerId}",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 6 of `GET /owners/{ownerId}`'s 55 slowest requests (11 %), against 0 % of its other 494 requests; those pauses total 21 ms.",
+    "eligible": 55,
+    "affected": 6,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "f1fd4b4ce9a69782",
+      "9a051b835d8c467d",
+      "19f65a39b2c15db4"
+    ],
+    "evidenceRows": 6,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "f1fd4b4ce9a69782",
+        "9.9",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "9a051b835d8c467d",
+        "9.0",
+        "1",
+        "6.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "19f65a39b2c15db4",
+        "7.8",
+        "1",
+        "2.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "3a089bc9329257e8",
+        "6.9",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "035f82552db954f9",
+        "6.7",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "6c118c5e26b6506a",
+        "5.9",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    }
+  ],
+  "truncated": 0
+}

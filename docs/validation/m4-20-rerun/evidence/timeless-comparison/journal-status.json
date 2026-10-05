@@ -1,0 +1,46 @@
+{
+  "enabled": true,
+  "runId": "c214f35b",
+  "retainedEvents": 4460,
+  "retainedBytes": 1576499,
+  "maxEvents": 50000,
+  "maxBytes": 33554432,
+  "reservedEvents": 480,
+  "reservedCapacity": 5000,
+  "evictedEvents": 0,
+  "bindingBound": null,
+  "oldestRetainedAt": 1791188838149,
+  "queueDepth": 0,
+  "queueCapacity": 10000,
+  "recorded": {
+    "http": 880,
+    "sql": 1058,
+    "exception": 240,
+    "security": 519,
+    "authorization": 599,
+    "rest-client": 160,
+    "scheduled": 18,
+    "log": 40,
+    "ai": 160,
+    "lifecycle": 1,
+    "gc": 8,
+    "orm": 777
+  },
+  "dropped": {},
+  "droppedEvents": 0,
+  "previousRuns": [
+    {
+      "runId": "2c4c8b41",
+      "ordinal": 1,
+      "startedAt": 1791188740162,
+      "endedAt": 1791188809727,
+      "requests": 880,
+      "failedRequests": 40,
+      "events": 4448,
+      "summaryBytes": 7308,
+      "omittedEntries": 0
+    }
+  ],
+  "previousRunsUnavailable": null,
+  "agentEvidence": null
+}

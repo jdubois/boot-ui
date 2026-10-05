@@ -1,0 +1,14 @@
+{
+  "status": "NO_PREVIOUS_RUN",
+  "reason": "No previous run is kept yet: restart the application, as DevTools or a Quarkus live reload does, or set bootui.runtime-journal.baseline-file to keep the last run across a full JVM restart.",
+  "currentRunId": "e274c5e1",
+  "behaviorOmitted": 0,
+  "edgesOmitted": 0,
+  "next": [
+    {
+      "command": "bootui insights list",
+      "tool": "get_runtime_insights",
+      "why": "this run alone, until a restart keeps it as the previous run"
+    }
+  ]
+}

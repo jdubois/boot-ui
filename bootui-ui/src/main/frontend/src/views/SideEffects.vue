@@ -35,6 +35,12 @@ const SENSOR_ORDER = [
   'security-sinks'
 ]
 
+/** The opt-in sensors, with what each records once added to bootui.agent.sensors. */
+const OPT_IN = {
+  files: 'the path patterns of the files the application opens, deletes, moves, and copies',
+  environment: 'the names read'
+}
+
 const STATE = {
   recording: {label: 'Recording', badge: 'text-bg-success'},
   installing: {label: 'Installing', badge: 'text-bg-info'},
@@ -159,9 +165,11 @@ async function fetchSummary() {
   try {
     summary.value = await getJson('api/side-effects')
     lastFetched.value = Date.now()
-    sensorReports.value = {}
-    sensorErrors.value = {}
-    sensorLoading.value = {}
+    // Keep the active tab's rows on screen while they refresh, so an auto-refresh updates them in place rather than
+    // blanking every table to "Loading…"; other tabs' rows are dropped and fetched again when their tab is opened.
+    const active = new Set(sensorsForGroup(activeTab.value).map((sensor) => sensor.id))
+    sensorReports.value = Object.fromEntries(Object.entries(sensorReports.value).filter(([id]) => active.has(id)))
+    sensorErrors.value = Object.fromEntries(Object.entries(sensorErrors.value).filter(([id]) => active.has(id)))
     if (summary.value?.available) {
       await loadGroupSensors(activeTab.value, {force: true})
     }
@@ -186,13 +194,16 @@ async function loadGroupSensors(groupId, {force = false} = {}) {
 
 async function loadSensor(sensor, {append = false} = {}) {
   const existing = sensorReports.value[sensor.id]
-  const offset = append ? existing?.rows?.length || 0 : 0
+  const shown = existing?.rows?.length || 0
+  const offset = append ? shown : 0
+  // A refresh asks for as many rows as are already shown, so rows loaded with "Load more" stay on screen.
+  const limit = append ? PAGE : Math.max(PAGE, shown)
   sensorLoading.value = {...sensorLoading.value, [sensor.id]: true}
-  sensorErrors.value = {...sensorErrors.value, [sensor.id]: null}
   try {
     const report = await getJson(
-      `api/side-effects/sensor?sensor=${encodeURIComponent(sensor.id)}&offset=${offset}&limit=${PAGE}`
+      `api/side-effects/sensor?sensor=${encodeURIComponent(sensor.id)}&offset=${offset}&limit=${limit}`
     )
+    sensorErrors.value = {...sensorErrors.value, [sensor.id]: null}
     sensorReports.value = {
       ...sensorReports.value,
       [sensor.id]: {
@@ -477,9 +488,9 @@ function hookStatus(value, label) {
             <div v-if="sensor.state !== 'recording'" class="alert alert-secondary small py-2 side-effects-state-note">
               <strong>{{ stateOf(sensor).label }}.</strong>
               {{ sensor.reason || 'This sensor is not recording rows right now.' }}
-              <template v-if="sensor.id === 'environment' && sensor.state === 'not-claimed'">
-                It is opt-in: add <code>environment</code> to <code>bootui.agent.sensors</code> to record the names
-                read.
+              <template v-if="OPT_IN[sensor.id] && sensor.state === 'not-claimed'">
+                It is opt-in: add <code>{{ sensor.id }}</code> to <code>bootui.agent.sensors</code> to record
+                {{ OPT_IN[sensor.id] }}.
               </template>
             </div>
 

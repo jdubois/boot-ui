@@ -1,0 +1,78 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:3feaa155aa",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/records",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/records`: warm median 6.0 ms over 159 requests; Handler, other work 48 %, SQL 39 %, Other filters 12 %. Median CPU 2.5 ms and 221 KB allocated per request. First request 31 ms (cold).",
+    "eligible": 159,
+    "affected": 159,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "4ec24f16564fde14",
+      "103986b4817f4cff",
+      "3dec3b70a264976d"
+    ],
+    "evidenceRows": 5,
+    "limitations": [
+      "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "103",
+        "12 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "345",
+        "39 %",
+        "2.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "4.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "430",
+        "48 %",
+        "2.8"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "9.9",
+        "1 %",
+        "0.0"
+      ]
+    }
+  ],
+  "truncated": 0
+}

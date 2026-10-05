@@ -1,0 +1,195 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:a5b67b99ba",
+    "kind": "exception-hotspots",
+    "subject": "GET /api/records",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/records` recorded `NullPointerException` in 40 of 160 requests (40 occurrences).",
+    "eligible": 160,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "7c18ad345abcb6d2",
+      "def06b1f049217e0",
+      "4878308d5118345e"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "7c18ad345abcb6d2",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "def06b1f049217e0",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "4878308d5118345e",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "9a8016cc621c60c6",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "c3e37d1b2d172508",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "e3228f8110877ce3",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "7438e2074ac877a2",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "08f23c64560f6502",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "9b55e0b825b1b6f3",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "eb2e551592ee7940",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "e4d6c06a316a3fc0",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "396c0a6b648aebe8",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "08a99ac3b0cce144",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "352487f10a240ac4",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "dfd4cf4e8825a4e2",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "4d2398d31b6d9a12",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "57207e20f0d2ebd9",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "c113aefe4a27adbf",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "133bfdfc064a8cfe",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    },
+    {
+      "cells": [
+        "605f71f1df9e2e81",
+        "500",
+        "1",
+        "4c01b39ade86ed96"
+      ]
+    }
+  ],
+  "truncated": 20
+}

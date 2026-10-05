@@ -1,0 +1,134 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:5cf2c95c76",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/authenticate",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/authenticate`: warm median 80 ms over 38 requests; Handler: AuthenticateController.authorize 94 %, Handler: DomainUserDetailsService.loadUserByUsername 1 %, Other filters 1 %. Median CPU 80 ms and 298 KB allocated per request. First request 403 ms (cold).",
+    "eligible": 38,
+    "affected": 38,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in AuthenticateController.authorize: open Code Paths for this route to see what it calls and who calls it.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "a83ee2aa2deddb91",
+      "74b0fb968ae47013",
+      "00838185e556b2cf"
+    ],
+    "evidenceRows": 12,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 38 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.9",
+        "0 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "40",
+        "1 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "2.0",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "1.7",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.0",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: AuthenticateController.authorize",
+        "3017",
+        "94 %",
+        "76"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: DomainUserDetailsService.loadUserByUsername",
+        "44",
+        "1 %",
+        "1.1"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "12",
+        "0 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAfterThrowing",
+        "8.7",
+        "0 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: AuthenticateController.createToken",
+        "6.2",
+        "0 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "36",
+        "1 %",
+        "0.9"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "36",
+        "1 %",
+        "0.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

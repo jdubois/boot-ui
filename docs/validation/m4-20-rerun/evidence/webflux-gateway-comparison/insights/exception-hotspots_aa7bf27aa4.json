@@ -1,0 +1,197 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:aa7bf27aa4",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/authorities",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/authorities` recorded `BadRequestAlertException` in 24 of 48 requests (24 occurrences).",
+    "eligible": 48,
+    "affected": 24,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "7ae1a273f5accd7d",
+      "8bb807a6eef99dd1",
+      "e416674e5b3b9e39"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Exceptions a WebFlux handler handles itself, such as with onErrorResume, are not recorded."
+    ],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "7ae1a273f5accd7d",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "8bb807a6eef99dd1",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "e416674e5b3b9e39",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "3f2db05c8ce271c5",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "435b47a5b18d802a",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "595105014eeee72e",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "45859c642d992dc4",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "e7f4dc1e4a894aec",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "65a29ddb9c741ac2",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "b41430ec1a05e79b",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "b3fbfc2e49b2fc7f",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "d27f9f08eefbd76a",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "571291229b8125f4",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "de80a83ee4b93c4e",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "2df0284de2cd84ee",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "6e5c49709a7d0cc3",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "883d18ed910f80a8",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "2f116104e0582ae3",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "d2797f8abef05331",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    },
+    {
+      "cells": [
+        "ee60258f4950c6b3",
+        "400",
+        "1",
+        "05a0e010d02efc9b"
+      ]
+    }
+  ],
+  "truncated": 4
+}
