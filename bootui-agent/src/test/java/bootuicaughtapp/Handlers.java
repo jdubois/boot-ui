@@ -265,6 +265,37 @@ public class Handlers {
         }
     }
 
+    /**
+     * Code after the handler's {@code goto} hands on another exception and restores the interrupt: neither is the
+     * handler's own, so the caught exception is still discarded.
+     */
+    public java.util.concurrent.CompletableFuture<Integer> afterTheHandler(String text) {
+        int n;
+        try {
+            n = Integer.parseInt(text);
+        } catch (NumberFormatException ex) {
+            n = -1;
+        }
+        if (n < 0) {
+            Thread.currentThread().interrupt();
+            return java.util.concurrent.CompletableFuture.failedFuture(new IllegalArgumentException("negative"));
+        }
+        return java.util.concurrent.CompletableFuture.completedFuture(n);
+    }
+
+    /** The handler's slot is reused by a later variable, which is handed on: not the caught exception. */
+    public java.util.concurrent.CompletableFuture<Integer> slotReused(String text) {
+        java.util.concurrent.CompletableFuture<Integer> result = new java.util.concurrent.CompletableFuture<>();
+        try {
+            result.complete(Integer.parseInt(text));
+        } catch (NumberFormatException ex) {
+            counter++;
+        }
+        RuntimeException other = new IllegalStateException("other");
+        result.completeExceptionally(other);
+        return result;
+    }
+
     /** An application emitter. */
     public static class Emitter {
         public void completeWithError(Throwable failure) {}

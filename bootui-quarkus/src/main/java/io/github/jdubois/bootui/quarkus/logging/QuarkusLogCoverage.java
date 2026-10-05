@@ -24,17 +24,42 @@ public final class QuarkusLogCoverage implements LogCoverage {
     /** How long the bypassing loggers are kept between reads. */
     static final long CACHE_MILLIS = 1_000L;
 
+    /**
+     * When BootUI's handler was last installed or removed, by the wall clock, as at a live reload; 0 while never. Logs
+     * written around it may have reached no handler of BootUI's.
+     */
+    private static volatile long handlerChangedAt;
+
+    /** The handler that was attached at the last read, to notice a swap made outside {@link QuarkusLogTailCapture}. */
+    private volatile Handler lastSeen;
+
     private volatile long cachedAt = Long.MIN_VALUE;
     private volatile List<String> cached = List.of();
 
+    /** BootUI's handler was installed or removed now. */
+    static void handlerChanged() {
+        handlerChangedAt = System.currentTimeMillis();
+    }
+
     @Override
     public String gap(long fromMillis, long toMillis) {
-        boolean attached = false;
+        Handler attached = null;
         for (Handler handler : Logger.getLogger("").getHandlers()) {
-            attached |= handler instanceof QuarkusLogTailHandler;
+            if (handler instanceof QuarkusLogTailHandler) {
+                attached = handler;
+            }
         }
-        if (!attached) {
+        if (attached == null) {
             return "BootUI's log handler is not attached to the root logger";
+        }
+        Handler previous = lastSeen;
+        if (previous != null && previous != attached) {
+            handlerChanged();
+        }
+        lastSeen = attached;
+        long changed = handlerChangedAt;
+        if (changed != 0L && changed >= fromMillis) {
+            return "BootUI's log handler was replaced during its request, as at a live reload";
         }
         if (!bypassingLoggers().isEmpty()) {
             return "a logger does not pass WARN logs to the root logger";

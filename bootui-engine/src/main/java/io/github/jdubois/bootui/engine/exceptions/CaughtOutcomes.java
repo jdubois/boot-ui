@@ -84,6 +84,8 @@ public final class CaughtOutcomes {
     static final String REASON_EXPIRED = "the agent stopped watching it before its request ended";
     static final String REASON_NO_EXIT = "a rethrow from its method is not observable";
     static final String REASON_WRAPPER = "it wraps another exception, which may have been logged";
+    static final String REASON_SHARED_THREAD =
+            "a WARN without a request on its shared event loop may have been its log";
     static final String REASON_UNNAMED = "the agent could not name its thread or class";
     static final String REASON_COUNTED = "occurrences past the agent's per-thread bound were only counted";
     static final String REASON_BEFORE_MARKS = "its request started before BootUI matched logged exceptions";
@@ -159,6 +161,8 @@ public final class CaughtOutcomes {
         final String siteKey;
         Outcome outcome;
         String reason;
+        /** What the same-thread rule found: {@link #THREAD_NONE}, {@link #THREAD_LOGGED}, or {@link #THREAD_AMBIGUOUS}. */
+        int threadLog;
 
         Occurrence(RuntimeEvent event, CaughtExceptionPayload payload) {
             this.event = event;
@@ -178,7 +182,8 @@ public final class CaughtOutcomes {
     record Mark(long time, boolean log, ThrowableMarks marks) {}
 
     /** A {@code WARN}+ log event on a thread. */
-    record ThreadLog(long time, String requestId) {}
+    /** A {@code WARN}+ log event on a thread: its request, the exception's marks, and whether the thread is shared. */
+    record ThreadLog(long time, String requestId, ThrowableMarks marks, boolean shared) {}
 
     /** The report over {@code entries}, every retained event of the journal, under {@code context}. */
     public static CaughtExceptionsReport resolve(
@@ -262,14 +267,16 @@ public final class CaughtOutcomes {
                 if (event.thread() != null) {
                     threadLogs
                             .computeIfAbsent(event.thread(), thread -> new ArrayList<>())
-                            .add(new ThreadLog(event.epochMillis(), requestId));
+                            .add(new ThreadLog(event.epochMillis(), requestId, log.marks(), shared(event)));
                 }
                 continue;
             }
             if (event.payload() instanceof ExceptionPayload exception) {
                 stamp(requestId, event.epochMillis(), latestOfRequest, earliestOfRequest);
-                if (exception.marks() != null && (!exception.logged() || context.logVisible())) {
-                    marks.add(new Mark(event.epochMillis(), exception.logged(), exception.marks()));
+                // A log-sourced exception may have been logged at any level: only the log source's WARN+ events, marked
+                // there, say it was logged.
+                if (exception.marks() != null && !exception.logged()) {
+                    marks.add(new Mark(event.epochMillis(), false, exception.marks()));
                 }
                 continue;
             }
@@ -293,14 +300,14 @@ public final class CaughtOutcomes {
                 occurrence.outcome = Outcome.REPORTED;
             } else if (marked(marks, occurrence.payload.identity(), from, true)) {
                 occurrence.outcome = Outcome.LOGGED;
-            } else if (context.logVisible() && loggedOnThread(occurrence, request, threadLogs, threadCatches)) {
+            } else if (context.logVisible()
+                    && (occurrence.threadLog = loggedOnThread(occurrence, request, threadLogs, threadCatches))
+                            == THREAD_LOGGED) {
                 occurrence.outcome = Outcome.LOGGED;
             } else if ((flags & SHAPE_PASSES_AS_VALUE) != 0) {
                 occurrence.outcome = Outcome.HANDED_ON;
             } else if ((flags & SHAPE_REINTERRUPTS) != 0) {
                 occurrence.outcome = Outcome.REINTERRUPTED;
-            } else if ((flags & SHAPE_THROWS_NEW) != 0) {
-                occurrence.outcome = Outcome.REPLACED;
             }
         }
         // Retried: an earlier attempt of a later one that was rethrown, reported, or logged.
@@ -416,6 +423,19 @@ public final class CaughtOutcomes {
             unknown(occurrence, gap);
             return;
         }
+        if ((flags & SHAPE_THROWS_NEW) != 0) {
+            // It ends by throwing: as the method's exit handler saw no rethrow and nothing was lost, another exception.
+            if ((flags & FLAG_EXIT_HANDLER) == 0) {
+                unknown(occurrence, REASON_NO_EXIT);
+            } else {
+                occurrence.outcome = Outcome.REPLACED;
+            }
+            return;
+        }
+        if (occurrence.threadLog == THREAD_AMBIGUOUS) {
+            unknown(occurrence, REASON_SHARED_THREAD);
+            return;
+        }
         occurrence.outcome = Outcome.NOT_RETHROWN_OR_LOGGED;
     }
 
@@ -459,18 +479,28 @@ public final class CaughtOutcomes {
      * Whether a {@code WARN}+ was logged on the catching thread, in its request or in none, at or after the catch and
      * before that thread's next catch; one in no request also before the request ended.
      */
-    private static boolean loggedOnThread(
+    static final int THREAD_NONE = 0;
+
+    static final int THREAD_LOGGED = 1;
+    static final int THREAD_AMBIGUOUS = 2;
+
+    private static boolean shared(RuntimeEvent event) {
+        return event.threadKind() == io.github.jdubois.bootui.spi.ThreadKind.EVENT_LOOP
+                || event.threadKind() == io.github.jdubois.bootui.spi.ThreadKind.REACTOR_SCHEDULER;
+    }
+
+    private static int loggedOnThread(
             Occurrence occurrence,
             Request request,
             Map<String, List<ThreadLog>> threadLogs,
             Map<String, List<Long>> threadCatches) {
         String thread = occurrence.event.thread();
         if (thread == null) {
-            return false;
+            return THREAD_NONE;
         }
         List<ThreadLog> logs = threadLogs.get(thread);
         if (logs == null) {
-            return false;
+            return THREAD_NONE;
         }
         String requestId = occurrence.event.requestId();
         // The thread's next catch in the same request ends the window: another request's catch on a shared event loop
@@ -485,17 +515,28 @@ public final class CaughtOutcomes {
             }
         }
         long unowned = request != null ? request.end() : occurrence.time() + SETTLE_MILLIS;
+        int found = THREAD_NONE;
         for (ThreadLog log : logs) {
             if (log.time() < occurrence.time() || log.time() > next) {
                 continue;
             }
-            if (log.requestId() == null
-                    ? log.time() <= unowned
-                    : log.requestId().equals(requestId)) {
-                return true;
+            // A log of another exception, even of the same class, is never this one's.
+            if (log.marks() != null && !log.marks().contains(occurrence.payload.identity())) {
+                continue;
+            }
+            if (log.requestId() != null) {
+                if (log.requestId().equals(requestId)) {
+                    return THREAD_LOGGED;
+                }
+            } else if (log.time() <= unowned) {
+                // Without a request, on an event loop other requests share, it may be another request's.
+                found = log.shared() ? THREAD_AMBIGUOUS : THREAD_LOGGED;
+                if (found == THREAD_LOGGED) {
+                    return found;
+                }
             }
         }
-        return false;
+        return found;
     }
 
     private static CaughtExceptionsReport report(

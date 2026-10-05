@@ -205,6 +205,69 @@ class CaughtOutcomesTests {
     }
 
     @Test
+    void anExceptionCapturedFromALogAtAnyLevelIsNeverReadAsLogged() {
+        request("r1", START, 100);
+        caught("r1", START + 10, "debugLogged", EXIT, 5, "x.E", null);
+        // The exception feeder records throwables logged at any level, DEBUG included: only WARN+ log events count.
+        add(
+                JournalSource.EXCEPTION,
+                START + 11,
+                "r1",
+                "t2",
+                new ExceptionPayload("g", "x.E", "sig", List.of(), ThrowableMarks.ofIdentities(5), true));
+
+        assertThat(single(resolve(complete())).notRethrownOrLogged()).isEqualTo(1);
+    }
+
+    @Test
+    void aWarnOfAnotherExceptionOnTheCatchingThreadIsNeverItsLog() {
+        request("r1", START, 1_000);
+        caught("r1", START + 10, "swallow", EXIT, 1, "x.E", null);
+        add(
+                JournalSource.LOG,
+                START + 12,
+                "r1",
+                "t1",
+                new LogPayload("app", "WARN", "other", "x.E", ThrowableMarks.ofIdentities(99)));
+
+        assertThat(single(resolve(complete())).notRethrownOrLogged()).isEqualTo(1);
+    }
+
+    @Test
+    void aWarnWithoutARequestOnASharedEventLoopLeavesItUnknown() {
+        request("r1", START, 1_000);
+        caught("r1", START + 10, "swallow", EXIT, 1, "x.E", null);
+        RuntimeEvent log = new RuntimeEvent(
+                JournalSource.LOG,
+                START + 12,
+                -1,
+                null,
+                null,
+                null,
+                "t1",
+                io.github.jdubois.bootui.spi.ThreadKind.EVENT_LOOP,
+                false,
+                new LogPayload("app", "WARN", "{}", null, null));
+        entries.add(new JournalEntry(++sequence, log, 100));
+
+        assertThat(single(resolve(complete())).unknownReason()).isEqualTo(CaughtOutcomes.REASON_SHARED_THREAD);
+    }
+
+    @Test
+    void aHandlerEndingByAThrowIsReplacedOnlyWhenItsRethrowWasObservableAndNothingWasLost() {
+        request("r1", START, 100);
+        caught("r1", START + 10, "ends", EXIT | CaughtOutcomes.SHAPE_THROWS_NEW, 1, "x.E", null);
+        assertThat(single(resolve(complete())).replaced()).isEqualTo(1);
+        assertThat(single(resolve(with(complete(), "horizon", START))).unknownReason())
+                .isEqualTo(CaughtOutcomes.REASON_LOST);
+
+        entries.clear();
+        request("r2", START, 100);
+        caught("r2", START + 10, "ends", CaughtOutcomes.SHAPE_THROWS_NEW, 2, "x.E", null);
+        assertThat(single(resolve(complete())).unknownReason()).isEqualTo(CaughtOutcomes.REASON_NO_EXIT);
+    }
+
+    @Test
     void aLossBeforeTheRequestStartedLeavesItComplete() {
         request("r1", START, 100);
         caught("r1", START + 10, "swallow", EXIT, 1, "x.E", null);

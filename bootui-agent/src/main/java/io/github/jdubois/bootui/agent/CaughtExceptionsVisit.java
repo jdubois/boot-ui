@@ -214,6 +214,13 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
          * so a nested try's {@code goto} does not hide a call that hands the exception on.
          */
         boolean inReach;
+        /**
+         * Whether the exception it caught is on the stack for the next call: loaded from the slot its first instruction
+         * stored it in, with no store into that slot since, or, without such a store, still in its straight-line code.
+         */
+        boolean exceptionLoaded;
+        /** Whether its slot still holds what it caught: no other store into it since its first instruction. */
+        boolean slotHeld;
         /** The shapes its own code showed ({@code CaughtExceptions.SHAPE_*} but {@code SHAPE_DISCARDS}). */
         int shapes;
 
@@ -382,6 +389,13 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         @Override
         public void visitLabel(Label label) {
             beforeCode();
+            if (jumpTargets.contains(label)) {
+                // A merge point another path jumps to, as the end of a try statement a handler falls through to: the
+                // handlers' own straight-line code ends here.
+                for (Site open : sites) {
+                    open.inExtent = false;
+                }
+            }
             Site site = site(label);
             if (site != null && site.id >= 0) {
                 hook = site;
@@ -434,6 +448,15 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
                     site.awaitingFirst = false;
                     site.firstOpcode = opcode;
                     site.firstVar = var;
+                    site.slotHeld = opcode == Opcodes.ASTORE;
+                } else if (site.inReach && site.slotHeld && var == site.firstVar) {
+                    if (opcode == Opcodes.ALOAD) {
+                        site.exceptionLoaded = true;
+                    } else if (opcode >= Opcodes.ISTORE && opcode <= Opcodes.ASTORE) {
+                        // The slot now holds another value: a later load is not the caught exception.
+                        site.slotHeld = false;
+                        site.exceptionLoaded = false;
+                    }
                 }
                 if (site.inExtent) {
                     if (branches) {
@@ -506,7 +529,7 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
             int shape = shape(methodOwner, methodName, methodDescriptor);
             if (shape != 0) {
                 for (Site site : sites) {
-                    if (site.inReach) {
+                    if (applies(site, shape)) {
                         site.shapes |= shape;
                     }
                 }
@@ -693,6 +716,25 @@ final class CaughtExceptionsVisit implements AsmVisitorWrapper {
         boolean discards(Site site) {
             return site.firstOpcode == Opcodes.POP
                     || (site.firstOpcode == Opcodes.ASTORE && !loadedSlots.contains(Integer.valueOf(site.firstVar)));
+        }
+
+        /**
+         * Whether a call of {@code shape} is the handler's own: restoring the interrupt only in its straight-line code;
+         * handing on or printing only the exception it caught, loaded from its slot before the call, so code after the
+         * handler's {@code goto} that hands on another exception never hides a finding.
+         */
+        static boolean applies(Site site, int shape) {
+            if (shape == CaughtExceptions.SHAPE_REINTERRUPTS) {
+                return site.inExtent;
+            }
+            if (!site.inReach) {
+                return false;
+            }
+            if (site.firstOpcode == Opcodes.ASTORE) {
+                return site.exceptionLoaded;
+            }
+            // Kept on the stack, as hand-written or other compilers' bytecode may: only straight-line code uses it.
+            return site.inExtent;
         }
 
         /** The shape a call inside a handler shows, by its owner and name only, never resolving a type; 0 for none. */

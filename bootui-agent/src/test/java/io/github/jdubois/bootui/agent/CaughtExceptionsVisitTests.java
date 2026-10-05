@@ -156,6 +156,18 @@ class CaughtExceptionsVisitTests {
                 .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
         assertThat(shapes(sites, "logged(Lbootuicaughtapp/Handlers$AuditLogger;)I#0#java/io/IOException"))
                 .isZero();
+        assertThat(shapes(
+                        sites,
+                        "afterTheHandler(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;#0"
+                                + "#java/lang/NumberFormatException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        assertThat(shapes(
+                        sites,
+                        "slotReused(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;#0"
+                                + "#java/lang/NumberFormatException"))
+                // The later variable's loads keep it from reading as discarding, and its store from reading as handed
+                // on.
+                .isZero();
         assertThat(shapes(sites, "printed()I#0#java/lang/IllegalStateException"))
                 .isEqualTo(CaughtExceptions.SHAPE_PRINTS_STACK_TRACE);
         assertThat(shapes(sites, "interrupted()I#0#java/lang/InterruptedException"))
