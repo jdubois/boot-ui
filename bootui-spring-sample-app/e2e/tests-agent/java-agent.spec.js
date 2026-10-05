@@ -34,7 +34,16 @@ test.describe('Java Agent, attached', () => {
     expect(report.retransformation.state).toBe('installed')
     expect(report.retransformation.failed).toBe(0)
     expect(report.sensors.map((sensor) => sensor.id)).toEqual(
-      expect.arrayContaining(['executors', 'inventory', 'code-paths', 'processes', 'network', 'files', 'environment', 'blocking'])
+      expect.arrayContaining([
+        'executors',
+        'inventory',
+        'code-paths',
+        'processes',
+        'network',
+        'files',
+        'environment',
+        'blocking'
+      ])
     )
     for (const sensor of report.sensors) {
       expect.soft(sensor.state, sensor.id).toBe('installed')
