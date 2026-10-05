@@ -191,7 +191,9 @@ as its source, dashed lines on it mark what can explain a change in traffic, eac
 change made from a BootUI panel (a logger level, a configuration override, a cache clear, a migration, **Clear
 recording**, a heap dump), an availability change, a configuration refresh, or shutdown. A marker names what was
 targeted, never a value. **APP_EVENT** rows list the application events a request published and each listener's run:
-on Spring through BootUI's event multicaster, transactional listeners' deferral, phase, and skips included; on Quarkus
+on Spring through BootUI's event multicaster, transactional listeners' deferral, phase, and skips included; when the
+application defines its own multicaster, as Spring Modulith's event publication registry does, BootUI keeps it and
+records no application event; on Quarkus
 through an interceptor bound at build time to the application's `@Observes` and `@ObservesAsync` methods. Framework
 events are left out, and an event's fields are never recorded. Change impact accepts an event type, such as
 `OrderPlaced`, and lists the routes that published or consumed it. **ORM** rows give each Hibernate session's statements, flushes,
@@ -671,7 +673,7 @@ request's own |
 | `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it and to `gc-inflated-latency`. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
-| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route, and in one row of its own, the framework `ERROR` events that carried no request or execution id, such as a container's errors while parsing requests or a failure at startup. An error written on the thread of a request that failed, within a second after it ended, as Tomcat logs an exception a servlet threw once the request's filters returned, is taken as that request's and left out of that count, which a limitation says. That row's affected count is its error events, so it ranks among the kind's other rows |
+| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route (messages that differ only by an id, such as a UUID or a long hexadecimal id, or by a numeric path segment are one group, quoted with `<id>` and `<n>`), and in one row of its own, the framework `ERROR` events that carried no request or execution id, such as a container's errors while parsing requests or a failure at startup. An error written on the thread of a request that failed, within a second after it ended, as Tomcat logs an exception a servlet threw once the request's filters returned, is taken as that request's and left out of that count, which a limitation says. That row's affected count is its error events, so it ranks among the kind's other rows |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 | `changed-code-not-executed` | Per class, the methods changed or added since the previous run that the agent tracked and that nothing executed in this run, worded "your change has not run yet", with the routes that executed the class's other methods. Reads [Code Inventory](java-agent.md#code-inventory): needs the [BootUI agent](java-agent.md)'s `inventory` sensor and a previous run of the application kept in this JVM, and is not applicable, with the reason, without either, or while the Code Inventory panel is disabled; a changed method that executed, or one the agent could not track, is never reported |
 
@@ -742,7 +744,11 @@ does not apply to this stack says so with its reason, so an empty list never rea
 **unavailable** when this application's SQL cannot be recorded: BootUI records JDBC statements through a traced
 `DataSource` (and, on Quarkus, Hibernate ORM's statements), never R2DBC or a reactive SQL client, so an R2DBC
 application's SQL checks say so instead of finding nothing; an observation that only optionally reads SQL, such as
-`route-time-breakdown`, runs and names what it could not count. Findings below their minimum are shown as
+`route-time-breakdown`, runs and names what it could not count. Likewise, one that reads application events, such as
+`transactional-listener-skipped` or `after-commit-writes`, is **unavailable** on Spring when the application defines
+its own application event multicaster, as Spring Modulith's event publication registry does: BootUI then backs off
+from installing its own, records no application event, and says so in the report's limitations and in change impact
+and run comparison rather than reading the absence as healthy. Findings below their minimum are shown as
 **insufficient** (**Not enough evidence**), naming what is missing, and a source that dropped events marks its findings
 **partial**. This includes dropped completion events for the visible requests, scheduled runs, consumed messages,
 and WebSocket handlers that an observation examines, but not optional evidence hidden by a disabled panel.

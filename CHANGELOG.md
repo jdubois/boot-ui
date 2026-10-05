@@ -598,6 +598,22 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **One framework warning per message, not per failed request.** Runtime Insights' `framework-warnings-by-route`
+  grouped events by their exact message, so a framework that writes the request path and a per-request id into the
+  message, as Quarkus's error handler does (`HTTP Request to /api/records failed, error id: …`), listed each failed
+  request as a row of its own. Messages that differ only by a UUID, a long hexadecimal id, or a numeric path segment are
+  now one group, quoted with `<id>` and `<n>` in place of those parts, on every stack; the row's id no longer changes
+  with each run. ([PLAN-v2.md](docs/PLAN-v2.md) M4-20)
+
+- **A Spring Modulith application starts with BootUI.** BootUI's application event multicaster, which records
+  application events in the runtime journal, claimed the context's `applicationEventMulticaster` bean name before
+  Spring Modulith's event publication registry, whose own definition then failed the application's start with a
+  `BeanDefinitionOverrideException`. BootUI now installs it from an auto-configuration of its own, ordered after Spring
+  Modulith's and every other auto-configuration, and backs off from any multicaster the application or a library
+  defines. Then it records no application event, and says so: `transactional-listener-skipped` and
+  `after-commit-writes` report `UNAVAILABLE` with the reason, Runtime Insights, change impact, and the run comparison
+  name it among their limitations, and the run's comparability facts leave the `app-event` source out, on Spring MVC
+  and Spring WebFlux ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.18, M4-8).
 - **Runtime Insights no longer judges a request that lost events to eviction or a clear.** A request or execution that
   started before an event the runtime journal evicted, could not fit, or cleared (**Clear recording** while it ran) was
   projected with only the events it kept, so `proxy-bypass` reported a `@Cacheable` method as bypassed when the

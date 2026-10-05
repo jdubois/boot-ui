@@ -477,6 +477,63 @@
                 <configuration>
                     <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <configuration>
+                            <excludedGroups>spring-modulith</excludedGroups>
+                            <!-- So -Dtest naming only the other execution's class does not fail this one. -->
+                            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                        </configuration>
+                    </execution>
+                    <!--
+                      SpringModulithEventPublicationTests starts a context with Spring Modulith's real
+                      EventPublicationAutoConfiguration, which defines the applicationEventMulticaster bean
+                      unconditionally, to pin that BootUI's own multicaster backs off rather than fail the
+                      application's start. Spring Modulith is added to this execution's classpath only: on the
+                      module's test classpath, its auto-configurations would join every other test's
+                      @EnableAutoConfiguration and fail without an event publication repository. Its own
+                      dependencies are excluded, so the Spring jars on this classpath stay the ones Spring Boot
+                      manages; the two Modulith jars need nothing else. spring-modulith.version is shared with
+                      bootui-engine, since spring-boot-dependencies does not manage Spring Modulith; production code
+                      names its auto-configuration by string only, so BootUI adds no Spring Modulith dependency to a
+                      host application.
+                    -->
+                    <execution>
+                        <id>spring-modulith</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <groups>spring-modulith</groups>
+                            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                            <additionalClasspathDependencies>
+                                <additionalClasspathDependency>
+                                    <groupId>org.springframework.modulith</groupId>
+                                    <artifactId>spring-modulith-events-core</artifactId>
+                                    <version>${spring-modulith.version}</version>
+                                    <exclusions>
+                                        <exclusion>
+                                            <groupId>*</groupId>
+                                            <artifactId>*</artifactId>
+                                        </exclusion>
+                                    </exclusions>
+                                </additionalClasspathDependency>
+                                <additionalClasspathDependency>
+                                    <groupId>org.springframework.modulith</groupId>
+                                    <artifactId>spring-modulith-events-api</artifactId>
+                                    <version>${spring-modulith.version}</version>
+                                    <exclusions>
+                                        <exclusion>
+                                            <groupId>*</groupId>
+                                            <artifactId>*</artifactId>
+                                        </exclusion>
+                                    </exclusions>
+                                </additionalClasspathDependency>
+                            </additionalClasspathDependencies>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
