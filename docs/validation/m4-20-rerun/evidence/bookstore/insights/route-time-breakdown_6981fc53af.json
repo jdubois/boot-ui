@@ -1,0 +1,93 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:6981fc53af",
+    "kind": "route-time-breakdown",
+    "subject": "POST /admin/inventory/{productCode}",
+    "status": "OBSERVED",
+    "sentence": "`POST /admin/inventory/{productCode}`: warm median 7.1 ms over 39 requests; Handler, other work 43 %, SQL 42 %, Other filters 5 %. First request 10 ms (cold).",
+    "eligible": 39,
+    "affected": 39,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "0fe6cfb7129df4d1",
+      "76836d989d4800ab",
+      "e8cc1d9119064e45"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.8",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "17",
+        "5 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "139",
+        "42 %",
+        "2.5"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "13",
+        "4 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "143",
+        "43 %",
+        "3.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "12",
+        "4 %",
+        "0.3"
+      ]
+    }
+  ],
+  "truncated": 0
+}

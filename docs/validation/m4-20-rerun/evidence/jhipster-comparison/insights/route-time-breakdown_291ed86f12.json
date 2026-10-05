@@ -1,0 +1,92 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:291ed86f12",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/account/reset-password/init",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/account/reset-password/init`: warm median 4.6 ms over 25 requests; Handler, other work 51 %, Hibernate flushes 26 %, Other filters 10 %. Median CPU 4.9 ms and 620 KB allocated per request. First request 21 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "b37d1e28d21f3d05",
+      "830218b5830d11bb",
+      "a717f3d42c10b1fe"
+    ],
+    "evidenceRows": 7,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "2.1",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "16",
+        "10 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "3.4",
+        "2 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "41",
+        "26 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "80",
+        "51 %",
+        "2.8"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "14",
+        "9 %",
+        "0.5"
+      ]
+    }
+  ],
+  "truncated": 0
+}

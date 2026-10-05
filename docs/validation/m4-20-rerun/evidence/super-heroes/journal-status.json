@@ -1,0 +1,23 @@
+{
+  "droppedEvents": 0,
+  "enabled": true,
+  "evictedEvents": 0,
+  "maxBytes": 33554432,
+  "maxEvents": 50000,
+  "oldestRetainedAt": 1791186214789,
+  "queueCapacity": 10000,
+  "queueDepth": 0,
+  "recorded": {
+    "http": 396,
+    "sql": 423,
+    "exception": 42,
+    "lifecycle": 1,
+    "gc": 9,
+    "orm": 338
+  },
+  "reservedCapacity": 5000,
+  "reservedEvents": 42,
+  "retainedBytes": 537281,
+  "retainedEvents": 1209,
+  "runId": "e274c5e1"
+}

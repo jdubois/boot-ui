@@ -1,0 +1,420 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "all",
+  "requests": 880,
+  "coverage": [
+    {
+      "source": "http",
+      "events": 880,
+      "byRequestId": 880,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 1058,
+      "byRequestId": 1040,
+      "byExecutionId": 18,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 240,
+      "byRequestId": 240,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "security",
+      "events": 519,
+      "byRequestId": 519,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "authorization",
+      "events": 599,
+      "byRequestId": 599,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "rest-client",
+      "events": 160,
+      "byRequestId": 160,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "scheduled",
+      "events": 18,
+      "byRequestId": 0,
+      "byExecutionId": 18,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 40,
+      "byRequestId": 40,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "ai",
+      "events": 160,
+      "byRequestId": 160,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 7,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 7,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 778,
+      "byRequestId": 760,
+      "byExecutionId": 18,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checksNotRun": [
+    "proxy-bypass: NOT_APPLICABLE, Quarkus: ArC intercepts a call from inside a bean, so a self-invocation keeps its interceptors.",
+    "split-transaction-writes: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "transactional-listener-skipped: NOT_APPLICABLE, Quarkus: CDI notifies a transactional observer at once when no transaction is active, so none is skipped.",
+    "after-commit-writes: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "transaction-across-remote-call: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "lazy-sql-after-handler: NOT_APPLICABLE, Quarkus closes the session with the transaction, so a lazy load after the handler fails with LazyInitializationException, which Exception hotspots reports.",
+    "heap-growth-after-gc: INSUFFICIENT, No eligible work was recorded for this check.",
+    "work-after-response: NOT_APPLICABLE, This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "changed-code-not-executed: NOT_APPLICABLE, This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+  ],
+  "observations": [
+    {
+      "id": "route-time-breakdown:6d11138a0f",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/messages",
+      "sentence": "`POST /api/messages`: warm median 316 ms over 119 requests; AI calls 96 %, Handler, other work 2 %, SQL 2 %. Median CPU 7.1 ms and 823 KB allocated per request. First request 469 ms (cold).",
+      "eligible": 119,
+      "affected": 119,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "c3ac48552c8db9fc",
+      "verify": "Most of the time is AI calls: check their tokens and model in AI usage by route.",
+      "listed": true
+    },
+    {
+      "id": "ai-usage-by-route:6d11138a0f",
+      "kind": "ai-usage-by-route",
+      "status": "OBSERVED",
+      "subject": "POST /api/messages",
+      "sentence": "`POST /api/messages` made 160 AI operations in 80 of 120 requests: 160 model calls, up to 2 in one request, a median 154 ms each, 133216 input and 3040 output tokens (reported by 160 of 160 calls). Input tokens grew across successive model calls in 80 requests, up to 1.0 times the first call's.",
+      "eligible": 120,
+      "affected": 80,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "e038c05b9c33ad67",
+      "verify": "Input that grows with each call resends the conversation: trim or summarize what is sent.",
+      "listed": true
+    },
+    {
+      "id": "route-time-breakdown:73d49b7b11",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/sign-in",
+      "sentence": "`POST /api/sign-in`: warm median 100 ms over 79 requests; Handler, other work 98 %, SQL 2 %, Other filters 0 %. Median CPU 98 ms and 328 KB allocated per request. First request 101 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "cf56856cf1d59a48",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:a5b67b99ba",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /api/records",
+      "sentence": "`GET /api/records` recorded `NullPointerException` in 40 of 160 requests (40 occurrences).",
+      "eligible": 160,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "7c18ad345abcb6d2",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": true
+    },
+    {
+      "id": "framework-warnings-by-route:70b6d161b8",
+      "kind": "framework-warnings-by-route",
+      "status": "OBSERVED",
+      "subject": "GET /api/records",
+      "sentence": "`GET /api/records` logged `ERROR` from `QuarkusErrorHandler` in 40 of 160 requests (40 events): \"HTTP Request to /api/records failed, error id: <id>\".",
+      "eligible": 160,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "7c18ad345abcb6d2",
+      "verify": "Open one of these requests in Live Activity to read the message with its context.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "Behind 4xx responses",
+      "sentence": "5 exception groups on 5 routes were recorded only behind 4xx responses: 200 occurrences in 200 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "0b5fcbca2d035f14",
+      "verify": "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "listed": true
+    },
+    {
+      "id": "route-time-breakdown:3feaa155aa",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/records",
+      "sentence": "`POST /api/records`: warm median 6.0 ms over 159 requests; Handler, other work 48 %, SQL 39 %, Other filters 12 %. Median CPU 2.5 ms and 221 KB allocated per request. First request 31 ms (cold).",
+      "eligible": 159,
+      "affected": 159,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "4ec24f16564fde14",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:0a46c673e6",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "GET /api/records",
+      "sentence": "`GET /api/records`: warm median 5.4 ms over 120 requests; SQL 43 %, Handler, other work 36 %, Other filters 19 %. Median CPU 2.5 ms and 243 KB allocated per request. First request 4.5 ms (cold).",
+      "eligible": 120,
+      "affected": 120,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "58ce6c865da28268",
+      "verify": "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:73757d7b11",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/sign-up",
+      "sentence": "`POST /api/sign-up`: warm median 3.1 ms over 119 requests; Handler, other work 93 %, SQL 5 %, Hibernate flushes 1 %. Median CPU 2.1 ms and 110 KB allocated per request. First request 26 ms (cold).",
+      "eligible": 119,
+      "affected": 119,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "1a70d1d2240b6f78",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:9b16997256",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "GET /api/users/{id}",
+      "sentence": "`GET /api/users/{id}`: warm median 2.0 ms over 79 requests; Other filters 49 %, SQL 29 %, Handler, other work 18 %. Median CPU 1.1 ms and 172 KB allocated per request. First request 1.6 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "ff4f0133e68c8d46",
+      "verify": "Most of the time is in filters before the handler: check what they do per request.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:1f3f11d895",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /api/users/{id}",
+      "sentence": "`GET /api/users/{id}` recorded `UnauthorizedException` in 40 of 119 requests (40 occurrences).",
+      "eligible": 119,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "c7198829703cd117",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:3c23ce8a37",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /api/records",
+      "sentence": "`GET /api/records` recorded `UnauthorizedException` in 40 of 160 requests (40 occurrences).",
+      "eligible": 160,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "74d90acebab83ea9",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:4c780e9440",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "POST /api/sign-up",
+      "sentence": "`POST /api/sign-up` recorded `ResteasyReactiveViolationException` in 40 of 120 requests (40 occurrences).",
+      "eligible": 120,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "0b5fcbca2d035f14",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:9dfd936989",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "POST /api/records",
+      "sentence": "`POST /api/records` recorded `ResteasyReactiveViolationException` in 40 of 160 requests (40 occurrences).",
+      "eligible": 160,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "a3ee559202c3fff2",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:b83824c64c",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "POST /api/messages",
+      "sentence": "`POST /api/messages` recorded `NotFoundException` in 40 of 120 requests (40 occurrences).",
+      "eligible": 120,
+      "affected": 40,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "567827ac23b39d49",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:d1bf93b1cd",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "PUT /api/users",
+      "sentence": "`PUT /api/users`: warm median 5.9 ms over 39 requests; Handler, other work 41 %, SQL 39 %, Other filters 10 %. Median CPU 2.4 ms and 217 KB allocated per request. First request 19 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "823bbbdbaf52bde3",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:f0be711c4e",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "DELETE /api/records/{id}",
+      "sentence": "`DELETE /api/records/{id}`: warm median 5.2 ms over 39 requests; Handler, other work 45 %, SQL 44 %, Other filters 11 %. Median CPU 1.6 ms and 165 KB allocated per request. First request 19 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "6a024f80e52b05b4",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "gc-inflated-latency:6d11138a0f",
+      "kind": "gc-inflated-latency",
+      "status": "OBSERVED",
+      "subject": "POST /api/messages",
+      "sentence": "A stop-the-world pause completed during 2 of `POST /api/messages`'s 12 slowest requests (17 %), against 0 % of its other 107 requests; those pauses total 50 ms.",
+      "eligible": 12,
+      "affected": 2,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "dacefbcda3b02a14",
+      "verify": "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:b0cef9c91f",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /q/health",
+      "sentence": "`GET /q/health`: warm median 2.3 ms over 39 requests; all of them reached no handler BootUI marks (a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP security policy answered), so the time is not split into phases. First request 3.8 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "77aa4827185a35b3",
+      "verify": "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:b085ce3e00",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /q/health/live",
+      "sentence": "`GET /q/health/live`: 0 of 5 warm requests needed. First request 29 ms (cold).",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "77dbdaa1c589fdde",
+      "verify": "Exercise the route a few more times to read where its time goes.",
+      "listed": false
+    }
+  ],
+  "omitted": 0,
+  "notExercised": [
+    "POST /api/messages/image",
+    "POST /chat/completions",
+    "POST /completions",
+    "POST /embeddings",
+    "POST /images/generations",
+    "POST /moderations"
+  ],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "Retained non-HTTP executions, which requests does not count: 18 scheduled runs and 0 consumed messages."
+  ],
+  "next": [
+    {
+      "command": "bootui insights show route-time-breakdown:6d11138a0f",
+      "tool": "get_runtime_insight",
+      "arguments": {
+        "id": "route-time-breakdown:6d11138a0f"
+      },
+      "why": "the evidence rows behind this route-time-breakdown observation, call sites included"
+    },
+    {
+      "command": "bootui request-profile c3ac48552c8db9fc",
+      "tool": "get_request_profile",
+      "arguments": {
+        "id": "c3ac48552c8db9fc"
+      },
+      "why": "one request or execution that shows it, step by step"
+    }
+  ]
+}

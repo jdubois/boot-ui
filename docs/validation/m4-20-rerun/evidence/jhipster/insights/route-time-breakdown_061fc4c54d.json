@@ -1,0 +1,75 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:061fc4c54d",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/authenticate",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/authenticate`: warm median 2.9 ms over 25 requests; Other filters 39 %, Response write 24 %, Handler, other work 19 %. Median CPU 2.7 ms and 148 KB allocated per request. First request 4.6 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in filters before the handler: check what they do per request."
+    ],
+    "exemplarRequestIds": [
+      "83a35c913cf949a6",
+      "f6a6a72c405f11b2",
+      "a89264a9f34d4492"
+    ],
+    "evidenceRows": 5,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "14",
+        "14 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "4.3",
+        "4 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "38",
+        "39 %",
+        "1.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "18",
+        "19 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "23",
+        "24 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

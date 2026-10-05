@@ -1,0 +1,46 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:da6bdf4ef3",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/authorities",
+    "status": "INSUFFICIENT",
+    "sentence": "`POST /api/authorities`: warm median 7.3 ms over 47 requests, none of it in a recorded call; Spring WebFlux marks no phases, so where that time went is not known. Median CPU 7.2 ms and 1.8 MB allocated per request. First request 18 ms (cold).",
+    "eligible": 47,
+    "affected": 47,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "9756d4ab96d5eaef",
+      "7ae1a273f5accd7d",
+      "435b47a5b18d802a"
+    ],
+    "evidenceRows": 1,
+    "limitations": [
+      "Spring WebFlux marks no phases, so filters, handler, and response write are one unattributed span around the calls, out of which only authentication time is named.",
+      "This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC. Its SQL and connection evidence is not counted."
+    ],
+    "listed": false,
+    "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Unattributed",
+        "362",
+        "100 %",
+        "7.3"
+      ]
+    }
+  ],
+  "truncated": 0
+}

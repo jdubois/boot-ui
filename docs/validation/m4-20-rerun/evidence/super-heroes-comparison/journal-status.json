@@ -1,0 +1,36 @@
+{
+  "droppedEvents": 0,
+  "enabled": true,
+  "evictedEvents": 0,
+  "maxBytes": 33554432,
+  "maxEvents": 50000,
+  "oldestRetainedAt": 1791187892334,
+  "previousRuns": [
+    {
+      "endedAt": 1791187853874,
+      "events": 1209,
+      "failedRequests": 0,
+      "omittedEntries": 0,
+      "ordinal": 1,
+      "requests": 396,
+      "runId": "31b78723",
+      "startedAt": 1791187824941,
+      "summaryBytes": 4887
+    }
+  ],
+  "queueCapacity": 10000,
+  "queueDepth": 0,
+  "recorded": {
+    "http": 396,
+    "sql": 423,
+    "exception": 42,
+    "lifecycle": 1,
+    "gc": 9,
+    "orm": 338
+  },
+  "reservedCapacity": 5000,
+  "reservedEvents": 42,
+  "retainedBytes": 537361,
+  "retainedEvents": 1209,
+  "runId": "1f584c80"
+}

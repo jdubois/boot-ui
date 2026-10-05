@@ -1,0 +1,47 @@
+{
+  "available": true,
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "observation": {
+    "affected": 5,
+    "eligible": 5,
+    "evidenceRows": 1,
+    "exemplarRequestIds": [
+      "03fb663513b9d416",
+      "a93a03a3c971c790",
+      "6514f0ef90cfc2ea"
+    ],
+    "id": "route-time-breakdown:2421f79db5",
+    "kind": "route-time-breakdown",
+    "limitations": [
+      "Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is unknown and counts as handler work: record the orm source to measure it.",
+      "The rest-client-trace panel is not available in this application, so its evidence is not counted: this application does not use Quarkus REST Client Reactive. Add the quarkus-rest-client extension (with at least one REST Client interface) to enable the REST Client panel.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.",
+      "The security-logs panel is not available in this application, so its evidence is not counted: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events."
+    ],
+    "listed": false,
+    "minimumTier": "REQUEST_ID",
+    "sentence": "`GET /q/openapi`: warm median 0.2 ms over 5 requests; all of them reached no handler BootUI marks (a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP security policy answered), so the time is not split into phases. First request 1.4 ms (cold).",
+    "status": "INSUFFICIENT",
+    "subject": "GET /q/openapi",
+    "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms.",
+    "whatToCheck": [
+      "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+    ]
+  },
+  "rows": [
+    {
+      "cells": [
+        "Unattributed",
+        "1.3",
+        "100 %",
+        "0.2"
+      ]
+    }
+  ],
+  "truncated": 0
+}

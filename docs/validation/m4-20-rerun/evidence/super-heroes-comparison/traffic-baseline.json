@@ -1,0 +1,34 @@
+{
+  "application": "super-heroes",
+  "baseUrl": "http://localhost:18183",
+  "runId": "187829440",
+  "iterations": 21,
+  "pauseMs": 1000,
+  "startedAt": "2026-10-05T08:10:29.441Z",
+  "durationSeconds": 24.2,
+  "requests": 395,
+  "statuses": {
+    "200": 206,
+    "201": 21,
+    "204": 63,
+    "400": 21,
+    "404": 84
+  },
+  "byRoute": {
+    "DELETE /api/villains/{id}": 42,
+    "GET /": 44,
+    "GET /api/villains": 63,
+    "GET /api/villains/{id}": 84,
+    "GET /api/villains/hello": 1,
+    "GET /api/villains/random": 21,
+    "GET /q/health": 6,
+    "GET /q/health/live": 1,
+    "GET /q/health/ready": 1,
+    "GET /q/openapi": 6,
+    "PATCH /api/villains/{id}": 42,
+    "POST /api/villains": 42,
+    "PUT /api/villains/{id}": 42
+  },
+  "unexpected": [],
+  "unexpectedCount": 0
+}

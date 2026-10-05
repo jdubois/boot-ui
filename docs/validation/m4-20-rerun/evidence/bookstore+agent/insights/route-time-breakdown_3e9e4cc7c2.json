@@ -1,0 +1,104 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:3e9e4cc7c2",
+    "kind": "route-time-breakdown",
+    "subject": "GET /admin/orders",
+    "status": "OBSERVED",
+    "sentence": "`GET /admin/orders`: warm median 19 ms over 40 requests; Response write 66 %, SQL 13 %, Handler: OrderService.getOrdersAdmin 10 %. First request 1.6 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "6c3f552da1094f0d",
+      "543ea371a4d1f012",
+      "ce39e22e06a39b83"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 39 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.2",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "10",
+        "1 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "105",
+        "13 %",
+        "2.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OrderService.getOrdersAdmin",
+        "80",
+        "10 %",
+        "2.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "65",
+        "8 %",
+        "1.6"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "525",
+        "66 %",
+        "13"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,84 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:64b0c2ab69",
+    "kind": "exception-hotspots",
+    "subject": "Behind 4xx responses",
+    "status": "OBSERVED",
+    "sentence": "5 exception groups on 5 routes were recorded only behind 4xx responses: 200 occurrences in 200 requests.",
+    "eligible": 0,
+    "affected": 0,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "0b5fcbca2d035f14",
+      "74d90acebab83ea9",
+      "c7198829703cd117"
+    ],
+    "evidenceRows": 5,
+    "limitations": [
+      "A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed in the previous run, is not counted here."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Route",
+    "Exception",
+    "Requests",
+    "Occurrences",
+    "Statuses"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "POST /api/sign-up",
+        "ResteasyReactiveViolationException",
+        "40",
+        "40",
+        "400"
+      ]
+    },
+    {
+      "cells": [
+        "GET /api/records",
+        "UnauthorizedException",
+        "40",
+        "40",
+        "401"
+      ]
+    },
+    {
+      "cells": [
+        "GET /api/users/{id}",
+        "UnauthorizedException",
+        "40",
+        "40",
+        "401"
+      ]
+    },
+    {
+      "cells": [
+        "POST /api/records",
+        "ResteasyReactiveViolationException",
+        "40",
+        "40",
+        "400"
+      ]
+    },
+    {
+      "cells": [
+        "POST /api/messages",
+        "NotFoundException",
+        "40",
+        "40",
+        "404"
+      ]
+    }
+  ],
+  "truncated": 0
+}

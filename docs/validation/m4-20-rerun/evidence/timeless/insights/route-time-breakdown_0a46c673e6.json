@@ -1,0 +1,71 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:0a46c673e6",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/records",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/records`: warm median 5.4 ms over 120 requests; SQL 43 %, Handler, other work 36 %, Other filters 19 %. Median CPU 2.5 ms and 243 KB allocated per request. First request 4.5 ms (cold).",
+    "eligible": 120,
+    "affected": 120,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs."
+    ],
+    "exemplarRequestIds": [
+      "58ce6c865da28268",
+      "ff7d349adfce316e",
+      "1b83102746acb4a2"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+      "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "127",
+        "19 %",
+        "1.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "287",
+        "43 %",
+        "2.5"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "243",
+        "36 %",
+        "1.6"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "16",
+        "2 %",
+        "0.1"
+      ]
+    }
+  ],
+  "truncated": 0
+}

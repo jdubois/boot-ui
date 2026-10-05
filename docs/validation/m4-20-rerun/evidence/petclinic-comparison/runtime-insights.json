@@ -1,0 +1,1180 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "runId": "c02a6560",
+    "firstEventAt": 1791187571287,
+    "lastEventAt": 1791187648401,
+    "retainedEvents": 50000,
+    "requests": 5128,
+    "evictedEvents": 31184,
+    "droppedEvents": 0
+  },
+  "coverage": [
+    {
+      "source": "http",
+      "events": 5128,
+      "byRequestId": 5128,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 16490,
+      "byRequestId": 16490,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 4765,
+      "byRequestId": 4765,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "connection",
+      "events": 11172,
+      "byRequestId": 11172,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 183,
+      "byRequestId": 183,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "cache",
+      "events": 366,
+      "byRequestId": 366,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 179,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 179,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 59,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 59,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 11172,
+      "byRequestId": 11172,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checks": [
+    {
+      "kind": "route-time-breakdown",
+      "title": "Route time breakdown",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 18,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "exception-hotspots",
+      "title": "Exception hotspots",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 1,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "errors-behind-2xx",
+      "title": "Errors behind 2xx responses",
+      "status": "EVALUATED",
+      "eligibleRequests": 4028,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "repeated-selects",
+      "title": "Repeated SELECTs",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 4,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "connections-per-request",
+      "title": "Connections held together",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "safe-method-dml",
+      "title": "Writes in GET requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 3295,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "proxy-bypass",
+      "title": "Proxy bypass",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check. 123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "anonymous-data-reach",
+      "title": "Anonymous writes",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check. 123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "anonymous-success-on-restricted-route",
+      "title": "Anonymous success on a restricted route",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check. 123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "split-transaction-writes",
+      "title": "Writes split across transactions",
+      "status": "EVALUATED",
+      "eligibleRequests": 917,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "transactional-listener-skipped",
+      "title": "Transactional listeners skipped",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "after-commit-writes",
+      "title": "Writes after commit",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "orm-auto-flush",
+      "title": "Hibernate auto-flushes",
+      "status": "EVALUATED",
+      "eligibleRequests": 3481,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "large-persistence-context",
+      "title": "Large persistence contexts",
+      "status": "EVALUATED",
+      "eligibleRequests": 917,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "transaction-across-remote-call",
+      "title": "Transactions open across remote calls",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check. 123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "lazy-sql-after-handler",
+      "title": "SQL after the handler returned",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 4,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "event-loop-blocking",
+      "title": "Blocking on event loops",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "Spring MVC serves requests on worker threads, not on event loops."
+    },
+    {
+      "kind": "gc-inflated-latency",
+      "title": "Pauses during slow requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 9,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "heap-growth-after-gc",
+      "title": "Heap growth after GC",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "ai-usage-by-route",
+      "title": "AI usage by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 0,
+      "reason": "123 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "framework-warnings-by-route",
+      "title": "Framework warnings by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 5128,
+      "findings": 0,
+      "reason": "123 requests or executions and 121 ERROR logs without a request id started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+    },
+    {
+      "kind": "work-after-response",
+      "title": "Work after the response",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    },
+    {
+      "kind": "changed-code-not-executed",
+      "title": "Changed code not executed",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    }
+  ],
+  "observations": [
+    {
+      "id": "route-time-breakdown:3b351119e5",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}`: warm median 2.3 ms over 549 requests; Response write 64 %, Handler, other work 27 %, Other filters 7 %. Median CPU 2.3 ms and 1.8 MB allocated per request.",
+      "eligible": 549,
+      "affected": 549,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "879b52058cbb1439",
+        "2dab3d4556d113b4",
+        "9963b327d38e3c8e"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:5fb8278694",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners`: warm median 4.4 ms over 549 requests; Response write 87 %, Handler, other work 9 %, SQL 2 %. Median CPU 4.3 ms and 2.8 MB allocated per request.",
+      "eligible": 549,
+      "affected": 549,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "ca8feea213394b98",
+        "dc0b3a1d96358cf1",
+        "35c21084c95ebf1e"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:fbbe6d160d",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/visits/new",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/{petId}/visits/new`: warm median 1.9 ms over 368 requests; Handler, other work 46 %, Response write 39 %, Other filters 8 %. Median CPU 1.9 ms and 328 KB allocated per request.",
+      "eligible": 368,
+      "affected": 368,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "f6ace9b52745f2ce",
+        "515e4e02f8fd41cb",
+        "de14158d843eaa4f"
+      ],
+      "evidenceRows": 6,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:1c02750660",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/{petId}/edit`: warm median 2.3 ms over 367 requests; Handler, other work 45 %, Response write 38 %, Hibernate flushes 7 %. Median CPU 2.3 ms and 480 KB allocated per request.",
+      "eligible": 367,
+      "affected": 367,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "090c9f1c834493d4",
+        "4bc64da638d2ff11",
+        "8a69fea79d81d85c"
+      ],
+      "evidenceRows": 6,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:3bae7b5cc0",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/new",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/new`: warm median 1.6 ms over 366 requests; Response write 54 %, Handler, other work 33 %, Other filters 8 %. Median CPU 1.6 ms and 170 KB allocated per request.",
+      "eligible": 366,
+      "affected": 366,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "07d9e1b5e1b4be81",
+        "447d709947224501",
+        "a454488956374983"
+      ],
+      "evidenceRows": 6,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:5d03df99f6",
+      "kind": "route-time-breakdown",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "sentence": "`GET /**`: warm median 1.5 ms over 366 requests; Handler, other work 80 %, Other filters 17 %, Response write 3 %. Median CPU 1.5 ms and 138 KB allocated per request.",
+      "eligible": 366,
+      "affected": 366,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "aa7edf616149cbc1",
+        "2e4967e4f5920b6e",
+        "3cf2130f24247c13"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:6dc48e7605",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/edit`: warm median 1.7 ms over 366 requests; Response write 46 %, Handler, other work 35 %, Other filters 9 %. Median CPU 1.7 ms and 238 KB allocated per request.",
+      "eligible": 366,
+      "affected": 366,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization."
+      ],
+      "exemplarRequestIds": [
+        "2da7bae9d75603e3",
+        "a7f737f1608ecf65",
+        "05492fe83550694c"
+      ],
+      "evidenceRows": 6,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:82279a9845",
+      "kind": "route-time-breakdown",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/new`: warm median 2.2 ms over 366 requests; Handler, other work 45 %, Response write 40 %, Other filters 7 %. Median CPU 2.2 ms and 379 KB allocated per request.",
+      "eligible": 366,
+      "affected": 366,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "be3fa0298d59c62c",
+        "c63a5d54e2faccc6",
+        "64f89835efcc5253"
+      ],
+      "evidenceRows": 6,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:28ce00e37c",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/visits/new",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/{petId}/visits/new`: warm median 2.1 ms over 184 requests; Response write 72 %, Handler, other work 19 %, Other filters 7 %. Median CPU 2.0 ms and 1.8 MB allocated per request.",
+      "eligible": 184,
+      "affected": 184,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "5313e3d1c51039d0",
+        "9e548c0019d4bbf2",
+        "9e235c6f717c3958"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "exception-hotspots:80de221758",
+      "kind": "exception-hotspots",
+      "subject": "GET /oups",
+      "status": "OBSERVED",
+      "sentence": "`GET /oups` recorded `RuntimeException` in 183 of 183 requests (183 occurrences).",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "5fba324764678a38",
+        "90e10a8d45fc191a",
+        "0e3d714f945561c7"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "lazy-sql-after-handler:30e9325d8e",
+      "kind": "lazy-sql-after-handler",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 915 times in 183 of 367 requests, outside a transaction, while the view was rendered.",
+      "eligible": 367,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+        "If every request reads the same reference data, such as the options of a select, cache it."
+      ],
+      "exemplarRequestIds": [
+        "bf84ba9f767785f7",
+        "961f5b9905140415",
+        "5484ef75008a3f1e"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "lazy-sql-after-handler:613704a9e5",
+      "kind": "lazy-sql-after-handler",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/new` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 915 times in 183 of 366 requests, outside a transaction, while the view was rendered.",
+      "eligible": 366,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+        "If every request reads the same reference data, such as the options of a select, cache it."
+      ],
+      "exemplarRequestIds": [
+        "4a2f8cca95ff425e",
+        "52b97e083d4202b3",
+        "f1eea017e524721b"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "lazy-sql-after-handler:8f816c3c0f",
+      "kind": "lazy-sql-after-handler",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/new` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 1098 times in 183 of 183 requests, outside a transaction, while the view was rendered.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+        "If every request reads the same reference data, such as the options of a select, cache it."
+      ],
+      "exemplarRequestIds": [
+        "7a212018531a581f",
+        "2c10c23846905fd2",
+        "0173e2cc8b43fab6"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "lazy-sql-after-handler:99568a33e9",
+      "kind": "lazy-sql-after-handler",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 915 times in 183 of 183 requests, outside a transaction, while the view was rendered.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+        "If every request reads the same reference data, such as the options of a select, cache it."
+      ],
+      "exemplarRequestIds": [
+        "990710b653ef2025",
+        "f3da327bca4ba43b",
+        "9b9ebcdc1b4906fe"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "repeated-selects:30e9325d8e",
+      "kind": "repeated-selects",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 183 of 367 requests, up to 7 times in one.",
+      "eligible": 367,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+      ],
+      "exemplarRequestIds": [
+        "bf84ba9f767785f7",
+        "961f5b9905140415",
+        "5484ef75008a3f1e"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "Counts statements the request ran; a statement Hibernate batches counts once.",
+        "Whether the repeat count tracks a parent result size is not recorded: statements carry no row count.",
+        "Total repeat time is 2.7 ms, summed across affected requests."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "repeated-selects:613704a9e5",
+      "kind": "repeated-selects",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "`POST /owners/{ownerId}/pets/new` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 183 of 366 requests, up to 7 times in one.",
+      "eligible": 366,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+      ],
+      "exemplarRequestIds": [
+        "4a2f8cca95ff425e",
+        "52b97e083d4202b3",
+        "f1eea017e524721b"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "Counts statements the request ran; a statement Hibernate batches counts once.",
+        "Whether the repeat count tracks a parent result size is not recorded: statements carry no row count.",
+        "Total repeat time is 2.8 ms, summed across affected requests."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "repeated-selects:8f816c3c0f",
+      "kind": "repeated-selects",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/new` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 183 of 183 requests, up to 7 times in one.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+      ],
+      "exemplarRequestIds": [
+        "7a212018531a581f",
+        "2c10c23846905fd2",
+        "0173e2cc8b43fab6"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "Counts statements the request ran; a statement Hibernate batches counts once.",
+        "Whether the repeat count tracks a parent result size is not recorded: statements carry no row count.",
+        "Total repeat time is 3.9 ms, summed across affected requests."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "repeated-selects:99568a33e9",
+      "kind": "repeated-selects",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 183 of 183 requests, up to 6 times in one.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+      ],
+      "exemplarRequestIds": [
+        "990710b653ef2025",
+        "f3da327bca4ba43b",
+        "9b9ebcdc1b4906fe"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "Counts statements the request ran; a statement Hibernate batches counts once.",
+        "Whether the repeat count tracks a parent result size is not recorded: statements carry no row count.",
+        "Total repeat time is 2.5 ms, summed across affected requests."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:2667652a92",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/find",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/find`: warm median 3.3 ms over 183 requests; Response write 91 %, Handler, other work 5 %, Other filters 4 %. Median CPU 3.3 ms and 2.6 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "8d8fa948d47f9d1b",
+        "7b2891ccb5aa9bd7",
+        "60862b26a5fbd307"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:27b548538c",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/new`: warm median 2.5 ms over 183 requests; Response write 73 %, Handler, other work 20 %, Other filters 5 %. Median CPU 2.5 ms and 1.9 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "ba65baf5819ae420",
+        "2dbf3e6fcd6e1e95",
+        "69912c2cf1b379a3"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:35a8dacc0c",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit`: warm median 2.6 ms over 183 requests; Response write 66 %, Handler, other work 27 %, Other filters 6 %. Median CPU 2.6 ms and 2.0 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "6656f79777e212db",
+        "45174c71883500c0",
+        "d83c7b404ec5b2f0"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:665a7fb2e8",
+      "kind": "route-time-breakdown",
+      "subject": "GET /vets",
+      "status": "OBSERVED",
+      "sentence": "`GET /vets`: warm median 0.5 ms over 183 requests; Handler, other work 46 %, Response write 32 %, Other filters 23 %. Median CPU 0.5 ms and 79 KB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "daa28b5a038d8701",
+        "fa270291d5dc8fea",
+        "68f8bf4b7bd54e4e"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:773f8ff417",
+      "kind": "route-time-breakdown",
+      "subject": "GET /",
+      "status": "OBSERVED",
+      "sentence": "`GET /`: warm median 2.7 ms over 183 requests; Response write 88 %, Other filters 9 %, Handler, other work 3 %. Median CPU 2.7 ms and 1.6 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "b5494e12b3c8c828",
+        "600d968d9726eed6",
+        "805f76976aa54c80"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:95561af40b",
+      "kind": "route-time-breakdown",
+      "subject": "GET /oups",
+      "status": "OBSERVED",
+      "sentence": "`GET /oups`: warm median 0.3 ms over 183 requests; Handler, other work 74 %, Other filters 26 %. Median CPU 0.3 ms and 85 KB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "bd72de772fdbeb68",
+        "e78648442e1d4c8f",
+        "9d2eb6d737b622ed"
+      ],
+      "evidenceRows": 2,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:a4bca246be",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/{ownerId}/edit",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/{ownerId}/edit`: warm median 2.0 ms over 183 requests; Response write 74 %, Handler, other work 17 %, Other filters 8 %. Median CPU 2.0 ms and 1.8 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "8c0ba39a826e8aba",
+        "01eb4d7ad330a005",
+        "a8be286b9586c57e"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:b6b142faa6",
+      "kind": "route-time-breakdown",
+      "subject": "GET /owners/new",
+      "status": "OBSERVED",
+      "sentence": "`GET /owners/new`: warm median 1.7 ms over 183 requests; Response write 89 %, Other filters 6 %, Handler, other work 5 %. Median CPU 1.7 ms and 1.8 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "412ac0b6bff914a8",
+        "7ec425784a21e157",
+        "fb8ca783395391df"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:c96b43f4ab",
+      "kind": "route-time-breakdown",
+      "subject": "GET /vets.html",
+      "status": "OBSERVED",
+      "sentence": "`GET /vets.html`: warm median 2.8 ms over 183 requests; Response write 87 %, Handler, other work 9 %, Other filters 4 %. Median CPU 2.8 ms and 3.2 MB allocated per request.",
+      "eligible": 183,
+      "affected": 183,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "df0a01912c055dc8",
+        "9010c58aab068a9c",
+        "ef042b958daf7a33"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "gc-inflated-latency:5fb8278694",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 11 of `GET /owners`'s 55 slowest requests (20 %), against 2 % of its other 494 requests; those pauses total 30 ms.",
+      "eligible": 55,
+      "affected": 11,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "dc0b3a1d96358cf1",
+        "616b187f052f76b7",
+        "a3f38f6afb4a2e4d"
+      ],
+      "evidenceRows": 11,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:3b351119e5",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/{ownerId}",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 7 of `GET /owners/{ownerId}`'s 55 slowest requests (13 %), against 0 % of its other 494 requests; those pauses total 16 ms.",
+      "eligible": 55,
+      "affected": 7,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "879b52058cbb1439",
+        "2dab3d4556d113b4",
+        "9963b327d38e3c8e"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:27b548538c",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/{ownerId}/pets/new",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 5 of `GET /owners/{ownerId}/pets/new`'s 19 slowest requests (26 %), against 0 % of its other 164 requests; those pauses total 12 ms.",
+      "eligible": 19,
+      "affected": 5,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "2dbf3e6fcd6e1e95",
+        "69912c2cf1b379a3",
+        "06df04cc06e0eb3a"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:a4bca246be",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/{ownerId}/edit",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 4 of `GET /owners/{ownerId}/edit`'s 19 slowest requests (21 %), against 0 % of its other 164 requests; those pauses total 11 ms.",
+      "eligible": 19,
+      "affected": 4,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "8c0ba39a826e8aba",
+        "01eb4d7ad330a005",
+        "a8be286b9586c57e"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:2667652a92",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/find",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 3 of `GET /owners/find`'s 19 slowest requests (16 %), against 0 % of its other 164 requests; those pauses total 8.0 ms.",
+      "eligible": 19,
+      "affected": 3,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "8d8fa948d47f9d1b",
+        "7b2891ccb5aa9bd7",
+        "60862b26a5fbd307"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:3bae7b5cc0",
+      "kind": "gc-inflated-latency",
+      "subject": "POST /owners/new",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 3 of `POST /owners/new`'s 37 slowest requests (8 %), against 0 % of its other 329 requests; those pauses total 8.0 ms.",
+      "eligible": 37,
+      "affected": 3,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "07d9e1b5e1b4be81",
+        "447d709947224501",
+        "a454488956374983"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:773f8ff417",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 3 of `GET /`'s 19 slowest requests (16 %), against 0 % of its other 164 requests; those pauses total 9.0 ms.",
+      "eligible": 19,
+      "affected": 3,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "b5494e12b3c8c828",
+        "600d968d9726eed6",
+        "805f76976aa54c80"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:28ce00e37c",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/visits/new",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 2 of `GET /owners/{ownerId}/pets/{petId}/visits/new`'s 19 slowest requests (11 %), against 0 % of its other 165 requests; those pauses total 5.0 ms.",
+      "eligible": 19,
+      "affected": 2,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "5313e3d1c51039d0",
+        "9e548c0019d4bbf2"
+      ],
+      "evidenceRows": 2,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:c96b43f4ab",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /vets.html",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 2 of `GET /vets.html`'s 19 slowest requests (11 %), against 0 % of its other 164 requests; those pauses total 4.0 ms.",
+      "eligible": 19,
+      "affected": 2,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "df0a01912c055dc8",
+        "9010c58aab068a9c"
+      ],
+      "evidenceRows": 2,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    }
+  ],
+  "limitations": [
+    "The journal evicted 31184 older events, so requests before the oldest retained event are not projected.",
+    "123 requests or executions and 121 ERROR logs without a request id started before events the journal evicted or cleared, so they are left out: some of their events may be missing."
+  ],
+  "notExercised": [],
+  "notExercisedOmitted": 0
+}

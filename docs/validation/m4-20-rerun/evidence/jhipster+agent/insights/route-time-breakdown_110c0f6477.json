@@ -1,0 +1,43 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:110c0f6477",
+    "kind": "route-time-breakdown",
+    "subject": "GET /management/info",
+    "status": "INSUFFICIENT",
+    "sentence": "`GET /management/info`: warm median 1.7 ms over 12 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. First request 8.0 ms (cold).",
+    "eligible": 12,
+    "affected": 12,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+    ],
+    "exemplarRequestIds": [
+      "86c78b3fd8f6c481",
+      "d72691fdb23704e3",
+      "40f0a79240fe91b4"
+    ],
+    "evidenceRows": 1,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Unattributed",
+        "21",
+        "100 %",
+        "1.7"
+      ]
+    }
+  ],
+  "truncated": 0
+}

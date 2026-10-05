@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:80c2f91fd8",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/admin/users",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/admin/users` recorded `MailSendException` in 13 of 13 requests (13 occurrences).",
+    "eligible": 13,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "e4f8d37c0a55a39e",
+      "2490ebf5ad537256",
+      "4c7f20849ffbce56"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 2xx and 4xx responses: Errors behind 2xx responses reports the 2xx ones."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e4f8d37c0a55a39e",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "2490ebf5ad537256",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "4c7f20849ffbce56",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "e21714d049a99148",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "5832556e42c1a8f1",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "e2c3c939f47aada5",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "070145e3df49da76",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "43dbed8474735bed",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "1a36988369c6716c",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "26bcd62c3fc4f61a",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "ba1950242a5453cc",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "b0eaa7197732dd6a",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "fce2c7edfb97338c",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    }
+  ],
+  "truncated": 0
+}

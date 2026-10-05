@@ -1,0 +1,99 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:be149ef93a",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/bank-accounts",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/bank-accounts`: warm median 5.5 ms over 25 requests; Handler, other work 37 %, Other filters 23 %, Response write 19 %. Median CPU 4.8 ms and 218 KB allocated per request. First request 17 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "f66f4e48af3d20d3",
+      "dff361a9c23a6ea7",
+      "954f5a252f058e05"
+    ],
+    "evidenceRows": 8,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "13",
+        "8 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "4.2",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "34",
+        "23 %",
+        "1.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "1.7",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "12",
+        "8 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "55",
+        "37 %",
+        "2.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "28",
+        "19 %",
+        "0.9"
+      ]
+    }
+  ],
+  "truncated": 0
+}

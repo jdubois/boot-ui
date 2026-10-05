@@ -1,0 +1,78 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:28ce00e37c",
+    "kind": "route-time-breakdown",
+    "subject": "GET /owners/{ownerId}/pets/{petId}/visits/new",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/{ownerId}/pets/{petId}/visits/new`: warm median 2.9 ms over 184 requests; Response write 61 %, Handler, other work 26 %, Other filters 11 %. Median CPU 2.8 ms and 1.8 MB allocated per request.",
+    "eligible": 184,
+    "affected": 184,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "924e5d4146bd397e",
+      "d5effd6233acfc55",
+      "f406446669c0a61e"
+    ],
+    "evidenceRows": 5,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "63",
+        "11 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.8",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "8.8",
+        "2 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "151",
+        "26 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "350",
+        "61 %",
+        "1.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

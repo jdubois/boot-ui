@@ -1,0 +1,94 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:e770b2ab0a",
+    "kind": "route-time-breakdown",
+    "subject": "GET /products",
+    "status": "OBSERVED",
+    "sentence": "`GET /products`: warm median 17 ms over 159 requests; Response write 57 %, Handler, other work 20 %, SQL 17 %. First request 62 ms (cold).",
+    "eligible": 159,
+    "affected": 159,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "adba6ca7196ea0fe",
+      "834139e6ab89d3c6",
+      "4c4659b77aa5cc4e"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "16",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "56",
+        "2 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "89",
+        "3 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "510",
+        "17 %",
+        "2.7"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "617",
+        "20 %",
+        "3.6"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "1726",
+        "57 %",
+        "9.5"
+      ]
+    }
+  ],
+  "truncated": 0
+}

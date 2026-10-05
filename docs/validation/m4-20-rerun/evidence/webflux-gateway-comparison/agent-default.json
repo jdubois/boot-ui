@@ -1,0 +1,211 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "",
+  "requests": 625,
+  "coverage": [
+    {
+      "source": "http",
+      "events": 625,
+      "byRequestId": 625,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 330,
+      "byRequestId": 330,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 168,
+      "byRequestId": 168,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "authorization",
+      "events": 961,
+      "byRequestId": 961,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 122,
+      "byRequestId": 120,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 2,
+      "dropped": 0
+    },
+    {
+      "source": "mail",
+      "events": 24,
+      "byRequestId": 24,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 10,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 10,
+      "dropped": 0
+    }
+  ],
+  "checksNotRun": [
+    "repeated-selects: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "connections-per-request: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "safe-method-dml: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "proxy-bypass: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "anonymous-data-reach: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "anonymous-success-on-restricted-route: INSUFFICIENT, No eligible work was recorded for this check.",
+    "split-transaction-writes: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "after-commit-writes: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "orm-auto-flush: INSUFFICIENT, No eligible work was recorded for this check.",
+    "large-persistence-context: INSUFFICIENT, No eligible work was recorded for this check.",
+    "transaction-across-remote-call: INSUFFICIENT, No eligible work was recorded for this check. This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC. Its SQL and connection evidence is not counted.",
+    "lazy-sql-after-handler: NOT_APPLICABLE, Spring WebFlux has no open session in view, so no statement runs while the response is written.",
+    "event-loop-blocking: UNAVAILABLE, This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "heap-growth-after-gc: INSUFFICIENT, No eligible work was recorded for this check.",
+    "work-after-response: NOT_APPLICABLE, This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "changed-code-not-executed: NOT_APPLICABLE, This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+  ],
+  "observations": [
+    {
+      "id": "errors-behind-2xx:26d546b877",
+      "kind": "errors-behind-2xx",
+      "status": "OBSERVED",
+      "subject": "POST /api/admin/users",
+      "sentence": "`POST /api/admin/users` answered 2xx in 24 of 24 successful requests: 24 requests that recorded an exception.",
+      "eligible": 24,
+      "affected": 24,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "4105b96f3e6dd33d",
+      "verify": "Verify the response contract: should the caller learn that part of this request failed?",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:673e80e2da",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /services/absent/api/orders",
+      "sentence": "`GET /services/absent/api/orders` recorded `AbstractChannel$AnnotatedConnectException` in 24 of 24 requests (24 occurrences).",
+      "eligible": 24,
+      "affected": 24,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "7fd2f3590ff453c2",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:bce42a1451",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /services/absent/management/health/readiness",
+      "sentence": "`GET /services/absent/management/health/readiness` recorded `AbstractChannel$AnnotatedConnectException` in 24 of 24 requests (24 occurrences).",
+      "eligible": 24,
+      "affected": 24,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "0b2024a2dd976f5a",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "Behind 4xx responses",
+      "sentence": "4 exception groups on 4 routes were recorded only behind 4xx responses: 96 occurrences in 96 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "ee1a81dc006e614b",
+      "verify": "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "listed": true
+    },
+    {
+      "id": "route-time-breakdown:67b3d00d88",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "POST /api/admin/users",
+      "sentence": "`POST /api/admin/users`: warm median 21 ms over 47 requests, none of it in a recorded call; Spring WebFlux marks no phases, so where that time went is not known. Median CPU 20 ms and 3.9 MB allocated per request. First request 457 ms (cold).",
+      "eligible": 47,
+      "affected": 47,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "72d56c9aaa12f4b5",
+      "verify": "Open the slowest exemplar request in Live Activity to see its timeline.",
+      "listed": true
+    },
+    {
+      "id": "route-time-breakdown:5cf2c95c76",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "POST /api/authenticate",
+      "sentence": "`POST /api/authenticate`: warm median 86 ms over 23 requests, none of it in a recorded call; Spring WebFlux marks no phases, so where that time went is not known. Median CPU 85 ms and 793 KB allocated per request. First request 224 ms (cold).",
+      "eligible": 23,
+      "affected": 23,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "ed32a1af4a33ffff",
+      "verify": "Open the slowest exemplar request in Live Activity to see its timeline.",
+      "listed": true
+    }
+  ],
+  "omitted": 0,
+  "notExercised": [],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "This application's database access is not recorded: it uses R2DBC, and BootUI records JDBC statements through a traced DataSource, not R2DBC.",
+    "The application's declared routes could not be read, so the routes no request reached are not listed: that does not mean every route was exercised.",
+    "Not listed by default: exception-hotspots 5, route-time-breakdown 16. Pass the query all, a kind, or a route to list them; get_runtime_insight on one says why it is left out.",
+    "Latency rows are included for prominent routes: a warm median of 20 ms or more, or authorization taking 20 % of the time or 50 decisions a request."
+  ],
+  "next": [
+    {
+      "command": "bootui exceptions list",
+      "tool": "get_exceptions",
+      "arguments": {},
+      "why": "the exception group ids, for get_exception_detail"
+    },
+    {
+      "command": "bootui insights show errors-behind-2xx:26d546b877",
+      "tool": "get_runtime_insight",
+      "arguments": {
+        "id": "errors-behind-2xx:26d546b877"
+      },
+      "why": "the evidence rows behind this errors-behind-2xx observation, call sites included"
+    },
+    {
+      "command": "bootui insights list --query all",
+      "tool": "get_runtime_insights",
+      "arguments": {
+        "query": "all"
+      },
+      "why": "every row, including those the default list leaves out"
+    }
+  ]
+}

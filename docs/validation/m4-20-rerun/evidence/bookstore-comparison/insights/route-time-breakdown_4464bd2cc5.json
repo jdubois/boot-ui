@@ -1,0 +1,95 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:4464bd2cc5",
+    "kind": "route-time-breakdown",
+    "subject": "GET /admin/inventory",
+    "status": "OBSERVED",
+    "sentence": "`GET /admin/inventory`: warm median 20 ms over 40 requests; Response write 67 %, Handler, other work 16 %, SQL 15 %. First request 0.7 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "813a08585dd8b991",
+      "dafcbedf80072dd9",
+      "ff4895443d130f53"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.6",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "10",
+        "1 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "127",
+        "15 %",
+        "2.9"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "133",
+        "16 %",
+        "2.9"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "561",
+        "67 %",
+        "13"
+      ]
+    }
+  ],
+  "truncated": 0
+}

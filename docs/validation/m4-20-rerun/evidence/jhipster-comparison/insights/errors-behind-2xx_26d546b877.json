@@ -1,0 +1,131 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "errors-behind-2xx:26d546b877",
+    "kind": "errors-behind-2xx",
+    "subject": "POST /api/admin/users",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/admin/users` answered 2xx in 13 of 13 successful requests: 13 requests whose own task failed.",
+    "eligible": 13,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Verify the response contract: should the caller learn that part of this request failed?",
+      "A task this request handed to another thread failed: verify its failure is handled, retried or alerted, or that the response does not promise what the task was to do."
+    ],
+    "exemplarRequestIds": [
+      "e4f8d37c0a55a39e",
+      "2490ebf5ad537256",
+      "4c7f20849ffbce56"
+    ],
+    "evidenceRows": 13,
+    "limitations": [
+      "Only work that carries the request's id is counted: its own thread's, and its tasks' on executors BootUI decorates or the BootUI agent follows; work handed to another thread without BootUI's correlation is not.",
+      "Recovery matches at most one earlier exception of the reported failure class on the same thread per failed attempt, and requires a terminal success for the same policy, type, and target, or a successful fallback. It is not causal proof.",
+      "Logs, downstream failures, and root rollbacks are never inferred recovered. Providers that report no terminal success or fallback cannot establish recovery.",
+      "A task's exception is counted whatever level it was logged at, since a recorded exception does not keep its log level."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Evidence"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e4f8d37c0a55a39e",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "2490ebf5ad537256",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "4c7f20849ffbce56",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "e21714d049a99148",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "5832556e42c1a8f1",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "e2c3c939f47aada5",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "070145e3df49da76",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "43dbed8474735bed",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "1a36988369c6716c",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "26bcd62c3fc4f61a",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "ba1950242a5453cc",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "b0eaa7197732dd6a",
+        "201",
+        "task failure: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "fce2c7edfb97338c",
+        "201",
+        "task failure: MailSendException"
+      ]
+    }
+  ],
+  "truncated": 0
+}

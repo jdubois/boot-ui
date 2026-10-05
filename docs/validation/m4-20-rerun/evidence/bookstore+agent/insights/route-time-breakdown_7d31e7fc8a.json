@@ -1,0 +1,112 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:7d31e7fc8a",
+    "kind": "route-time-breakdown",
+    "subject": "GET /admin/catalog/products",
+    "status": "OBSERVED",
+    "sentence": "`GET /admin/catalog/products`: warm median 28 ms over 40 requests; Response write 75 %, SQL 11 %, Other handler time 8 %. First request 1.5 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "74ce10f708e73247",
+      "a28a5499781e22b6",
+      "159b061b7da855ac"
+    ],
+    "evidenceRows": 9,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "39 warm requests reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so they are left out of the phases.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 39 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "2.9",
+        "0 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "8.5",
+        "1 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "124",
+        "11 %",
+        "2.5"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ProductService.getProductsAdmin",
+        "74",
+        "6 %",
+        "1.6"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ProductMapper.mapToDto",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "89",
+        "8 %",
+        "1.9"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "877",
+        "75 %",
+        "21"
+      ]
+    }
+  ],
+  "truncated": 0
+}

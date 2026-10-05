@@ -1,0 +1,42 @@
+{
+  "available": true,
+  "columns": [
+    "Collection",
+    "Completed",
+    "Cause",
+    "Old gen after (MiB)",
+    "Heap after (MiB)"
+  ],
+  "observation": {
+    "affected": 0,
+    "eligible": 0,
+    "evidenceRows": 1,
+    "id": "heap-growth-after-gc:0a8f06cc5f",
+    "kind": "heap-growth-after-gc",
+    "limitations": [
+      "Counts the collections the journal still retains; older ones were evicted with their events.",
+      "Young collections only promote into the old generation, so they are not counted."
+    ],
+    "listed": false,
+    "minimumTier": "REQUEST_ID",
+    "sentence": "1 collection reclaimed old-generation space in this run; a trend needs 3.",
+    "status": "INSUFFICIENT",
+    "subject": "Heap",
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default.",
+    "whatToCheck": [
+      "Keep the application running under its usual load, then refresh."
+    ]
+  },
+  "rows": [
+    {
+      "cells": [
+        "G1 Young Generation #23",
+        "2026-10-05T07:43:41.424Z",
+        "Metadata GC Threshold",
+        "73.9",
+        "161.9"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,87 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:6d11138a0f",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/messages",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/messages`: warm median 316 ms over 119 requests; AI calls 96 %, Handler, other work 2 %, SQL 2 %. Median CPU 7.1 ms and 823 KB allocated per request. First request 469 ms (cold).",
+    "eligible": 119,
+    "affected": 119,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is AI calls: check their tokens and model in AI usage by route.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "c3ac48552c8db9fc",
+      "dacefbcda3b02a14",
+      "8970c6e313da5ca2"
+    ],
+    "evidenceRows": 6,
+    "limitations": [
+      "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "29",
+        "0 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "488",
+        "2 %",
+        "3.5"
+      ]
+    },
+    {
+      "cells": [
+        "AI calls",
+        "24459",
+        "96 %",
+        "307"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "574",
+        "2 %",
+        "4.8"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "6.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Overlapping calls, counted once above",
+        "24288",
+        "",
+        ""
+      ]
+    }
+  ],
+  "truncated": 0
+}

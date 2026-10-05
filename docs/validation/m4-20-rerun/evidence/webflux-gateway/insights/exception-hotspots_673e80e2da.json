@@ -1,0 +1,197 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:673e80e2da",
+    "kind": "exception-hotspots",
+    "subject": "GET /services/absent/api/orders",
+    "status": "OBSERVED",
+    "sentence": "`GET /services/absent/api/orders` recorded `AbstractChannel$AnnotatedConnectException` in 24 of 24 requests (24 occurrences).",
+    "eligible": 24,
+    "affected": 24,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "a20932e3f8e83342",
+      "b90285b6bb758676",
+      "4015ec09eb0440d4"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Exceptions a WebFlux handler handles itself, such as with onErrorResume, are not recorded."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "a20932e3f8e83342",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "b90285b6bb758676",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "4015ec09eb0440d4",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "507db9253882c2a4",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "5fe0b4a9b149fe62",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "a988d8782ad65e7e",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "b6fe569e0fa1ce2a",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "c230983fb00abf56",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "45245c5b86f1fbd1",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "d4339812af510d6e",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "3b005b3d6240d8d0",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "34c417dba63cdcf6",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "3144661f95f5a720",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "a8db43abc0bf3e91",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "f44b85185f55c1bc",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "e5d7b9ca916504fd",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "72effcdf00bb18a7",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "f561c1c0d67dab04",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "4f6f0f4d6c3d59fa",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    },
+    {
+      "cells": [
+        "9d52799e6112f4ff",
+        "500",
+        "1",
+        "95e0d8c8ee4742ac"
+      ]
+    }
+  ],
+  "truncated": 4
+}

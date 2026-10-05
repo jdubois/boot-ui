@@ -1,0 +1,36 @@
+{
+  "status": "NO_PREVIOUS_RUN",
+  "reason": "No previous run is kept yet: restart the application, as DevTools or a Quarkus live reload does, or set bootui.runtime-journal.baseline-file to keep the last run across a full JVM restart.",
+  "current": {
+    "runId": "c280335a",
+    "ordinal": 1,
+    "startedAt": 1791187011753,
+    "endedAt": null,
+    "requests": 1683,
+    "source": "CURRENT"
+  },
+  "previous": null,
+  "runs": [],
+  "notComparableReasons": [],
+  "behavior": [],
+  "edges": [],
+  "restartCost": {
+    "status": "UNAVAILABLE",
+    "reason": "No previous run is kept.",
+    "readyMsBefore": null,
+    "readyMsAfter": null,
+    "beans": []
+  },
+  "latency": [],
+  "limitations": [
+    "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events. Its application event edges are not compared."
+  ],
+  "codeChanges": {
+    "available": false,
+    "unavailableReason": "No previous run of this application was kept in this JVM: change detection starts with the next DevTools restart or Quarkus live reload.",
+    "counts": null,
+    "methods": [],
+    "methodsTotal": 0,
+    "limitations": []
+  }
+}

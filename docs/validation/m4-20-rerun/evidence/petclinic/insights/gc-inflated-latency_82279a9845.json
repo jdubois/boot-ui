@@ -1,0 +1,75 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:82279a9845",
+    "kind": "gc-inflated-latency",
+    "subject": "POST /owners/{ownerId}/pets/new",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 4 of `POST /owners/{ownerId}/pets/new`'s 37 slowest requests (11 %), against 0 % of its other 329 requests; those pauses total 7.0 ms.",
+    "eligible": 37,
+    "affected": 4,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "e839e07bb2884fa4",
+      "41111c1ae01f7e75",
+      "afad3589de4866e0"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e839e07bb2884fa4",
+        "7.3",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "41111c1ae01f7e75",
+        "5.8",
+        "1",
+        "2.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "afad3589de4866e0",
+        "5.5",
+        "1",
+        "1.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "cb096a136710a873",
+        "4.5",
+        "1",
+        "1.0",
+        "G1 Concurrent GC"
+      ]
+    }
+  ],
+  "truncated": 0
+}

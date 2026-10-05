@@ -1,0 +1,40 @@
+{
+  "application": "webflux-gateway",
+  "baseUrl": "http://localhost:18184",
+  "runId": "188115231",
+  "iterations": 24,
+  "pauseMs": 5000,
+  "startedAt": "2026-10-05T08:15:15.231Z",
+  "durationSeconds": 129.8,
+  "requests": 624,
+  "statuses": {
+    "200": 216,
+    "201": 48,
+    "204": 72,
+    "400": 96,
+    "401": 72,
+    "404": 72,
+    "500": 48
+  },
+  "byRoute": {
+    "DELETE /api/admin/users/{login}": 24,
+    "DELETE /api/authorities/{id}": 24,
+    "GET /api/account": 48,
+    "GET /api/admin/users": 72,
+    "GET /api/admin/users/{login}": 72,
+    "GET /api/authenticate": 24,
+    "GET /api/authorities": 24,
+    "GET /api/authorities/{id}": 48,
+    "GET /api/users": 24,
+    "GET /management/health": 24,
+    "GET /management/info": 24,
+    "GET /management/metrics": 24,
+    "GET /services/absent/**": 48,
+    "POST /api/admin/users": 48,
+    "POST /api/authenticate": 24,
+    "POST /api/authorities": 48,
+    "PUT /api/admin/users/{login}": 24
+  },
+  "unexpected": [],
+  "unexpectedCount": 0
+}

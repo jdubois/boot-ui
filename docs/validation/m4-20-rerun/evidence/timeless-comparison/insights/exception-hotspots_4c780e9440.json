@@ -1,0 +1,195 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:4c780e9440",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/sign-up",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/sign-up` recorded `ResteasyReactiveViolationException` in 40 of 120 requests (40 occurrences).",
+    "eligible": 120,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "3c98ec539abdff10",
+      "678c411c6f9923a0",
+      "86896886296b53cf"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "3c98ec539abdff10",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "678c411c6f9923a0",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "86896886296b53cf",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "46f1986addb1877d",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "97694d9fffcc9b4d",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "ebf2ba066d06efb1",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "d5511035740c8bd7",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "d1923792669673fe",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "a7713a6371f68a54",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "a22167f75db9a46e",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "86f72895fdf271a8",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "eb636c2052ad0a09",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "be8c194cc52cdf84",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "19b53c736e431fc9",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "71181438440303d0",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "4cddaea731568225",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "4db8b15750c430a9",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "fbd9c982a3fa9845",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "9fae3e6b28bd5c79",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    },
+    {
+      "cells": [
+        "12532c31c3ef15be",
+        "400",
+        "1",
+        "2e90cba11ba6d563"
+      ]
+    }
+  ],
+  "truncated": 20
+}

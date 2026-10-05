@@ -1,0 +1,783 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "runId": "c214f35b",
+    "firstEventAt": 1791188838149,
+    "lastEventAt": 1791188913005,
+    "retainedEvents": 4452,
+    "requests": 880,
+    "evictedEvents": 0,
+    "droppedEvents": 0
+  },
+  "coverage": [
+    {
+      "source": "http",
+      "events": 880,
+      "byRequestId": 880,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 1056,
+      "byRequestId": 1040,
+      "byExecutionId": 16,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 240,
+      "byRequestId": 240,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "security",
+      "events": 519,
+      "byRequestId": 519,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "authorization",
+      "events": 599,
+      "byRequestId": 599,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "rest-client",
+      "events": 160,
+      "byRequestId": 160,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "scheduled",
+      "events": 16,
+      "byRequestId": 0,
+      "byExecutionId": 16,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 40,
+      "byRequestId": 40,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "ai",
+      "events": 160,
+      "byRequestId": 160,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 6,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 6,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 775,
+      "byRequestId": 760,
+      "byExecutionId": 15,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checks": [
+    {
+      "kind": "route-time-breakdown",
+      "title": "Route time breakdown",
+      "status": "EVALUATED",
+      "eligibleRequests": 753,
+      "findings": 10,
+      "reason": "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+    },
+    {
+      "kind": "exception-hotspots",
+      "title": "Exception hotspots",
+      "status": "EVALUATED",
+      "eligibleRequests": 896,
+      "findings": 7,
+      "reason": null
+    },
+    {
+      "kind": "errors-behind-2xx",
+      "title": "Errors behind 2xx responses",
+      "status": "EVALUATED",
+      "eligibleRequests": 521,
+      "findings": 0,
+      "reason": "The transactions panel is not available in this application, so its evidence is not counted: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here. The fault-tolerance panel is not available in this application, so its evidence is not counted: this application has no fault-tolerance library. Add the quarkus-smallrye-fault-tolerance extension and annotate a method with @CircuitBreaker, @Retry, @Timeout, @Bulkhead or @RateLimit to enable the Fault Tolerance panel."
+    },
+    {
+      "kind": "repeated-selects",
+      "title": "Repeated SELECTs",
+      "status": "EVALUATED",
+      "eligibleRequests": 896,
+      "findings": 0,
+      "reason": "The transactions panel is not available in this application, so its evidence is not counted: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here."
+    },
+    {
+      "kind": "connections-per-request",
+      "title": "Connections held together",
+      "status": "EVALUATED",
+      "eligibleRequests": 896,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "safe-method-dml",
+      "title": "Writes in GET requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 320,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "proxy-bypass",
+      "title": "Proxy bypass",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "Quarkus: ArC intercepts a call from inside a bean, so a self-invocation keeps its interceptors."
+    },
+    {
+      "kind": "anonymous-data-reach",
+      "title": "Anonymous writes",
+      "status": "EVALUATED",
+      "eligibleRequests": 40,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "anonymous-success-on-restricted-route",
+      "title": "Anonymous success on a restricted route",
+      "status": "EVALUATED",
+      "eligibleRequests": 160,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "split-transaction-writes",
+      "title": "Writes split across transactions",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here."
+    },
+    {
+      "kind": "transactional-listener-skipped",
+      "title": "Transactional listeners skipped",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "Quarkus: CDI notifies a transactional observer at once when no transaction is active, so none is skipped."
+    },
+    {
+      "kind": "after-commit-writes",
+      "title": "Writes after commit",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here."
+    },
+    {
+      "kind": "orm-auto-flush",
+      "title": "Hibernate auto-flushes",
+      "status": "EVALUATED",
+      "eligibleRequests": 615,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "large-persistence-context",
+      "title": "Large persistence contexts",
+      "status": "EVALUATED",
+      "eligibleRequests": 240,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "transaction-across-remote-call",
+      "title": "Transactions open across remote calls",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here."
+    },
+    {
+      "kind": "lazy-sql-after-handler",
+      "title": "SQL after the handler returned",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "Quarkus closes the session with the transaction, so a lazy load after the handler fails with LazyInitializationException, which Exception hotspots reports."
+    },
+    {
+      "kind": "event-loop-blocking",
+      "title": "Blocking on event loops",
+      "status": "EVALUATED",
+      "eligibleRequests": 896,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "gc-inflated-latency",
+      "title": "Pauses during slow requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 870,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "heap-growth-after-gc",
+      "title": "Heap growth after GC",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "ai-usage-by-route",
+      "title": "AI usage by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 896,
+      "findings": 1,
+      "reason": null
+    },
+    {
+      "kind": "framework-warnings-by-route",
+      "title": "Framework warnings by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 896,
+      "findings": 1,
+      "reason": null
+    },
+    {
+      "kind": "work-after-response",
+      "title": "Work after the response",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    },
+    {
+      "kind": "changed-code-not-executed",
+      "title": "Changed code not executed",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    }
+  ],
+  "observations": [
+    {
+      "id": "route-time-breakdown:3feaa155aa",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/records",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/records`: warm median 7.3 ms over 159 requests; Handler, other work 51 %, SQL 36 %, Other filters 12 %. Median CPU 3.2 ms and 221 KB allocated per request. First request 39 ms (cold).",
+      "eligible": 159,
+      "affected": 159,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "a53365aad52ea5c3",
+        "96349880202105f3",
+        "9c793070678d588a"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:0a46c673e6",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/records",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/records`: warm median 6.9 ms over 120 requests; SQL 41 %, Handler, other work 37 %, Other filters 20 %. Median CPU 3.1 ms and 242 KB allocated per request. First request 4.8 ms (cold).",
+      "eligible": 120,
+      "affected": 120,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs."
+      ],
+      "exemplarRequestIds": [
+        "2c8c6e56fb58e254",
+        "38f9dedf938d9962",
+        "d1c8b81786cfca72"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:6d11138a0f",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/messages",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/messages`: warm median 315 ms over 119 requests; AI calls 96 %, Handler, other work 2 %, SQL 2 %. Median CPU 6.8 ms and 823 KB allocated per request. First request 474 ms (cold).",
+      "eligible": 119,
+      "affected": 119,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is AI calls: check their tokens and model in AI usage by route.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "e630820a0fa0677c",
+        "da42ff9894dc9bb6",
+        "dba1da889f00f04a"
+      ],
+      "evidenceRows": 6,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:73757d7b11",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/sign-up",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/sign-up`: warm median 3.5 ms over 119 requests; Handler, other work 92 %, SQL 6 %, Hibernate flushes 1 %. Median CPU 2.0 ms and 110 KB allocated per request. First request 28 ms (cold).",
+      "eligible": 119,
+      "affected": 119,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "bd464150a7c2e8b7",
+        "4d30c17d969b1365",
+        "9118bdee4d573b93"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "ai-usage-by-route:6d11138a0f",
+      "kind": "ai-usage-by-route",
+      "subject": "POST /api/messages",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/messages` made 160 AI operations in 80 of 120 requests: 160 model calls, up to 2 in one request, a median 154 ms each, 133216 input and 3040 output tokens (reported by 160 of 160 calls). Input tokens grew across successive model calls in 80 requests, up to 1.0 times the first call's.",
+      "eligible": 120,
+      "affected": 80,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Input that grows with each call resends the conversation: trim or summarize what is sent."
+      ],
+      "exemplarRequestIds": [
+        "4d3b7409c62b74f1",
+        "e518093c0746c331",
+        "1abc6eb53721dcd6"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:73d49b7b11",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/sign-in",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/sign-in`: warm median 105 ms over 79 requests; Handler, other work 98 %, SQL 2 %, Other filters 0 %. Median CPU 101 ms and 328 KB allocated per request. First request 105 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "58aacde7e09dffaf",
+        "fafe6a7e88bc8f22",
+        "5e45ac6896177db5"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:9b16997256",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/users/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/users/{id}`: warm median 2.6 ms over 79 requests; Other filters 50 %, SQL 28 %, Handler, other work 18 %. Median CPU 1.2 ms and 172 KB allocated per request. First request 2.0 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in filters before the handler: check what they do per request.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "cda056b7243361b1",
+        "3b8c780baa782efa",
+        "16a81d536d8345f1"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "exception-hotspots:1f3f11d895",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/users/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/users/{id}` recorded `UnauthorizedException` in 40 of 119 requests (40 occurrences).",
+      "eligible": 119,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "805fac8c9eca74c1",
+        "87ad2461ffb6b74f",
+        "942884d601fb2aec"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:3c23ce8a37",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/records",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/records` recorded `UnauthorizedException` in 40 of 160 requests (40 occurrences).",
+      "eligible": 160,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "c9ffa3e64d7e3126",
+        "37d8586252d92aa0",
+        "54d64f71c1aa5312"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:4c780e9440",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/sign-up",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/sign-up` recorded `ResteasyReactiveViolationException` in 40 of 120 requests (40 occurrences).",
+      "eligible": 120,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "3c98ec539abdff10",
+        "678c411c6f9923a0",
+        "86896886296b53cf"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:9dfd936989",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/records",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/records` recorded `ResteasyReactiveViolationException` in 40 of 160 requests (40 occurrences).",
+      "eligible": 160,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "bd5c3b377951cb00",
+        "508b587fb9e061f4",
+        "a3d612fbbdff175f"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:a5b67b99ba",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/records",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/records` recorded `NullPointerException` in 40 of 160 requests (40 occurrences).",
+      "eligible": 160,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "d002861ffe01c618",
+        "cbe60be29c1717fd",
+        "85c009b6fbe4c2c1"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "exception-hotspots:b83824c64c",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/messages",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/messages` recorded `NotFoundException` in 40 of 120 requests (40 occurrences).",
+      "eligible": 120,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "93c81c1fd04a39af",
+        "bdddb03dfd2ec944",
+        "440934b6c5b85bb7"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "framework-warnings-by-route:70b6d161b8",
+      "kind": "framework-warnings-by-route",
+      "subject": "GET /api/records",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/records` logged `ERROR` from `QuarkusErrorHandler` in 40 of 160 requests (40 events): \"HTTP Request to /api/records failed, error id: <id>\".",
+      "eligible": 160,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open one of these requests in Live Activity to read the message with its context."
+      ],
+      "exemplarRequestIds": [
+        "d002861ffe01c618",
+        "cbe60be29c1717fd",
+        "85c009b6fbe4c2c1"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "Counts WARN and ERROR events written while the request's id was current; a warning logged at startup or on another thread is not counted.",
+        "Not yet compared with the previous run, whose summary does not keep log messages."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:d1bf93b1cd",
+      "kind": "route-time-breakdown",
+      "subject": "PUT /api/users",
+      "status": "OBSERVED",
+      "sentence": "`PUT /api/users`: warm median 7.7 ms over 39 requests; SQL 42 %, Handler, other work 37 %, Other filters 9 %. Median CPU 3.4 ms and 217 KB allocated per request. First request 25 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs."
+      ],
+      "exemplarRequestIds": [
+        "03201065c67de386",
+        "7d7e0d0bef6500ca",
+        "2cacac657e0f6d04"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:f0be711c4e",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/records/{id}",
+      "status": "OBSERVED",
+      "sentence": "`DELETE /api/records/{id}`: warm median 5.4 ms over 39 requests; Handler, other work 54 %, SQL 30 %, Other filters 15 %. Median CPU 2.4 ms and 165 KB allocated per request. First request 22 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "0d1c7ff0d09edf52",
+        "d3832166c4e791fa",
+        "04cd1461c1261730"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "subject": "Behind 4xx responses",
+      "status": "OBSERVED",
+      "sentence": "5 exception groups on 5 routes were recorded only behind 4xx responses: 200 occurrences in 200 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "3c98ec539abdff10",
+        "c9ffa3e64d7e3126",
+        "805fac8c9eca74c1"
+      ],
+      "evidenceRows": 5,
+      "limitations": [
+        "A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed in the previous run, is not counted here."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:b0cef9c91f",
+      "kind": "route-time-breakdown",
+      "subject": "GET /q/health",
+      "status": "INSUFFICIENT",
+      "sentence": "`GET /q/health`: warm median 2.2 ms over 39 requests; all of them reached no handler BootUI marks (a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP security policy answered), so the time is not split into phases. First request 6.8 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+      ],
+      "exemplarRequestIds": [
+        "6ae5dbc66e893a81",
+        "c5642a209ef20724",
+        "3bdf39748a74f3b0"
+      ],
+      "evidenceRows": 1,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is unknown and counts as handler work: record the orm source to measure it.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+    },
+    {
+      "id": "route-time-breakdown:b085ce3e00",
+      "kind": "route-time-breakdown",
+      "subject": "GET /q/health/live",
+      "status": "INSUFFICIENT",
+      "sentence": "`GET /q/health/live`: 0 of 5 warm requests needed. First request 26 ms (cold).",
+      "eligible": 0,
+      "affected": 0,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Exercise the route a few more times to read where its time goes."
+      ],
+      "exemplarRequestIds": [
+        "af667dd8f3f6fb87"
+      ],
+      "evidenceRows": 0,
+      "limitations": [
+        "Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is unknown and counts as handler work: record the orm source to measure it.",
+        "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+      ],
+      "listed": false,
+      "unlistedReason": "It has fewer than 5 warm requests, so where its time goes is not known yet, and fewer than 2 of them or a warm median under 100 ms."
+    }
+  ],
+  "limitations": [
+    "Retained non-HTTP executions, which requests does not count: 16 scheduled runs and 0 consumed messages."
+  ],
+  "notExercised": [
+    "POST /api/messages/image",
+    "POST /chat/completions",
+    "POST /completions",
+    "POST /embeddings",
+    "POST /images/generations",
+    "POST /moderations"
+  ],
+  "notExercisedOmitted": 0
+}
