@@ -1,0 +1,93 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:061fc4c54d",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/authenticate",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/authenticate`: warm median 1.8 ms over 25 requests; Other filters 41 %, Response write 18 %, Authentication 18 %. Median CPU 1.8 ms and 147 KB allocated per request. First request 3.8 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in filters before the handler: check what they do per request."
+    ],
+    "exemplarRequestIds": [
+      "4743e23c70ebfa4a",
+      "c85ecf5eba40a4ff",
+      "b691c2a5b61603be"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 25 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "9.5",
+        "18 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "2.3",
+        "4 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "21",
+        "41 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "4.6",
+        "9 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: AuthenticateController.isAuthenticated",
+        "0.7",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "4.4",
+        "8 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "9.7",
+        "18 %",
+        "0.4"
+      ]
+    }
+  ],
+  "truncated": 0
+}

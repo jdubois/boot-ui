@@ -1,0 +1,141 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:d0b57f07ea",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/operations",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/operations`: warm median 3.5 ms over 25 requests; Other handler time 30 %, Other filters 21 %, Response write 17 %. Median CPU 3.5 ms and 249 KB allocated per request. First request 11 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "182cab0b092bf5cf",
+      "65dcdc40c756e387",
+      "f6a241d4d3edbb32"
+    ],
+    "evidenceRows": 13,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 25 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "7.6",
+        "8 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "2.5",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "20",
+        "21 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "2.0",
+        "2 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "10.0",
+        "10 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OperationResource.createOperation",
+        "5.7",
+        "6 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "2.6",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.customizeProblem",
+        "0.6",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.handleExceptionInternal",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.wrapAndCustomizeProblem",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "29",
+        "30 %",
+        "0.9"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "16",
+        "17 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

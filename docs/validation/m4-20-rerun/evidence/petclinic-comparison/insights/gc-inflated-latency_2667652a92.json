@@ -1,0 +1,66 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:2667652a92",
+    "kind": "gc-inflated-latency",
+    "subject": "GET /owners/find",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 3 of `GET /owners/find`'s 19 slowest requests (16 %), against 0 % of its other 164 requests; those pauses total 8.0 ms.",
+    "eligible": 19,
+    "affected": 3,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "8d8fa948d47f9d1b",
+      "7b2891ccb5aa9bd7",
+      "60862b26a5fbd307"
+    ],
+    "evidenceRows": 3,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "8d8fa948d47f9d1b",
+        "6.5",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "7b2891ccb5aa9bd7",
+        "6.5",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "60862b26a5fbd307",
+        "6.2",
+        "1",
+        "2.0",
+        "G1 Young Generation"
+      ]
+    }
+  ],
+  "truncated": 0
+}

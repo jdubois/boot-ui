@@ -1,0 +1,147 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:5fb8278694",
+    "kind": "gc-inflated-latency",
+    "subject": "GET /owners",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 12 of `GET /owners`'s 55 slowest requests (22 %), against 4 % of its other 494 requests; those pauses total 63 ms.",
+    "eligible": 55,
+    "affected": 12,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "a5f4d664be9d8c98",
+      "d68fa803675d7416",
+      "730f042d2c5a8f69"
+    ],
+    "evidenceRows": 12,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "a5f4d664be9d8c98",
+        "39",
+        "1",
+        "14",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "d68fa803675d7416",
+        "34",
+        "1",
+        "14",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "730f042d2c5a8f69",
+        "32",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "b3b2d48b1cd5b7e2",
+        "30",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "519ff959c0c2c077",
+        "27",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "db12c4c268469407",
+        "27",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "638a2ffc55348f60",
+        "26",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "89da7755451afe90",
+        "26",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "b2c55bd02029d425",
+        "26",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "9a4d77e6aabe8cad",
+        "26",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "740264e5c7c474c2",
+        "24",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "6d2ae4c4820aa4ba",
+        "23",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    }
+  ],
+  "truncated": 0
+}

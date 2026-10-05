@@ -1,0 +1,93 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:158202b5f5",
+    "kind": "route-time-breakdown",
+    "subject": "POST /admin/catalog/products/{code}/delete",
+    "status": "OBSERVED",
+    "sentence": "`POST /admin/catalog/products/{code}/delete`: warm median 7.1 ms over 39 requests; Handler, other work 44 %, SQL 41 %, Hibernate flushes 5 %. First request 9.5 ms (cold).",
+    "eligible": 39,
+    "affected": 39,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "f5780bac77c03b55",
+      "b26feb0c3cb3315a",
+      "cf3fdd20f8d423d2"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.6",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "15",
+        "5 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "128",
+        "41 %",
+        "3.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "15",
+        "5 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "137",
+        "44 %",
+        "3.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "10",
+        "3 %",
+        "0.2"
+      ]
+    }
+  ],
+  "truncated": 0
+}

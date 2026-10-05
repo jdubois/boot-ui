@@ -10,6 +10,11 @@ Every application ran with its own Maven repository seeded with that build, and 
 reviewers on different models judged every observation independently, with the application's source at hand; the
 operator who ran each application gathered facts and code pointers but judged nothing.
 
+**Rerun (2026-10-05), provisional, pending maintainer adjudication.** M4-20's rerun ran under the registered protocol
+(`m4-20-protocol-2`) on one build of `5bd7cb76e`; both reviewers have judged it, and the maintainer has not yet
+adjudicated it or marked recall. See [Rerun results](#rerun-results-provisional) and the
+[adjudication file](V2-VALIDATION-ADJUDICATION.md). The first run's sections below are kept as they were.
+
 ## Release gates, first run
 
 | Measure | Target | Result |
@@ -30,11 +35,11 @@ not released while any row reads `TODO`.
 
 | Field | Value |
 | --- | --- |
-| Release candidate | TODO: `v2` commit and its BootUI version |
-| Rerun date | TODO |
-| Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); `m4-20-protocol-2`, which superseded `m4-20-protocol-1` (see the amendment below); TODO: the tag's SHA |
-| Applications | TODO: the five tuned applications and the two holdouts, with their pins |
-| Reviewers and adjudicator | TODO: two reviewers; the maintainer adjudicates every misleading row and every disagreement |
+| Release candidate | TODO: `v2` commit and its BootUI version. The rerun's build: `5bd7cb76e` (version `1.19.0`, engine SHA-256 `e913e36b…`), not yet a release candidate |
+| Rerun date | 2026-10-05 (runs 09:38–10:29, time to first observation 10:53–11:23, Europe/Paris) |
+| Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); `m4-20-protocol-2`, which superseded `m4-20-protocol-1` (see the amendment below): tag object `5f38a51affaeb11a8c35f9a1b0185d964dd23f7d`, commit `5bd7cb76eb532f1a72bf3a1ab8b018190c6214a2` |
+| Applications | Tuned: Spring PetClinic `500158f`, JHipster sample `6b000b5d`, Quarkus Super Heroes `d472e71d6`, WebFlux gateway `73b700b`, Kafka saga `a76daeb`. Holdouts: bookstore `2933f5f`, Timeless `0a90516` (pins and patches in [`validation/apps/`](https://github.com/jdubois/boot-ui/tree/v2/validation/apps)) |
+| Reviewers and adjudicator | r1 on claude-opus-5.5 and r2 on gpt-6-sol, independent and one after the other; the maintainer adjudicates every misleading row and every disagreement: TODO, [26 rows pending](V2-VALIDATION-ADJUDICATION.md) |
 | Known limitations | TODO: [Known limitations](KNOWN-LIMITATIONS.md) updated to the shipped scope |
 | Decision | TODO: release 2.0.0, or not, and why |
 
@@ -48,12 +53,12 @@ One row per §2.2 measure. **Result** is the measured value; **Status** is **Met
 | Capture overhead, application thread | < 2 µs p99 for the full application-thread path on a reference machine | The timed engine test | TODO | TODO |
 | Capture overhead, throughput | Sample-app throughput within 5 % with the journal on versus off | The sample-app benchmark scenario, BootUI on in both runs | TODO | TODO |
 | Java agent overhead | Sample-app throughput within 10 % with the default sensors claimed | The `agent-overhead` job | TODO | TODO |
-| External validity, tuned applications | ≥ 70 % of default-visible distinct facts judged actionable or informative by both reviewers, none misleading | The rerun on the five tuned applications | TODO | TODO |
-| External validity, holdout applications | The same target, scored apart | The rerun on the two holdout applications | TODO | TODO |
-| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools; five refusal fixtures where the right answer is not to edit | The local agent benchmark, 1.x baseline measured first | TODO | TODO |
+| External validity, tuned applications | ≥ 70 % of default-visible distinct facts judged actionable or informative by both reviewers, none misleading | The rerun on the five tuned applications | 7 of 20 facts (35 %) useful to both reviewers; misleading: 0 by both, 4 by one reviewer, pending adjudication. Provisional | **Not met** (35 % < 70 %, whatever the adjudication) |
+| External validity, holdout applications | The same target, scored apart | The rerun on the two holdout applications | 3 of 11 facts (27.3 %) useful to both; misleading: 1 by both (bookstore `connections-per-request`), 2 more by one reviewer, pending adjudication. Provisional | **Not met** |
+| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools; five refusal fixtures where the right answer is not to edit | The local agent benchmark, 1.x baseline measured first | 2.0: 6 correct, 3 partial, 1 wrong, 73 calls (10 `--help`); 1.x: 6 correct, 2 partial, 2 wrong, 138 calls (21 `--help`). The refusal fixtures are not part of the registered rerun and were not rerun | **Not met** (not all ten correct) |
 | Agent effectiveness, with the agent | An eleventh investigation ("did my change run?") and a sixth refusal fixture, once M5-10 delivers them | The same benchmark with the agent attached | TODO, or **Not measured** if M5-10 is not in 2.0 | TODO |
-| Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | A scripted walkthrough on each stack | TODO: Spring MVC, Spring WebFlux, Quarkus | TODO |
-| Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation, and the rerun's `INSUFFICIENT` and `NOT_APPLICABLE` rows judged apart | TODO | TODO |
+| Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | A scripted walkthrough on each stack | Spring MVC 0.2–0.3 min (PetClinic, JHipster, bookstore), but Kafka listed no row within the 20-minute limit; Spring WebFlux 0.3 min; Quarkus 0.6 min (Super Heroes) and 0.4 min (Timeless). Provisional | **Not met on Kafka**, met on every other application |
+| Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation, and the rerun's `INSUFFICIENT` and `NOT_APPLICABLE` rows judged apart | 95 of 100 honesty rows judged honest by both reviewers, 5 judged as hiding something by one, pending adjudication, none misleading; every no-change comparison reported 0 behavior changes, and the two that could not compare said so. Counterexamples: pending the maintainer's recall marks | Pending adjudication |
 
 ### Gates
 
@@ -62,8 +67,8 @@ One row per §2.2 measure. **Result** is the measured value; **Status** is **Met
 | Gate | Rule | Result | Outcome |
 | --- | --- | --- | --- |
 | After M1 | Exact correlation ≥ 95 % on Spring MVC and Quarkus | Passed: 100 % on every stack (M1-6f) | Recorded |
-| After M3, global | Default-visible score ≥ 30 %, otherwise every kind missing its per-kind gate folds and Runtime Insights is presented as a Live Activity view | TODO | TODO |
-| After M3, holdouts | Holdout applications no more than 20 points below the tuned ones, with the same consequence | TODO | TODO |
+| After M3, global | Default-visible score ≥ 30 %, otherwise every kind missing its per-kind gate folds and Runtime Insights is presented as a Live Activity view | 10 of 31 default-visible facts on the seven applications (32.3 %) useful to both reviewers. Provisional, but adjudication cannot change it: the score counts facts useful to both reviewers | Passed: no escalation (provisional) |
+| After M3, holdouts | Holdout applications no more than 20 points below the tuned ones, with the same consequence | Tuned 35 % (7 of 20), holdouts 27.3 % (3 of 11): 7.7 points below; neither holdout is empty | Passed: no escalation (provisional) |
 | Before 2.0.0, overhead | Journal throughput within 5 %; if missed, the journal ships disabled by default and the release notes say so | TODO | TODO |
 
 ### Per-kind gates
@@ -75,29 +80,29 @@ that stays silent on every application stays listed, marked as not externally va
 
 | Kind | Facts | Applications | Useful to both | Misleading | Gate | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
-| `route-time-breakdown` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `repeated-selects` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `lazy-sql-after-handler` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `exception-hotspots` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `errors-behind-2xx` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `connections-per-request` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `safe-method-dml` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `transaction-across-remote-call` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `split-transaction-writes` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `after-commit-writes` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `transactional-listener-skipped` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `proxy-bypass` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `framework-warnings-by-route` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `event-loop-blocking` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `ai-usage-by-route` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `anonymous-data-reach` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `anonymous-success-on-restricted-route` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `orm-auto-flush` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `large-persistence-context` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `gc-inflated-latency` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `heap-growth-after-gc` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `work-after-response` | TODO | TODO | TODO | TODO | TODO | TODO |
-| `changed-code-not-executed` | TODO | TODO | TODO | TODO | TODO | TODO |
+| `route-time-breakdown` | 6 | 3 | 2 of 6 (33.3 %); tuned 0/2, holdout 2/4 | 0 | Fail | Folded into its panel, or hidden (provisional) |
+| `repeated-selects` | 4 | 1 | 0 of 4 (0 %); tuned 0/4, holdout 0/0 | 0, 4 pending | Under-sampled unless a pending row is adjudicated Misleading | Hidden, not externally validated: too few facts (provisional) |
+| `lazy-sql-after-handler` | 4 | 1 | 4 of 4 (100 %); tuned 4/4, holdout 0/0 | 0 | Under-sampled | Hidden, not externally validated: too few facts (provisional) |
+| `exception-hotspots` | 9 | 6 | 1 of 9 (11.1 %); tuned 0/6, holdout 1/3 | 0 | Fail | Folded into its panel, or hidden (provisional) |
+| `errors-behind-2xx` | 3 | 2 | 3 of 3 (100 %); tuned 3/3, holdout 0/0 | 0 | Pass | Listed (provisional) |
+| `connections-per-request` | 1 | 1 | 0 of 1 (0 %); tuned 0/0, holdout 0/1 | 1 | Fail | Folded into its panel, or hidden (provisional) |
+| `safe-method-dml` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `transaction-across-remote-call` | 0 | 0 | — | 0 | Not exercised | Listed, not externally validated: its check never ran (provisional) |
+| `split-transaction-writes` | 1 | 1 | 0 of 1 (0 %); tuned 0/0, holdout 0/1 | 0, 1 pending | Under-sampled unless a pending row is adjudicated Misleading | Hidden, not externally validated: too few facts (provisional) |
+| `after-commit-writes` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `transactional-listener-skipped` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `proxy-bypass` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `framework-warnings-by-route` | 1 | 1 | 0 of 1 (0 %); tuned 0/0, holdout 0/1 | 0 | Under-sampled | Hidden, not externally validated: too few facts (provisional) |
+| `event-loop-blocking` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `ai-usage-by-route` | 1 | 1 | 0 of 1 (0 %); tuned 0/0, holdout 0/1 | 0, 1 pending | Under-sampled unless a pending row is adjudicated Misleading | Hidden, not externally validated: too few facts (provisional) |
+| `anonymous-data-reach` | 1 | 1 | 0 of 1 (0 %); tuned 0/1, holdout 0/0 | 0 | Under-sampled | Hidden, not externally validated: too few facts (provisional) |
+| `anonymous-success-on-restricted-route` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `orm-auto-flush` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `large-persistence-context` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `gc-inflated-latency` | 0 | 0 | — (15 hidden rows, 6 sampled, 0 judged Actionable by either) | 0 | Not listed by design | Not listed by default; judged through the hidden sample (provisional) |
+| `heap-growth-after-gc` | 0 | 0 | — (4 hidden rows, 4 sampled, 0 judged Actionable by either) | 0 | Not listed by design | Not listed by default; judged through the hidden sample (provisional) |
+| `work-after-response` | 0 | 0 | — | 0 | Silent | Listed, not externally validated (provisional) |
+| `changed-code-not-executed` | 4 | 2 | 2 of 4 (50 %), all four from the agent runs | 0, 2 pending | Pass unless a pending row is adjudicated Misleading | Listed (provisional) |
 
 ### Exceptions
 
@@ -113,6 +118,170 @@ protocol, with who accepted it and what the release notes say.
 | Role | Name | Date |
 | --- | --- | --- |
 | Maintainer | TODO | TODO |
+
+## Rerun results (provisional)
+
+**Provisional, pending maintainer adjudication** of the 26 rows in the [adjudication file](V2-VALIDATION-ADJUDICATION.md)
+and the maintainer's recall marks. Run on 2026-10-05 under `m4-20-protocol-2`, exactly as registered: no registered file
+was changed. The data that reproduces every number is in
+[`validation/m4-20-rerun/`](validation/m4-20-rerun/README.md): the evidence, the worksheet, both reviewers' files, the
+investigations, and the time to first observation.
+
+What the adjudication can and cannot change: the default-visible score, the tuned and holdout scores, and so the global
+and holdout gates and escalation count facts **useful to both reviewers**, which no adjudication changes. The
+adjudication settles which disputed rows are Misleading, which decides the "none misleading" part of each target and of
+the per-kind gates, and the honesty rows judged as hiding something by one reviewer.
+
+### Integrity
+
+- One build: `v2` at `5bd7cb76e` (the `m4-20-protocol-2` commit), checked out clean in a dedicated worktree and built
+  once with `build-v2.sh` into an isolated Maven repository (`BOOTUI_TREE_CLEAN=true`, 2026-10-05 07:37 UTC); engine
+  SHA-256 `e913e36b5bc024761081f3133367374f98b7a83ebce581c4e2449cf815e3b9fe`. All 18 runs and comparisons proved they
+  resolved that engine jar and recorded the same BootUI commit, engine SHA-256, and harness hash (`939f58d7…`); each time
+  to first observation recorded that commit and proved the same engine jar. `v2` moved on during the rerun; no run used
+  a later commit.
+- The worksheet builder checked the run set, roles, commit, engine, harness, tag (annotated, the one origin publishes),
+  the slowest-route stratum, and the unlisted-by-design kinds, and found no problem.
+- The two reviewers ran as separate agents one after the other, on the registered prompt with only its bracketed paths
+  filled in and their reviewer id given. r1's file was moved out of the work area before r2 started. Each judged all 198
+  rows, with a `file:line` in every note, and changed no other cell.
+
+### Runs
+
+Every run served its traffic with 0 unexpected statuses. Rows are the full report (`query=all`) and the default list.
+
+| Run | Role | Requests | Traffic, seconds | Rows (all / default) | Notes |
+| --- | --- | --- | --- | --- | --- |
+| PetClinic | Tuned | 8,400 | 85.7 | 39 / 9 | |
+| JHipster | Tuned | 572 | 37.8 | 44 / 6 | |
+| Super Heroes | Tuned | 395 | 25.0 | 17 / 1 | |
+| WebFlux gateway | Tuned | 624 | 130.5 | 27 / 6 | |
+| Kafka | Tuned | 241 | 177.8 | 3 / 0 | Order service 2 rows, stock service 1, payment service 0 |
+| Bookstore | Holdout | 1,682 | 45.6 | 37 / 6 | |
+| Timeless | Holdout | 879 | 62.4 | 20 / 6 | |
+| JHipster, agent | Agent | 572 | 34.1 | 44 / 6 | `work-after-response` evaluated on 573 requests: 0 findings |
+| Bookstore, agent | Agent | 1,682 | 43.4 | 39 / 6 | `work-after-response` evaluated on 1,683 requests: 0 findings |
+| Super Heroes, agent, code change | Agent | 395 + 395 | 24.6 + 23.5 | 18 / 3 | `changed-code-not-executed`: `VillainResource` and `VillainService` |
+| PetClinic, agent, code change | Agent | 8,400 + 8,400 | 90.0 + 86.2 | 38 / 11 | One DevTools restart, stable for 15 s; `changed-code-not-executed`: `Owner` and `Vet` |
+
+No-change comparisons (two runs sharing a baseline file, same traffic): PetClinic, JHipster, Super Heroes, WebFlux
+gateway, the bookstore, Timeless, and Kafka's order service answered `COMPARED` with **0 behavior changes and 0 edge
+changes**. Kafka's payment and stock services answered `NO_PREVIOUS_RUN` and said why: the harness gives the three
+services one baseline file, written last by the order service, so the other two ignore it as another application's.
+That is a limit of the harness's Kafka configuration, reported honestly by BootUI, not a false "no change".
+
+### Scores
+
+| Group | Facts | Useful to both | Score | Misleading, both reviewers | Misleading, one reviewer (pending) |
+| --- | --- | --- | --- | --- | --- |
+| Seven applications (pooled) | 31 | 10 | 32.3 % | 1 | 6 |
+| Tuned | 20 | 7 | 35.0 % | 0 | 4 |
+| Holdouts | 11 | 3 | 27.3 % | 1 | 2 |
+| Agent runs (scored apart) | 4 | 2 | 50.0 % | 0 | 2 |
+
+| Application | Role | Facts | Useful to both | Misleading, either reviewer |
+| --- | --- | --- | --- | --- |
+| PetClinic | Tuned | 9 | 4 | 4 |
+| JHipster | Tuned | 6 | 2 | 0 |
+| Super Heroes | Tuned | 1 | 0 | 0 |
+| WebFlux gateway | Tuned | 4 | 1 | 0 |
+| Kafka | Tuned | 0 | — | 0 |
+| Bookstore | Holdout | 5 | 1 | 2 |
+| Timeless | Holdout | 6 | 2 | 1 |
+| PetClinic, agent | Agent | 2 | 2 | 0 |
+| Super Heroes, agent | Agent | 2 | 0 | 2 |
+
+Against the first run (16 of 116 observations, 14 %, useful to both), the default list now shows 31 facts, of which
+32.3 % are useful to both reviewers. The global gate (30 %) passes and the holdouts are 7.7 points below the tuned
+applications, within the 20-point limit, so **escalation is not triggered**, whatever the adjudication. The 70 % target
+is not met on either group.
+
+### Hidden-row sample
+
+63 hidden rows sampled (10 per application, 3 on Kafka, which has only 3), stratified as registered. One was judged
+Actionable by one reviewer: WebFlux gateway's `EmailAlreadyUsedException` on `PUT /api/admin/users/{login}` (r1: every
+update without an id is rejected as "email already used", and the default list shows it only inside the 4xx summary
+row; r2: Noise). None was useful to both reviewers, and none was judged Misleading. The 95 % upper bound on hidden value is 8.5 %.
+Per kind: `gc-inflated-latency` (15 hidden rows, 6 sampled) and `heap-growth-after-gc` (4, 4 sampled), unlisted by
+design, had no row judged useful.
+
+### Honesty
+
+100 `INSUFFICIENT`, `PARTIAL`, and `NOT_APPLICABLE` rows: 95 judged honest by both reviewers, 5 judged as hiding
+something by one reviewer (pending), none judged misleading by either. The five: the bookstore's
+`after-commit-writes` check and `POST /login` timing, WebFlux gateway's `event-loop-blocking` check (r1: the mail
+service's blocking send on a reactive thread is not mentioned), and its `POST /api/admin/users` and
+`POST /api/authenticate` timing.
+
+### Recall
+
+Pending: the maintainer marks each of the 52 registered known misses and counterexamples. The operator gathered, for
+each, the worksheet rows and every row of the full report that names its subject, with the checks and coverage lines,
+in the [recall evidence](validation/m4-20-rerun/recall-evidence.md).
+
+### Agent runs
+
+`work-after-response` was evaluated with 0 findings on JHipster (573 requests) and the bookstore (1,683), as in the
+start checks: silent, so it stays listed, not externally validated (see the per-kind table). `changed-code-not-executed`
+reported one class per run whose changed method the traffic never reached, as registered: `VillainResource` and
+`VillainService` on Super Heroes, `Owner` (for `getPet(String)`) and `Vet` on PetClinic; it did not report the changed
+methods the traffic runs. Both reviewers judged the two PetClinic rows useful; r2 judged the two Super Heroes rows
+Misleading and r1 Informative (pending).
+
+### Time to first observation
+
+Measured once per application by `ttfo.sh`, after the maintainer paused the other sessions, each started when the
+one-minute load average was below 10.
+
+| Application | Stack | Load average at start (1, 5, 15 min) | First default-visible row | Seconds | ≤ 5 minutes |
+| --- | --- | --- | --- | --- | --- |
+| PetClinic | Spring MVC | 9.25, 20.39, 21.46 | `exception-hotspots` OBSERVED | 14.8 | Yes |
+| JHipster | Spring MVC | 8.97, 17.64, 20.30 | `anonymous-data-reach` OBSERVED | 15.0 | Yes |
+| Super Heroes | Quarkus (dev mode) | 8.14, 16.74, 19.89 | `exception-hotspots` OBSERVED | 34.0 | Yes |
+| WebFlux gateway | Spring WebFlux | 9.97, 15.69, 19.23 | `errors-behind-2xx` OBSERVED | 19.3 | Yes |
+| Kafka | Spring MVC | 9.86, 15.09, 18.83 | None within the 20-minute limit | — | No |
+| Bookstore | Spring MVC | 9.02, 17.88, 16.09 | `connections-per-request` OBSERVED | 20.3 | Yes |
+| Timeless | Quarkus (dev mode) | 9.38, 16.97, 15.82 | `ai-usage-by-route` OBSERVED | 26.1 | Yes |
+
+Kafka's services list no row by default on its traffic (the measured runs too), so its first observation never comes.
+The registered scorer prints an unreached measurement as `0.0` minutes in its time-to-first-observation table
+(`score.mjs` formats a `null` duration); the value recorded in `ttfo.jsonl` is `null`, and this table is right.
+
+### Agent investigations
+
+The ten questions of the first run, one fresh agent per question and arm, each with only a logged `bootui` CLI wrapper,
+on the Spring MVC sample application at `5bd7cb76e` (JDK 17, profile `dev`, H2, port 18380) with the first run's
+traffic, and `bootui.runtime-journal.baseline-file` on both runs. Run B replaced the per-order query of
+`GET /api/insights/orders` with one join. An independent agent graded the answers against the first run's expected
+answers, with the operator's facts from this run where the sample has changed since.
+
+| # | Question | 2.0 | Calls, 2.0 (`--help`) | 1.x | Calls, 1.x (`--help`) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Why is the slowest route slow? | Correct | 10 (1) | Wrong: named the cold price-check request | 24 (4) |
+| 2 | Which route repeats a query, and from which call site? | Correct | 4 (1) | Correct | 14 (4) |
+| 3 | Which `GET` writes to the database? | Correct | 11 (1) | Correct | 10 (1) |
+| 4 | Which request failed behind a 2xx response? | Correct | 7 (1) | Correct | 14 (3) |
+| 5 | Which transaction holds a connection across a remote call? | Correct | 11 (1) | Correct | 9 (2) |
+| 6 | What does this run do that the previous run did not? | Correct | 2 (1) | Wrong: reported the retry traffic | 9 (1) |
+| 7 | Which routes would a change to a given bean affect? | Partly: listed the 8 routes `insights impact` shows by default, of 20 | 5 (1) | Correct | 7 (1) |
+| 8 | Which data can an anonymous request reach? | Partly: missed the payroll bypass and `reset-totals` | 6 (1) | Partly, the same | 25 (1) |
+| 9 | Did a change remove a repeated query? | Partly: right, from the current run only, without the comparison | 7 (1) | Partly, the same | 6 (1) |
+| 10 | Which scheduled job or listener does the most database work? | Wrong: said no listener does any | 10 (1) | Correct | 20 (2) |
+
+2.0: 6 correct, 3 partial, 1 wrong, 73 calls; 1.x: 6 correct, 2 partial, 2 wrong, 138 calls. Differences from the first
+run, all decided before any question was asked:
+
+- The 1.x arm is held to the commands of the released 1.19.0 CLI (its `bootui-tools.json`): besides `insights` and
+  `agent`, it lacks `code`, `probe`, `side-effects`, `request-profile`, and `http routes`, which the first run's 1.x arm
+  could use. Its help output hides them too.
+- The sample activates BootUI only through an active profile, so it ran with `--spring.profiles.active=dev`; a first
+  start without it served no BootUI endpoint and was stopped before any question.
+- The sample gained routes since `fb4cc07e5` (tag writes, after-response work), and this build reports price-check's
+  transaction as `OBSERVED` where the first run's said `INSUFFICIENT`; the grader had these facts.
+- In run B, the comparison also reported a drop in allocation per request on `GET /api/secure/products`
+  (1.9 MB to 0.1 MB), which the code change did not cause; no answer used it.
+
+The agents ran on the session's default model, one question each, so the limits of the first run still apply.
 
 ## Protocol for the rerun
 

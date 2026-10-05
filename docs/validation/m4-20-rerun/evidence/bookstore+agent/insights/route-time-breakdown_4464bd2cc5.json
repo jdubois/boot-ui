@@ -1,0 +1,104 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:4464bd2cc5",
+    "kind": "route-time-breakdown",
+    "subject": "GET /admin/inventory",
+    "status": "OBSERVED",
+    "sentence": "`GET /admin/inventory`: warm median 18 ms over 40 requests; Response write 64 %, SQL 16 %, Handler: InventoryService.getAllInventory 9 %. First request 0.8 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "67b8859a4ab5fa3a",
+      "df1a6465560057ab",
+      "c11ad60553fea61c"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 39 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.5",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "12",
+        "1 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "129",
+        "16 %",
+        "2.4"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: InventoryService.getAllInventory",
+        "72",
+        "9 %",
+        "1.6"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "67",
+        "8 %",
+        "1.5"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "504",
+        "64 %",
+        "12"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,103 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:3b351119e5",
+    "kind": "route-time-breakdown",
+    "subject": "GET /owners/{ownerId}",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/{ownerId}`: warm median 4.7 ms over 550 requests; Response write 63 %, Handler: OwnerController.findOwner 16 %, Handler: OwnerController.showOwner 10 %. Median CPU 4.7 ms and 859 KB allocated per request.",
+    "eligible": 550,
+    "affected": 550,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "f6279e84a31a34d6",
+      "77dafe9776f10685",
+      "b45f764a10ddbaf5"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 899 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "181",
+        "7 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "3.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "38",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.findOwner",
+        "412",
+        "16 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.showOwner",
+        "251",
+        "10 %",
+        "0.5"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.setAllowedFields",
+        "1.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "70",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "1658",
+        "63 %",
+        "3.0"
+      ]
+    }
+  ],
+  "truncated": 0
+}

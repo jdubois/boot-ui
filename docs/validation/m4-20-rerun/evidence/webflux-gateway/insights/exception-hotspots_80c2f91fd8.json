@@ -1,0 +1,197 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:80c2f91fd8",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/admin/users",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/admin/users` recorded `MailSendException` in 24 of 48 requests (24 occurrences).",
+    "eligible": 48,
+    "affected": 24,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "2bd02f3babe55d5c",
+      "4ef92f1a193fb7ed",
+      "4eb08ff54c127ef8"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Exceptions a WebFlux handler handles itself, such as with onErrorResume, are not recorded."
+    ],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 2xx and 4xx responses: Errors behind 2xx responses reports the 2xx ones."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "2bd02f3babe55d5c",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "4ef92f1a193fb7ed",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "4eb08ff54c127ef8",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "2bfdcd798fd157ae",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "99156b6f9d16674b",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "fefbced9f135f473",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "361443d2f53c4795",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "322b4517e2d20848",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "9d40a61cdb9a74ff",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "b97c6298d6e38823",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "cad744eed0c0ef4f",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "dc5881d2ed54c45f",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "fc1dfecb03a0091d",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "95df36ed6f5c868e",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "9830474629ad1c88",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "6eb40488dee0ef34",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "8b4c5e690a39c8dc",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "c8d1cce0ffcd2786",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "7aaa806dbc4796f7",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "10c2b1fdcf71d046",
+        "201",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    }
+  ],
+  "truncated": 4
+}

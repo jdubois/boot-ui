@@ -1,0 +1,35 @@
+{
+  "current": {
+    "ordinal": 1,
+    "requests": 396,
+    "runId": "1f584c80",
+    "source": "CURRENT",
+    "startedAt": 1791187892262
+  },
+  "limitations": [
+    "3 route or executions recorded fewer than 3 samples in one of the runs, so per-sample changes on them are not compared; statement removal needs at least 3 current samples."
+  ],
+  "previous": {
+    "endedAt": 1791187853874,
+    "ordinal": 1,
+    "requests": 396,
+    "runId": "31b78723",
+    "source": "BASELINE_FILE",
+    "startedAt": 1791187824941
+  },
+  "restartCost": {
+    "reason": "A baseline file may come from another JVM; restart cost needs adjacent restarts in the same JVM.",
+    "status": "UNAVAILABLE"
+  },
+  "runs": [
+    {
+      "endedAt": 1791187853874,
+      "ordinal": 1,
+      "requests": 396,
+      "runId": "31b78723",
+      "source": "BASELINE_FILE",
+      "startedAt": 1791187824941
+    }
+  ],
+  "status": "COMPARED"
+}

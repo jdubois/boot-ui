@@ -1,0 +1,92 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:5cf2c95c76",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/authenticate",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/authenticate`: warm median 79 ms over 38 requests; Handler, other work 97 %, Other filters 1 %, Response write 1 %. Median CPU 79 ms and 282 KB allocated per request. First request 360 ms (cold).",
+    "eligible": 38,
+    "affected": 38,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "d5a5389c590385f5",
+      "17f67140959fe5d7",
+      "316896051a4c4ddf"
+    ],
+    "evidenceRows": 7,
+    "limitations": [],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "6.3",
+        "0 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "46",
+        "1 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "2.0",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "1.6",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.0",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "3190",
+        "97 %",
+        "78"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "38",
+        "1 %",
+        "0.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,19 @@
+{
+  "application": "kafka",
+  "baseUrl": "http://localhost:18185",
+  "runId": "188427603",
+  "iterations": 40,
+  "pauseMs": 3000,
+  "startedAt": "2026-10-05T08:20:27.604Z",
+  "durationSeconds": 131,
+  "requests": 241,
+  "statuses": {
+    "200": 241
+  },
+  "byRoute": {
+    "GET /orders": 41,
+    "POST /orders": 200
+  },
+  "unexpected": [],
+  "unexpectedCount": 0
+}

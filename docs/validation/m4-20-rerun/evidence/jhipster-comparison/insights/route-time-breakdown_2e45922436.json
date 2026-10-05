@@ -1,0 +1,102 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:2e45922436",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/bank-accounts",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/bank-accounts`: warm median 4.4 ms over 26 requests; Handler, other work 58 %, Other filters 15 %, Response write 13 %. Median CPU 4.4 ms and 268 KB allocated per request. First request 3.5 ms (cold).",
+    "eligible": 26,
+    "affected": 26,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "713a83562a2c9fa1",
+      "36998e00a9c374f5",
+      "7e350cab9ec66276"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "12 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "7.0",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "2.7",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "20",
+        "15 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "3.0",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "6.2",
+        "5 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "78",
+        "58 %",
+        "2.4"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "17",
+        "13 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

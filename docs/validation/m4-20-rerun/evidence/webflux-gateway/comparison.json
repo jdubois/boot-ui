@@ -1,0 +1,27 @@
+{
+  "status": "NO_PREVIOUS_RUN",
+  "reason": "No previous run is kept yet: restart the application, as DevTools or a Quarkus live reload does, or set bootui.runtime-journal.baseline-file to keep the last run across a full JVM restart.",
+  "current": {
+    "runId": "ba84741a",
+    "ordinal": 1,
+    "startedAt": 1791186284250,
+    "endedAt": null,
+    "requests": 625,
+    "source": "CURRENT"
+  },
+  "previous": null,
+  "runs": [],
+  "notComparableReasons": [],
+  "behavior": [],
+  "edges": [],
+  "restartCost": {
+    "status": "UNAVAILABLE",
+    "reason": "No previous run is kept.",
+    "readyMsBefore": null,
+    "readyMsAfter": null,
+    "beans": []
+  },
+  "latency": [],
+  "limitations": [],
+  "codeChanges": null
+}

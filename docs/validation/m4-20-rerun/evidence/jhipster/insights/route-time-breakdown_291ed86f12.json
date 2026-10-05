@@ -1,0 +1,91 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:291ed86f12",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/account/reset-password/init",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/account/reset-password/init`: warm median 6.6 ms over 25 requests; Handler, other work 50 %, Hibernate flushes 29 %, Other filters 10 %. Median CPU 7.2 ms and 624 KB allocated per request. First request 28 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "e632b4d0bee48337",
+      "7a0ff155315667cb",
+      "05c8656564bb4279"
+    ],
+    "evidenceRows": 7,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "3.8",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "28",
+        "10 %",
+        "1.0"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.6",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "4.5",
+        "2 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "84",
+        "29 %",
+        "0.9"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "141",
+        "50 %",
+        "4.0"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "22",
+        "8 %",
+        "0.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

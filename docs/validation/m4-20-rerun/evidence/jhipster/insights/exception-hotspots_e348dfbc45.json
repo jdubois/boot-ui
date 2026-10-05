@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:e348dfbc45",
+    "kind": "exception-hotspots",
+    "subject": "GET /**",
+    "status": "OBSERVED",
+    "sentence": "`GET /**` recorded `NoResourceFoundException` in 13 of 13 requests (13 occurrences).",
+    "eligible": 13,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "227ecb4b8e1b0d83",
+      "4b0500ca4f4a08f1",
+      "47caa18a371ee695"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "227ecb4b8e1b0d83",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "4b0500ca4f4a08f1",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "47caa18a371ee695",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "ae92bcdc9c28ab60",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "967d12e96600d356",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "dd22909ef28dcca3",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "446b47e9fd5107a9",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "37a971551a06f5f5",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "daac72fa38f4cb31",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "e6094e21ecb89d90",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "605ad74c4f3f08eb",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "d8d453064c090720",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    },
+    {
+      "cells": [
+        "2fe5395f796866e3",
+        "404",
+        "1",
+        "60fbf59e91397f9e"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,102 @@
+{
+  "enabled": true,
+  "runId": "3c98118c",
+  "retainedEvents": 50000,
+  "retainedBytes": 18102526,
+  "maxEvents": 50000,
+  "maxBytes": 33554432,
+  "reservedEvents": 900,
+  "reservedCapacity": 5000,
+  "evictedEvents": 31180,
+  "bindingBound": "COUNT",
+  "oldestRetainedAt": 1791187355039,
+  "queueDepth": 0,
+  "queueCapacity": 10000,
+  "recorded": {
+    "http": 8416,
+    "sql": 27078,
+    "transaction": 7802,
+    "connection": 18307,
+    "exception": 300,
+    "cache": 602,
+    "log": 300,
+    "lifecycle": 1,
+    "gc": 72,
+    "orm": 18302
+  },
+  "dropped": {},
+  "droppedEvents": 0,
+  "previousRuns": [
+    {
+      "runId": "8dff279f",
+      "ordinal": 1,
+      "startedAt": 1791187231770,
+      "endedAt": 1791187337568,
+      "requests": 8402,
+      "failedRequests": 300,
+      "events": 81049,
+      "summaryBytes": 13413,
+      "omittedEntries": 0
+    }
+  ],
+  "previousRunsUnavailable": null,
+  "agentEvidence": {
+    "retainedBytes": 1046426,
+    "maxBytes": 70912128,
+    "stores": [
+      {
+        "store": "code-inventory",
+        "panel": "code-inventory",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 24530,
+        "maxBytes": 9699328,
+        "counts": {
+          "firstLoads": 10,
+          "indexBytes": 23064,
+          "firstCallsWithRequest": 73,
+          "firstCalls": 73
+        }
+      },
+      {
+        "store": "code-paths",
+        "panel": "code-paths",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 1021896,
+        "maxBytes": 55444736,
+        "counts": {
+          "requestTrees": 256,
+          "routeNodes": 83,
+          "indexBytes": 2900,
+          "routes": 17
+        }
+      },
+      {
+        "store": "method-probes",
+        "panel": "code-paths",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 0,
+        "maxBytes": 172800,
+        "counts": {
+          "probes": 0,
+          "probeHits": 0
+        }
+      },
+      {
+        "store": "side-effects",
+        "panel": "side-effects",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 0,
+        "maxBytes": 5595264,
+        "counts": {
+          "sideEffectRows": 0,
+          "sideEffectsWaiting": 0,
+          "indexBytes": 0
+        }
+      }
+    ]
+  }
+}

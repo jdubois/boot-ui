@@ -1,0 +1,87 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:b6b142faa6",
+    "kind": "route-time-breakdown",
+    "subject": "GET /owners/new",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/new`: warm median 4.2 ms over 183 requests; Response write 93 %, Other filters 5 %, Other handler time 3 %. Median CPU 4.2 ms and 940 KB allocated per request.",
+    "eligible": 183,
+    "affected": 183,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "69992c117d761970",
+      "136d2648beff05d7",
+      "17ba50f9b1d81144"
+    ],
+    "evidenceRows": 6,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 299 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "37",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.setAllowedFields",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.findOwner",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OwnerController.initCreationForm",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "21",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "736",
+        "93 %",
+        "3.9"
+      ]
+    }
+  ],
+  "truncated": 0
+}

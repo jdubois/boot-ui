@@ -1,0 +1,75 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:5d03df99f6",
+    "kind": "route-time-breakdown",
+    "subject": "GET /**",
+    "status": "OBSERVED",
+    "sentence": "`GET /**`: warm median 2.8 ms over 12 requests; Handler, other work 39 %, Other filters 29 %, Response write 20 %. Median CPU 2.8 ms and 998 KB allocated per request. First request 6.8 ms (cold).",
+    "eligible": 12,
+    "affected": 12,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "85514887c10473e9",
+      "9a09bfe582d02180",
+      "056c579655cc1865"
+    ],
+    "evidenceRows": 5,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "3.1",
+        "9 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "1.3",
+        "4 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "11",
+        "29 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "14",
+        "39 %",
+        "1.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "7.1",
+        "20 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:dbd321beb1",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/operations",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/operations` recorded `MethodArgumentNotValidException` in 13 of 26 requests (13 occurrences).",
+    "eligible": 26,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "24494a5c17cb133b",
+      "46135cd362e22634",
+      "b95aa2a9a8bd4827"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "24494a5c17cb133b",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "46135cd362e22634",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "b95aa2a9a8bd4827",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "17720373b1c88aac",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "b3fa7885805984b5",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "583eeb3d8d7c63e0",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "53ebb46189a7fc41",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "a21f7fdb97c2f373",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "54c369606c1e17f6",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "e1efc01a272b3919",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "8861b35c043e5013",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "2b621d9f5f867eff",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    },
+    {
+      "cells": [
+        "2138ba6674fe66b5",
+        "400",
+        "1",
+        "437fdd8031cd886d"
+      ]
+    }
+  ],
+  "truncated": 0
+}

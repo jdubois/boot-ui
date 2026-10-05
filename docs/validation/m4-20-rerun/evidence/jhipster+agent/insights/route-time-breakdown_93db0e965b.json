@@ -1,0 +1,125 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:93db0e965b",
+    "kind": "route-time-breakdown",
+    "subject": "DELETE /api/admin/users/{login}",
+    "status": "OBSERVED",
+    "sentence": "`DELETE /api/admin/users/{login}`: warm median 5.4 ms over 12 requests; Handler: UserService.deleteUser 29 %, Handler: UserResource.deleteUser 23 %, Other filters 13 %. Median CPU 5.3 ms and 313 KB allocated per request. First request 7.3 ms (cold).",
+    "eligible": 12,
+    "affected": 12,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in UserService.deleteUser: open Code Paths for this route to see what it calls and who calls it."
+    ],
+    "exemplarRequestIds": [
+      "d4d7a20471d145b8",
+      "19d97d6b14ee01ec",
+      "dbe8509b4ddbc071"
+    ],
+    "evidenceRows": 11,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 12 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "2.9",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "2.8",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "8.4",
+        "13 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "2.9",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "5.2",
+        "8 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: UserService.deleteUser",
+        "18",
+        "29 %",
+        "1.5"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: UserResource.deleteUser",
+        "15",
+        "23 %",
+        "1.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "2.7",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "0.9",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "4.0",
+        "6 %",
+        "0.3"
+      ]
+    }
+  ],
+  "truncated": 0
+}

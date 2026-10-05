@@ -1,0 +1,20 @@
+{
+  "status": "COMPARED",
+  "currentRunId": "1f584c80",
+  "previousRunId": "31b78723",
+  "runs": [
+    {
+      "endedAt": 1791187853874,
+      "ordinal": 1,
+      "requests": 396,
+      "runId": "31b78723",
+      "source": "BASELINE_FILE",
+      "startedAt": 1791187824941
+    }
+  ],
+  "behaviorOmitted": 0,
+  "edgesOmitted": 0,
+  "limitations": [
+    "3 route or executions recorded fewer than 3 samples in one of the runs, so per-sample changes on them are not compared; statement removal needs at least 3 current samples."
+  ]
+}

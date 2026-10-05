@@ -1,0 +1,179 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "errors-behind-2xx:26d546b877",
+    "kind": "errors-behind-2xx",
+    "subject": "POST /api/admin/users",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/admin/users` answered 2xx in 24 of 24 successful requests: 24 requests that recorded an exception.",
+    "eligible": 24,
+    "affected": 24,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Verify the response contract: should the caller learn that part of this request failed?"
+    ],
+    "exemplarRequestIds": [
+      "4105b96f3e6dd33d",
+      "fb7c95a8e92d649b",
+      "2c37794cb4b58355"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Only work that carries the request's id is counted: its own thread's, and its tasks' on executors BootUI decorates or the BootUI agent follows; work handed to another thread without BootUI's correlation is not.",
+      "Recovery matches at most one earlier exception of the reported failure class on the same thread per failed attempt, and requires a terminal success for the same policy, type, and target, or a successful fallback. It is not causal proof.",
+      "Logs, downstream failures, and root rollbacks are never inferred recovered. Providers that report no terminal success or fallback cannot establish recovery.",
+      "A task's exception is counted whatever level it was logged at, since a recorded exception does not keep its log level."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Evidence"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "4105b96f3e6dd33d",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "fb7c95a8e92d649b",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "2c37794cb4b58355",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "6241704e9666af66",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "72d56c9aaa12f4b5",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "2baee3422d799101",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "28f944dd8ff0cd0e",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "d169614b010de9d6",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "88442df311da409d",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "ff8736b7128d4e45",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "481a095728997374",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "d378bc30411c1b9c",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "2a26b16a0f493b29",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "bbc91747ba016e96",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "429c723d99479510",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "8dbe09c318070afc",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "fc5c90a90006a9c8",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "dda60d891ff50957",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "275c83b336d37612",
+        "201",
+        "exception: MailSendException"
+      ]
+    },
+    {
+      "cells": [
+        "b8af4834dc881342",
+        "201",
+        "exception: MailSendException"
+      ]
+    }
+  ],
+  "truncated": 4
+}

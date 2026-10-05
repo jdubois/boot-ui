@@ -1,0 +1,71 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:73d49b7b11",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/sign-in",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/sign-in`: warm median 100 ms over 79 requests; Handler, other work 98 %, SQL 2 %, Other filters 0 %. Median CPU 98 ms and 328 KB allocated per request. First request 101 ms (cold).",
+    "eligible": 79,
+    "affected": 79,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "cf56856cf1d59a48",
+      "c48ca979fba85ce0",
+      "15f0237fd51477e7"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "18",
+        "0 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "149",
+        "2 %",
+        "1.4"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "7716",
+        "98 %",
+        "98"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "9.6",
+        "0 %",
+        "0.1"
+      ]
+    }
+  ],
+  "truncated": 0
+}

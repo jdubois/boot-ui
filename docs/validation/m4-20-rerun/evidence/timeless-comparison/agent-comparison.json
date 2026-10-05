@@ -1,0 +1,26 @@
+{
+  "status": "COMPARED",
+  "reason": null,
+  "currentRunId": "c214f35b",
+  "previousRunId": "2c4c8b41",
+  "runs": [
+    {
+      "runId": "2c4c8b41",
+      "ordinal": 1,
+      "startedAt": 1791188740162,
+      "endedAt": 1791188809727,
+      "requests": 880,
+      "source": "BASELINE_FILE"
+    }
+  ],
+  "notComparableReasons": [],
+  "codeChanges": null,
+  "behavior": [],
+  "behaviorOmitted": 0,
+  "edges": [],
+  "edgesOmitted": 0,
+  "limitations": [
+    "1 route or execution recorded fewer than 3 samples in one of the runs, so per-sample changes on it are not compared; statement removal needs at least 3 current samples."
+  ],
+  "next": []
+}

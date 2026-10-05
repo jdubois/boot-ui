@@ -1,0 +1,100 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:94a8f734ef",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/bank-accounts/{id}",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/bank-accounts/{id}`: warm median 5.9 ms over 25 requests; Handler, other work 55 %, Other filters 19 %, Response write 14 %. Median CPU 5.9 ms and 485 KB allocated per request. First request 13 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "8bc38ec08a404a8b",
+      "a66196c878086ffb",
+      "9032044882b1dd05"
+    ],
+    "evidenceRows": 8,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "10",
+        "6 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "5.2",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "36",
+        "19 %",
+        "1.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.9",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "3.1",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "1.6",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "102",
+        "55 %",
+        "3.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "26",
+        "14 %",
+        "0.9"
+      ]
+    }
+  ],
+  "truncated": 0
+}

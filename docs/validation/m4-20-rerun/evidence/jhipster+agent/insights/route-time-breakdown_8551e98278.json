@@ -1,0 +1,141 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:8551e98278",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/operations/{id}",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/operations/{id}`: warm median 4.7 ms over 25 requests; Handler: OperationResource.getOperation 27 %, Other filters 18 %, Other handler time 15 %. Median CPU 4.7 ms and 480 KB allocated per request. First request 9.3 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in OperationResource.getOperation: open Code Paths for this route to see what it calls and who calls it."
+    ],
+    "exemplarRequestIds": [
+      "3f8ef8cb6f5eed5b",
+      "949d97673140a174",
+      "7486ae25d4a3545c"
+    ],
+    "evidenceRows": 13,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 25 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "6.5",
+        "6 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "2.2",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "21",
+        "18 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "2.8",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "1.9",
+        "2 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OperationResource.getOperation",
+        "31",
+        "27 %",
+        "1.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OperationRepositoryWithBagRelationshipsImpl.fetchBagRelationships",
+        "8.2",
+        "7 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAfterThrowing",
+        "4.4",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "4.3",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.customizeProblem",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "17",
+        "15 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "17",
+        "14 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

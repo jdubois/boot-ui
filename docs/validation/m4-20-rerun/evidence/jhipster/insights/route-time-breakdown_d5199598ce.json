@@ -1,0 +1,99 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:d5199598ce",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/labels",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/labels`: warm median 5.2 ms over 25 requests; Handler, other work 37 %, Other filters 23 %, Response write 21 %. Median CPU 5.1 ms and 206 KB allocated per request. First request 23 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "73f631253ccfdb76",
+      "b8308cb6524ac060",
+      "66121a51c4b81412"
+    ],
+    "evidenceRows": 8,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "10",
+        "8 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "3.7",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "31",
+        "23 %",
+        "1.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "1.4",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "9.0",
+        "7 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "50",
+        "37 %",
+        "2.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "28",
+        "21 %",
+        "0.9"
+      ]
+    }
+  ],
+  "truncated": 0
+}

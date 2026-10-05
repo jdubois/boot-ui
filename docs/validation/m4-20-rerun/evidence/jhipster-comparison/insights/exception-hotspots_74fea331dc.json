@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:74fea331dc",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/account/reset-password/init",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/account/reset-password/init` recorded `MailSendException` in 13 of 26 requests (13 occurrences).",
+    "eligible": 26,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "b37d1e28d21f3d05",
+      "830218b5830d11bb",
+      "e0db6aa17d9184c3"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 2xx and 4xx responses: Errors behind 2xx responses reports the 2xx ones."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "b37d1e28d21f3d05",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "830218b5830d11bb",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "e0db6aa17d9184c3",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "a717f3d42c10b1fe",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "ea68f6ed63afc4dd",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "28f21ef98ea35edc",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "fb2c282412a67c84",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "191a351c5daaee2b",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "8319bc92cd508512",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "20134ffa825f5900",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "0362da4cbf53cfd2",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "a1576bd54a039798",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    },
+    {
+      "cells": [
+        "c166b24739de412b",
+        "200",
+        "1",
+        "031cd7b8a259baf3"
+      ]
+    }
+  ],
+  "truncated": 0
+}

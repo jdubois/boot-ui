@@ -1,0 +1,53 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:f933673de1",
+    "kind": "route-time-breakdown",
+    "subject": "GET /actuator/health",
+    "status": "INSUFFICIENT",
+    "sentence": "`GET /actuator/health`: warm median 2.7 ms over 40 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. Recorded calls: Connection wait 0 %. First request 163 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+    ],
+    "exemplarRequestIds": [
+      "f808c07429e72366",
+      "c33f14d37e3b0b25",
+      "6cc499fdddd9fb46"
+    ],
+    "evidenceRows": 2,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Connection wait",
+        "0.5",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Unattributed",
+        "130",
+        "100 %",
+        "2.7"
+      ]
+    }
+  ],
+  "truncated": 0
+}

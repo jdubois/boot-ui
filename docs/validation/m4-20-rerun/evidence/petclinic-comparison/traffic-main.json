@@ -1,0 +1,37 @@
+{
+  "application": "petclinic",
+  "baseUrl": "http://localhost:18181",
+  "runId": "187570935",
+  "iterations": 300,
+  "pauseMs": 150,
+  "startedAt": "2026-10-05T08:06:10.936Z",
+  "durationSeconds": 77.6,
+  "requests": 8400,
+  "statuses": {
+    "200": 6600,
+    "302": 1500,
+    "500": 300
+  },
+  "byRoute": {
+    "GET /": 300,
+    "GET /**": 600,
+    "GET /oups": 300,
+    "GET /owners": 900,
+    "GET /owners/{ownerId}": 900,
+    "GET /owners/{ownerId}/edit": 300,
+    "GET /owners/{ownerId}/pets/{petId}/edit": 300,
+    "GET /owners/{ownerId}/pets/{petId}/visits/new": 300,
+    "GET /owners/{ownerId}/pets/new": 300,
+    "GET /owners/find": 300,
+    "GET /owners/new": 300,
+    "GET /vets": 300,
+    "GET /vets.html": 300,
+    "POST /owners/{ownerId}/edit": 600,
+    "POST /owners/{ownerId}/pets/{petId}/edit": 600,
+    "POST /owners/{ownerId}/pets/{petId}/visits/new": 600,
+    "POST /owners/{ownerId}/pets/new": 600,
+    "POST /owners/new": 600
+  },
+  "unexpected": [],
+  "unexpectedCount": 0
+}

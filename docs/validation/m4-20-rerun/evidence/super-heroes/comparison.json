@@ -1,0 +1,15 @@
+{
+  "current": {
+    "ordinal": 1,
+    "requests": 396,
+    "runId": "e274c5e1",
+    "source": "CURRENT",
+    "startedAt": 1791186214706
+  },
+  "reason": "No previous run is kept yet: restart the application, as DevTools or a Quarkus live reload does, or set bootui.runtime-journal.baseline-file to keep the last run across a full JVM restart.",
+  "restartCost": {
+    "reason": "No previous run is kept.",
+    "status": "UNAVAILABLE"
+  },
+  "status": "NO_PREVIOUS_RUN"
+}

@@ -1,0 +1,195 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:1897cf3c5e",
+    "kind": "exception-hotspots",
+    "subject": "GET /orders/{orderNumber}",
+    "status": "OBSERVED",
+    "sentence": "`GET /orders/{orderNumber}` recorded `OrderNotFoundException` in 40 of 80 requests (40 occurrences).",
+    "eligible": 80,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "07f132a5e348a766",
+      "f96a419fceffba2f",
+      "c16d766411f8c400"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "07f132a5e348a766",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "f96a419fceffba2f",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "c16d766411f8c400",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "2fa27eebf5a34e3b",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "75df6f51ee1acd0b",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "b4521abefa11ede0",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "0adc087fa7e211f6",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "fc78b19c92c38c41",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "7addb70ba89469b4",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "402197e4f62712cf",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "9882d0875e6a944e",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "cf57defd4f7b0d2a",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "b6603c12de315b7a",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "e0e3c0e9d6fd0297",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "eea1c4cfd2799cae",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "5c68fea7996c2a73",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "3b4a6bddc8188930",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "5e6e010e078c8926",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "30d145a9dcfd56a2",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    },
+    {
+      "cells": [
+        "028f0a749647fe23",
+        "404",
+        "1",
+        "1431e1046efc4846"
+      ]
+    }
+  ],
+  "truncated": 20
+}

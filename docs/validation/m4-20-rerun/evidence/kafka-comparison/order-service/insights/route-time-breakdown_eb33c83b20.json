@@ -1,0 +1,62 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:eb33c83b20",
+    "kind": "route-time-breakdown",
+    "subject": "GET /orders",
+    "status": "OBSERVED",
+    "sentence": "`GET /orders`: warm median 1.9 ms over 41 requests; Handler, other work 55 %, Response write 30 %, Other filters 14 %. Median CPU 1.9 ms and 228 KB allocated per request. First request 67 ms (cold).",
+    "eligible": 41,
+    "affected": 41,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "0c7e3cf73a9cca13",
+      "8c56c677020c8eb6",
+      "57fab2d9bcdd17f6"
+    ],
+    "evidenceRows": 3,
+    "limitations": [
+      "This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use. Its SQL and connection evidence is not counted."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "13",
+        "14 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "50",
+        "55 %",
+        "1.0"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "27",
+        "30 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

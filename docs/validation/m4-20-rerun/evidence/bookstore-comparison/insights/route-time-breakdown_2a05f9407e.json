@@ -1,0 +1,94 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:2a05f9407e",
+    "kind": "route-time-breakdown",
+    "subject": "POST /registration",
+    "status": "OBSERVED",
+    "sentence": "`POST /registration`: warm median 78 ms over 79 requests; Handler, other work 90 %, Response write 6 %, SQL 2 %. First request 27 ms (cold).",
+    "eligible": 79,
+    "affected": 79,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "907f8642afa009cf",
+      "f171fb2917c08d5d",
+      "83a72967c53ae2d9"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "6.6",
+        "0 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "25",
+        "1 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "74",
+        "2 %",
+        "0.9"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "23",
+        "1 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "3170",
+        "90 %",
+        "76"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "227",
+        "6 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

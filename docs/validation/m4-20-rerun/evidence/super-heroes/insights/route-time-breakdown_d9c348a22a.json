@@ -1,0 +1,81 @@
+{
+  "available": true,
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "observation": {
+    "affected": 41,
+    "eligible": 41,
+    "evidenceRows": 5,
+    "exemplarRequestIds": [
+      "2c81516bba6bc963",
+      "6551ffc40f21e3c8",
+      "519d53f6e0574678"
+    ],
+    "id": "route-time-breakdown:d9c348a22a",
+    "kind": "route-time-breakdown",
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source), not on the request's clock, so their SQL time is a total, not a span.",
+      "The rest-client-trace panel is not available in this application, so its evidence is not counted: this application does not use Quarkus REST Client Reactive. Add the quarkus-rest-client extension (with at least one REST Client interface) to enable the REST Client panel.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.",
+      "The security-logs panel is not available in this application, so its evidence is not counted: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events."
+    ],
+    "listed": false,
+    "minimumTier": "REQUEST_ID",
+    "sentence": "`DELETE /api/villains/{id}`: warm median 6.0 ms over 41 requests; Handler, other work 54 %, SQL 39 %, Hibernate flushes 4 %. First request 13 ms (cold).",
+    "status": "OBSERVED",
+    "subject": "DELETE /api/villains/{id}",
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent.",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ]
+  },
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "6.7",
+        "3 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "99",
+        "39 %",
+        "2.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "9.6",
+        "4 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "138",
+        "54 %",
+        "3.0"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "2.7",
+        "1 %",
+        "0.1"
+      ]
+    }
+  ],
+  "truncated": 0
+}

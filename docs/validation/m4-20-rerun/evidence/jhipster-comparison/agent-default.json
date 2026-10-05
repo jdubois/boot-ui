@@ -1,0 +1,246 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "",
+  "requests": 573,
+  "coverage": [
+    {
+      "source": "http",
+      "events": 573,
+      "byRequestId": 573,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 687,
+      "byRequestId": 630,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 57,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 416,
+      "byRequestId": 416,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "connection",
+      "events": 517,
+      "byRequestId": 509,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 8,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 156,
+      "byRequestId": 156,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "security",
+      "events": 507,
+      "byRequestId": 507,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "authorization",
+      "events": 651,
+      "byRequestId": 651,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "cache",
+      "events": 105,
+      "byRequestId": 105,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 105,
+      "byRequestId": 104,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "mail",
+      "events": 26,
+      "byRequestId": 26,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 10,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 10,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 456,
+      "byRequestId": 456,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checksNotRun": [
+    "transaction-across-remote-call: INSUFFICIENT, No eligible work was recorded for this check.",
+    "event-loop-blocking: NOT_APPLICABLE, Spring MVC serves requests on worker threads, not on event loops.",
+    "heap-growth-after-gc: INSUFFICIENT, No eligible work was recorded for this check.",
+    "work-after-response: NOT_APPLICABLE, This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "changed-code-not-executed: NOT_APPLICABLE, This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+  ],
+  "observations": [
+    {
+      "id": "route-time-breakdown:5cf2c95c76",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/authenticate",
+      "sentence": "`POST /api/authenticate`: warm median 79 ms over 38 requests; Handler, other work 97 %, Other filters 1 %, Response write 1 %. Median CPU 79 ms and 282 KB allocated per request. First request 360 ms (cold).",
+      "eligible": 38,
+      "affected": 38,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "d5a5389c590385f5",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": true
+    },
+    {
+      "id": "anonymous-data-reach:50353f241f",
+      "kind": "anonymous-data-reach",
+      "status": "OBSERVED",
+      "subject": "POST /api/account/reset-password/init",
+      "sentence": "`POST /api/account/reset-password/init` wrote table `jhi_user` in 13 of 13 successful anonymous requests.",
+      "eligible": 13,
+      "affected": 13,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "b37d1e28d21f3d05",
+      "verify": "If `jhi_user` should only change for signed-in callers, check the rule that let these requests through.",
+      "listed": true
+    },
+    {
+      "id": "errors-behind-2xx:26d546b877",
+      "kind": "errors-behind-2xx",
+      "status": "OBSERVED",
+      "subject": "POST /api/admin/users",
+      "sentence": "`POST /api/admin/users` answered 2xx in 13 of 13 successful requests: 13 requests whose own task failed.",
+      "eligible": 13,
+      "affected": 13,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "e4f8d37c0a55a39e",
+      "verify": "Verify the response contract: should the caller learn that part of this request failed?",
+      "listed": true
+    },
+    {
+      "id": "errors-behind-2xx:cc7aaad3ad",
+      "kind": "errors-behind-2xx",
+      "status": "OBSERVED",
+      "subject": "POST /api/account/reset-password/init",
+      "sentence": "`POST /api/account/reset-password/init` answered 2xx in 13 of 13 successful requests: 13 requests whose own task failed.",
+      "eligible": 13,
+      "affected": 13,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "b37d1e28d21f3d05",
+      "verify": "Verify the response contract: should the caller learn that part of this request failed?",
+      "listed": true
+    },
+    {
+      "id": "route-time-breakdown:67b3d00d88",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/admin/users",
+      "sentence": "`POST /api/admin/users`: warm median 83 ms over 12 requests; Handler, other work 96 %, Hibernate flushes 1 %, Response write 1 %. Median CPU 83 ms and 559 KB allocated per request. First request 108 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "2490ebf5ad537256",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "Behind 4xx responses",
+      "sentence": "10 exception groups on 10 routes were recorded only behind 4xx responses: 130 occurrences in 130 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "ca164676ba5688cc",
+      "verify": "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "listed": true
+    }
+  ],
+  "omitted": 0,
+  "notExercised": [],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "The application's declared routes could not be read, so the routes no request reached are not listed: that does not mean every route was exercised.",
+    "Not listed by default: route-time-breakdown 26, exception-hotspots 12. Pass the query all, a kind, or a route to list them; get_runtime_insight on one says why it is left out.",
+    "Latency rows are included for prominent routes: a warm median of 20 ms or more, or authorization taking 20 % of the time or 50 decisions a request."
+  ],
+  "next": [
+    {
+      "command": "bootui insights show route-time-breakdown:5cf2c95c76",
+      "tool": "get_runtime_insight",
+      "arguments": {
+        "id": "route-time-breakdown:5cf2c95c76"
+      },
+      "why": "the evidence rows behind this route-time-breakdown observation, call sites included"
+    },
+    {
+      "command": "bootui request-profile d5a5389c590385f5",
+      "tool": "get_request_profile",
+      "arguments": {
+        "id": "d5a5389c590385f5"
+      },
+      "why": "one request or execution that shows it, step by step"
+    },
+    {
+      "command": "bootui insights list --query all",
+      "tool": "get_runtime_insights",
+      "arguments": {
+        "query": "all"
+      },
+      "why": "every row, including those the default list leaves out"
+    }
+  ]
+}

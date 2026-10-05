@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:bbb1577bf3",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/account/reset-password/init",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/account/reset-password/init` recorded `ConstraintViolationException` in 13 of 26 requests (13 occurrences).",
+    "eligible": 26,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "081de37dde9239cf",
+      "9028ed63f78313de",
+      "14a604ecd3dfab5c"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "081de37dde9239cf",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "9028ed63f78313de",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "14a604ecd3dfab5c",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "dcc72d2a967d65da",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "78691151f9148f49",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "60656f3ff3dc7edd",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "c745965a59d811b9",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "b93289d29cc2adea",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "fd3a2f923ff9e3e6",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "c59b2e986da5e9b0",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "6baf69277af2dfb2",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "35433327d5d3d553",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    },
+    {
+      "cells": [
+        "39b93d90efef88af",
+        "400",
+        "1",
+        "f507befb91f71d7f"
+      ]
+    }
+  ],
+  "truncated": 0
+}
