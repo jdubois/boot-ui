@@ -1195,7 +1195,13 @@ const scheduled = {
   schedulingPresent: true,
   total: 3,
   tasks: [
-    {runnable: 'EchoScheduler.echo', triggerType: 'FIXED_RATE', expression: '30000', initialDelayMs: 0, timeUnit: 'ms'},
+    {
+      runnable: 'EchoScheduler.echo',
+      triggerType: 'FIXED_RATE',
+      expression: '300000',
+      initialDelayMs: 0,
+      timeUnit: 'ms'
+    },
     {
       runnable: 'ProductWarmup.refreshCatalog',
       triggerType: 'CRON',
