@@ -32,6 +32,8 @@ class NetworkSideEffectsTests {
 
     private final List<Object> keep = new ArrayList<>();
     private final AtomicReference<Object[]> context = new AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicBoolean captureFails =
+            new java.util.concurrent.atomic.AtomicBoolean();
 
     @BeforeEach
     void install() {
@@ -183,7 +185,9 @@ class NetworkSideEffectsTests {
     @Test
     void aDatagramsFirstSendIsPublishedAtOnceAndTheRestAreCountedInTheThreadsTable() throws Exception {
         long token = enabledClaim();
-        context.set(owner(REQUEST));
+        // A hot hook reads its owner from the thread's slot only: a capture would name it, but is never made.
+        context.set(owner("00000000000000cd"));
+        SideEffects.handoff(owner(REQUEST), generation());
         InetSocketAddress target = new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 8125);
 
         for (int i = 0; i < 4; i++) {
@@ -196,7 +200,7 @@ class NetworkSideEffectsTests {
             assertThat(string(record[SideEffects.R_FRAMES] >>> 32)).isNotNull();
         });
 
-        SideEffects.flushThread();
+        SideEffects.handoffDone();
 
         List<long[]> rest = drain(token);
         assertThat(rest).singleElement().satisfies(record -> {
@@ -207,6 +211,75 @@ class NetworkSideEffectsTests {
             assertThat(string(record[SideEffects.R_FLAGS] >>> 32)).isNotNull();
             assertThat(string((record[SideEffects.R_FLAGS] >>> 16) & 0xFFFF)).isNotNull();
         });
+    }
+
+    @Test
+    void withoutCodePathsAnAdaptersScopeStillFillsTheSlotADatagramReads() throws Exception {
+        long token = enabledClaim();
+        context.set(owner(REQUEST));
+        InetSocketAddress target = new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 8125);
+
+        CodePaths.begin();
+        long started = SideEffects.networkStarting(SideEffects.HOOK_DATAGRAM_SOCKET_SEND);
+        SideEffects.datagramSent(started, SideEffects.HOOK_DATAGRAM_SOCKET_SEND, target, null);
+        CodePaths.end();
+
+        assertThat(drain(token))
+                .singleElement()
+                .satisfies(record -> assertThat(record[SideEffects.R_REQUEST]).isEqualTo(REQUEST_BITS));
+    }
+
+    @Test
+    void anUnslottedDatagramIsNeverCapturedAndNamesItsThreadFamily() throws Exception {
+        long token = enabledClaim();
+        context.set(owner(REQUEST));
+        InetSocketAddress target = new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 8125);
+
+        long started = SideEffects.networkStarting(SideEffects.HOOK_DATAGRAM_SOCKET_SEND);
+        SideEffects.datagramSent(started, SideEffects.HOOK_DATAGRAM_SOCKET_SEND, target, null);
+
+        assertThat(drain(token)).singleElement().satisfies(record -> {
+            assertThat(record[SideEffects.R_REQUEST]).isZero();
+            assertThat(string((record[SideEffects.R_FLAGS] >>> 16) & 0xFFFF))
+                    .isEqualTo(SideEffects.threadFamily(Thread.currentThread().getName()));
+        });
+    }
+
+    @Test
+    void anInfrastructureFrameIsTheClientOfAConnectMadeThroughATransport() {
+        assertThat(SideEffects.infrastructure("io.opentelemetry.exporter.sender.okhttp.OkHttpHttpSender"))
+                .isTrue();
+        assertThat(SideEffects.infrastructure("org.springframework.boot.docker.compose.lifecycle.X"))
+                .isTrue();
+        assertThat(SideEffects.infrastructure("okhttp3.internal.connection.RealConnection"))
+                .isFalse();
+        assertThat(SideEffects.threadFamily("OkHttp http://otel:4318/v1/traces\n"))
+                .isEqualTo("OkHttp http://otel:{n}/v{n}/traces?");
+    }
+
+    @Test
+    void aSensorPastItsOwnErrorBudgetIsSwitchedOffAloneAndTheOthersKeepRecording() {
+        long token = claim(List.of(SideEffects.PROCESSES, SideEffects.NETWORK));
+        SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_NETWORK);
+        // Every connect's capture fails, an internal error of the network sensor's own recording.
+        captureFails.set(true);
+        for (int i = 0; i < SideEffects.MAX_ERRORS; i++) {
+            long started = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+            SideEffects.connected(
+                    started,
+                    SideEffects.HOOK_SOCKET_CONNECT,
+                    null,
+                    InetSocketAddress.createUnresolved("db", 5432),
+                    true,
+                    null);
+        }
+        captureFails.set(false);
+
+        assertThat(SideEffects.status(SideEffects.NETWORK)).containsEntry("off", true);
+        assertThat(SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT)).isZero();
+        assertThat(SideEffects.status(SideEffects.PROCESSES)).containsEntry("off", false);
+        assertThat(SideEffects.processStarting()).isNotZero();
+        drain(token);
     }
 
     @Test
@@ -338,7 +411,12 @@ class NetworkSideEffectsTests {
         request.put("mode", "dev");
         request.put("packages", List.of("com.example"));
         request.put("sensors", sensors);
-        Supplier<Object> capture = context::get;
+        Supplier<Object> capture = () -> {
+            if (captureFails.get()) {
+                throw new IllegalStateException("capture failed");
+            }
+            return context.get();
+        };
         Function<Object, AutoCloseable> reopen = snapshot -> null;
         keep.add(capture);
         keep.add(reopen);

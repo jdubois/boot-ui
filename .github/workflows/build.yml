@@ -466,13 +466,16 @@ jobs:
   # agent and with every default sensor claimed, BootUI on in both, in five alternating pairs. The budget is 10 %: the
   # job records the report in its summary and warns above the budget, but fails only above 30 %, so a noisy shared
   # runner never fails a build while a clear regression does. The first CI runs measured about 17 % (pairs from 9 to
-  # 22 %), above the budget, so a gate any closer to it would fail on noise alone (see CONTRIBUTING.md).
+  # 22 %), above the budget, so a gate any closer to it would fail on noise alone (see CONTRIBUTING.md). Two more
+  # measurements run on the I/O route, which adds one outbound connect and one file read per request so the
+  # side-effect sensors that hook them are exercised (M5-5b): every default sensor against no agent, and the default
+  # sensors against the same agent without network, nine pairs each.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -501,6 +504,21 @@ jobs:
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=5 -Dbootui.benchmark.agent.fail-above-percent=30
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      - name: Measure the agent's overhead on the I/O route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the network sensor's share on the I/O route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-network-ab
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
       - name: Publish the overhead report
         if: ${{ !cancelled() }}
         run: |
@@ -515,6 +533,15 @@ jobs:
           if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
             echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
           fi
+          for report in spring-mvc-agent-io spring-mvc-network-ab; do
+            if [ -f "$directory/$report.md" ]; then
+              cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
+              overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")
+              if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
+                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${budget} % budget."
+              fi
+            fi
+          done
 
       - name: Upload the overhead report
         if: ${{ !cancelled() }}

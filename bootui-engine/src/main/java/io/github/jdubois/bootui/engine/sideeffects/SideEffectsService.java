@@ -84,7 +84,9 @@ public final class SideEffectsService implements AutoCloseable {
                     + " Email is available and enabled, as BootUI then records that client's work, which a pool's"
                     + " connection carries later; a second DataSource BootUI does not wrap is not told apart. Any other connection is captured when a REST client"
                     + " call of the same request or execution, or, for unowned work, at the same time, names its host and port"
-                    + " (or a configured proxy). Infrastructure clients, such as DNS resolvers, telemetry exporters, and"
+                    + " (or a proxy named by http.proxyHost, https.proxyHost, or socksProxyHost; a ProxySelector, an"
+                    + " HttpClient.Builder proxy, a Reactor Netty proxy, or HTTPS_PROXY is not detected, so a call"
+                    + " through one reads as not captured). Infrastructure clients, such as DNS resolvers, telemetry exporters, and"
                     + " container tooling, are no panel's to show.";
 
     static final String LIMITATION_VALUES = "A process row shows the command's file name only, never its arguments or"
@@ -521,13 +523,30 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 String callSite = opened.callSite();
                 int hash = callSite == null ? -1 : callSite.indexOf('#');
-                if (hash > 0) {
+                // Only an application class's: a library's frame, which a call site falls back to, is no bean's edge.
+                if (hash > 0 && application(current.claim, callSite.substring(0, hash))) {
                     opens.add(
                             new HostOpen(HostOpen.CLASS, callSite.substring(0, hash), opened.target(), opened.count()));
                 }
             }
         }
         return opens;
+    }
+
+    /** Whether {@code className} is in the claim's application packages. */
+    private static boolean application(AgentClaim claim, String className) {
+        if (claim == null || claim.packages() == null) {
+            return false;
+        }
+        for (String prefix : claim.packages()) {
+            if (prefix != null
+                    && !prefix.isEmpty()
+                    && (className.equals(prefix)
+                            || className.startsWith(prefix.endsWith(".") ? prefix : prefix + "."))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A cheap fingerprint of {@link #hostOpens()}: changes when the run, its rows, or their counts change. */

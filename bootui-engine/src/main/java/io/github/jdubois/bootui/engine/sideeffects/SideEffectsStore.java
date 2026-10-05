@@ -33,7 +33,9 @@ import java.util.function.Function;
  * work SQL Trace, a messaging panel, or Email shows is keyed by that category, and whether that panel captured it is
  * decided on read, from whether that panel is visible, as a pool opens its connections before its first statement. Any other connect waits until a REST client call of the same owner, or, unowned, at the same time, names
  * its host and port, or until it no longer can: {@value #CAPTURE_GRACE_MILLIS} ms after its owner was named (its
- * request ended), or {@value #UNOWNED_CAPTURE_MILLIS} ms for an unowned one, when it is not captured. Not thread-safe:
+ * request ended, or since the connect when later), or, for an execution, {@value #UNOWNED_HTTP_CAPTURE_MILLIS} ms, since
+ * any of its events names it while it runs; an unowned one waits {@value #UNOWNED_CAPTURE_MILLIS} ms, or {@value
+ * #UNOWNED_HTTP_CAPTURE_MILLIS} ms for a recognized HTTP client; then it is not captured. Not thread-safe:
  * its service serializes it.
  */
 final class SideEffectsStore {
@@ -277,6 +279,12 @@ final class SideEffectsStore {
         }
     };
 
+    /**
+     * When each waiting key was first named, by key: a waiting connect's grace runs from then, or from its own time when
+     * later, never from before its owner was named.
+     */
+    private final Map<String, Long> namedAt = new HashMap<>();
+
     /** When the reader last did not name a waiting request, by request id: asked again only after a while. */
     private final Map<String, Long> misses = new HashMap<>();
 
@@ -339,6 +347,7 @@ final class SideEffectsStore {
         pending.clear();
         routes.clear();
         misses.clear();
+        namedAt.clear();
         connectDecisions.clear();
         folded = 0;
         version++;
@@ -503,7 +512,11 @@ final class SideEffectsStore {
             }
             String name = routes.get(waiting.key());
             if (name != null) {
-                Observation decided = decide(observation, age >= CAPTURE_GRACE_MILLIS);
+                // A request is named once it ended, so its REST calls are recorded: a short grace. An execution may be
+                // named by any of its events while it still runs, so its calls may be recorded much later.
+                long namedSince = namedAt.computeIfAbsent(waiting.key(), key -> now);
+                long grace = waiting.execution() ? UNOWNED_HTTP_CAPTURE_MILLIS : CAPTURE_GRACE_MILLIS;
+                Observation decided = decide(observation, now - Math.max(namedSince, waiting.since()) >= grace);
                 if (decided != null) {
                     attribute(decided, waiting.key(), name);
                     iterator.remove();
@@ -553,7 +566,9 @@ final class SideEffectsStore {
             }
         }
         resolve(named, now);
-        misses.keySet().retainAll(pendingRequests());
+        Set<String> waiting = pendingRequests();
+        misses.keySet().retainAll(waiting);
+        namedAt.keySet().retainAll(waiting);
     }
 
     private void aggregate(Observation observation, String scope, String attribution, String requestId) {

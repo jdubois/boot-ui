@@ -8,7 +8,8 @@ import java.util.List;
  * the thread's family, as a Netty event loop's connect carries no frame of the library that asked for it. Each client
  * has a category, which decides which panel can capture its work: {@value #SQL}, {@value #MESSAGING} (with its broker),
  * {@value #MAIL}, {@value #HTTP}, {@value #INFRASTRUCTURE} (DNS resolvers, telemetry exporters, metrics and log
- * shippers, container tooling, which no panel is meant to show), or {@value #OTHER} (a client no panel captures, such
+ * shippers, container tooling, which no panel is meant to show, recognized first, by frame, exporter thread, or
+ * well-known port, since their transport is itself an HTTP client), or {@value #OTHER} (a client no panel captures, such
  * as a cache, a document store, or a cloud SDK).
  */
 final class NetworkClients {
@@ -71,22 +72,6 @@ final class NetworkClients {
             rule("com.sun.mail.", "JavaMail", MAIL),
             rule("org.eclipse.angus.mail.", "Jakarta Mail", MAIL),
             rule("io.vertx.ext.mail.", "Vert.x mail client", MAIL),
-            // Infrastructure: name resolution, telemetry, metrics, logs, and container tooling.
-            rule("io.netty.resolver.dns.", "Netty DNS resolver", INFRASTRUCTURE),
-            rule("com.sun.jndi.dns.", "JNDI DNS", INFRASTRUCTURE),
-            rule("io.vertx.core.dns.", "Vert.x DNS client", INFRASTRUCTURE),
-            rule("io.opentelemetry.", "OpenTelemetry exporter", INFRASTRUCTURE),
-            rule("zipkin2.", "Zipkin reporter", INFRASTRUCTURE),
-            rule("io.micrometer.statsd.", "StatsD registry", INFRASTRUCTURE),
-            rule("io.micrometer.registry.", "Micrometer registry", INFRASTRUCTURE),
-            rule("io.prometheus.", "Prometheus client", INFRASTRUCTURE),
-            rule("ch.qos.logback.", "Logback appender", INFRASTRUCTURE),
-            rule("org.apache.logging.log4j.", "Log4j appender", INFRASTRUCTURE),
-            rule("biz.paluch.logging.", "GELF appender", INFRASTRUCTURE),
-            rule("org.testcontainers.", "Testcontainers", INFRASTRUCTURE),
-            rule("com.github.dockerjava.", "docker-java", INFRASTRUCTURE),
-            rule("org.springframework.boot.devtools.", "Spring Boot DevTools", INFRASTRUCTURE),
-            rule("io.quarkus.devservices.", "Quarkus Dev Services", INFRASTRUCTURE),
             // HTTP clients, which REST Client Trace may capture.
             rule("jdk.internal.net.http.", "JDK HttpClient", HTTP),
             rule("sun.net.www.", "JDK HttpURLConnection", HTTP),
@@ -137,6 +122,54 @@ final class NetworkClients {
             rule("io.vertx.core.", "Vert.x net client", OTHER),
             rule("io.netty.", "Netty", OTHER));
 
+    /**
+     * Infrastructure, checked before every other rule: its transport is a client of its own (OkHttp, the JDK's
+     * clients), so the first frame outside the socket plumbing would otherwise name an HTTP client.
+     */
+    private static final List<Rule> INFRASTRUCTURE_FRAMES = List.of(
+            rule("io.netty.resolver.dns.", "Netty DNS resolver", INFRASTRUCTURE),
+            rule("com.sun.jndi.dns.", "JNDI DNS", INFRASTRUCTURE),
+            rule("io.vertx.core.dns.", "Vert.x DNS client", INFRASTRUCTURE),
+            rule("io.opentelemetry.", "OpenTelemetry exporter", INFRASTRUCTURE),
+            rule("zipkin2.", "Zipkin reporter", INFRASTRUCTURE),
+            rule("io.micrometer.statsd.", "StatsD registry", INFRASTRUCTURE),
+            rule("io.micrometer.registry.", "Micrometer registry", INFRASTRUCTURE),
+            rule("io.prometheus.", "Prometheus client", INFRASTRUCTURE),
+            rule("ch.qos.logback.", "Logback appender", INFRASTRUCTURE),
+            rule("org.apache.logging.log4j.", "Log4j appender", INFRASTRUCTURE),
+            rule("biz.paluch.logging.", "GELF appender", INFRASTRUCTURE),
+            rule("org.springframework.boot.docker.compose.", "Spring Boot Docker Compose", INFRASTRUCTURE),
+            rule("org.springframework.boot.testcontainers.", "Spring Boot Testcontainers", INFRASTRUCTURE),
+            rule("org.testcontainers.", "Testcontainers", INFRASTRUCTURE),
+            rule("com.github.dockerjava.", "docker-java", INFRASTRUCTURE),
+            rule("org.springframework.boot.devtools.", "Spring Boot DevTools", INFRASTRUCTURE),
+            rule("io.quarkus.devservices.", "Quarkus Dev Services", INFRASTRUCTURE));
+
+    /** Thread families of telemetry exporters, whose connects carry no exporter frame on an HTTP client's thread. */
+    private static final List<Rule> INFRASTRUCTURE_THREADS = List.of(
+            rule("BatchSpanProcessor", "OpenTelemetry exporter", INFRASTRUCTURE),
+            rule("BatchLogRecordProcessor", "OpenTelemetry exporter", INFRASTRUCTURE),
+            rule("PeriodicMetricReader", "OpenTelemetry exporter", INFRASTRUCTURE),
+            rule("otlp", "OpenTelemetry exporter", INFRASTRUCTURE),
+            rule("zipkin", "Zipkin reporter", INFRASTRUCTURE),
+            rule("docker-java-", "docker-java", INFRASTRUCTURE),
+            rule("testcontainers", "Testcontainers", INFRASTRUCTURE));
+
+    /**
+     * Well-known ports of infrastructure no panel is meant to show: OTLP gRPC and HTTP, Zipkin, Jaeger, Loki, StatsD,
+     * GELF, and DNS.
+     */
+    private static final java.util.Map<Integer, String> INFRASTRUCTURE_PORTS = java.util.Map.of(
+            4317, "OpenTelemetry exporter",
+            4318, "OpenTelemetry exporter",
+            9411, "Zipkin reporter",
+            14250, "Jaeger exporter",
+            14268, "Jaeger exporter",
+            3100, "Loki appender",
+            8125, "StatsD client",
+            12201, "GELF appender",
+            53, "DNS");
+
     /** Thread families whose connects carry no frame of the library that asked for them. */
     private static final List<Rule> THREADS = List.of(
             rule("lettuce-", "Lettuce", OTHER),
@@ -170,6 +203,30 @@ final class NetworkClients {
      * A datagram to port 53 is a DNS resolver's.
      */
     static Client recognize(String client, String outside, String application, String thread, String target) {
+        // Infrastructure first: its frames, its exporters' threads, then its well-known ports.
+        for (String frame : new String[] {client, outside, application}) {
+            Client known = byFrame(frame, INFRASTRUCTURE_FRAMES);
+            if (known != null) {
+                return known;
+            }
+        }
+        if (thread != null) {
+            for (Rule rule : INFRASTRUCTURE_THREADS) {
+                if (thread.startsWith(rule.prefix())) {
+                    return rule.client();
+                }
+            }
+            if (thread.startsWith("OkHttp ") && OTLP_PATH.matcher(thread).find()) {
+                return new Client("OpenTelemetry exporter", INFRASTRUCTURE, null);
+            }
+        }
+        String port = port(target);
+        if (port != null) {
+            String label = INFRASTRUCTURE_PORTS.get(Integer.valueOf(port));
+            if (label != null) {
+                return new Client(label, INFRASTRUCTURE, null);
+            }
+        }
         for (String frame : new String[] {client, outside, application}) {
             Client known = byFrame(frame);
             if (known != null) {
@@ -183,9 +240,6 @@ final class NetworkClients {
                 }
             }
         }
-        if (target != null && target.endsWith(":53")) {
-            return new Client("DNS", INFRASTRUCTURE, null);
-        }
         for (String frame : new String[] {client, outside, application}) {
             Client known = byFrame(frame, TRANSPORTS);
             if (known != null) {
@@ -193,6 +247,23 @@ final class NetworkClients {
             }
         }
         return null;
+    }
+
+    /** An OTLP exporter's path, as OkHttp names its thread after the URL it calls. */
+    private static final java.util.regex.Pattern OTLP_PATH =
+            java.util.regex.Pattern.compile("/v\\{n\\}/(traces|metrics|logs)|/v1/(traces|metrics|logs)");
+
+    /** The port of a {@code host:port} target, or {@code null}. */
+    private static String port(String target) {
+        if (target == null) {
+            return null;
+        }
+        int colon = target.lastIndexOf(':');
+        if (colon < 0 || colon == target.length() - 1) {
+            return null;
+        }
+        String port = target.substring(colon + 1);
+        return port.length() <= 5 && port.chars().allMatch(Character::isDigit) ? port : null;
     }
 
     private static Client byFrame(String frame) {

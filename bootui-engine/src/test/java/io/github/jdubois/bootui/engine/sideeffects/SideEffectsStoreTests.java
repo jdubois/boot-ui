@@ -187,7 +187,7 @@ class SideEffectsStoreTests {
         store.resolve(Map.of("00000000000000ab", "GET /sdk"), NOW + 500L);
         assertThat(store.rows("network", true, true)).as("within its grace").isEmpty();
 
-        store.resolve(Map.of(), NOW + SideEffectsStore.CAPTURE_GRACE_MILLIS);
+        store.resolve(Map.of(), NOW + 500L + SideEffectsStore.CAPTURE_GRACE_MILLIS);
 
         assertThat(store.rows("network", true, true, captured()))
                 .singleElement()
@@ -255,6 +255,84 @@ class SideEffectsStoreTests {
         assertThat(store.rows("network", true, true, captured()))
                 .singleElement()
                 .satisfies(row -> assertThat(row.capture()).isEqualTo(SideEffectsRowDto.NOT_CAPTURED));
+    }
+
+    @Test
+    void anExecutionNamedByAnEarlierEventWaitsForItsRestCallRecordedSecondsAfterTheConnect() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        boolean[] matched = {false};
+        store.setCapture(capture(matched));
+        store.add(new SideEffectsStore.Observation(
+                new SideEffectRecord(
+                        SideEffectsCatalog.RECORD_NETWORK,
+                        SideEffectsCatalog.KIND_CONNECT,
+                        1L,
+                        NOW,
+                        NOW,
+                        0L,
+                        0xefL,
+                        0L,
+                        1,
+                        SideEffectsCatalog.OUTCOME_CONNECTED,
+                        1,
+                        SideEffectRecord.EXECUTION_OWN,
+                        0,
+                        0,
+                        1L,
+                        1L,
+                        1L,
+                        0,
+                        0),
+                "network",
+                "connect",
+                "localhost:6379",
+                "com.example.Job#run",
+                null,
+                "scheduling-{n}",
+                null,
+                SideEffectsStore.REST_WAITING,
+                "localhost",
+                6379));
+        String key = SideEffectsStore.EXECUTION_KEY + "00000000000000ef";
+
+        // Its earlier SQL event already names the run; its REST call is recorded only 5 s after the connect.
+        store.resolve(Map.of(key, "scheduled ReportJob.run"), NOW + 500L);
+        store.resolve(Map.of(), NOW + SideEffectsStore.CAPTURE_GRACE_MILLIS + 1_000L);
+        assertThat(store.rows("network", true, true))
+                .as("still waiting for its call")
+                .isEmpty();
+        matched[0] = true;
+        store.resolve(Map.of(), NOW + 5_000L);
+
+        assertThat(store.rows("network", true, true, captured()))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.attribution()).isEqualTo("scheduled ReportJob.run");
+                    assertThat(row.capture()).isEqualTo(SideEffectsRowDto.CAPTURED);
+                });
+    }
+
+    @Test
+    void aRequestsGraceRunsFromWhenItWasNamedNotFromItsConnect() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        boolean[] matched = {false};
+        store.setCapture(capture(matched));
+        store.add(network(
+                SideEffectsCatalog.KIND_CONNECT,
+                SideEffectsCatalog.OUTCOME_CONNECTED,
+                0xabL,
+                1L,
+                SideEffectsStore.REST_WAITING));
+
+        // A long request: named 20 s after its connect, its call recorded a second after that.
+        store.resolve(Map.of("00000000000000ab", "GET /slow"), NOW + 20_000L);
+        assertThat(store.rows("network", true, true)).isEmpty();
+        matched[0] = true;
+        store.resolve(Map.of(), NOW + 21_000L);
+
+        assertThat(store.rows("network", true, true, captured()))
+                .singleElement()
+                .satisfies(row -> assertThat(row.capture()).isEqualTo(SideEffectsRowDto.CAPTURED));
     }
 
     @Test

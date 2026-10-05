@@ -314,6 +314,10 @@ public final class CodePaths {
             try {
                 if (active) {
                     owner = beginFragment();
+                } else {
+                    // Without code paths, a side-effect sensor with a hot hook still needs the scope's owner in its
+                    // slot.
+                    owner = SideEffects.scopeOwner();
                 }
             } finally {
                 // The side-effect sensors' owner slot, with the owner captured here if any (PLAN-v2 M5-5 design B1),
@@ -1184,6 +1188,16 @@ public final class CodePaths {
 
         int sideEffectThreadId;
         long sideEffectThreadGeneration = -1L;
+
+        /** Whether this thread, under that name, is a Netty or Vert.x event loop, whose hooks never capture an owner. */
+        boolean sideEffectEventLoop;
+
+        /** The network sensor's last datagram address on this thread, by identity, its port, target id, and generation. */
+        Object sideEffectAddress;
+
+        int sideEffectPort;
+        int sideEffectTarget;
+        long sideEffectTargetGeneration = -1L;
     }
 
     /**

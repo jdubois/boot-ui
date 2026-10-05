@@ -168,7 +168,15 @@ public class ContainerGatewayDetector {
     public Set<InetAddress> dockerDesktopGateways() {
         InetAddress[] resolved;
         try {
-            resolved = hostResolver.resolve(DOCKER_DESKTOP_GATEWAY_HOST);
+            // BootUI's own lookup: the BootUI agent's network sensor must not show it as the application's.
+            io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess agent =
+                    io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess.locate();
+            boolean previous = agent.bootUiWork(true);
+            try {
+                resolved = hostResolver.resolve(DOCKER_DESKTOP_GATEWAY_HOST);
+            } finally {
+                agent.bootUiWork(previous);
+            }
         } catch (UnknownHostException | RuntimeException e) {
             return Set.of();
         }

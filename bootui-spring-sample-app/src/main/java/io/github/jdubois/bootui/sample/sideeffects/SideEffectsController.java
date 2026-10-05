@@ -1,9 +1,13 @@
 package io.github.jdubois.bootui.sample.sideeffects;
 
+import io.github.jdubois.bootui.sample.catalog.ProductSummary;
+import io.github.jdubois.bootui.sample.catalog.SampleCatalog;
+import java.util.List;
 import java.util.Map;
 import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 
@@ -24,16 +28,32 @@ public class SideEffectsController {
     private final LicenseSdkClient licenses;
     private final RestClient.Builder restClients;
     private final Environment environment;
+    private final SampleCatalog catalog;
+    private final BenchmarkIo benchmarkIo;
 
     public SideEffectsController(
             JavaVersionReporter reporter,
             LicenseSdkClient licenses,
             RestClient.Builder restClients,
-            Environment environment) {
+            Environment environment,
+            SampleCatalog catalog,
+            BenchmarkIo benchmarkIo) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.restClients = restClients;
         this.environment = environment;
+        this.catalog = catalog;
+        this.benchmarkIo = benchmarkIo;
+    }
+
+    /**
+     * The agent overhead benchmark's I/O route (M5-12): the product search of {@code GET /api/sample/product-search},
+     * plus one outbound connect and one file read ({@link BenchmarkIo}).
+     */
+    @GetMapping("/benchmark-io")
+    public List<ProductSummary> benchmarkIo(@RequestParam(name = "term", defaultValue = "console") String term) {
+        benchmarkIo.touch();
+        return catalog.searchProducts(term);
     }
 
     @GetMapping("/java-version")

@@ -293,14 +293,16 @@ public final class NetworkBehaviors {
                 DatagramChannel channel = DatagramChannel.open()) {
             byte[] payload = PAYLOAD.getBytes(StandardCharsets.UTF_8);
             CONTEXT.set(REQUEST);
+            // A hot hook reads its owner from the slot an adapter's scope fills, never captures it itself.
+            io.github.jdubois.bootui.agent.bridge.CodePaths.begin();
             for (int i = 0; i < 3; i++) {
                 sender.send(new DatagramPacket(payload, payload.length, LOOPBACK, receiver.getLocalPort()));
             }
             for (int i = 0; i < 2; i++) {
                 channel.send(ByteBuffer.wrap(payload), new InetSocketAddress(LOOPBACK, receiver.getLocalPort()));
             }
+            io.github.jdubois.bootui.agent.bridge.CodePaths.end();
             CONTEXT.remove();
-            SideEffects.flushThread();
             await(records -> count(records, SideEffects.KIND_DATAGRAM) >= 5);
             check(
                     "datagram sends record their target once with frames and count the rest, never a byte ("

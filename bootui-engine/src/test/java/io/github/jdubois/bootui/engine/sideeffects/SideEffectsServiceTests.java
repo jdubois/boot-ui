@@ -416,7 +416,10 @@ class SideEffectsServiceTests {
         sideeffectsapp.Dialer.connect("localhost", 9000);
         sideeffectsapp.Dialer.lookup("db.internal");
         context.set(CorrelationContext.NONE);
-        clock.set(System.currentTimeMillis() + SideEffectsStore.CAPTURE_GRACE_MILLIS + 1_000L);
+        clock.set(System.currentTimeMillis() + 1_000L);
+        // The first read names the request; its grace runs from then.
+        service.sensor("network", null, null);
+        clock.addAndGet(SideEffectsStore.CAPTURE_GRACE_MILLIS);
 
         SideEffectsSensorReport report = service.sensor("network", null, null);
 
