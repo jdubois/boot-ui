@@ -1,0 +1,24 @@
+diff --git a/pom.xml b/pom.xml
+index 1332a1f..323f1f8 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -22,7 +22,6 @@
+         <spring-modulith.version>2.1.1</spring-modulith.version>
+         <htmx-spring-boot-thymeleaf.version>5.1.0</htmx-spring-boot-thymeleaf.version>
+         <datasource-micrometer-spring-boot.version>2.2.1</datasource-micrometer-spring-boot.version>
+-        <bootui.version>1.15.0</bootui.version>
+         <bootstrap.version>5.3.8</bootstrap.version>
+         <htmx.version>4.0.0</htmx.version>
+         <font-awesome.version>7.3.0</font-awesome.version>
+@@ -121,11 +120,6 @@
+             <artifactId>spring-modulith-observability-core</artifactId>
+             <scope>runtime</scope>
+         </dependency>
+-        <dependency>
+-            <groupId>com.julien-dubois.bootui</groupId>
+-            <artifactId>bootui-spring-boot-starter</artifactId>
+-            <version>${bootui.version}</version>
+-        </dependency>
+ 
+         <!-- WebApp dependencies -->
+         <dependency>

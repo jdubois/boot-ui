@@ -1,0 +1,43 @@
+{
+  "name": "BootUI 2.0 validation protocol, registered 2026-10-05 (M4-20a)",
+  "seed": "bootui-v2-rerun-1",
+  "hiddenSample": 10,
+  "tunedApps": ["petclinic", "jhipster", "super-heroes", "webflux-gateway", "kafka"],
+  "holdoutApps": ["bookstore", "timeless"],
+  "agentRuns": {
+    "jhipster": ["work-after-response"],
+    "bookstore": ["work-after-response"],
+    "super-heroes": ["changed-code-not-executed"]
+  },
+  "agentKinds": ["work-after-response", "changed-code-not-executed"],
+  "unlistedByDesign": [
+    "gc-inflated-latency",
+    "heap-growth-after-gc",
+    "transactional-listener-skipped",
+    "after-commit-writes",
+    "orm-auto-flush",
+    "large-persistence-context"
+  ],
+  "knownUnlistedReasons": [
+    "Its warm median is under 20 ms",
+    "It has fewer than",
+    "Its time is not split into phases",
+    "It was recorded only behind 4xx responses",
+    "It was recorded only behind 2xx and 4xx responses",
+    "Every scheduled run or message that recorded it completed",
+    "Repeated SELECTs already reports this statement",
+    "Garbage collection and heap rows are reached from the Memory panel",
+    "This check is not listed by default until its counterexample fixtures pass",
+    "It is a WARN message BootUI has no specific check for",
+    "Spring MVC resolved an exception to a 4xx response"
+  ],
+  "registeredFiles": ["protocol.json", "RUBRIC.md", "recall/known-misses.json", "scoring/lib.mjs"],
+  "gates": {
+    "target": {"usefulPercent": 70, "misleading": 0},
+    "postM3": {"usefulPercent": 50},
+    "escalation": {"pooledBelowPercent": 30, "holdoutGapAbovePoints": 20},
+    "perKind": {"minFacts": 3, "minApps": 2, "usefulPercent": 50, "misleading": 0}
+  },
+  "timeToFirstObservation": {"targetMinutes": 5},
+  "investigations": {"count": 10}
+}

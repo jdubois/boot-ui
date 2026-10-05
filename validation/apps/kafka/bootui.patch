@@ -1,0 +1,48 @@
+diff --git a/order-service/pom.xml b/order-service/pom.xml
+index 4419e99..d775a07 100644
+--- a/order-service/pom.xml
++++ b/order-service/pom.xml
+@@ -20,6 +20,11 @@
+     </properties>
+ 
+     <dependencies>
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-spring-boot-starter</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-web</artifactId>
+diff --git a/payment-service/pom.xml b/payment-service/pom.xml
+index 502608e..c1e06b3 100644
+--- a/payment-service/pom.xml
++++ b/payment-service/pom.xml
+@@ -20,6 +20,11 @@
+     </properties>
+ 
+     <dependencies>
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-spring-boot-starter</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter</artifactId>
+diff --git a/stock-service/pom.xml b/stock-service/pom.xml
+index 243d3f4..406988a 100644
+--- a/stock-service/pom.xml
++++ b/stock-service/pom.xml
+@@ -20,6 +20,11 @@
+     </properties>
+ 
+     <dependencies>
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-spring-boot-starter</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter</artifactId>
