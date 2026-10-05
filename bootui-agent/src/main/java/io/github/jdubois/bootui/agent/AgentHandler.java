@@ -48,6 +48,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private List<WeakReference<ClassLoader>> runLoaders = Collections.emptyList();
 
     private SideEffectsSensor sideEffects;
+    private ThreadLocalsSensor threadLocals;
     /** Whether the current claim asked for the inventory or code-paths sensor: refines reach them only then. */
     private boolean applicationMethodsClaimed;
 
@@ -130,6 +131,12 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                     // Its hooks would otherwise stay on JDK classes for a claim that never reads them.
                     sideEffects.release();
                 }
+                // The thread-locals sensor transforms nothing: its scanner reads the maps through a module grant.
+                if (claimedSensors.contains(SideEffects.THREAD_LOCALS)) {
+                    threadLocals().claimed();
+                } else if (threadLocals != null) {
+                    threadLocals.release();
+                }
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
@@ -173,6 +180,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 if (sideEffects != null) {
                     sideEffects.release();
+                }
+                if (threadLocals != null) {
+                    threadLocals.release();
                 }
                 return answer("ok", null);
             case "method-probe":
@@ -243,13 +253,23 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         return applicationMethods;
     }
 
-    /** The mask bits of the side-effect sensors among {@code sensors}. */
+    /**
+     * The mask bits of the side-effect sensors among {@code sensors} whose hooks the side-effect transformer carries:
+     * every one but {@code thread-locals}, which hooks nothing ({@link ThreadLocalsSensor}).
+     */
     static int sideEffectsMask(List<String> sensors) {
         int bits = 0;
         for (String sensor : sensors) {
             bits |= SideEffects.bit(sensor);
         }
-        return bits;
+        return bits & ~SideEffects.MASK_THREAD_LOCALS;
+    }
+
+    private ThreadLocalsSensor threadLocals() {
+        if (threadLocals == null) {
+            threadLocals = new ThreadLocalsSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
+        }
+        return threadLocals;
     }
 
     private SideEffectsSensor sideEffects() {
@@ -302,6 +322,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 }
                 sensors.add(active(row));
             }
+        }
+        Map<String, Object> threadLocalsRow = threadLocals == null ? null : threadLocals.status();
+        if (threadLocalsRow != null) {
+            sensors.add(active(threadLocalsRow));
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());

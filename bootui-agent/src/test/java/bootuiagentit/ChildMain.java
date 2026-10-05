@@ -48,6 +48,7 @@ public final class ChildMain {
             case "hotswap-behaviors" -> HotSwapBehaviors.main(new String[] {args[1]});
             case "probe-behaviors" -> ProbeBehaviors.main(new String[0]);
             case "side-effects-behaviors" -> SideEffectsBehaviors.main(new String[] {args[1]});
+            case "thread-locals-behaviors" -> ThreadLocalsBehaviors.main(new String[] {args[1]});
             case "blocking-behaviors" -> BlockingBehaviors.main(new String[] {args[1]});
             case "files-environment-behaviors" -> FilesEnvironmentBehaviors.main(new String[] {args[1]});
             case "network-behaviors" -> NetworkBehaviors.main(new String[] {args[1]});

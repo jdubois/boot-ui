@@ -1235,6 +1235,9 @@ public final class CodePaths {
          * thread-activity sensor never records a thread started meanwhile, which is the executor's.
          */
         int poolStarts;
+
+        /** The thread-locals sensor's scope on this thread, created at its first scan ({@code ThreadLocals}). */
+        ThreadLocals.Scope threadLocals;
     }
 
     /**
