@@ -199,6 +199,8 @@ public final class ChildMain {
     }
 
     /** Simulated DevTools runs, each in its own child-first class loader, then a heap dump. */
+    static int threadLocalsResolved;
+
     static void runs(int count, String dump) throws Exception {
         // From a jar when given, as a run's classes are outside a test root, so the inventory sensor instruments them.
         String runJar = System.getProperty("bootui.agent.it.run-jar");
@@ -216,11 +218,19 @@ public final class ChildMain {
                 // Every sensor RunApp claims: a pool worker started before the executors sensor installed keeps
                 // running the untransformed runWorker, so the shared pool would never propagate.
                 ThreadBehaviors.awaitSelfTests(List.of("executors", "threads", "inventory", "code-paths"));
+                if (Boolean.getBoolean("bootui.agent.it.thread-locals")) {
+                    SensorWait.awaitSettled("thread-locals");
+                }
             }
             app.getMethod("propagate").invoke(null);
+            threadLocalsResolved +=
+                    (Integer) app.getMethod("resolveThreadLocals", long.class).invoke(null, token);
             app.getMethod("disarm", long.class).invoke(null, token);
             Thread.currentThread().setContextClassLoader(ChildMain.class.getClassLoader());
         }
+        System.out.println("THREAD_LOCALS_RESOLVED=" + threadLocalsResolved);
+        System.out.println(
+                "THREAD_LOCALS=" + ((Map<?, ?>) bridge().getMethod("status").invoke(null)).get("thread-locals"));
         System.out.println("HITS=" + counter(bridge(), "probeHits"));
         System.out.println("INSTALLER=" + installer(bridge()));
         System.out.println("EXECUTORS=" + executors(bridge()));
