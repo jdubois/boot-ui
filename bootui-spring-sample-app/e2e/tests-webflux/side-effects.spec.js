@@ -218,5 +218,57 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Request input reached this')
+
+  test('reports a sleep on the event loop and never the same sleep on boundedElastic', async ({
+    page,
+    request,
+    baseURL,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the blocking sensor needs the BootUI agent')
+    await expect
+      .poll(
+        async () =>
+          (await (await request.get(`${baseURL}/bootui/api/side-effects`)).json()).sensors.find(
+            (sensor) => sensor.id === 'blocking'
+          ).state,
+        {timeout: 30_000}
+      )
+      .toBe('recording')
+
+    const seed = await (await request.get(`${baseURL}/api/side-effects/event-loop-sleep`)).json()
+    expect(seed.thread).toMatch(/^reactor-http-/)
+    const counterexample = await (await request.get(`${baseURL}/api/side-effects/worker-sleep`)).json()
+    expect(counterexample.thread).toMatch(/boundedElastic-/i)
+
+    const seedRoute = 'GET /api/side-effects/event-loop-sleep'
+    await expect
+      .poll(
+        async () => {
+          const rows = (await (await request.get(`${baseURL}/bootui/api/side-effects/sensor?sensor=blocking`)).json())
+            .rows
+          return rows?.find((row) => row.attribution === seedRoute && row.kind === 'sleep')?.count ?? 0
+        },
+        {timeout: 30_000}
+      )
+      .toBeGreaterThanOrEqual(1)
+    const report = await (await request.get(`${baseURL}/bootui/api/side-effects/sensor?sensor=blocking`)).json()
+    const row = report.rows.find((candidate) => candidate.attribution === seedRoute && candidate.kind === 'sleep')
+    expect(row.target).toMatch(/^reactor-http-[a-z]+-\{n\}$/)
+    expect(row.callSite).toMatch(/EventLoopSleeper#sleepOnEventLoop$/)
+    expect(row.maxMillis).toBeGreaterThanOrEqual(40)
+    expect(report.rows.some((candidate) => candidate.attribution === 'GET /api/side-effects/worker-sleep')).toBe(false)
+    expect(report.rows.some((candidate) => /boundedElastic/.test(candidate.target))).toBe(false)
+
+    // An idle Netty event loop waits in epoll, never in LockSupport.park: traffic and a short idle add no park row.
+    await page.waitForTimeout(2_000)
+    const idle = await (await request.get(`${baseURL}/bootui/api/side-effects/sensor?sensor=blocking`)).json()
+    expect(
+      idle.rows.filter((candidate) => candidate.kind === 'park' && /^reactor-http-/.test(candidate.target))
+    ).toEqual([])
+
+    await page.goto('/bootui/#/side-effects')
+    await page.getByRole('tab', {name: /Blocking/}).click()
+    await expect(page.locator('.side-effects-table')).toContainText('EventLoopSleeper#sleepOnEventLoop')
   })
 })

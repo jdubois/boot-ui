@@ -50,6 +50,23 @@ class CaughtExceptionsBehaviorsIT {
         assertAllPass(run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "all"), true);
     }
 
+    /**
+     * With the blocking sensor's call-site rewrite in the same transformer (M5-5c): every behavior still passes, one
+     * method yields both sensors' records, and a claim dropping either sensor leaves the other's visit working.
+     */
+    @Test
+    void everyBehaviorPassesBesideTheBlockingCallSiteVisit() throws Exception {
+        ChildJvm.Output output = run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "blocking");
+        assertAllPass(output, true);
+        assertThat(output.value("SELF_TEST_blocking")).as(output.toString()).startsWith("true null");
+        assertThat(output.text())
+                .as(output.toString())
+                .contains("  PASS one method beside both visits yields its caught record and its blocking records")
+                .contains(
+                        "  PASS a claim dropping blocking keeps the caught exceptions recording, with no new self-test")
+                .contains("  PASS a claim dropping the caught exceptions keeps the blocking call sites");
+    }
+
     @Test
     void everyBehaviorPassesAfterOpenTelemetry() throws Exception {
         List<String> jvm = new ArrayList<>(List.of("-javaagent:" + OPENTELEMETRY, ChildJvm.javaAgent(ChildJvm.AGENT)));

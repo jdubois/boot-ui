@@ -12,13 +12,14 @@ import java.util.List;
  *     {@value #UNATTRIBUTED}, or {@value #OTHER}
  * @param attribution the route ({@code GET /reports}), {@code startup}, the thread family ({@code pool-{n}-thread-{n}}),
  *     or what the scope names otherwise
- * @param sensor the sensor's id, such as {@code processes}
+ * @param sensor the sensor's id, such as {@code processes} or {@code blocking}
  * @param kind what was done: {@code process}; for network {@code connect}, {@code datagram}, or {@code lookup}; for
  *     files {@code read}, {@code write}, {@code delete}, {@code move from}, {@code move to}, {@code copy from}, or
- *     {@code copy to}; for environment {@code environment variable} or {@code system property}
+ *     {@code copy to}; for environment {@code environment variable} or {@code system property}; for blocking
+ *     {@code sleep}, {@code wait}, {@code park}, {@code network}, or {@code file}
  * @param target the normalized target: a command's file name, a {@code host:port}, a {@code unix:} path, or a
- *     looked-up host name, a file's path pattern ({@code ./reports/report-{n}.csv}, {@code $TMPDIR/…}, {@code ~/…}), or
- *     a variable's or property's name
+ *     looked-up host name, a file's path pattern ({@code ./reports/report-{n}.csv}, {@code $TMPDIR/…}, {@code ~/…}), a
+ *     variable's or property's name, or for blocking the event loop's thread family ({@code reactor-http-nio-{n}})
  * @param callSite the first application frame, else the first frame outside the JDK, as {@code Class#method}, or
  *     {@code null} when unknown
  * @param insideMethod the innermost application bean method open when it happened, from Code Paths, or {@code null}
@@ -31,13 +32,15 @@ import java.util.List;
  *     attempted, datagrams sent, or names the JVM resolved; for files, operations; for environment, first reads per
  *     request and thread
  * @param failed how many of them failed: for processes, starts that threw; for network, connects refused or failed,
- *     sends that threw, or names not resolved; for files, operations that threw
+ *     sends that threw, or names not resolved; for files, operations that threw; for blocking, calls interrupted or
+ *     that threw
  * @param completed for processes, how many of the started processes exited; for network connects, how many were
  *     established
  * @param nonZeroExits for processes, how many exited with a non-zero status
  * @param lastExitStatus for processes, the last exit status seen, or {@code null}
  * @param totalMillis the time they took: for processes, the started processes' lifetime until they exited; for network,
- *     the connect time of the connects whose time is known, the send time, or the name service's resolution time
+ *     the connect time of the connects whose time is known, the send time, or the name service's resolution time; for
+ *     blocking, how long they blocked the event loop
  * @param maxMillis the longest of them
  * @param firstSeen when it was first seen, in epoch milliseconds
  * @param lastSeen when it was last seen, in epoch milliseconds

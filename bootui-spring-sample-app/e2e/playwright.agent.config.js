@@ -18,9 +18,9 @@ const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
 const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
 
-// The default sensors, the opt-in files, environment, and security-sinks sensors, and request-value matching, whose Side
-// Effects seeds the side-effects spec asserts (M5-5d, M5-6b).
-const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,security-sinks -Dbootui.agent.security-sinks.request-values=true`
+// The default sensors, the opt-in files, environment, and security-sinks sensors with request-value matching, and
+// blocking, named whatever its default, whose Side Effects seeds the side-effects spec asserts (M5-5c, M5-5d, M5-6b).
+const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,security-sinks -Dbootui.agent.security-sinks.request-values=true`
 
 export default defineConfig({
   testDir: '.',

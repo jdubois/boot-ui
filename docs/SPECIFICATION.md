@@ -790,14 +790,17 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
-  sensors record by default, and `files` and `environment` (M5-5d) when opted in. `security-sinks` (M5-6b) records,
-  when opted in with `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a
-  file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The
-  `thread-activity`, `thread-locals`, `resources`, and `blocking` sensors are still listed but report `not-available`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
+  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d) when opted in. `security-sinks`
+  (M5-6b) records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input reaching SQL
+  text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a sentence
+  stating the fact. The `thread-activity`, `thread-locals`, and `resources` sensors are still listed but report
+  `not-available`
   with reason `Not available in this version.`
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
+- The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
+  WebClient, Vert.x's on Quarkus, each from the first request or response it handles there.
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -893,6 +896,17 @@ Acceptance criteria:
 - With the agent and `side-effects-seed.scheduled-every` set, the Quarkus sample's scheduled
   `ScheduledJavaVersion#report` run shows a `java` process row of scope `execution`, named as the runtime journal names
   that scheduled run, with no exemplar request.
+- The `blocking` sensor reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park` started on an
+  adapter-registered event loop, reported, never thrown: advice on every public `LockSupport.park*` method, which
+  returns after one volatile read off event loops until a loop is registered, and on every JDK the `sleep` and `wait`
+  call sites of the application's classes rewritten to the bridge's substitutes, since those methods are native on JDK
+  17. A park shorter than 1 ms is only counted. The **Blocking** tab shows rows by attribution, operation, event loop's
+  thread family, and call site, with calls, interrupted or failed calls, total and longest blocked time, and up to three
+  exemplar request ids. On Spring MVC, without an event loop, the sensor is `not-applicable` until a WebClient's loop is
+  registered. The WebFlux and Quarkus samples' `GET /api/side-effects/event-loop-sleep` shows a `sleep` row on the event
+  loop's family, and their `GET /api/side-effects/worker-sleep` counterexample, the same sleep on a worker, shows none. A
+  connect, a name lookup, or a `DatagramSocket` send the `network` sensor records, and a file the `files` sensor records,
+  is a `network` or `file` row too when it started on an event loop, never Netty's non-blocking connect.
 - With the agent, the three samples' `GET /api/side-effects/sdk-call` shows a `connect` row to `localhost:<port>` from
   `LicenseSdkClient#check` that is `not-captured`, and its request header never appears; the counterexample
   `GET /api/side-effects/rest-call`, through the recorded REST client, shows no `not-captured` row.
@@ -901,7 +915,8 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `network`; `threads`,
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
+  `threads`,
   `files`, and `environment` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming

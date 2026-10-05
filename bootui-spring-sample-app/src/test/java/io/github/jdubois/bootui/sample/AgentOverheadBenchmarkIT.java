@@ -249,11 +249,14 @@ class AgentOverheadBenchmarkIT {
                 directory.resolve(defaultReport ? "summary.properties" : reportName + ".properties"),
                 String.format(
                         Locale.ROOT,
-                        "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n",
+                        "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n"
+                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%n",
                         overheadPercent,
                         BUDGET_PERCENT,
                         medianRatio,
-                        passes),
+                        passes,
+                        (1 - Arrays.stream(ratios).max().orElse(1)) * 100,
+                        (1 - Arrays.stream(ratios).min().orElse(1)) * 100),
                 StandardCharsets.UTF_8);
         System.out.println(report);
 

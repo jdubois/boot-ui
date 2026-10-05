@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.Blocking;
 import io.github.jdubois.bootui.agent.bridge.CaughtExceptions;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
@@ -69,6 +70,14 @@ import net.bytebuddy.utility.JavaModule;
  * exception leaving the method and rethrows it. A class whose transformation fails with it, or whose retransformation
  * the JVM rejects with it, never gets that visit again and is transformed with the others alone.
  *
+ * <p><b>Blocking call sites.</b> The {@code blocking} sensor's visit (M5-5c, {@link BlockingCallSites}) rewrites every
+ * {@code Thread.sleep}, {@code TimeUnit.sleep}, and {@code Object.wait} call in every method with code of the claimed
+ * classes, synthetic ones included (lambda bodies, {@code $}-prefixed methods, bridges), into a call to the bridge's
+ * substitute: those methods are {@code native} on JDK 17, so their call sites, not their bodies, are instrumented, on
+ * every JDK. It shares this transformer so an application class is retransformed once per claim whatever the sensors;
+ * switching it retransforms the matched classes without restarting the inventory's tracking. It is applied first, so
+ * the caught exceptions' visit still reads the class's own exception tables, and synthetic classes get no other visit.
+ *
  * <p>The transformer matches the union of every package claimed since it was installed, not only the current claim's:
  * a narrower later claim neither leaves a refined package's classes in a new class loader uninstrumented, nor hides the
  * classes it instrumented from Byte Buddy's reset, which finds the classes to restore through the same matchers. The
@@ -108,6 +117,15 @@ final class ApplicationMethodsSensor {
     /** The caught-exceptions self-test probe, likewise. */
     static final String CAUGHT_PROBE = "io.github.jdubois.bootui.agent.CaughtProbe";
 
+    /** The blocking sensor's call-site self-test probe, likewise. */
+    static final String BLOCKING_PROBE = "io.github.jdubois.bootui.agent.BlockingProbe";
+
+    /** The blocking sensor's call-site hooks (M5-5c), reported on its row beside its JDK hook. */
+    static final String[][] BLOCKING_HOOKS = {
+        {"Thread.sleep call sites", "(claimed packages)", "record"},
+        {"Object.wait call sites", "(claimed packages)", "record"}
+    };
+
     /** The caught-exceptions sensor's hooks. */
     static final String[][] CAUGHT_HOOKS = {
         {"handler entry", "(claimed packages)", "record"},
@@ -136,6 +154,8 @@ final class ApplicationMethodsSensor {
     private static final int VISIT_CODE_PATHS = 2;
 
     private static final int VISIT_CAUGHT = 4;
+
+    private static final int VISIT_BLOCKING = 8;
 
     private final Instrumentation instrumentation;
     private final boolean privileged;
@@ -195,18 +215,24 @@ final class ApplicationMethodsSensor {
     private volatile boolean codePathsOn;
 
     private volatile boolean caughtOn;
+
+    private volatile boolean blockingOn;
     /** Which visits applied when the last retransformation for a switch ran, to tell what changed. */
     private boolean appliedInventory;
 
     private boolean appliedCodePaths;
 
     private boolean appliedCaught;
+
+    private boolean appliedBlocking;
     /** Whether each visit was ever on, for its status. */
     private volatile boolean inventoryEver;
 
     private volatile boolean codePathsEver;
 
     private volatile boolean caughtEver;
+
+    private volatile boolean blockingEver;
 
     private volatile ResettableClassFileTransformer transformer;
     private volatile boolean recording;
@@ -237,6 +263,10 @@ final class ApplicationMethodsSensor {
     private volatile boolean caughtSelfTestPassed;
     private volatile String caughtSelfTestError;
     private volatile String caughtFailure;
+    private volatile Map<String, String> blockingSelfTest = new LinkedHashMap<String, String>();
+    private volatile Map<String, String> blockingSelfTestSteps = new LinkedHashMap<String, String>();
+    private volatile boolean blockingSelfTestPassed;
+    private volatile String blockingSelfTestError;
     private Thread worker;
     private int jobs;
 
@@ -267,6 +297,21 @@ final class ApplicationMethodsSensor {
             boolean inventory,
             boolean codePaths,
             boolean caught) {
+        claimed(claimGeneration, claimedPackages, claimedBeans, inventory, codePaths, caught, false);
+    }
+
+    /**
+     * {@link #claimed(long, List, Collection, boolean, boolean, boolean)}, with the blocking sensor's call-site visit
+     * (M5-5c) on every claimed class when {@code blocking}.
+     */
+    synchronized void claimed(
+            long claimGeneration,
+            List<String> claimedPackages,
+            Collection<String> claimedBeans,
+            boolean inventory,
+            boolean codePaths,
+            boolean caught,
+            boolean blocking) {
         generation = claimGeneration;
         if (inventory) {
             Set<ClassLoader> existing = Collections.newSetFromMap(new IdentityHashMap<ClassLoader, Boolean>());
@@ -287,13 +332,19 @@ final class ApplicationMethodsSensor {
         }
         widen(packages);
         boolean newBeans = addBeans(claimedBeans);
-        boolean switched = inventory != inventoryOn || codePaths != codePathsOn || caught != caughtOn;
+        boolean switched =
+                inventory != inventoryOn || codePaths != codePathsOn || caught != caughtOn || blocking != blockingOn;
         inventoryOn = inventory;
         codePathsOn = codePaths;
         caughtOn = caught;
+        blockingOn = blocking;
         inventoryEver |= inventory;
         codePathsEver |= codePaths;
         caughtEver |= caught;
+        blockingEver |= blocking;
+        if (!blocking) {
+            blockingSelfTestError = null;
+        }
         if (!inventory) {
             inventoryFailure = null;
         }
@@ -315,7 +366,8 @@ final class ApplicationMethodsSensor {
     private boolean selfTested() {
         return (!inventoryOn || selfTestPassed)
                 && (!codePathsOn || codePathsSelfTestPassed)
-                && (!caughtOn || caughtSelfTestPassed);
+                && (!caughtOn || caughtSelfTestPassed)
+                && (!blockingOn || blockingSelfTestPassed);
     }
 
     /**
@@ -521,6 +573,41 @@ final class ApplicationMethodsSensor {
         return map;
     }
 
+    /**
+     * The blocking sensor's call-site hooks, as rows of its status ({@code id}, {@code kind}, {@code type},
+     * {@code present}, {@code transformed}, {@code selfTest}), with the call sites rewritten since the JVM started and the
+     * visit's self-test error.
+     */
+    List<Map<String, Object>> blockingHooks() {
+        List<Map<String, Object>> hooks = new ArrayList<Map<String, Object>>();
+        Map<String, String> results = blockingSelfTest;
+        for (String[] hook : BLOCKING_HOOKS) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("id", hook[0]);
+            row.put("kind", hook[2]);
+            row.put("type", hook[1]);
+            row.put("present", Boolean.TRUE);
+            row.put("transformed", Boolean.valueOf(transformer != null && blockingOn));
+            row.put("selfTest", results.getOrDefault(hook[0], blockingSelfTestError != null ? "failed" : "not-run"));
+            hooks.add(row);
+        }
+        return hooks;
+    }
+
+    /** The call-site visit's status beside its hooks: whether it applies, call sites rewritten, its self-test. */
+    Map<String, Object> blockingCallSites() {
+        Map<String, Object> map = new LinkedHashMap<String, Object>();
+        map.put(
+                "callSitesState",
+                visitState(blockingOn, blockingEver, blockingSelfTestError == null ? null : "self-test-failed"));
+        map.put("callSitesIdle", Boolean.valueOf(idle()));
+        map.put("callSitesRewritten", Long.valueOf(BlockingCallSites.REWRITTEN.get()));
+        map.put("callSitesSelfTestPassed", Boolean.valueOf(blockingOn && blockingSelfTestPassed));
+        map.put("callSitesSelfTestError", blockingSelfTestError);
+        map.put("callSitesSelfTestSteps", new LinkedHashMap<String, String>(blockingSelfTestSteps));
+        return map;
+    }
+
     /** A visit's state: the transformer's while it applies, else whether it was removed or never applied. */
     private String visitState(boolean on, boolean ever, String failure) {
         if (failure != null) {
@@ -543,7 +630,7 @@ final class ApplicationMethodsSensor {
                         reset();
                     }
                     if ((job & INSTALL) != 0 && transformer == null) {
-                        if (!inventoryOn && !codePathsOn && !caughtOn) {
+                        if (!inventoryOn && !codePathsOn && !caughtOn && !blockingOn) {
                             continue;
                         }
                         install();
@@ -589,6 +676,7 @@ final class ApplicationMethodsSensor {
             appliedInventory = inventoryOn;
             appliedCodePaths = codePathsOn;
             appliedCaught = caughtOn;
+            appliedBlocking = blockingOn;
             addedBeans.clear();
         }
         // A release's reset cleared the matching: start again from the current claim's packages. The refine job that
@@ -643,20 +731,28 @@ final class ApplicationMethodsSensor {
         boolean inventory;
         boolean codePaths;
         boolean caught;
+        boolean blocking;
         boolean inventoryChanged;
         boolean caughtChanged;
+        boolean blockingChanged;
         synchronized (this) {
             inventory = inventoryOn;
             codePaths = codePathsOn;
             caught = caughtOn;
+            blocking = blockingOn;
             inventoryChanged = inventory != appliedInventory;
             caughtChanged = caught != appliedCaught;
-            if (inventory == appliedInventory && codePaths == appliedCodePaths && caught == appliedCaught) {
+            blockingChanged = blocking != appliedBlocking;
+            if (inventory == appliedInventory
+                    && codePaths == appliedCodePaths
+                    && caught == appliedCaught
+                    && !blockingChanged) {
                 return;
             }
             appliedInventory = inventory;
             appliedCodePaths = codePaths;
             appliedCaught = caught;
+            appliedBlocking = blocking;
             addedBeans.clear();
         }
         if (inventoryChanged) {
@@ -689,8 +785,14 @@ final class ApplicationMethodsSensor {
             // Switched on again later, it records only once its new self-test passed.
             CaughtExceptions.suspend();
         }
-        // The inventory's and the caught exceptions' visits apply to every claimed class, the code paths' to beans.
-        boolean everyClass = inventoryChanged || caughtChanged;
+        if (!blocking) {
+            blockingSelfTestPassed = false;
+            blockingSelfTest = new LinkedHashMap<String, String>();
+        }
+        // The inventory's, the caught exceptions', and the blocking call sites' visits apply to every claimed class,
+        // the
+        // code paths' to beans.
+        boolean everyClass = inventoryChanged || caughtChanged || blockingChanged;
         List<String> names = matching;
         Set<String> beans = beanClasses;
         List<Class<?>> classes = new ArrayList<Class<?>>();
@@ -865,7 +967,7 @@ final class ApplicationMethodsSensor {
             return;
         }
         Set<String> beans = beanClasses;
-        boolean everyClass = inventoryOn || caughtOn;
+        boolean everyClass = inventoryOn || caughtOn || blockingOn;
         List<Class<?>> classes = new ArrayList<Class<?>>();
         for (Class<?> type : instrumentation.getAllLoadedClasses()) {
             String name = type.getName();
@@ -943,12 +1045,14 @@ final class ApplicationMethodsSensor {
         selfTestPassed = false;
         codePathsSelfTestPassed = false;
         caughtSelfTestPassed = false;
+        blockingSelfTestPassed = false;
         CaughtExceptions.suspend();
         synchronized (this) {
             retransformedPackages = Collections.emptyList();
             appliedInventory = false;
             appliedCodePaths = false;
             appliedCaught = false;
+            appliedBlocking = false;
         }
         if (installed == null) {
             clearMatching();
@@ -1046,7 +1150,10 @@ final class ApplicationMethodsSensor {
     }
 
     static boolean probe(String name) {
-        return PROBE.equals(name) || CODE_PATHS_PROBE.equals(name) || CAUGHT_PROBE.equals(name);
+        return PROBE.equals(name)
+                || CODE_PATHS_PROBE.equals(name)
+                || CAUGHT_PROBE.equals(name)
+                || BLOCKING_PROBE.equals(name);
     }
 
     /** §5.13's never-instrumented classes, and every class outside the claimed packages but the probes: by name only. */
@@ -1065,8 +1172,9 @@ final class ApplicationMethodsSensor {
     }
 
     /**
-     * A claimed class that is neither synthetic nor loaded from a test root, and, unless the inventory visit applies,
-     * a bean class; or a probe.
+     * A claimed class not loaded from a test root, and, unless the inventory, the caught exceptions', or the blocking
+     * call-site visit applies, a bean class; synthetic only for the blocking visit, whose call sites may sit in one; or
+     * a probe.
      */
     final class Claimed implements AgentBuilder.RawMatcher {
 
@@ -1085,10 +1193,13 @@ final class ApplicationMethodsSensor {
             if (!AgentInstaller.inPackages(name, matching)) {
                 return false;
             }
-            if (!inventoryOn && !caughtOn && !restoring && !beanClasses.contains(name)) {
+            if (!inventoryOn && !caughtOn && !blockingOn && !restoring && !beanClasses.contains(name)) {
                 return false;
             }
-            return !type.isSynthetic() && !testRoot(protectionDomain);
+            if (type.isSynthetic() && !blockingOn && !(restoring && blockingEver)) {
+                return false;
+            }
+            return !testRoot(protectionDomain);
         }
     }
 
@@ -1235,9 +1346,16 @@ final class ApplicationMethodsSensor {
             String name = type.getName();
             boolean codePathsProbe = CODE_PATHS_PROBE.equals(name);
             boolean caughtProbe = CAUGHT_PROBE.equals(name);
+            boolean blockingProbe = BLOCKING_PROBE.equals(name);
+            boolean synthetic = type.isSynthetic();
             int applied = 0;
             DynamicType.Builder<?> visited = builder;
-            if (inventoryOn && !codePathsProbe && !caughtProbe) {
+            // First, so the caught exceptions' visit, the outermost, reads the class's own exception tables.
+            if (blockingOn && (blockingProbe || !probe(name))) {
+                visited = visited.visit(BlockingCallSites.visitor());
+                applied |= VISIT_BLOCKING;
+            }
+            if (inventoryOn && !codePathsProbe && !caughtProbe && !blockingProbe && !synthetic) {
                 int definition = inventoryDefinitions.token(classLoader);
                 Advice definitionAdvice = inventoryAdviceByDefinition.computeIfAbsent(
                         definition,
@@ -1249,13 +1367,14 @@ final class ApplicationMethodsSensor {
                 applied |= VISIT_INVENTORY;
             }
             if (codePathsOn
+                    && !synthetic
                     && (codePathsProbe || beanClasses.contains(name))
                     && !configurationProperties(type)
                     && !codePathsRejected.contains(name)) {
                 visited = visited.visit(codePathsAdvice.on(new CodePathsMethods(recordComponents(type))));
                 applied |= VISIT_CODE_PATHS;
             }
-            if (caughtOn && (caughtProbe || !probe(name)) && !caughtRejected.contains(name)) {
+            if (caughtOn && !synthetic && (caughtProbe || !probe(name)) && !caughtRejected.contains(name)) {
                 // Last, so it is the outermost visitor and reads the class's own exception tables.
                 visited = visited.visit(new CaughtExceptionsVisit());
                 applied |= VISIT_CAUGHT;
@@ -1332,7 +1451,7 @@ final class ApplicationMethodsSensor {
                 // without it, with the others' visits.
                 caughtRejected.add(typeName);
                 stats.failure("caught exceptions left out of " + typeName + ": " + error);
-                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_CODE_PATHS)) != 0) {
+                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_CODE_PATHS | VISIT_BLOCKING)) != 0) {
                     int[] failed = ids != null ? ids.toArray() : idsByType.get(typeName);
                     retryLater(typeName, failed == null ? new int[0] : failed);
                 }
@@ -1340,10 +1459,12 @@ final class ApplicationMethodsSensor {
             }
             if (applied != null && (applied.intValue() & VISIT_CODE_PATHS) != 0) {
                 // The code-paths visit may be what failed, as one pushing a method past the JVM's 64 KB code limit:
-                // never applied to the class again, so a retransformation with the inventory's alone keeps that one.
+                // never applied to the class again, so a retransformation with the inventory's alone keeps that one,
+                // and
+                // the blocking call sites' rewrite.
                 codePathsRejected.add(typeName);
                 stats.failure("code paths left out of " + typeName + ": " + error);
-                if ((applied.intValue() & VISIT_INVENTORY) != 0) {
+                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_BLOCKING)) != 0) {
                     int[] failed = ids != null ? ids.toArray() : idsByType.get(typeName);
                     retryLater(typeName, failed == null ? new int[0] : failed);
                     return;
@@ -1363,7 +1484,9 @@ final class ApplicationMethodsSensor {
         public void onIgnored(TypeDescription type, ClassLoader classLoader, JavaModule module, boolean loaded) {
             // A loaded class of a matched package the transformer leaves alone (synthetic, from a test root): seen, so
             // no later claim retransforms it again for nothing.
-            if (loaded && (inventoryOn || caughtOn) && AgentInstaller.inPackages(type.getName(), matching)) {
+            if (loaded
+                    && (inventoryOn || caughtOn || blockingOn)
+                    && AgentInstaller.inPackages(type.getName(), matching)) {
                 markSeen(classLoader, type.getName());
             }
         }
@@ -1452,6 +1575,45 @@ final class ApplicationMethodsSensor {
         if (caughtOn && !caughtSelfTestPassed) {
             selfTestCaught();
         }
+        if (blockingOn && !blockingSelfTestPassed) {
+            selfTestBlocking();
+        }
+    }
+
+    /**
+     * Calls the blocking probe, whose rewritten call sites must reach the bridge's substitutes: two sleeps and a wait.
+     * A failure removes the visit; the blocking sensor's park hook, another transformer's, keeps recording.
+     */
+    private void selfTestBlocking() {
+        Map<String, String> steps = new LinkedHashMap<String, String>();
+        long[] hits;
+        Blocking.beginCallSiteSelfTest();
+        try {
+            steps.put("probe", ExecutorSensor.step(new BlockingStep(), 5));
+        } finally {
+            hits = Blocking.endCallSiteSelfTest();
+        }
+        String outcome = steps.get("probe");
+        Map<String, String> results = new LinkedHashMap<String, String>();
+        results.put(BLOCKING_HOOKS[0][0], verdict(hits[0] >= 2, outcome));
+        results.put(BLOCKING_HOOKS[1][0], verdict(hits[1] >= 1, outcome));
+        blockingSelfTest = results;
+        blockingSelfTestSteps = steps;
+        if (hits[0] >= 2 && hits[1] >= 1) {
+            blockingSelfTestPassed = true;
+            blockingSelfTestError = null;
+        } else {
+            blockingSelfTestPassed = false;
+            blockingSelfTestError = "self-test failed: the probe's call sites reached the bridge " + hits[0]
+                    + " sleep and " + hits[1] + " wait times " + steps;
+            AgentBridge.message("the BootUI agent's blocking call-site visit failed its self-test and was removed: "
+                    + blockingSelfTestError);
+            removeVisit(VISIT_BLOCKING);
+        }
+    }
+
+    private static String verdict(boolean reached, String outcome) {
+        return reached ? "passed" : "ok".equals(outcome) ? "failed" : "not-exercised (" + outcome + ")";
     }
 
     private void selfTestCaught() {
@@ -1560,14 +1722,31 @@ final class ApplicationMethodsSensor {
                 inventoryOn = false;
             } else if (visit == VISIT_CODE_PATHS) {
                 codePathsOn = false;
-            } else {
+            } else if (visit == VISIT_CAUGHT) {
                 caughtOn = false;
+            } else {
+                blockingOn = false;
             }
         }
-        if (!inventoryOn && !codePathsOn && !caughtOn) {
+        if (!inventoryOn && !codePathsOn && !caughtOn && !blockingOn) {
             reset();
         } else {
             switchVisits();
+        }
+    }
+
+    /** Calls the blocking probe, loading it now if needed, so the installed transformer rewrites it. */
+    static final class BlockingStep implements ExecutorSensor.Step {
+
+        @Override
+        public void run(int seconds) throws Exception {
+            Class<?> probe = Class.forName(BLOCKING_PROBE, true, ApplicationMethodsSensor.class.getClassLoader());
+            Method ping = probe.getDeclaredMethod("ping");
+            ping.setAccessible(true);
+            Object answer = ping.invoke(null);
+            if (!Integer.valueOf(3).equals(answer)) {
+                throw new IllegalStateException("the probe answered " + answer);
+            }
         }
     }
 

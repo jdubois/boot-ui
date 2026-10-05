@@ -82,6 +82,9 @@ public final class SideEffects {
     /** The environment sensor's id (M5-5d), opt-in. */
     public static final String ENVIRONMENT = "environment";
 
+    /** The blocking sensor's id ({@link Blocking}, M5-5c). */
+    public static final String BLOCKING = "blocking";
+
     /**
      * The security-sinks sensor's id (M5-6b): its request-value matching (M5-6b1) publishes its records on this ring;
      * its own hooks and its registration among the sensors above are M5-6b2's.
@@ -99,13 +102,22 @@ public final class SideEffects {
     public static final int SENSOR_NETWORK = 2;
     public static final int SENSOR_FILES = 3;
     public static final int SENSOR_ENVIRONMENT = 4;
+    public static final int SENSOR_BLOCKING = 5;
 
-    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK, FILES, ENVIRONMENT};
+    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING};
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
     public static final int MASK_NETWORK = 1 << SENSOR_NETWORK;
     public static final int MASK_FILES = 1 << SENSOR_FILES;
     public static final int MASK_ENVIRONMENT = 1 << SENSOR_ENVIRONMENT;
+    public static final int MASK_BLOCKING = 1 << SENSOR_BLOCKING;
+
+    /**
+     * Set in {@link #mask} with {@link #MASK_BLOCKING} once an adapter registered an event loop for the current claim
+     * generation ({@link Blocking#registerEventLoop()}): the blocking hooks' only read off event loops, through {@link
+     * #gate}, so a stack without one pays one volatile read per hook. No sensor id reaches it.
+     */
+    static final int MASK_LOOPS = 1 << 30;
 
     /** The sensors with a hot hook, which read their owner from the thread's slot only. */
     static final int HOT_SENSORS = MASK_NETWORK;
@@ -135,6 +147,15 @@ public final class SideEffects {
     public static final int HOOK_GETENV_ALL = 20;
     public static final int HOOK_GET_PROPERTY = 21;
 
+    /** The blocking sensor's hooks (M5-5c): its {@code LockSupport.park} advice and its call-site substitutes. */
+    public static final int HOOK_PARK = 22;
+
+    public static final int HOOK_SLEEP = 23;
+    public static final int HOOK_WAIT = 24;
+
+    /** Not advised: a network or file operation another sensor's hook records, started on an event loop. */
+    public static final int HOOK_ON_LOOP = 25;
+
     static final String[] HOOKS = {
         "ProcessBuilder.start",
         "Socket.connect",
@@ -157,7 +178,11 @@ public final class SideEffects {
         "FileChannel.open",
         "System.getenv",
         "System.getenvAll",
-        "System.getProperty"
+        "System.getProperty",
+        "LockSupport.park",
+        "Thread.sleep call sites",
+        "Object.wait call sites",
+        "network and file operations"
     };
     static final int[] HOOK_SENSORS = {
         SENSOR_PROCESSES,
@@ -181,7 +206,11 @@ public final class SideEffects {
         SENSOR_FILES,
         SENSOR_ENVIRONMENT,
         SENSOR_ENVIRONMENT,
-        SENSOR_ENVIRONMENT
+        SENSOR_ENVIRONMENT,
+        SENSOR_BLOCKING,
+        SENSOR_BLOCKING,
+        SENSOR_BLOCKING,
+        SENSOR_BLOCKING
     };
 
     /** Record kinds. */
@@ -218,6 +247,14 @@ public final class SideEffects {
 
     public static final int KIND_SYSTEM_PROPERTY = 15;
 
+    /** The blocking sensor's kinds ({@link Blocking}): what started on an event loop. */
+    public static final int KIND_SLEEP = 16;
+
+    public static final int KIND_WAIT = 17;
+    public static final int KIND_PARK = 18;
+    public static final int KIND_BLOCKING_NETWORK = 19;
+    public static final int KIND_BLOCKING_FILE = 20;
+
     /** Outcomes. */
     public static final int OUTCOME_STARTED = 1;
 
@@ -232,6 +269,11 @@ public final class SideEffects {
 
     /** A file operation or an environment read that returned normally. */
     public static final int OUTCOME_DONE = 10;
+
+    /** The blocking sensor's outcomes ({@link Blocking}): a call that returned, or that was interrupted. */
+    public static final int OUTCOME_RETURNED = 11;
+
+    public static final int OUTCOME_INTERRUPTED = 12;
 
     /**
      * The JDK context of a file operation or an environment read, from its frame summary, in {@link #R_FLAGS} bits
@@ -413,8 +455,8 @@ public final class SideEffects {
     private static final ExitQueue EXITS = new ExitQueue();
     private static final AtomicBoolean EXIT_WORKER_HANDED_OUT = new AtomicBoolean();
 
-    private static final LongAdder[] RECORDED = adders(HOOKS.length);
-    private static final LongAdder[] SELF_TEST_HITS = adders(HOOKS.length);
+    static final LongAdder[] RECORDED = adders(HOOKS.length);
+    static final LongAdder[] SELF_TEST_HITS = adders(HOOKS.length);
     private static final LongAdder[] DROPPED = adders(SENSOR_NAMES.length);
     private static final LongAdder[] PUBLISHED = adders(SENSOR_NAMES.length);
     private static final LongAdder STALE_DRAINS = new LongAdder();
@@ -466,7 +508,7 @@ public final class SideEffects {
      * {@link #mask}, with every bit set while a self-test runs: what the inlined advice of a hot hook reads before it
      * calls the bridge at all ({@link #gate()}).
      */
-    private static volatile int gate;
+    static volatile int gate;
 
     /** The sensors recording now, a bit per sensor id: read first by every hook. */
     static volatile int mask;
@@ -474,10 +516,14 @@ public final class SideEffects {
     /** The sensors the agent enabled once their hooks passed their self-test. */
     private static volatile int enabled;
 
-    private static volatile long generation = -1L;
+    static volatile long generation = -1L;
     private static volatile boolean off;
     private static volatile String offReason;
-    private static volatile Thread selfTestThread;
+    static volatile Thread selfTestThread;
+
+    /** The sensors the armed claim of the current generation asks for, enabled or not yet: adapters register by it. */
+    static volatile int claimedBits;
+
     private static volatile boolean exitWorkerRunning;
 
     /** Whether a claim ever asked for a side-effect sensor: until then its status is not reported. */
@@ -743,6 +789,10 @@ public final class SideEffects {
                 JDK_LOOPBACK_SKIPPED.increment();
                 return;
             }
+            if (hook != HOOK_CHANNEL_CONNECT || blockingChannel(channel)) {
+                // A connect that blocks its thread: reported too when it started on an event loop (M5-5c).
+                Blocking.onLoop(token, KIND_BLOCKING_NETWORK, walked[0], thrown, owner);
+            }
             int outcome = thrown != null ? failure(thrown) : finished ? OUTCOME_CONNECTED : OUTCOME_PENDING;
             long startMillis = System.currentTimeMillis() - nanos / 1_000_000L;
             int client = (int) walked[1];
@@ -854,6 +904,7 @@ public final class SideEffects {
             if (index >= 0) {
                 frames = table.frames[index];
                 client = table.detail[index];
+                onLoopIfBlocking(token, hook, frames, thrown, owner);
             } else {
                 // The call site without the request's fragment sequence, and the thread's family: the frames of a send
                 // depend on where it is made, never on which request made it.
@@ -868,6 +919,7 @@ public final class SideEffects {
                     if (state.memo.size() < MAX_DATAGRAM_MEMO) {
                         state.memo.putIfAbsent(key, walked);
                     }
+                    onLoopIfBlocking(token, hook, walked[0], thrown, owner);
                     // A first sighting: published at once, so its row shows before the thread's table is flushed.
                     publishOne(
                             owner,
@@ -884,6 +936,7 @@ public final class SideEffects {
                 }
                 frames = known[0];
                 client = (int) known[1];
+                onLoopIfBlocking(token, hook, frames, thrown, owner);
             }
             if (table == null) {
                 table = new Table();
@@ -924,6 +977,8 @@ public final class SideEffects {
                 JDK_LOOPBACK_SKIPPED.increment();
                 return;
             }
+            // A name service lookup blocks its thread: reported too when it started on an event loop (M5-5c).
+            Blocking.onLoop(token, KIND_BLOCKING_NETWORK, walked[0], thrown, owner);
             int outcome;
             if (thrown == null) {
                 // A statically mocked lookup may answer null.
@@ -949,6 +1004,24 @@ public final class SideEffects {
                 frame.sideEffectOpen &= ~MASK_NETWORK;
             }
         }
+    }
+
+    /** A {@code DatagramSocket} send, which blocks its thread: reported too when it started on an event loop (M5-5c). */
+    private static void onLoopIfBlocking(long token, int hook, long frames, Throwable thrown, Owner owner) {
+        if (hook == HOOK_DATAGRAM_SOCKET_SEND) {
+            Blocking.onLoop(token, KIND_BLOCKING_NETWORK, frames, thrown, owner);
+        }
+    }
+
+    /** An exit that never ran left a thread's hook open past {@link #STALE_DEPTH_NANOS}: counted, then reopened. */
+    static void staleDepth() {
+        STALE_DEPTHS.increment();
+    }
+
+    /** Whether {@code channel} is a channel in blocking mode, whose connect blocks its thread. */
+    private static boolean blockingChannel(Object channel) {
+        return channel instanceof java.nio.channels.SelectableChannel
+                && ((java.nio.channels.SelectableChannel) channel).isBlocking();
     }
 
     private static boolean recording(Claim claim, int bit) {
@@ -1662,11 +1735,19 @@ public final class SideEffects {
             int outcome = thrown == null
                     ? OUTCOME_DONE
                     : thrown instanceof java.io.IOException ? OUTCOME_IO_ERROR : OUTCOME_ERROR;
+            long frames = 0L;
             if (target != null) {
-                recordFile(frame, claim, hook, kind, target, outcome, nanos);
+                frames = recordFile(frame, claim, hook, kind, target, outcome, nanos);
             }
             if (second != null) {
-                recordFile(frame, claim, hook, secondKind, second, outcome, nanos);
+                long more = recordFile(frame, claim, hook, secondKind, second, outcome, nanos);
+                // A frame summary over none (-1), and either over a bucket (0).
+                frames = frames > 0L ? frames : more > 0L || frames == 0L ? more : frames;
+            }
+            if (frames != 0L) {
+                // A file operation blocks its thread: reported too when it started on an event loop (M5-5c), once
+                // for a move or a copy, never for what class loading, archives, or the JDK read.
+                Blocking.onLoop(token, KIND_BLOCKING_FILE, frames, thrown, null);
             }
         } catch (Throwable ex) {
             failed(SENSOR_FILES, ex);
@@ -1677,8 +1758,11 @@ public final class SideEffects {
         }
     }
 
-    /** One file operation: counted in its bucket, or recorded with its path pattern, owner, and frame summary. */
-    private static void recordFile(
+    /**
+     * One file operation: counted in its bucket, or recorded with its path pattern, owner, and frame summary, which it
+     * returns, -1 when it named no frame; 0 when counted in a bucket.
+     */
+    private static long recordFile(
             CodePaths.Frame frame, Claim claim, int hook, int kind, Object target, int outcome, long nanos) {
         Places where = places;
         String text;
@@ -1687,27 +1771,27 @@ public final class SideEffects {
             if (where.fileSystem == null || path.getFileSystem() != where.fileSystem) {
                 // A zip, jar:, nested:, or jrt: file system's path: its toString() is never called.
                 BUCKET_COUNTS[BUCKET_ARCHIVE_FILE_SYSTEMS].increment();
-                return;
+                return 0L;
             }
             text = path.toString();
         } else if (target instanceof String) {
             text = (String) target;
         } else {
-            return;
+            return 0L;
         }
         if (text.isEmpty()) {
-            return;
+            return 0L;
         }
         int bucket = bucketOfName(text);
         if (bucket >= 0) {
             BUCKET_COUNTS[bucket].increment();
-            return;
+            return 0L;
         }
         String absolute = absolute(text, where);
         bucket = bucketOfPath(absolute, where);
         if (bucket >= 0) {
             BUCKET_COUNTS[bucket].increment();
-            return;
+            return 0L;
         }
         String pattern = pattern(absolute, where);
         long stamp = CodePaths.stamp();
@@ -1715,7 +1799,7 @@ public final class SideEffects {
         long[] summary = summary(claim, hook, pattern.hashCode(), stamp, false);
         if (summary[1] == CONTEXT_CLASS_LOADING) {
             BUCKET_COUNTS[BUCKET_CLASS_LOADING].increment();
-            return;
+            return 0L;
         }
         RECORDED[hook].increment();
         // Request input in the path (M5-6b), only while matching runs: this record's pattern, as the security-sinks
@@ -1724,6 +1808,7 @@ public final class SideEffects {
         int id = internQuota(redacted != null ? redacted : pattern, SENSOR_FILES);
         Owner owner = owner(frame, claim);
         record(frame, owner, SENSOR_FILES, kind, id, outcome, (int) summary[1], stamp, summary[0], nanos);
+        return summary[0] != 0L ? summary[0] : -1L;
     }
 
     /**
@@ -1991,7 +2076,7 @@ public final class SideEffects {
     }
 
     /** The record's owner: the slot's, or, for a rare hook with an empty slot, captured. */
-    private static Owner owner(CodePaths.Frame frame, Claim claim) {
+    static Owner owner(CodePaths.Frame frame, Claim claim) {
         return owner(frame, claim, true);
     }
 
@@ -3523,14 +3608,42 @@ public final class SideEffects {
     /** Recomputes which sensors record, after any transition of the claim or a sensor. Never throws. */
     static void refresh() {
         try {
-            Claim claim = AgentBridge.current();
-            mask = claim != null && claim.armed && claim.generation == generation && !off
-                    ? claimedMask(claim) & enabled & ~budgetOff
-                    : 0;
+            int value;
+            do {
+                // Rewritten when another writer changed what it reads meanwhile, as an adapter registering an event
+                // loop: once every writer returns, the mask matches the state, without a monitor.
+                Claim claim = AgentBridge.current();
+                int claimed =
+                        claim != null && claim.armed && claim.generation == generation && !off ? claimedMask(claim) : 0;
+                value = claimed & enabled & ~budgetOff;
+                if ((value & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation) {
+                    value |= MASK_LOOPS;
+                }
+                claimedBits = claimed;
+                mask = value;
+            } while (value != recomputed() || claimedBits != recomputedClaim());
             updateGate();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
+    }
+
+    /** What {@link #refresh()} would write to {@link #claimedBits} now. */
+    private static int recomputedClaim() {
+        Claim claim = AgentBridge.current();
+        return claim != null && claim.armed && claim.generation == generation && !off ? claimedMask(claim) : 0;
+    }
+
+    /** What {@link #refresh()} would write now. */
+    private static int recomputed() {
+        Claim claim = AgentBridge.current();
+        int value = claim != null && claim.armed && claim.generation == generation && !off
+                ? claimedMask(claim) & enabled & ~budgetOff
+                : 0;
+        if ((value & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation) {
+            value |= MASK_LOOPS;
+        }
+        return value;
     }
 
     /**
@@ -3541,9 +3654,14 @@ public final class SideEffects {
     private static void updateGate() {
         int value;
         do {
-            value = mask | (selfTestThread != null ? -1 : 0);
+            value = mask | (selfTesting() ? -1 : 0);
             gate = value;
-        } while ((mask | (selfTestThread != null ? -1 : 0)) != value);
+        } while ((mask | (selfTesting() ? -1 : 0)) != value);
+    }
+
+    /** Whether a self-test runs: the side-effect hooks', or the blocking sensor's call sites'. */
+    private static boolean selfTesting() {
+        return selfTestThread != null || Blocking.callSiteTestThread != null;
     }
 
     /** The agent enables the sensors of {@code bits} once their hooks passed their self-test. */
@@ -3690,6 +3808,8 @@ public final class SideEffects {
             new java.io.IOException("warm").getClass();
             status(FILES);
             status(ENVIRONMENT);
+            Blocking.warm();
+            status(BLOCKING);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -3698,7 +3818,10 @@ public final class SideEffects {
     /** Starts the self-test on the calling thread: hooks it runs are counted per hook, and record nothing. */
     public static void beginSelfTest() {
         for (int i = 0; i < SELF_TEST_HITS.length; i++) {
-            SELF_TEST_HITS[i].reset();
+            // The call sites' are the application-methods transformer's, self-tested on its own thread.
+            if (i != HOOK_SLEEP && i != HOOK_WAIT) {
+                SELF_TEST_HITS[i].reset();
+            }
         }
         selfTestThread = Thread.currentThread();
         updateGate();
@@ -3730,7 +3853,7 @@ public final class SideEffects {
      * An internal error of sensor {@code sensor}'s own recording: counted against its budget, which switches that sensor
      * alone off for the JVM's life, so a fault storm in one sensor never stops another. Never throws.
      */
-    private static void failed(int sensor, Throwable ex) {
+    static void failed(int sensor, Throwable ex) {
         try {
             if (ex instanceof VirtualMachineError) {
                 APPLICATION_ERRORS.increment();
@@ -3824,6 +3947,9 @@ public final class SideEffects {
                 map.put("internQuotaExceeded", Long.valueOf(QUOTA_EXCEEDED[sensor].sum()));
                 map.put("walks", Long.valueOf(WALKS.sum()));
                 map.put("sightingsFull", Long.valueOf(SIGHTINGS_FULL.sum()));
+            }
+            if (sensor == SENSOR_BLOCKING) {
+                Blocking.putStatus(map, generation);
             }
             if (sensor == SENSOR_ENVIRONMENT) {
                 map.put("jdkReads", Long.valueOf(JDK_READS.sum()));
@@ -3921,8 +4047,10 @@ public final class SideEffects {
         }
         mask = 0;
         gate = 0;
+        claimedBits = 0;
         enabled = 0;
         generation = -1L;
+        Blocking.reset();
         off = false;
         offReason = null;
         selfTestThread = null;

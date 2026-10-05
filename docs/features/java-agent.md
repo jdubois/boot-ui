@@ -133,9 +133,10 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), and [`network`](#the-network-sensor),
-the defaults, and the opt-in [`threads`](#the-threads-sensor), [`files`](#the-files-sensor),
-[`environment`](#the-environment-sensor), and [`caught-exceptions`](#the-caught-exceptions-sensor). The agent installs each one once, on its own thread, then
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
+[`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
+[`files`](#the-files-sensor), [`environment`](#the-environment-sensor), and
+[`caught-exceptions`](#the-caught-exceptions-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -838,9 +839,70 @@ only when it goes through a REST client BootUI records. With matching on, the ta
 counters: requests held, checks run, and what it skipped or could not keep; the sensor's reason names the sinks it
 cannot check because their sensor is not claimed.
 
+## The blocking sensor
+
+The `blocking` sensor, on by default, reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, `LockSupport.park`, and
+the [network](#the-network-sensor) and [files](#the-files-sensor) sensors' blocking operations **started** on an event
+loop, for the [Side Effects](#side-effects) panel's **Blocking** tab, `get_side_effects`, and
+`bootui side-effects`. Like BlockHound, it watches the JDK's blocking methods on threads that must not block; unlike
+BlockHound, it reports and never throws.
+
+The agent never decides what an event loop is: the adapter registers the threads it already classifies as event loops
+for the runtime journal's thread kinds, each from the first request or response it handles there.
+
+| Stack | Event loops registered |
+| --- | --- |
+| Spring WebFlux | Reactor Netty's (`reactor-http-nio-N`, `reactor-http-epoll-N`): Reactor `NonBlocking` threads that are Netty `FastThreadLocalThread`s, from the first request each serves |
+| Spring MVC and WebFlux with a `WebClient` on Reactor Netty | the same loops, from the first client response each delivers, for a `WebClient` built from Spring Boot's `WebClient.Builder` while REST client tracing is on |
+| Quarkus | Vert.x's (`vert.x-eventloop-thread-N`), from the first request each routes |
+| Spring MVC, Spring WebFlux on a servlet container | none: a thread per request. The tab is `not-applicable` until a WebClient's loop is registered |
+
+Reactor's `parallel` and `single` schedulers, `boundedElastic`, Vert.x workers, and virtual threads are never event
+loops. Loops are kept in a table of at most 1,024 slots, keyed by thread id, held weakly, and stamped with the claim
+generation, so a Quarkus live reload's run watches a loop again once it handles a request; a terminated loop's slot is
+reused, and when the table is full the panel says that some loops were not registered. Netty's DNS resolver reads
+`/etc/hosts` and `/etc/resolv.conf` on its first name resolution, which can show once as a file read on an event loop.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `LockSupport.park` | records parks | every public `LockSupport.park`, `parkNanos`, and `parkUntil` method, with and without a blocker: a contended lock, a `Future.get`, a blocking queue |
+| `Thread.sleep call sites` | records sleeps | every `Thread.sleep(long)`, `Thread.sleep(long, int)`, `Thread.sleep(Duration)`, and `TimeUnit.sleep(long)` call in the application's classes |
+| `Object.wait call sites` | records waits | every `Object.wait()`, `wait(long)`, and `wait(long, int)` call in the application's classes |
+| `network and file operations` | records network and file operations | no hook of its own: a `Socket.connect`, a `SocketChannel` connect in blocking mode, a name lookup, or a `DatagramSocket` send the `network` sensor records, or a file open, delete, move, or copy the `files` sensor records, when it started on an event loop. Netty's non-blocking connect and its finish never block, and are never reported; class loading's reads are never reported; with the `network` or `files` sensor off, its operations are not either |
+
+`Thread.sleep` and `Object.wait` are `native` on JDK 17, and retransformation cannot add the wrappers a native method
+prefix needs; on later JDKs they end in native methods on platform threads, so `park` never sees them either. On every
+JDK, the agent therefore rewrites their **call sites** in the application's classes (`bootui.agent.packages`, synthetic
+classes and lambda bodies included, test roots and the classes the agent never instruments left out) into calls to the bridge's substitutes,
+which call the original method and record around it. The rewrite is a visit of the transformer the inventory and
+code-paths sensors share, so an application class is retransformed once per claim whatever the sensors. A stack trace
+through a rewritten call shows one extra frame, `io.github.jdubois.bootui.agent.bridge.Blocking.sleep` or `waitOn`;
+exceptions, the interrupt flag, and `IllegalMonitorStateException` are unchanged.
+
+Off event loops, the `park` hook returns after one volatile read until an adapter registered a loop for the run, then
+after one table lookup: about 2.4 ns per park measured by the bridge's opt-in benchmark
+(`-Dbootui.agent.bench=true`), within its 10 ns budget, and 0.1 ns with the sensor off. On an event loop, a call
+records its duration, its owner (request, execution, startup, or thread family), its code-paths stamp, and the first
+frame outside the JDK and the first in the application's packages. A park shorter than 1 ms, such as a library handing
+a lock over, is only counted (`shortParks`), unless it threw, as BlockHound's refusal does; sleeps and waits are always
+recorded, and a zero or negative one never.
+Records aggregate in the thread's table, as every side-effect record does.
+
+Each hook is self-tested: the park hook parks the sensor's own thread with its permit already given, and a bundled
+probe class's rewritten sleep and wait calls must reach the substitutes. A hook failing its self-test removes only its
+sensor: the other side-effect sensors are installed again without it, and a later claim of the same sensors does not
+try it again. When only the call-site hooks fail, parks are still reported and the panel says sleeps and waits are not. JDK retransformation of `LockSupport` and the
+call-site rewrite are checked on JDK 17, 21, and the newest verified JDK, beside the OpenTelemetry agent in both orders,
+and beside BlockHound installed before or after the claim, recording or throwing its error from inside the sleep: both
+see the same sleep, BlockHound's error reaches the caller unchanged, and a later sleep is still recorded.
+
+The sensor does not see a library's own `sleep` or `wait` (outside the application's packages), a sleep through a
+method reference (`Thread::sleep`, an `invokedynamic`), `Thread.join`, a `sleep` qualified by a `Thread` subclass, or
+blocking on a loop before it handled its first request.
+
 ## The caught-exceptions sensor
 
-`bootui.agent.sensors=executors,inventory,code-paths,processes,network,caught-exceptions` adds the opt-in `caught-exceptions`
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
 sensor, which reports the exceptions application code catches and which of them are thrown again. It stays off by
 default until its overhead is measured against the default sensors' 10 % budget. This version records the events in
 the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel; the panel's **Caught in
@@ -969,7 +1031,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `network`, and the opt-in `threads`, `files`, `environment`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `blocking`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
@@ -1280,7 +1342,7 @@ The panel has one tab per sensor group:
 | Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
-| Blocking | `blocking` | `not-available`: Not available in this version. |
+| Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | Records request input reaching SQL text, a command, a file path, or an outbound URL when `bootui.agent.sensors` opts in and `bootui.agent.security-sinks.request-values=true` (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 
 The `processes` sensor is on by default through `bootui.agent.sensors`. It hooks the JDK process start path used by
@@ -1363,9 +1425,14 @@ API, all `GET`:
 | `/bootui/api/side-effects` | Every sensor with its tab, state, reason, rows, occurrences, dropped records, hooks, and limitations |
 | `/bootui/api/side-effects/sensor?sensor=<id>&offset=&limit=` | One sensor's rows, most frequent first, paged; an unknown sensor id returns `400` with `{error}` |
 
+The **Blocking** tab shows one row per attribution, operation (`sleep`, `wait`, or `park`), event loop's thread family
+(`reactor-http-nio-{n}`, `vert.x-eventloop-thread-{n}`), call site, and inside bean method, with the calls, those
+interrupted or that threw, how long they blocked the loop in all and at most, and up to three exemplar request ids.
+See [the blocking sensor](#the-blocking-sensor) for its hooks and what it does not see.
+
 `get_side_effects` and `bootui side-effects` return every sensor's coverage, then at most `limit` (20) rows matching
-`query`: a sensor id such as `processes` or `network`, `not captured` for the connections no panel shows, or part of a
-route, target, client, or call site, most frequent first. The MCP tool is
+`query`: a sensor id such as `processes`, `network`, or `blocking`, `not captured` for the connections no panel shows,
+or part of a route, target, client, or call site, most frequent first. The MCP tool is
 advertised only while the agent is armed for the run.
 
 The Spring sample seeds two routes: `GET /api/side-effects/java-version` starts the JDK's `java -version` from
@@ -1389,3 +1456,11 @@ system property and writes a dated report under `target/bootui-side-effects` in 
 `sample.report.title` (with `environment` opted in). The counterexamples: `GET /api/side-effects/scratch` writes and
 deletes a temporary file, under `$TMPDIR`, and `GET /api/side-effects/log` writes through a JDK logging file handler,
 grouped apart as logging; class loading shows only in the buckets. No file contents or property value appears.
+
+The WebFlux and Quarkus samples also seed `GET /api/side-effects/event-loop-sleep`, which sleeps 50 ms on an event loop
+(`EventLoopSleeper#sleepOnEventLoop`): on WebFlux in the `map` of a WebClient call to the sample's own greeting, on the
+Reactor Netty loop the response completed on; on Quarkus in a `@NonBlocking` endpoint, on its Vert.x loop. Its
+counterexample
+`GET /api/side-effects/worker-sleep`, the same sleep on a `boundedElastic` thread (WebFlux) or a Quarkus worker thread:
+with the agent, the first shows a `sleep` row on the event loop's family and the second none. The Spring MVC sample
+shows the Blocking tab `not-applicable`.
