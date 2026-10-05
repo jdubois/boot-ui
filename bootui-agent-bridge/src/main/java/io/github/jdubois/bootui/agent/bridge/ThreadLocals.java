@@ -214,14 +214,9 @@ public final class ThreadLocals {
             }
             CodePaths.Frame frame = CodePaths.frame();
             Scope scope = frame.threadLocals;
-            if (scope != null && scope.depth != 0) {
-                if (scope.depth != EXPLICIT) {
-                    NESTED.increment();
-                    return 0L;
-                }
-                // An explicit scope never closed on this thread, as after an unmapped failure: never reported.
-                STALE_SCOPES.increment();
-                scope.depth = 0;
+            if (scope != null && scope.depth > 0) {
+                NESTED.increment();
+                return 0L;
             }
             if (!testing && !scanned(self)) {
                 return 0L;
@@ -237,6 +232,21 @@ public final class ThreadLocals {
                     UNOWNED.increment();
                     return 0L;
                 }
+            }
+            if (scope != null && scope.depth == EXPLICIT) {
+                boolean same = scope.generation == generation
+                        && (owner.request != 0L
+                                ? scope.request == owner.request
+                                : scope.request == 0L && scope.execution == owner.execution);
+                if (same) {
+                    // The same request's or job's work nested in its own scope, as a managed task run inline.
+                    NESTED.increment();
+                    return 0L;
+                }
+                // A scope of another request or job never closed on this thread, as after an unmapped failure: it is
+                // dropped, never reported, and this one replaces it.
+                STALE_SCOPES.increment();
+                scope.depth = 0;
             }
             long token = TOKENS.incrementAndGet();
             if (!snapshot(frame, EXPLICIT, generation, owner.request, owner.execution, owner.executionKind)) {

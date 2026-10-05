@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.resources;
 
 import io.github.jdubois.bootui.engine.resources.ResourceUsage.Unmeasured;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -47,7 +48,7 @@ public final class SegmentMeter {
 
     private final Readings readings;
     private final ConcurrentHashMap<String, Meter> meters = new ConcurrentHashMap<>();
-    private final ThreadLocal<Segment> segments = new ThreadLocal<>();
+    private final ThreadLocal<Segment> segments = new BootUiThreadLocal<>();
     private final ConcurrentHashMap<Long, Segment> platformThreads = new ConcurrentHashMap<>();
 
     SegmentMeter(Readings readings) {

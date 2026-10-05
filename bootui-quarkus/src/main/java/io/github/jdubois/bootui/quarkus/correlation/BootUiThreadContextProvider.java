@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.correlation;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.ManagedTasks;
+import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.Map;
 import org.eclipse.microprofile.context.spi.ThreadContextProvider;
@@ -23,7 +24,18 @@ public final class BootUiThreadContextProvider implements ThreadContextProvider 
         return () -> {
             // The same request already current on this thread keeps its context: no empty nested execution.
             BootUiCorrelation.Scope scope = ManagedTasks.open(context);
-            return scope == null ? () -> {} : scope::close;
+            if (scope == null) {
+                return () -> {};
+            }
+            // The task's thread-locals scope on its worker, inside its context (docs/PLAN-v2.md §5.16, M5-5f).
+            long threadLocals = AgentThreadLocals.open();
+            return () -> {
+                try {
+                    AgentThreadLocals.close(threadLocals);
+                } finally {
+                    scope.close();
+                }
+            };
         };
     }
 

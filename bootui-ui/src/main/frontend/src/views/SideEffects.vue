@@ -40,7 +40,8 @@ const OPT_IN = {
   files: 'the path patterns of the files the application opens, deletes, moves, and copies',
   environment: 'the names read',
   'thread-activity':
-    'the threads the application starts and the executors it creates per route, and those a request left running'
+    'the threads the application starts and the executors it creates per route, and those a request left running',
+  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values'
 }
 
 const STATE = {
@@ -109,6 +110,7 @@ const SENSOR_COLUMNS = {
     failedLabel: 'Reclaimed without shutdown',
     time: 'Executor lifetime (total / max ms)'
   },
+  'thread-locals': {target: 'Thread local (holder)', count: 'Times left set', origin: true},
   blocking: {
     target: 'Event loop / operation',
     count: 'Calls',
@@ -124,7 +126,8 @@ const EMPTY_TEXT = {
   files: 'No file has been opened yet in this run.',
   environment: 'No environment variable or system property has been read yet in this run.',
   blocking: 'No blocking call has started on an event loop yet in this run.',
-  'thread-activity': 'No thread has been started and no executor created yet in this run.'
+  'thread-activity': 'No thread has been started and no executor created yet in this run.',
+  'thread-locals': 'No thread local has been left set by a request or a job yet in this run.'
 }
 
 const summary = ref(null)
@@ -658,6 +661,9 @@ function hookStatus(value, label) {
                           </template>
                           <td>
                             <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
+                            <span v-else-if="row.sensor === 'thread-locals'" class="text-muted side-effects-set-during"
+                              >set during the request</span
+                            >
                             <span v-else class="text-muted">—</span>
                             <div v-if="row.insideMethod" class="small text-muted bootui-break-anywhere">
                               inside {{ row.insideMethod }}

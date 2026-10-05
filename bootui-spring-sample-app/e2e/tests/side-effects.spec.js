@@ -245,4 +245,52 @@ test.describe('Side Effects view', () => {
     await expect(row.first()).toContainText('BackgroundWork#startRefresher')
     await expect(row.first().locator('.side-effects-left-running')).toBeVisible()
   })
+
+  test('shows the thread local a request left set, never one cleared in finally, set to null, or set before', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the thread-locals sensor needs the BootUI agent')
+    // The thread-locals seeds (M5-5f): a tenant on its pooled Tomcat worker left set; counterexamples cleared in finally, set to
+    // null, and set by a filter before BootUI's scope; and a withInitial date format, reported with its initial value flagged.
+    for (let round = 0; round < 3; round++) {
+      for (const path of ['leak', 'cleared', 'nulled', 'cache', 'before']) {
+        const response = await page.request.get(`/api/thread-locals/${path}`)
+        expect(response.ok()).toBeTruthy()
+        test.skip((await response.json()).virtual === true, 'virtual threads are not pooled: never scanned')
+      }
+    }
+    const read = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=thread-locals&limit=500')).json()).rows ??
+      []
+    const holder = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.CURRENT'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
+            ?.count ?? 0,
+        {timeout: 30_000}
+      )
+      .toBeGreaterThan(0)
+    const rows = await read()
+    const leak = rows.find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
+    expect(leak.kind).toBe('left set')
+    expect(leak.origin).toBe('application')
+    expect(leak.callSite).toBeNull()
+    expect(leak.requests).toBeGreaterThan(0)
+    for (const path of ['cleared', 'nulled', 'before']) {
+      expect(rows.filter((row) => row.attribution === `GET /api/thread-locals/${path}`)).toEqual([])
+    }
+    const cache = rows.find((row) => row.target === 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT')
+    if (cache) expect(cache.kind).toBe('left set (with initial value)')
+    expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
+    expect(JSON.stringify(rows)).not.toContain('tenant-secret')
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Threads and leaks/}).click()
+    await expect(
+      page.locator('.side-effects-table tbody tr').filter({hasText: 'TenantContext.CURRENT'}).first()
+    ).toContainText('set during the request')
+  })
 })

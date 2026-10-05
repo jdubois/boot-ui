@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.scheduled;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.observation.Observation;
@@ -67,11 +68,19 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
         StartMarker start = context.get(StartMarker.class);
         if (start != null) {
             context.put(BootUiCorrelation.Scope.class, BootUiCorrelation.open(start.correlation()));
+            // The run's thread-locals scope, inside its context (docs/PLAN-v2.md §5.16, M5-5f).
+            context.put(ThreadLocalsScope.class, new ThreadLocalsScope(AgentThreadLocals.open()));
         }
     }
 
+    /** The BootUI agent's thread-locals scope of a run, closed on the thread that opened it. */
+    private record ThreadLocalsScope(long token) {}
+
     @Override
     public void onScopeClosed(ScheduledTaskObservationContext context) {
+        if (context.remove(ThreadLocalsScope.class) instanceof ThreadLocalsScope threadLocals) {
+            AgentThreadLocals.close(threadLocals.token());
+        }
         if (context.remove(BootUiCorrelation.Scope.class) instanceof BootUiCorrelation.Scope scope) {
             scope.close();
         }

@@ -90,9 +90,16 @@ public record AgentSensorSettings(
      */
     public static final String THREAD_ACTIVITY = "thread-activity";
 
+    /**
+     * The Side Effects sensor recording the thread locals a request or a job left set on its pooled platform thread
+     * (M5-5f, §5.16), found by scanning the thread's thread-local maps when its scope closes, never their values.
+     * Opt-in (D37) until its overhead is measured.
+     */
+    public static final String THREAD_LOCALS = "thread-locals";
+
     /** The Side Effects sensors this version ships. */
     public static final List<String> SIDE_EFFECT_SENSORS =
-            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY);
+            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS = List.of(
@@ -105,14 +112,14 @@ public record AgentSensorSettings(
             FILES,
             ENVIRONMENT,
             BLOCKING,
-            THREAD_ACTIVITY);
+            THREAD_ACTIVITY,
+            THREAD_LOCALS);
 
     /**
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS =
-            List.of("thread-locals", "resources", "security-sinks");
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("resources", "security-sinks");
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
@@ -259,6 +266,11 @@ public record AgentSensorSettings(
     /** Whether the {@code thread-activity} sensor is asked for. */
     public boolean threadActivity() {
         return sensors.contains(THREAD_ACTIVITY);
+    }
+
+    /** Whether the {@code thread-locals} sensor is asked for. */
+    public boolean threadLocals() {
+        return sensors.contains(THREAD_LOCALS);
     }
 
     /** Whether any Side Effects sensor is asked for. */

@@ -249,6 +249,10 @@ final class SideEffectsStore {
                 network(record);
             } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
                 threads(record, requestId);
+            } else if (record.sensor() == SideEffectsCatalog.RECORD_THREAD_LOCALS) {
+                // A scope that left it set: counted, with its distinct request.
+                count += record.count();
+                countRequest(record);
             } else if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
                 completed += record.count();
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_EXITED) {
@@ -310,20 +314,7 @@ final class SideEffectsStore {
             switch (record.kind()) {
                 case SideEffectsCatalog.KIND_THREAD_START, SideEffectsCatalog.KIND_EXECUTOR_CREATE -> {
                     count += record.count();
-                    String request = record.requestId();
-                    if (request != null) {
-                        if (recentRequests == null) {
-                            recentRequests = new LinkedHashSet<>();
-                        }
-                        if (recentRequests.add(request)) {
-                            requests++;
-                            if (recentRequests.size() > RECENT_REQUESTS) {
-                                Iterator<String> oldest = recentRequests.iterator();
-                                oldest.next();
-                                oldest.remove();
-                            }
-                        }
-                    }
+                    countRequest(record);
                 }
                 case SideEffectsCatalog.KIND_THREAD_LEFT_RUNNING, SideEffectsCatalog.KIND_EXECUTOR_LEFT_RUNNING ->
                     leftRunning += record.count();
@@ -335,6 +326,25 @@ final class SideEffectsStore {
                 case SideEffectsCatalog.KIND_EXECUTOR_RECLAIMED -> failed += record.count();
                 default -> {
                     // A kind of a later bridge: counted nowhere.
+                }
+            }
+        }
+
+        /** Counts the record's request once among the latest {@value #RECENT_REQUESTS} distinct ones. */
+        private void countRequest(SideEffectRecord record) {
+            String request = record.requestId();
+            if (request == null) {
+                return;
+            }
+            if (recentRequests == null) {
+                recentRequests = new LinkedHashSet<>();
+            }
+            if (recentRequests.add(request)) {
+                requests++;
+                if (recentRequests.size() > RECENT_REQUESTS) {
+                    Iterator<String> oldest = recentRequests.iterator();
+                    oldest.next();
+                    oldest.remove();
                 }
             }
         }

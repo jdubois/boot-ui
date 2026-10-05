@@ -21,7 +21,7 @@ const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000
 
 // The default sensors, the opt-in files, environment, and thread-activity sensors, and blocking, named whatever its
 // default, whose Side Effects seeds the side-effects spec asserts (M5-5c, M5-5d, M5-5e).
-const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dserver.port=${PORT} -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity`
+const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dserver.port=${PORT} -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity,thread-locals`
 
 export default defineConfig({
   testDir: '.',

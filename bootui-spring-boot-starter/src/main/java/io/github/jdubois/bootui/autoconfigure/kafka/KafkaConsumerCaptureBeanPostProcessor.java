@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.TraceParents;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -79,8 +80,8 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         private final RecordInterceptor<Object, Object> delegate;
         private final KafkaActivityRecorder recorder;
         private final String listenerId;
-        private final ThreadLocal<Long> startNanos = new ThreadLocal<>();
-        private final ThreadLocal<BootUiCorrelation.Scope> executionScope = new ThreadLocal<>();
+        private final ThreadLocal<Long> startNanos = new BootUiThreadLocal<>();
+        private final ThreadLocal<BootUiCorrelation.Scope> executionScope = new BootUiThreadLocal<>();
 
         private CapturingRecordInterceptor(
                 RecordInterceptor<Object, Object> delegate, KafkaActivityRecorder recorder, String listenerId) {

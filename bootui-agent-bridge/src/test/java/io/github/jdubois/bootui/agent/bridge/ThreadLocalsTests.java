@@ -194,17 +194,33 @@ class ThreadLocalsTests {
     }
 
     @Test
-    void anExplicitScopeNeverClosedIsDroppedAtTheNextOpenWithoutAReport() {
+    void anExplicitScopeNeverClosedIsDroppedWhenAnotherRequestOpensOneWithoutAReport() {
         long token = enabledClaim();
         context.set(owner(REQUEST));
 
         ThreadLocals.open();
         scanner.set(TENANT, true);
+        context.set(owner("00000000000000ac"));
         long next = ThreadLocals.open();
         ThreadLocals.close(next);
 
+        assertThat(next).isPositive();
         assertThat(drain(token)).isEmpty();
         assertThat(ThreadLocals.counter("staleScopes")).isEqualTo(1L);
+    }
+
+    @Test
+    void theSameRequestsWorkNestedInItsScopeNeverClosesIt() {
+        long token = enabledClaim();
+        context.set(owner(REQUEST));
+
+        long outer = ThreadLocals.open();
+        assertThat(ThreadLocals.open()).isZero();
+        scanner.set(TENANT, true);
+        ThreadLocals.close(outer);
+
+        assertThat(drain(token)).hasSize(1);
+        assertThat(ThreadLocals.counter("nested")).isEqualTo(1L);
     }
 
     @Test

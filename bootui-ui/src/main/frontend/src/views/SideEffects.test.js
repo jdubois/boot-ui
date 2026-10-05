@@ -466,6 +466,58 @@ describe('Side Effects panel', () => {
     expect(own).not.toContain('HikariPool')
   })
 
+  it('shows thread locals left set by their holder, set during the request, never a value', async () => {
+    const leftRow = row({
+      sensor: 'thread-locals',
+      kind: 'left set',
+      target: 'demo.TenantContext.CURRENT',
+      callSite: null,
+      insideMethod: null,
+      origin: 'application',
+      count: 4,
+      requests: 4,
+      exemplarRequestIds: ['00000000000000ee']
+    })
+    const cacheRow = row({
+      sensor: 'thread-locals',
+      kind: 'left set (with initial value)',
+      target: 'demo.Formats.FORMAT',
+      callSite: null,
+      insideMethod: null,
+      origin: 'application',
+      count: 2,
+      requests: 2
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=thread-locals&offset=0&limit=50': sensorReport('thread-locals', [
+        leftRow,
+        cacheRow
+      ]),
+      'api/side-effects': summary({
+        sensors: {'thread-locals': {state: 'recording', rows: 2, occurrences: 6}}
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Threads and leaks')
+      .trigger('click')
+    await flushPromises()
+
+    const table = wrapper
+      .findAll('.side-effects-table')
+      .find((candidate) => candidate.text().includes('demo.TenantContext.CURRENT'))
+    expect(table).toBeTruthy()
+    const headers = table.findAll('thead th').map((th) => th.text())
+    expect(headers).toEqual(expect.arrayContaining(['Thread local (holder)', 'Times left set', 'Origin']))
+    expect(table.findAll('tbody tr')[0].findAll('td')).toHaveLength(headers.length)
+    expect(table.text()).toContain('left set (with initial value)')
+    expect(table.findAll('.side-effects-set-during').map((cell) => cell.text())).toEqual([
+      'set during the request',
+      'set during the request'
+    ])
+  })
+
   it('says why blocking is not applicable on a stack without event loops', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects/sensor?sensor=blocking&offset=0&limit=50': sensorReport('blocking', []),
