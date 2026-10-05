@@ -230,7 +230,7 @@ final class SideEffectsStore {
             SideEffectRecord record = observation.record();
             if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                 network(record);
-            } else if (record.kind() == SideEffectsCatalog.KIND_PROCESS_EXIT) {
+            } else if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
                 completed += record.count();
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_EXITED) {
                     if (record.exitStatus() != 0) {
@@ -242,12 +242,14 @@ final class SideEffectsStore {
                 maxNanos = Math.max(maxNanos, record.maxNanos());
             } else {
                 count += record.count();
-                if (record.outcome() == SideEffectsCatalog.OUTCOME_IO_ERROR
-                        || record.outcome() == SideEffectsCatalog.OUTCOME_ERROR) {
+                if (SideEffectsCatalog.failed(record.outcome())) {
+                    // For blocking, an interrupted call too.
                     failed += record.count();
                 }
-                if (record.sensor() == SideEffectsCatalog.RECORD_FILES) {
-                    // A file operation's own time: opening, deleting, moving, or copying, never reading what it opened.
+                if (record.sensor() == SideEffectsCatalog.RECORD_FILES
+                        || record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
+                    // A file operation's own time, never reading what it opened; or how long the event loop was
+                    // blocked, in all and at most.
                     nanos += record.nanos();
                     maxNanos = Math.max(maxNanos, record.maxNanos());
                 }

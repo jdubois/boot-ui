@@ -9,7 +9,8 @@ import {formatLoadError} from '../../utils/loadError.js'
 // same state the backend panel access filter enforces. A switch lasts until the JVM ends and is never written anywhere.
 
 const props = defineProps({
-  // A JavaAgentSensorToggleDto: id, configured, enabled, overridden, state, optInReason, available, unavailableReason.
+  // A JavaAgentSensorToggleDto: id, configured, enabled, overridden, state, optInReason, available, unavailableReason,
+  // failure.
   toggle: {type: Object, required: true}
 })
 
@@ -118,6 +119,7 @@ async function flip(event) {
       </template>
     </p>
     <p v-if="blockedReason" class="small text-warning-emphasis mb-0 mt-1">{{ blockedReason }}</p>
+    <p v-if="toggle.failure" class="small text-danger-emphasis mb-0 mt-1">{{ toggle.failure }}</p>
     <p v-if="failure" class="small text-danger-emphasis mb-0 mt-1" role="alert">{{ failure }}</p>
   </div>
 </template>

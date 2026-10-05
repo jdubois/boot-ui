@@ -11,7 +11,7 @@ import java.util.List;
  *     {@code Threads and leaks}, {@code Blocking}, or {@code Security sinks}
  * @param label what it records, in a few words
  * @param state {@value #RECORDING}, {@value #INSTALLING}, {@value #SELF_TEST_FAILED}, {@value #DISABLED},
- *     {@value #NOT_CLAIMED}, {@value #UNAVAILABLE}, or {@value #NOT_AVAILABLE}
+ *     {@value #NOT_CLAIMED}, {@value #UNAVAILABLE}, {@value #NOT_AVAILABLE}, or {@value #NOT_APPLICABLE}
  * @param reason why it does not record, or {@code null} while it records
  * @param rows the rows it holds for this run
  * @param occurrences the operations those rows count
@@ -56,6 +56,12 @@ public record SideEffectsSensorDto(
 
     /** This version of BootUI does not ship the sensor yet. */
     public static final String NOT_AVAILABLE = "not-available";
+
+    /**
+     * The sensor is installed but has nothing to watch on this stack, as {@code blocking} on Spring MVC, which runs no
+     * event loop: its reason says why.
+     */
+    public static final String NOT_APPLICABLE = "not-applicable";
 
     public SideEffectsSensorDto {
         hooks = DtoCollections.immutableCopy(hooks);

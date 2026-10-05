@@ -13,7 +13,7 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     and {@code network}, and the opt-in {@code threads}, {@code files}, {@code environment}, and
+ *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment}, and
  *     {@code caught-exceptions}; the Side Effects sensors this version does not ship are accepted
  *     ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
@@ -74,27 +74,45 @@ public record AgentSensorSettings(
     public static final String ENVIRONMENT = "environment";
 
     /**
+     * The Side Effects sensor recording {@code Thread.sleep}, {@code Object.wait}, {@code LockSupport.park}, and the
+     * network and files sensors' blocking operations started on an event loop (M5-5c, §5.16), on by default: off event
+     * loops, its {@code park} hook returns after one volatile read until an adapter registered a loop, then after one
+     * table lookup.
+     */
+    public static final String BLOCKING = "blocking";
+
+    /**
      * The sensor reporting the exceptions application code catches (M5-6a): opt-in until its overhead is measured
      * against the default sensors' budget (D21, D37).
      */
     public static final String CAUGHT_EXCEPTIONS = "caught-exceptions";
 
     /** The Side Effects sensors this version ships. */
-    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT);
+    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS = List.of(
-            EXECUTORS, THREADS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES, ENVIRONMENT, CAUGHT_EXCEPTIONS);
+            EXECUTORS,
+            THREADS,
+            INVENTORY,
+            CODE_PATHS,
+            PROCESSES,
+            NETWORK,
+            FILES,
+            ENVIRONMENT,
+            BLOCKING,
+            CAUGHT_EXCEPTIONS);
 
     /**
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
     public static final List<String> NOT_AVAILABLE_SENSORS =
-            List.of("thread-activity", "thread-locals", "resources", "blocking", "security-sinks");
+            List.of("thread-activity", "thread-locals", "resources", "security-sinks");
 
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK);
+    public static final List<String> DEFAULT_SENSORS =
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
 
     /**
      * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
@@ -261,6 +279,11 @@ public record AgentSensorSettings(
     /** Whether the opt-in {@code environment} sensor is asked for. */
     public boolean environment() {
         return sensors.contains(ENVIRONMENT);
+    }
+
+    /** Whether the {@code blocking} sensor is asked for. */
+    public boolean blocking() {
+        return sensors.contains(BLOCKING);
     }
 
     /** Whether any Side Effects sensor is asked for. */

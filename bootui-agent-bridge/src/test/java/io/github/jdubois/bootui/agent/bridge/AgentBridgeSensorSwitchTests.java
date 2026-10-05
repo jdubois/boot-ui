@@ -100,18 +100,21 @@ class AgentBridgeSensorSwitchTests {
     }
 
     @Test
-    void onlyTheThreadsAndSideEffectSensorsCanBeSwitched() {
+    void onlyTheOptInThreadsFilesAndEnvironmentSensorsCanBeSwitched() {
         long token = token(claim("shop", "dev", "processes"));
         calls.clear();
 
-        for (String sensor : new String[] {"executors", "inventory", "code-paths", "blocking", null}) {
+        for (String sensor : new String[] {
+            "executors", "inventory", "code-paths", "processes", "network", "blocking", "caught-exceptions", "x", null
+        }) {
             Map<String, Object> result = AgentBridge.switchSensor(token, sensor, true);
             assertThat(result.get("status")).as(sensor).isEqualTo(AgentBridge.FAILED);
         }
         assertThat(calls).isEmpty();
         assertThat(AgentBridge.switchable("threads")).isTrue();
         assertThat(AgentBridge.switchable("files")).isTrue();
-        assertThat(AgentBridge.switchable("processes")).isTrue();
+        assertThat(AgentBridge.switchable("environment")).isTrue();
+        assertThat(claimNow().get("sensorOverrides")).isEqualTo(Map.of());
     }
 
     @Test

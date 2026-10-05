@@ -117,6 +117,16 @@ describe('AgentSensorToggle', () => {
     expect(older.text()).toContain('predates it')
   })
 
+  it('shows the agent’s failure of a switch it kept, with a failed state', () => {
+    const wrapper = mountToggle(
+      toggle({enabled: true, overridden: true, state: 'failed', failure: 'The agent failed this switch: boom'})
+    )
+
+    expect(wrapper.text()).toContain('Failed')
+    expect(wrapper.text()).toContain('The agent failed this switch: boom')
+    expect(wrapper.get('input[role="switch"]').element.disabled).toBe(false)
+  })
+
   it('is hidden while the manifest does not list an enabled, available Java Agent panel', () => {
     expect(mountToggle(toggle(), ref(null)).find('input').exists()).toBe(false)
     expect(

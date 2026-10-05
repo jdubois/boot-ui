@@ -14,7 +14,8 @@ import {
   isListed,
   textParts,
   themeOf,
-  unlistedSummary
+  unlistedSummary,
+  validationOf
 } from './runtimeInsights.js'
 
 const report = {
@@ -163,6 +164,35 @@ describe('runtimeInsights helpers', () => {
       'no-requests'
     )
     expect(emptyState(report)).toBeNull()
+  })
+})
+
+describe('validationOf', () => {
+  it('marks the kinds that did not pass their external validation, with the engine reason (M4-20)', () => {
+    expect(validationOf({validation: 'NOT_VALIDATED', validationReason: 'It found nothing.'})).toEqual({
+      marker: 'Not externally validated',
+      reason: 'It found nothing.'
+    })
+    expect(validationOf({validation: 'UNDER_SAMPLED', validationReason: 'Too few facts.'}).marker).toBe(
+      'Not externally validated'
+    )
+    expect(validationOf({validation: 'FAILED', validationReason: 'r'}).marker).toBe('Did not pass external validation')
+    expect(validationOf({validation: 'NOT_JUDGED', validationReason: 'r'}).marker).toBe('Not judged yet')
+  })
+
+  it('marks nothing for a kind that passed, one not listed by design, or a server that predates the field', () => {
+    expect(validationOf({validation: 'PASSED', validationReason: 'r'})).toBeNull()
+    expect(validationOf({validation: 'NOT_LISTED', validationReason: 'r'})).toBeNull()
+    expect(validationOf({kind: 'repeated-selects'})).toBeNull()
+    expect(validationOf(undefined)).toBeNull()
+  })
+
+  it('carries the marker on each group, from its check', () => {
+    const marked = {
+      ...report,
+      checks: report.checks.map((check) => ({...check, validation: 'NOT_VALIDATED', validationReason: 'Silent.'}))
+    }
+    expect(groupObservations(marked, {all: true}).every((group) => group.validation?.reason === 'Silent.')).toBe(true)
   })
 })
 

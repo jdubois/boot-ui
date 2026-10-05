@@ -36,7 +36,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Side Effects for one application ({@code docs/PLAN-v2.md} §5.16, M5-5a), shared by every adapter: for this run's
+ * Side Effects for one application ({@code docs/PLAN-v2.md} §5.16, M5-5a, M5-5c), shared by every adapter: for this run's
  * claim on the BootUI agent, routes the side-effect sensors' records from the claim's {@link AgentRecordDrainer} into a
  * {@link SideEffectsStore}, resolving their strings, their call site (the first application frame, else the first frame
  * outside the JDK), the bean method they happened inside (from their Code Paths stamp), and their request's route (from
@@ -72,11 +72,11 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_SCOPE = "Side Effects records only what the BootUI agent's side-effect sensors hook:"
             + " this version records the processes the application starts, through ProcessBuilder.start, which"
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
-            + " the host names the JVM resolves; and, opt-in, the files it opens, deletes, moves, and copies, through"
-            + " FileInputStream, FileOutputStream, RandomAccessFile, the Files methods, and FileChannel.open, and the"
-            + " environment variables and system properties it reads by name through System.getenv and"
-            + " System.getProperty. Threads,"
-            + " blocking, and security sinks are not available in this version.";
+            + " the host names the JVM resolves; the blocking calls started on an event loop; and, opt-in, the files it"
+            + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
+            + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
+            + " through System.getenv and System.getProperty. Threads and security sinks are not available in this"
+            + " version.";
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -95,6 +95,34 @@ public final class SideEffectsService implements AutoCloseable {
                     + " HttpClient.Builder proxy, a Reactor Netty proxy, or HTTPS_PROXY is not detected, so a call"
                     + " through one reads as not captured). Infrastructure clients, such as DNS resolvers, telemetry exporters, and"
                     + " container tooling, are no panel's to show.";
+
+    static final String LIMITATION_BLOCKING = "Blocking rows are Thread.sleep, TimeUnit.sleep, Object.wait, and"
+            + " LockSupport.park (a contended lock, a future's get) started on a thread the adapter identified as an event"
+            + " loop: Reactor Netty's on Spring WebFlux, Vert.x's on Quarkus, each from the first request it handled,"
+            + " and a WebClient's from the first response it delivered when the WebClient was built from Spring Boot's"
+            + " WebClient.Builder with REST client tracing on; Reactor's parallel scheduler and worker threads are never"
+            + " event loops."
+            + " A park shorter than 1 ms is only counted. Thread.sleep and Object.wait are native on JDK 17 and end in"
+            + " native methods on later JDKs, so they are seen at their call sites in the application's own classes"
+            + " (bootui.agent.packages) only, on every JDK: a library's sleep or wait, a sleep through a method reference,"
+            + " and Thread.join are not. A connect, a name lookup, or a DatagramSocket send the network sensor records,"
+            + " and a file the files sensor records, is reported when it started on an event loop, never Netty's"
+            + " non-blocking connect; Netty's DNS resolver reads /etc/hosts and /etc/resolv.conf on its first name"
+            + " resolution, which can show once as a file read on an event loop. A call is reported, never refused.";
+
+    static final String BLOCKING_NOT_APPLICABLE = "This application's server runs no event loop to block: Spring MVC,"
+            + " or Spring WebFlux on a servlet container, serves each request on a thread of its own. A WebClient built"
+            + " from Spring Boot's WebClient.Builder with REST client tracing on has its Reactor Netty event loop watched"
+            + " once it delivered a response.";
+
+    static final String LIMITATION_LOOPS_REFUSED = "The blocking sensor's event-loop table was full: some event loops"
+            + " were not registered, and blocking calls on them are not reported.";
+
+    static final String LIMITATION_CALL_SITES_FAILED = "The blocking sensor's Thread.sleep and Object.wait call-site"
+            + " hooks failed their self-test and were removed: only parks are reported this run.";
+
+    static final String LIMITATION_NO_EVENT_LOOP = "No event loop has handled a request yet: blocking calls are watched"
+            + " on each event loop from the first request it handles.";
 
     static final String LIMITATION_VALUES = "A process row shows the command's file name only, never its arguments or"
             + " its environment, which can hold secrets; its exit status and lifetime come from Process.onExit, whose JDK"
@@ -152,6 +180,7 @@ public final class SideEffectsService implements AutoCloseable {
     private final SideEffectsNormalizer normalizer;
     private volatile Function<Set<String>, Map<String, String>> requestRoutes = ids -> Map.of();
     private volatile Function<Set<String>, Map<String, String>> executionLabels = ids -> Map.of();
+    private volatile java.util.function.BooleanSupplier serverEventLoops = () -> true;
     private volatile NetworkCapture networkCapture = NetworkCapture.NONE;
     private volatile Set<String> exporterEndpoints = Set.of();
     private final AgentEvidence evidence;
@@ -248,6 +277,23 @@ public final class SideEffectsService implements AutoCloseable {
      */
     public void setExporterEndpoints(Function<String, String> properties) {
         this.exporterEndpoints = NetworkClients.endpoints(properties);
+    }
+
+    /**
+     * Tells whether this application's server handles requests on event loops (Spring WebFlux on Reactor Netty,
+     * Quarkus), the default, or not (Spring MVC, WebFlux on a servlet container, a non-web application), where the
+     * {@code blocking} sensor is not applicable until a WebClient's event loop is registered.
+     */
+    public void setServerEventLoops(boolean serverEventLoops) {
+        this.serverEventLoops = () -> serverEventLoops;
+    }
+
+    /**
+     * As {@link #setServerEventLoops(boolean)}, asked on each read, as when the server starts after this service: a
+     * supplier that throws counts as event loops.
+     */
+    public void setServerEventLoops(java.util.function.BooleanSupplier serverEventLoops) {
+        this.serverEventLoops = serverEventLoops == null ? () -> true : serverEventLoops;
     }
 
     /** Names waiting keys: request ids through the routes, execution keys through the execution labels. */
@@ -800,6 +846,13 @@ public final class SideEffectsService implements AutoCloseable {
                     List.of());
         }
         JavaAgentService.SideEffectsCoverage covered = coverage(sensor.id(), reason);
+        if (AgentSensorSettings.BLOCKING.equals(sensor.id())
+                && SideEffectsSensorDto.RECORDING.equals(covered.state())
+                && !serverEventLoops()
+                && eventLoops() == 0) {
+            covered = new JavaAgentService.SideEffectsCoverage(
+                    SideEffectsSensorDto.NOT_APPLICABLE, BLOCKING_NOT_APPLICABLE, covered.hooks(), covered.dropped());
+        }
         long rows = 0;
         long occurrences = 0;
         long dropped = covered.dropped();
@@ -847,7 +900,24 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_CAPTURE,
                 LIMITATION_FILES,
                 LIMITATION_ENVIRONMENT,
+                LIMITATION_BLOCKING,
                 LIMITATION_ATTRIBUTION));
+        if (current != null && current.claim.sensors().blocking()) {
+            if (serverEventLoops() && eventLoops() == 0) {
+                limitations.add(LIMITATION_NO_EVENT_LOOP);
+            }
+            if (blockingCounter("eventLoopRegistrationsRefused") > 0) {
+                limitations.add(LIMITATION_LOOPS_REFUSED);
+            }
+            boolean callSitesFailed = coverage(AgentSensorSettings.BLOCKING, null).hooks().stream()
+                    .anyMatch(hook -> hook.id() != null
+                            && hook.id().endsWith("call sites")
+                            && hook.selfTest() != null
+                            && hook.selfTest().startsWith("failed"));
+            if (callSitesFailed) {
+                limitations.add(LIMITATION_CALL_SITES_FAILED);
+            }
+        }
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
         }
@@ -868,6 +938,31 @@ public final class SideEffectsService implements AutoCloseable {
             }
         }
         return limitations;
+    }
+
+    /** Whether this application's server handles requests on event loops, as its adapter says. */
+    private boolean serverEventLoops() {
+        try {
+            return serverEventLoops.getAsBoolean();
+        } catch (RuntimeException ex) {
+            return true;
+        }
+    }
+
+    /** The event loops the adapters registered with the agent for this run, from the bridge's blocking counters. */
+    private long eventLoops() {
+        return blockingCounter("eventLoops");
+    }
+
+    /** One of the bridge's blocking counters, 0 when unavailable. */
+    private long blockingCounter(String name) {
+        try {
+            Object value = AgentBridgeAccess.map(access.status(), AgentSensorSettings.BLOCKING)
+                    .get(name);
+            return value instanceof Number number ? number.longValue() : 0L;
+        } catch (RuntimeException ex) {
+            return 0L;
+        }
     }
 
     /** This run's counters, for status and tests: JDK types. */
@@ -1170,6 +1265,17 @@ public final class SideEffectsService implements AutoCloseable {
                             sensor.id(),
                             SideEffectsCatalog.kind(record.sensor(), record.kind()),
                             target == null ? "(unknown)" : normalizer.target(target),
+                            application != null ? application : outside,
+                            insideMethod(record.stamp()),
+                            normalizer.threadFamily(string(record.threadName()))));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
+                    // The target is the event loop's thread name: shown as its family, as a thread row's is.
+                    String loop = normalizer.threadFamily(target);
+                    store.add(new SideEffectsStore.Observation(
+                            record,
+                            sensor.id(),
+                            SideEffectsCatalog.kind(record.sensor(), record.kind()),
+                            loop == null ? "(unknown)" : loop,
                             application != null ? application : outside,
                             insideMethod(record.stamp()),
                             normalizer.threadFamily(string(record.threadName()))));

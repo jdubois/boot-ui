@@ -213,8 +213,8 @@ public final class AgentBridge {
      * (PLAN-v2 M5-14): an override, never written anywhere, dropped once the application's own sensors agree with it. The
      * switches travel with the slot's claims, each claim in the same slot taking its predecessor's, and are kept by
      * {@link SlotSwitches} while another slot's claim, or none, is current.
-     * Only {@code threads} and the side-effect sensors can be switched, since the agent installs and removes them without
-     * a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
+     * Only the opt-in {@code threads}, {@code files}, and {@code environment} can be switched ({@link #switchable}), since
+     * the agent installs and removes them without a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
      * switches the agent receives. Re-enabling {@code threads} after it failed in this run is refused: its bridge
      * disables it for the run's generation, so only the next claim tries it again.
      */
@@ -226,8 +226,8 @@ public final class AgentBridge {
         if (!switchable(sensor)) {
             return result(
                     FAILED,
-                    "the " + sensor + " sensor cannot be switched at run time: only " + ThreadPropagation.SENSOR
-                            + " and the side-effect sensors can",
+                    "the " + sensor + " sensor cannot be switched at run time: only " + ThreadPropagation.SENSOR + ", "
+                            + SideEffects.FILES + ", and " + SideEffects.ENVIRONMENT + " can",
                     null);
         }
         Claim next;
@@ -260,9 +260,16 @@ public final class AgentBridge {
         return transition(agent, "sensors", next, ARMED);
     }
 
-    /** Whether the agent can switch {@code sensor} without a new claim. */
+    /**
+     * Whether {@code sensor} can be switched at run time: only the opt-in {@code threads}, {@code files}, and
+     * {@code environment}, which the agent installs and removes without a new claim. Never a default sensor, nor
+     * {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
+     * nor {@code caught-exceptions}, whose visit is installed with the claim only.
+     */
     static boolean switchable(String sensor) {
-        return sensor != null && (ThreadPropagation.SENSOR.equals(sensor) || SideEffects.bit(sensor) != 0);
+        return ThreadPropagation.SENSOR.equals(sensor)
+                || SideEffects.FILES.equals(sensor)
+                || SideEffects.ENVIRONMENT.equals(sensor);
     }
 
     /**

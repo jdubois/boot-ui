@@ -67,6 +67,8 @@ public final class JavaAgentService {
     private final Supplier<AgentClaim> claim;
     private final JavaAgentSettings settings;
     private final List<Runnable> switchListeners = new CopyOnWriteArrayList<>();
+    /** The agent's failure of a switch the bridge committed, by sensor id, for the claim revision it made. */
+    private final Map<String, SwitchFailure> switchFailures = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * @param access the bridge, usually {@link AgentBridgeAccess#locate()}
@@ -577,6 +579,10 @@ public final class JavaAgentService {
         if (!access.sensorSwitchSupported()) {
             throw new IllegalStateException(switchUnsupportedReason());
         }
+        JavaAgentSensorToggleDto current = toggle(ours, sensor(AgentBridgeAccess.map(status, "agent"), sensor), sensor);
+        if (enabled && !current.available()) {
+            throw new IllegalStateException(current.unavailableReason());
+        }
         long revision = ours.sensorsRevision();
         Map<String, Object> answer = ours.switchSensor(sensor, enabled);
         String answered = String.valueOf(answer.get("status"));
@@ -585,6 +591,13 @@ public final class JavaAgentService {
         // the next claims, so the report says so, with the agent's state and message, rather than a refusal.
         boolean committed =
                 AgentClaim.FAILED.equals(answered) && ours.sensorsRevision() > revision && ours.uses(sensor) == enabled;
+        if (committed) {
+            switchFailures.put(
+                    sensor,
+                    new SwitchFailure(ours.generation(), ours.sensorsRevision(), reason(answer, "no reason given")));
+        } else if (AgentClaim.ARMED.equals(answered)) {
+            switchFailures.remove(sensor);
+        }
         if (AgentClaim.ARMED.equals(answered) || committed) {
             for (Runnable listener : switchListeners) {
                 try {
@@ -641,18 +654,36 @@ public final class JavaAgentService {
         }
         boolean configured = ours.sensors().sensors().contains(id);
         boolean enabled = ours.uses(id);
+        String reported = sensor == null ? null : AgentBridgeAccess.text(sensor, "state");
         String state;
         if (!enabled) {
             state = "off";
-        } else if (sensor == null) {
-            state = "installing";
         } else {
-            String reported = AgentBridgeAccess.text(sensor, "state");
-            state = reported == null ? "installing" : reported;
+            // A side-effect sensor reads released until the shared transformer is reinstalled with it.
+            state = reported == null || "released".equals(reported) ? "installing" : reported;
         }
         String unavailable = access.sensorSwitchSupported() ? null : switchUnsupportedReason();
         if (unavailable == null && !enabled && AgentSensorSettings.THREADS.equals(id) && threadsFailedThisRun(ours)) {
             unavailable = "The threads sensor failed in this run: it stays off until the application restarts.";
+        }
+        if (unavailable == null
+                && !enabled
+                && !AgentSensorSettings.THREADS.equals(id)
+                && reported != null
+                && reported.startsWith("self-test-failed")) {
+            // A side-effect sensor that failed its self-test stays out of the transformer for the JVM's life.
+            unavailable =
+                    "The " + id + " sensor failed its self-test in this JVM: it stays off until the JVM restarts.";
+        }
+        SwitchFailure failed = switchFailures.get(id);
+        String failure = failed != null
+                        && failed.generation().equals(ours.generation())
+                        && failed.revision() == ours.sensorsRevision()
+                        && !INSTALLED.equals(reported)
+                ? failed.reason()
+                : null;
+        if (failure != null && enabled) {
+            state = "failed";
         }
         return new JavaAgentSensorToggleDto(
                 id,
@@ -662,8 +693,12 @@ public final class JavaAgentService {
                 state,
                 AgentSensorSettings.optInReason(id),
                 unavailable == null,
-                unavailable);
+                unavailable,
+                failure == null ? null : "The agent failed this switch: " + failure);
     }
+
+    /** The agent's failure of a committed switch: the claim's generation and switch revision, and the reason. */
+    private record SwitchFailure(Long generation, long revision, String reason) {}
 
     /** Whether the bridge disabled the threads sensor for this claim's generation, or for every generation. */
     private boolean threadsFailedThisRun(AgentClaim ours) {

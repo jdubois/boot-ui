@@ -14,6 +14,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param optInReason why it is off by default
  * @param available whether it can be switched now
  * @param unavailableReason why it cannot, or {@code null}
+ * @param failure why the agent failed this run's last switch of it, while that switch is the last one and the sensor is
+ *     not installed; otherwise {@code null}
  */
 public record JavaAgentSensorToggleDto(
         String id,
@@ -23,4 +25,5 @@ public record JavaAgentSensorToggleDto(
         String state,
         String optInReason,
         boolean available,
-        String unavailableReason) {}
+        String unavailableReason,
+        String failure) {}

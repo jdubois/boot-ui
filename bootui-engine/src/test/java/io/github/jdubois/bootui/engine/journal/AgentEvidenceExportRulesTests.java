@@ -180,6 +180,7 @@ class AgentEvidenceExportRulesTests {
             "JavaAgentSensorToggleDto.available",
             "JavaAgentSensorToggleDto.configured",
             "JavaAgentSensorToggleDto.enabled",
+            "JavaAgentSensorToggleDto.failure",
             "JavaAgentSensorToggleDto.id",
             "JavaAgentSensorToggleDto.optInReason",
             "JavaAgentSensorToggleDto.overridden",

@@ -128,6 +128,7 @@ public final class RuntimeInsightsService {
     private AgentEvidence.Read codeInventoryRead;
     private String previousRunOf;
     private RunSummary previousRun;
+    private boolean assumeValidated;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -173,6 +174,15 @@ public final class RuntimeInsightsService {
         this.stack = stack;
         this.runs = runs;
         this.observations = List.copyOf(observations);
+    }
+
+    /**
+     * Lists every kind as if it had passed its external validation, so a test reads a kind's own listing rules
+     * ({@code docs/PLAN-v2.md} M4-19) apart from the gate (M4-20).
+     */
+    synchronized void assumeValidated() {
+        this.assumeValidated = true;
+        this.cached = null;
     }
 
     /**
@@ -401,7 +411,8 @@ public final class RuntimeInsightsService {
 
     /**
      * Installs the application's declared routes and the route labels of every request this run completed, which
-     * together list the routes no request reached. Without them, the report lists none. {@code declaredMappings}
+     * together list the routes no request reached, and name the routes mapped to a changed method that has not run.
+     * Without them, the report lists none. {@code declaredMappings}
      * answers {@code null}, or throws, when the route inventory cannot be read, which the report then says rather than
      * implying that every route was exercised.
      */
@@ -409,6 +420,11 @@ public final class RuntimeInsightsService {
             Supplier<List<MappingDto>> declaredMappings, Supplier<JournalAggregates.RouteLabels> runRoutes) {
         this.declaredMappings = declaredMappings;
         this.runRoutes = runRoutes;
+        for (Observation observation : observations) {
+            if (observation instanceof ChangedCodeNotExecuted changed) {
+                changed.setMappings(declaredMappings);
+            }
+        }
         this.cached = null;
     }
 
@@ -937,6 +953,7 @@ public final class RuntimeInsightsService {
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
         List<Evaluated> evaluated = new ArrayList<>();
+        int repeatedAt = -1;
         for (Observation observation : observations) {
             List<String> hiddenPanels = projected.hiddenPanels(observation);
             String missing = missingSource(observation, snapshot, visibility, hiddenPanels);
@@ -944,18 +961,15 @@ public final class RuntimeInsightsService {
                 missing = observation.notApplicable(snapshot);
             }
             if (missing != null) {
-                checks.add(new RuntimeInsightCheckDto(
-                        observation.kind(), observation.title(), "NOT_APPLICABLE", 0, 0, missing));
+                checks.add(check(observation, "NOT_APPLICABLE", 0, 0, missing));
                 continue;
             }
             if (!capture.recorded() && readsSql(observation.reads())) {
-                checks.add(new RuntimeInsightCheckDto(
-                        observation.kind(), observation.title(), "UNAVAILABLE", 0, 0, capture.reason()));
+                checks.add(check(observation, "UNAVAILABLE", 0, 0, capture.reason()));
                 continue;
             }
             if (!appEvents.recorded() && observation.reads().contains(JournalSource.APP_EVENT)) {
-                checks.add(new RuntimeInsightCheckDto(
-                        observation.kind(), observation.title(), "UNAVAILABLE", 0, 0, appEvents.reason()));
+                checks.add(check(observation, "UNAVAILABLE", 0, 0, appEvents.reason()));
                 continue;
             }
             String partial = partialReason(observation, snapshot);
@@ -974,6 +988,9 @@ public final class RuntimeInsightsService {
                 unseen.add(appEvents.reason() + " Its application event evidence is not counted.");
             }
             Observation.Evaluation evaluation = observation.evaluate(snapshot);
+            if (RepeatedSelects.KIND.equals(observation.kind())) {
+                repeatedAt = checks.size();
+            }
             // What it could not judge is the check's, while each finding names its own route's share.
             List<String> reasons = partial != null ? new ArrayList<>(List.of(partial)) : new ArrayList<>(unseen);
             if (evaluation.uncounted() != null) {
@@ -987,24 +1004,20 @@ public final class RuntimeInsightsService {
             if (!evaluation.hasEligibleWork()) {
                 reasons.add(0, "No eligible work was recorded for this check.");
             }
-            checks.add(new RuntimeInsightCheckDto(
-                    observation.kind(),
-                    observation.title(),
+            checks.add(check(
+                    observation,
                     !evaluation.hasEligibleWork() ? "INSUFFICIENT" : partial == null ? "EVALUATED" : "PARTIAL",
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
                     reasons.isEmpty() ? null : String.join(" ", reasons)));
             evaluated.add(new Evaluated(observation, evaluation.findings(), partial, unseen));
         }
-        List<Finding> repeatedSelects = evaluated.stream()
-                .filter(done -> RepeatedSelects.KIND.equals(done.observation().kind()))
-                .flatMap(done -> done.findings().stream())
-                .toList();
+        leaveToLazySql(evaluated, checks, repeatedAt);
         for (Evaluated done : evaluated) {
             Observation observation = done.observation();
             String partial = done.partial();
             for (Finding found : done.findings()) {
-                Finding finding = DefaultListing.apply(observation.kind(), found, repeatedSelects);
+                Finding finding = assumeValidated ? found : DefaultListing.apply(observation.kind(), found);
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
                 List<String> limitations = new ArrayList<>(finding.limitations());
@@ -1197,6 +1210,69 @@ public final class RuntimeInsightsService {
             newest = Math.max(newest, entry.event().epochMillis());
         }
         return newest;
+    }
+
+    /** One check row, with its kind's external validation ({@code docs/PLAN-v2.md} M4-20). */
+    private static RuntimeInsightCheckDto check(
+            Observation observation, String status, long eligible, int findings, String reason) {
+        ExternalValidation.Entry validation = ExternalValidation.of(observation.kind());
+        return new RuntimeInsightCheckDto(
+                observation.kind(),
+                observation.title(),
+                status,
+                eligible,
+                findings,
+                reason,
+                validation.outcome().name(),
+                validation.reason());
+    }
+
+    /**
+     * Leaves to {@code lazy-sql-after-handler} the {@code repeated-selects} findings it already reports with their cause
+     * (M4-20's adjudication follow-up 1): the same statement on the same route, from a call site they share, by a lazy
+     * SQL finding at least as sufficient. Repeated SELECTs no longer reports them, and its check's reason says how many.
+     */
+    private static void leaveToLazySql(List<Evaluated> evaluated, List<RuntimeInsightCheckDto> checks, int repeatedAt) {
+        int repeated = -1;
+        List<Finding> lazy = List.of();
+        for (int i = 0; i < evaluated.size(); i++) {
+            String kind = evaluated.get(i).observation().kind();
+            if (RepeatedSelects.KIND.equals(kind)) {
+                repeated = i;
+            } else if (LazySqlAfterHandler.KIND.equals(kind)) {
+                lazy = evaluated.get(i).findings();
+            }
+        }
+        if (repeated < 0 || lazy.isEmpty() || repeatedAt < 0) {
+            return;
+        }
+        Evaluated done = evaluated.get(repeated);
+        List<Finding> kept = new ArrayList<>();
+        for (Finding finding : done.findings()) {
+            if (!LazySqlAfterHandler.reports(lazy, finding)) {
+                kept.add(finding);
+            }
+        }
+        int left = done.findings().size() - kept.size();
+        if (left == 0) {
+            return;
+        }
+        evaluated.set(repeated, new Evaluated(done.observation(), kept, done.partial(), done.unseen()));
+        RuntimeInsightCheckDto check = checks.get(repeatedAt);
+        String leftOut = InsightText.counted(left, "statement") + " that SQL after the handler returned reports on the"
+                + " same route, from the same call site, " + (left == 1 ? "is" : "are")
+                + " left to it, which names the cause.";
+        checks.set(
+                repeatedAt,
+                new RuntimeInsightCheckDto(
+                        check.kind(),
+                        check.title(),
+                        check.status(),
+                        check.eligibleRequests(),
+                        kept.size(),
+                        check.reason() == null ? leftOut : check.reason() + " " + leftOut,
+                        check.validation(),
+                        check.validationReason()));
     }
 
     /**

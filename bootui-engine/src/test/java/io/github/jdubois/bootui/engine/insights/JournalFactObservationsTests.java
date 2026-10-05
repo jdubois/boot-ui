@@ -723,6 +723,63 @@ class JournalFactObservationsTests {
         assertThat(hotspots.indexOf(counted)).isEqualTo(hotspots.size() - 1);
     }
 
+    /**
+     * A route on which every request answers 4xx with the same exception may never succeed (M4-20's adjudication
+     * follow-up 3, the WebFlux gateway's {@code PUT /api/admin/users/{login}}): its group is its own row, listed with a
+     * check saying so, never counted in the row Behind 4xx responses, which still counts an occasional rejection.
+     */
+    @Test
+    void aRouteWhoseEveryRequestAnswers4xxWithOneExceptionIsItsOwnRowNotCountedBehind4xx() {
+        for (int i = 0; i < 4; i++) {
+            request(
+                    journal,
+                    "PUT",
+                    "/api/admin/users/{login}",
+                    400,
+                    exception("email", "com.example.EmailAlreadyUsedException"));
+        }
+        for (int i = 0; i < 3; i++) {
+            request("/api/orders/{id}", 200);
+        }
+        request("/api/orders/{id}", 400, exception("bad", "java.lang.IllegalArgumentException"));
+        request("/api/orders/{id}", 404, exception("bad", "java.lang.IllegalArgumentException"));
+
+        List<RuntimeObservationDto> hotspots =
+                byKind(service(InsightsStack.SPRING_MVC, null).report(), ExceptionHotspots.KIND);
+
+        RuntimeObservationDto always = hotspots.stream()
+                .filter(observation -> observation.subject().equals("PUT /api/admin/users/{login}"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(always.listed()).isTrue();
+        assertThat(always.sentence()).contains("in 4 of 4 requests");
+        assertThat(always.whatToCheck()).first().isEqualTo(ExceptionHotspots.EVERY_REQUEST_CHECK);
+        assertThat(hotspots)
+                .filteredOn(observation -> observation.subject().equals(ORDERS))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.unlistedReason()).isEqualTo(ExceptionHotspots.ONLY_4XX);
+                    assertThat(observation.whatToCheck()).doesNotContain(ExceptionHotspots.EVERY_REQUEST_CHECK);
+                });
+        assertThat(hotspots)
+                .filteredOn(observation -> observation.subject().equals(ExceptionHotspots.BEHIND_4XX))
+                .singleElement()
+                .satisfies(counted -> assertThat(counted.sentence())
+                        .startsWith("1 exception group on 1 route was recorded only behind 4xx responses"));
+    }
+
+    /** Fewer than three requests are not a route that always fails: one rejected request is counted behind 4xx. */
+    @Test
+    void oneRejectedRequestIsCountedBehind4xxEvenWhenItIsTheRoutesOnlyOne() {
+        request(journal, "PUT", "/api/admin/users/{login}", 400, exception("email", "com.example.Taken"));
+
+        assertThat(byKind(service(InsightsStack.SPRING_MVC, null).report(), ExceptionHotspots.KIND))
+                .filteredOn(observation -> observation.subject().equals("PUT /api/admin/users/{login}"))
+                .singleElement()
+                .satisfies(
+                        observation -> assertThat(observation.unlistedReason()).isEqualTo(ExceptionHotspots.ONLY_4XX));
+    }
+
     /** A completed run's exception is listed when the previous run ran the same job without it. */
     @Test
     void anExceptionNewInACompletedScheduledRunIsListed() {
@@ -989,9 +1046,12 @@ class JournalFactObservationsTests {
         }
     }
 
+    /** The service, reading each kind's own listing rules apart from its external validation (M4-20). */
     private RuntimeInsightsService service(InsightsStack stack, RunSummary previous) {
-        return new RuntimeInsightsService(
+        RuntimeInsightsService service = new RuntimeInsightsService(
                 journal, null, null, stack, previous == null ? List::of : () -> List.of(previous));
+        service.assumeValidated();
+        return service;
     }
 
     private static List<RuntimeObservationDto> byKind(RuntimeInsightsReportDto report, String kind) {

@@ -334,6 +334,88 @@ describe('Side Effects panel', () => {
     expect(wrapper.text()).toContain('Process arguments are never recorded.')
   })
 
+  it('shows blocking rows by event loop, operation, and call site with how long they blocked', async () => {
+    const blockingRow = row({
+      sensor: 'blocking',
+      kind: 'sleep',
+      target: 'reactor-http-nio-{n}',
+      callSite: 'demo.SlowHandler#sleepOnEventLoop',
+      insideMethod: null,
+      count: 4,
+      failed: 1,
+      completed: 0,
+      nonZeroExits: 0,
+      lastExitStatus: null,
+      totalMillis: 800,
+      maxMillis: 250,
+      exemplarRequestIds: ['00000000000000cc']
+    })
+    let fetch
+    ;({wrapper, fetch} = mountPanel({
+      'api/side-effects/sensor?sensor=blocking&offset=0&limit=50': sensorReport('blocking', [blockingRow]),
+      'api/side-effects': summary({
+        sensors: {
+          blocking: {
+            state: 'recording',
+            rows: 1,
+            occurrences: 4,
+            hooks: [{id: 'LockSupport.park', type: 'java.util.concurrent.locks.LockSupport', transformed: true}]
+          }
+        }
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Blocking')
+      .trigger('click')
+    await flushPromises()
+
+    expect(fetch.mock.calls.map(([url]) => decodeURIComponent(String(url)))).toContain(
+      'api/side-effects/sensor?sensor=blocking&offset=0&limit=50'
+    )
+    const headers = wrapper.findAll('.side-effects-table thead th').map((th) => th.text())
+    expect(headers).toContain('Event loop / operation')
+    expect(headers).toContain('Blocked (total / max ms)')
+    expect(headers).not.toContain('Exits')
+    const cells = wrapper.findAll('.side-effects-table tbody tr td')
+    expect(cells).toHaveLength(headers.length)
+    const text = wrapper.get('.side-effects-table tbody tr').text()
+    expect(text).toContain('reactor-http-nio-{n}')
+    expect(text).toContain('sleep')
+    expect(text).toContain('demo.SlowHandler#sleepOnEventLoop')
+    expect(text).toContain('800 / 250')
+    expect(wrapper.findAll('.router-link-stub').map((link) => link.attributes('data-to'))).toContain(
+      JSON.stringify({path: '/activity', query: {request: '00000000000000cc'}})
+    )
+  })
+
+  it('says why blocking is not applicable on a stack without event loops', async () => {
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=blocking&offset=0&limit=50': sensorReport('blocking', []),
+      'api/side-effects': summary({
+        sensors: {
+          blocking: {
+            state: 'not-applicable',
+            reason:
+              'This application serves requests on Spring MVC, a thread per request: there is no event loop to block.'
+          }
+        }
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Blocking')
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.side-effects-state').text()).toBe('Not applicable')
+    expect(wrapper.get('.side-effects-state-note').text()).toContain('no event loop to block')
+    expect(wrapper.find('.side-effects-table').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('No blocking call has started')
+  })
+
   it('shows not-claimed sensors honestly with hook coverage', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects/sensor?sensor=network&offset=0&limit=50': sensorReport('network', [], {

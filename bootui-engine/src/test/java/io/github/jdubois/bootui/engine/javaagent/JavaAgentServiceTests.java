@@ -401,7 +401,8 @@ class JavaAgentServiceTests {
 
         assertThat(stub.requests.get(0))
                 .as("the default claim asks for the inventory sensor and the ring's capacity")
-                .containsEntry("sensors", List.of("executors", "inventory", "code-paths", "processes", "network"))
+                .containsEntry(
+                        "sensors", List.of("executors", "inventory", "code-paths", "processes", "network", "blocking"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat(report.sensors()).singleElement().satisfies(row -> {
             assertThat(row.id()).isEqualTo("inventory");
@@ -750,6 +751,51 @@ class JavaAgentServiceTests {
 
         assertThat(report.toggles().get(2).enabled()).isTrue();
         assertThat(report.toggles().get(2).overridden()).isTrue();
+        assertThat(report.toggles().get(2).state()).isEqualTo("failed");
+        assertThat(report.toggles().get(2).failure()).isEqualTo("The agent failed this switch: boom");
+
+        stub.sensorsAnswer = null;
+        JavaAgentReport off = service.switchSensor("environment", false);
+        assertThat(off.toggles().get(2).failure()).isNull();
+        assertThat(off.toggles().get(2).state()).isEqualTo("off");
+    }
+
+    @Test
+    void aSideEffectSensorThatFailedItsSelfTestInThisJvmCannotBeSwitchedBackOn() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> files = new LinkedHashMap<>();
+        files.put("id", "files");
+        files.put("state", "self-test-failed");
+        stub.sensors = List.of(files);
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(service.report().toggles().get(1)).satisfies(toggle -> {
+            assertThat(toggle.available()).isFalse();
+            assertThat(toggle.unavailableReason()).contains("until the JVM restarts");
+        });
+        assertThatThrownBy(() -> service.switchSensor("files", true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("failed its self-test");
+        assertThat(stub.ops()).doesNotContain("sensors");
+    }
+
+    @Test
+    void aSwitchedOnSideEffectSensorStillReleasedReadsInstalling() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> environment = new LinkedHashMap<>();
+        environment.put("id", "environment");
+        environment.put("state", "released");
+        stub.sensors = List.of(environment);
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(service.switchSensor("environment", true).toggles().get(2).state())
+                .isEqualTo("installing");
     }
 
     @Test

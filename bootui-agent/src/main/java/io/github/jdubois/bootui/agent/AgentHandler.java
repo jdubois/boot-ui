@@ -26,8 +26,8 @@ import java.util.function.Function;
  * it (PLAN-v2 M5-2, M5-3, M5-4a), as does a claim asking for a side-effect sensor such as {@code processes} (M5-5a, one
  * transformer for every side-effect hook, {@link SideEffectsSensor}), and a release removes it; a claim without a sensor installs nothing, unless
  * {@link AgentTestHook} enables the diagnostic probe. The {@code inventory} and {@code code-paths} sensors share one
- * transformer ({@link ApplicationMethodsSensor}) with the {@code caught-exceptions} sensor (M5-6a): a claim asking for
- * none of them removes it, since its advice on every
+ * transformer ({@link ApplicationMethodsSensor}) with the {@code caught-exceptions} sensor (M5-6a) and the {@code
+ * blocking} sensor's call-site visit (M5-5c): a claim asking for none of them removes it, since its advice on every
  * application method would otherwise stay for a claim that never reads it. A {@code method-probe} of the current armed
  * generation queues one method probe ({@link MethodProbeSensor}, PLAN-v2 M5-8) for the class loaders of the current run:
  * the context class loader chain of the thread that claimed or refined, held weakly. A {@code sensors} switch of the
@@ -117,7 +117,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 boolean inventory = claimedSensors.contains(CodeInventory.SENSOR);
                 boolean codePaths = claimedSensors.contains(CodePaths.SENSOR);
                 boolean caught = claimedSensors.contains(CaughtExceptions.SENSOR);
-                applicationMethodsClaimed = inventory || codePaths || caught;
+                // The blocking sensor's Thread.sleep and Object.wait call sites are rewritten in application classes.
+                boolean blocking = claimedSensors.contains(SideEffects.BLOCKING);
+                applicationMethodsClaimed = inventory || codePaths || caught || blocking;
                 if (applicationMethodsClaimed) {
                     applicationMethods()
                             .claimed(
@@ -126,7 +128,8 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                                     strings(request.get("beanClasses")),
                                     inventory,
                                     codePaths,
-                                    caught);
+                                    caught,
+                                    blocking);
                 } else if (applicationMethods != null) {
                     // Its advice would otherwise stay on every method for a claim that never reads it.
                     applicationMethods.release();
@@ -366,6 +369,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         }
         if (sideEffects != null) {
             for (Map<String, Object> row : sideEffects.status()) {
+                if (SideEffects.BLOCKING.equals(row.get("id")) && applicationMethods != null) {
+                    // Its call-site hooks are the application-methods transformer's visit.
+                    withCallSites(row, applicationMethods);
+                }
                 sensors.add(active(row));
             }
         }
@@ -373,6 +380,17 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         map.put("installer", installer == null ? null : installer.status());
         map.put("methodProbes", methodProbes == null ? null : methodProbes.status());
         return map;
+    }
+
+    /** Adds the blocking sensor's call-site hooks and their visit's status to its row. */
+    @SuppressWarnings("unchecked")
+    static void withCallSites(Map<String, Object> row, ApplicationMethodsSensor applicationMethods) {
+        Object hooks = row.get("hooks");
+        List<Object> merged =
+                hooks instanceof List ? new ArrayList<Object>((List<Object>) hooks) : new ArrayList<Object>();
+        merged.addAll(applicationMethods.blockingHooks());
+        row.put("hooks", merged);
+        row.putAll(applicationMethods.blockingCallSites());
     }
 
     /** Whether the armed claim enabled the sensor: a sensor an earlier claim installed may still be reported. */
