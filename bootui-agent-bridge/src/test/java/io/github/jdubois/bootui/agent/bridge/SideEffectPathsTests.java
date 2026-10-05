@@ -149,14 +149,19 @@ class SideEffectPathsTests {
         assertThat(found).containsExactly(99L, SideEffects.CONTEXT_CLASS_LOADING);
         assertThat(sightings.find(2L, 42L, found)).as("another generation").isEqualTo(SideEffects.Sightings.MISSING);
 
+        // Keys a multiple of SIZE apart share their home slot through the hash's low bits only by chance: fill one
+        // key's probe window directly instead.
+        SideEffects.Sightings crowded = new SideEffects.Sightings();
         int full = 0;
-        for (long key = 1; key < 100_000 && full == 0; key++) {
-            if (sightings.find(1L, key * 7919L, found) == SideEffects.Sightings.FULL) {
+        for (long key = 1; key < 1_000_000 && full == 0; key++) {
+            if (crowded.find(1L, key, found) == SideEffects.Sightings.FULL) {
                 full++;
             } else {
-                sightings.put(1L, key * 7919L, key, 0);
+                crowded.put(1L, key, key, 0);
             }
         }
-        assertThat(full).as("a full stripe reports FULL, never loops").isEqualTo(1);
+        assertThat(full).as("a full probe window reports FULL, never loops").isEqualTo(1);
+        sightings.clear();
+        assertThat(sightings.find(1L, 42L, found)).isEqualTo(SideEffects.Sightings.MISSING);
     }
 }

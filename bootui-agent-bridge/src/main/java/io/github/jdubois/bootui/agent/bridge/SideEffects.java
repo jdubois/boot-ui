@@ -12,7 +12,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
@@ -1280,27 +1282,32 @@ public final class SideEffects {
     }
 
     /**
-     * The generation's cache of frame summaries by {@code (hook, target, method)}: {@value #STRIPES} stripes of
-     * {@value #STRIPE} open-addressed entries, at most {@value #PROBES} probes, a stripe's lock held only to read or
-     * write it, cleared when the generation changes; full, it stores nothing more.
+     * The generation's cache of frame summaries by {@code (hook, target, method)}: {@value #SIZE} open-addressed entries,
+     * at most {@value #PROBES} probes, lock-free, as the bridge takes no monitor. A writer claims a free slot by
+     * compare-and-set to {@value #RESERVED}, writes the summary, then publishes the key; a reader skips a reserved slot.
+     * A new generation replaces the whole table; full, it stores nothing more.
      */
     static final class Sightings {
 
-        static final int STRIPES = 16;
-        static final int STRIPE = 256;
+        static final int SIZE = 4_096;
         static final int PROBES = 8;
+        static final long RESERVED = -1L;
 
         static final int FOUND = 1;
         static final int MISSING = 0;
         static final int FULL = -1;
 
-        private final long[] generations = new long[STRIPES];
-        private final long[][] keys = new long[STRIPES][STRIPE];
-        private final long[][] frames = new long[STRIPES][STRIPE];
-        private final int[][] contexts = new int[STRIPES][STRIPE];
+        private final AtomicReference<Table> table = new AtomicReference<Table>();
 
-        Sightings() {
-            java.util.Arrays.fill(generations, Long.MIN_VALUE);
+        static final class Table {
+            final long generation;
+            final AtomicLongArray keys = new AtomicLongArray(SIZE);
+            final AtomicLongArray frames = new AtomicLongArray(SIZE);
+            final AtomicIntegerArray contexts = new AtomicIntegerArray(SIZE);
+
+            Table(long generation) {
+                this.generation = generation;
+            }
         }
 
         private static int hash(long key) {
@@ -1308,59 +1315,64 @@ public final class SideEffects {
             return (int) (mixed ^ (mixed >>> 32));
         }
 
-        /** {@link #FOUND} with {@code out} filled, {@link #MISSING} with room to put, or {@link #FULL}. */
-        int find(long generation, long key, long[] out) {
-            int hash = hash(key);
-            int stripe = (hash >>> 28) & (STRIPES - 1);
-            synchronized (keys[stripe]) {
-                if (generations[stripe] != generation) {
-                    return MISSING;
+        private Table of(long generation, boolean create) {
+            while (true) {
+                Table current = table.get();
+                if (current != null && current.generation == generation) {
+                    return current;
                 }
-                long[] stripeKeys = keys[stripe];
-                for (int probe = 0; probe < PROBES; probe++) {
-                    int slot = (hash + probe) & (STRIPE - 1);
-                    long known = stripeKeys[slot];
-                    if (known == key) {
-                        out[0] = frames[stripe][slot];
-                        out[1] = contexts[stripe][slot];
-                        return FOUND;
-                    }
-                    if (known == 0L) {
-                        return MISSING;
-                    }
+                if (!create) {
+                    return null;
                 }
-                return FULL;
+                Table fresh = new Table(generation);
+                if (table.compareAndSet(current, fresh)) {
+                    return fresh;
+                }
             }
         }
 
-        void put(long generation, long key, long frame, int context) {
+        /** {@link #FOUND} with {@code out} filled, {@link #MISSING} with room to put, or {@link #FULL}. */
+        int find(long generation, long key, long[] out) {
+            Table current = of(generation, false);
+            if (current == null) {
+                return MISSING;
+            }
             int hash = hash(key);
-            int stripe = (hash >>> 28) & (STRIPES - 1);
-            synchronized (keys[stripe]) {
-                long[] stripeKeys = keys[stripe];
-                if (generations[stripe] != generation) {
-                    java.util.Arrays.fill(stripeKeys, 0L);
-                    generations[stripe] = generation;
+            for (int probe = 0; probe < PROBES; probe++) {
+                int slot = (hash + probe) & (SIZE - 1);
+                long known = current.keys.get(slot);
+                if (known == key) {
+                    out[0] = current.frames.get(slot);
+                    out[1] = current.contexts.get(slot);
+                    return FOUND;
                 }
-                for (int probe = 0; probe < PROBES; probe++) {
-                    int slot = (hash + probe) & (STRIPE - 1);
-                    if (stripeKeys[slot] == 0L || stripeKeys[slot] == key) {
-                        stripeKeys[slot] = key;
-                        frames[stripe][slot] = frame;
-                        contexts[stripe][slot] = context;
-                        return;
-                    }
+                if (known == 0L) {
+                    return MISSING;
+                }
+            }
+            return FULL;
+        }
+
+        void put(long generation, long key, long frame, int context) {
+            Table current = of(generation, true);
+            int hash = hash(key);
+            for (int probe = 0; probe < PROBES; probe++) {
+                int slot = (hash + probe) & (SIZE - 1);
+                long known = current.keys.get(slot);
+                if (known == key) {
+                    return;
+                }
+                if (known == 0L && current.keys.compareAndSet(slot, 0L, RESERVED)) {
+                    current.frames.set(slot, frame);
+                    current.contexts.set(slot, context);
+                    current.keys.set(slot, key);
+                    return;
                 }
             }
         }
 
         void clear() {
-            for (int i = 0; i < STRIPES; i++) {
-                synchronized (keys[i]) {
-                    java.util.Arrays.fill(keys[i], 0L);
-                    generations[i] = Long.MIN_VALUE;
-                }
-            }
+            table.set(null);
         }
     }
 
@@ -2348,24 +2360,27 @@ public final class SideEffects {
     /** Recomputes which sensors record, after any transition of the claim or a sensor. Never throws. */
     static void refresh() {
         try {
-            synchronized (GATE_LOCK) {
-                Claim claim = AgentBridge.current();
-                mask = claim != null && claim.armed && claim.generation == generation && !off
-                        ? claimedMask(claim) & enabled
-                        : 0;
-                updateGate();
-            }
+            Claim claim = AgentBridge.current();
+            mask = claim != null && claim.armed && claim.generation == generation && !off
+                    ? claimedMask(claim) & enabled
+                    : 0;
+            updateGate();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
     }
 
-    /** Held while {@link #mask}, the self-test's thread, and {@link #gate} change together. */
-    private static final Object GATE_LOCK = new Object();
-
-    /** Recomputes {@link #gate}; callers hold {@link #GATE_LOCK}. */
+    /**
+     * Recomputes {@link #gate} after {@link #mask} or the self-test's thread changed, without a monitor, which the
+     * bridge never takes: each writer writes the gate, then checks it against the state again and rewrites it when
+     * another writer changed the state meanwhile, so once every writer returns the gate matches the state.
+     */
     private static void updateGate() {
-        gate = mask | (selfTestThread != null ? -1 : 0);
+        int value;
+        do {
+            value = mask | (selfTestThread != null ? -1 : 0);
+            gate = value;
+        } while ((mask | (selfTestThread != null ? -1 : 0)) != value);
     }
 
     /** The agent enables the sensors of {@code bits} once their hooks passed their self-test. */
@@ -2472,18 +2487,14 @@ public final class SideEffects {
         for (int i = 0; i < SELF_TEST_HITS.length; i++) {
             SELF_TEST_HITS[i].reset();
         }
-        synchronized (GATE_LOCK) {
-            selfTestThread = Thread.currentThread();
-            updateGate();
-        }
+        selfTestThread = Thread.currentThread();
+        updateGate();
     }
 
     /** Ends the self-test: the hooks it ran, by hook id, with how often each fired. */
     public static Map<String, Object> endSelfTest() {
-        synchronized (GATE_LOCK) {
-            selfTestThread = null;
-            updateGate();
-        }
+        selfTestThread = null;
+        updateGate();
         Map<String, Object> hits = new LinkedHashMap<String, Object>();
         for (int i = 0; i < HOOKS.length; i++) {
             hits.put(HOOKS[i], Long.valueOf(SELF_TEST_HITS[i].sum()));
@@ -2504,10 +2515,8 @@ public final class SideEffects {
             if (errors >= MAX_ERRORS && !off) {
                 off = true;
                 offReason = "switched off after " + MAX_ERRORS + " internal errors, the last: " + ex;
-                synchronized (GATE_LOCK) {
-                    mask = 0;
-                    updateGate();
-                }
+                mask = 0;
+                updateGate();
                 AgentBridge.message("the side-effect sensors were " + offReason);
             }
         } catch (Throwable ignored) {
