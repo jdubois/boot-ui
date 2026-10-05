@@ -58,7 +58,8 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 - **Executors that are not beans keep no request link** without the BootUI agent: an executor an `AsyncConfigurer`
   creates without `@Bean`, a `FactoryBean`'s product, a `SimpleAsyncTaskScheduler`'s tasks, and a
   `VirtualThreadTaskExecutor`. The application's executor and scheduler beans, and a pool another executor bean wraps,
-  are followed (also on WebFlux). A task scheduled from inside another task belongs to no request.
+  are followed (also on WebFlux), including a task one of a request's tasks hands on to them. A periodic or cron task
+  belongs to the request that scheduled it on its first run only.
 - **CPU on virtual threads** is not read by the per-request scope readings; use the opt-in JFR attribution (**Profile
   resources**) for it.
 

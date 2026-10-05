@@ -103,35 +103,6 @@ class ManagedTasksTests {
     }
 
     @Test
-    void aScheduledFutureDecoratedWhileAPropagatedTaskRunsIsATriggerReschedulingAndBelongsToNoRequest()
-            throws Exception {
-        java.util.concurrent.ScheduledThreadPoolExecutor scheduler =
-                new java.util.concurrent.ScheduledThreadPoolExecutor(1);
-        try {
-            java.util.concurrent.RunnableScheduledFuture<?> next = (java.util.concurrent.RunnableScheduledFuture<?>)
-                    scheduler.schedule(() -> {}, 1, java.util.concurrent.TimeUnit.HOURS);
-            AtomicReference<Runnable> rescheduled = new AtomicReference<>();
-            Runnable task;
-            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
-                // What Spring's ReschedulingRunnable does at the end of each run: decorate its next future.
-                task = ManagedTasks.propagate(() -> rescheduled.set(ManagedTasks.propagate(next)));
-                assertThat(ManagedTasks.propagate(next))
-                        .as("scheduled from the request itself, the first run is the request's")
-                        .isNotSameAs(next);
-            }
-            Thread worker = new Thread(task);
-            worker.start();
-            worker.join();
-
-            assertThat(rescheduled.get())
-                    .as("the next cron run belongs to no request")
-                    .isSameAs(next);
-        } finally {
-            scheduler.shutdownNow();
-        }
-    }
-
-    @Test
     void aPlainTaskSubmittedFromAPropagatedTaskStillBelongsToTheRequest() throws Exception {
         AtomicReference<CorrelationContext> seen = new AtomicReference<>();
         AtomicReference<Runnable> inner = new AtomicReference<>();

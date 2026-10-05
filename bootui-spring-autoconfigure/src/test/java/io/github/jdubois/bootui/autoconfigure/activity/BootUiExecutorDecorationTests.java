@@ -120,6 +120,49 @@ class BootUiExecutorDecorationTests {
     }
 
     @Test
+    void aSchedulerSubmissionFromInsideARequestsAsyncTaskKeepsTheRequestPlainOrComposed() throws Exception {
+        for (boolean composed : new boolean[] {false, true}) {
+            ThreadPoolTaskExecutor async = pool();
+            ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+            scheduler.setPoolSize(2);
+            if (composed) {
+                scheduler.setTaskDecorator(runnable -> runnable);
+            }
+            BootUiExecutorDecoration.decorate(async);
+            BootUiExecutorDecoration.decorate(scheduler);
+            async.initialize();
+            scheduler.initialize();
+            try {
+                CompletableFuture<CorrelationContext> executed = new CompletableFuture<>();
+                CompletableFuture<CorrelationContext> scheduled = new CompletableFuture<>();
+                CompletableFuture<CorrelationContext> triggered = new CompletableFuture<>();
+                try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r7"))) {
+                    // An @Async method that hands work to the scheduler: run it now, retry it later, or start a
+                    // trigger.
+                    async.execute(() -> {
+                        scheduler.execute(() -> executed.complete(BootUiCorrelation.current()));
+                        scheduler.schedule(
+                                () -> scheduled.complete(BootUiCorrelation.current()),
+                                java.time.Instant.now().plusMillis(20));
+                        scheduler.schedule(
+                                () -> triggered.complete(BootUiCorrelation.current()),
+                                new org.springframework.scheduling.support.PeriodicTrigger(
+                                        java.time.Duration.ofHours(1)));
+                    });
+                }
+                for (CompletableFuture<CorrelationContext> seen : java.util.List.of(executed, scheduled, triggered)) {
+                    CorrelationContext task = seen.get(5, TimeUnit.SECONDS);
+                    assertThat(task.requestId()).as("composed: %s", composed).isEqualTo("r7");
+                    assertThat(task.executionId()).startsWith("task-");
+                }
+            } finally {
+                scheduler.shutdown();
+                async.shutdown();
+            }
+        }
+    }
+
+    @Test
     void bootsCompositeOfBootUisAndAnotherDecoratorComposedAgainPropagatesOnce() throws Exception {
         AtomicInteger executions = new AtomicInteger();
         TaskDecorator counting = runnable -> () -> {

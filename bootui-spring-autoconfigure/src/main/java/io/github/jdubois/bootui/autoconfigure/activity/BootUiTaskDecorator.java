@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
-import io.github.jdubois.bootui.engine.correlation.ManagedTasks;
 import org.springframework.core.Ordered;
 import org.springframework.core.task.TaskDecorator;
 
@@ -10,7 +9,8 @@ import org.springframework.core.task.TaskDecorator;
  * it. It propagates BootUI's correlation only, never another context, so an application's own behavior is unchanged.
  *
  * <p>Spring Boot composes every {@code TaskDecorator} bean in order, the first applied innermost. This one is first, so
- * it sits next to the task, as when it is composed inside the application's own, and sees a scheduler's raw future.
+ * it sits next to the task, as when it is composed inside the application's own, and sees a scheduler's raw future,
+ * which it needs to tell a trigger rescheduling itself ({@link SpringTaskPropagation}).
  */
 public final class BootUiTaskDecorator implements TaskDecorator, Ordered {
 
@@ -21,6 +21,6 @@ public final class BootUiTaskDecorator implements TaskDecorator, Ordered {
 
     @Override
     public Runnable decorate(Runnable runnable) {
-        return ManagedTasks.propagate(runnable);
+        return SpringTaskPropagation.propagate(runnable);
     }
 }

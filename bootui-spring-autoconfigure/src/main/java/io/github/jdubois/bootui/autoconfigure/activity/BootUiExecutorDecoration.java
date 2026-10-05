@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
-import io.github.jdubois.bootui.engine.correlation.ManagedTasks;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -195,7 +194,7 @@ public final class BootUiExecutorDecoration implements BeanPostProcessor, Priori
 
         @Override
         public Runnable decorate(Runnable runnable) {
-            return application.decorate(ManagedTasks.propagate(runnable));
+            return application.decorate(SpringTaskPropagation.propagate(runnable));
         }
 
         TaskDecorator application() {

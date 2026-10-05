@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -45,9 +44,6 @@ public final class ManagedTasks {
         return context == null ? BootUiCorrelation.openCleared() : BootUiCorrelation.open(context);
     }
 
-    /** Whether this thread is running a task {@link #propagate} wrapped, which a scheduler may reschedule from. */
-    private static final ThreadLocal<Boolean> RUNNING_TASK = new ThreadLocal<>();
-
     /**
      * {@code task}, run with the context of the thread submitting it now, as an execution of its request. Only its first
      * run is: a periodic task a scheduler decorates once and runs again and again belongs to the request that scheduled
@@ -56,15 +52,10 @@ public final class ManagedTasks {
      * caller-runs task, on the submitting thread itself, keeps the request's context.
      *
      * <p>A task already propagated is returned as it is, so two decorators carrying BootUI's, such as Spring Boot's
-     * composite of every decorator bean, propagate once. A scheduled future decorated while a propagated task runs is
-     * a trigger-based schedule rescheduling itself after its run, as Spring's {@code ReschedulingRunnable} does for a
-     * cron task: it is not propagated, so the next runs belong to no request.</p>
+     * composite of every decorator bean, propagate once.</p>
      */
     public static Runnable propagate(Runnable task) {
         if (task instanceof Propagated) {
-            return task;
-        }
-        if (task instanceof RunnableScheduledFuture<?> && Boolean.TRUE.equals(RUNNING_TASK.get())) {
             return task;
         }
         CorrelationContext context = taskContext(BootUiCorrelation.current());
@@ -98,16 +89,9 @@ public final class ManagedTasks {
             } else {
                 scope = BootUiCorrelation.open(context);
             }
-            Boolean outer = RUNNING_TASK.get();
-            RUNNING_TASK.set(Boolean.TRUE);
             try {
                 task.run();
             } finally {
-                if (outer == null) {
-                    RUNNING_TASK.remove();
-                } else {
-                    RUNNING_TASK.set(outer);
-                }
                 if (scope != null) {
                     scope.close();
                 }
