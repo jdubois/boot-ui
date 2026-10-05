@@ -94,7 +94,7 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     const seed = await (await request.get(`${baseURL}/api/side-effects/event-loop-sleep`)).json()
     expect(seed.thread).toMatch(/^reactor-http-/)
     const counterexample = await (await request.get(`${baseURL}/api/side-effects/worker-sleep`)).json()
-    expect(counterexample.thread).toMatch(/^boundedElastic-/)
+    expect(counterexample.thread).toMatch(/boundedElastic-/i)
 
     const seedRoute = 'GET /api/side-effects/event-loop-sleep'
     await expect

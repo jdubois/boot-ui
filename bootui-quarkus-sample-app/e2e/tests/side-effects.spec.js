@@ -43,7 +43,7 @@ test.describe('Side Effects view (Quarkus)', () => {
       )
       .toBe('recording')
     const report = await (await page.request.get('/bootui/api/side-effects')).json()
-    expect(report.sensors.find((sensor) => sensor.id === 'blocking').reason).toBe('Not available in this version.')
+    expect(report.sensors.find((sensor) => sensor.id === 'network').reason).toBe('Not available in this version.')
 
     expect((await page.request.get(`/api/side-effects/java-version`)).ok()).toBeTruthy()
     expect((await page.request.get(`/api/side-effects/runtime-version`)).ok()).toBeTruthy()

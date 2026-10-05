@@ -1072,8 +1072,10 @@ routes, and the Quarkus sample's `ScheduledJavaVersion`, when `side-effects-seed
 agent Playwright leg uses `20s`; it is off otherwise), starts `java -version` from a scheduled run, a row of that run
 (`scheduled …ScheduledJavaVersion#report`) with no request.
 
-The WebFlux and Quarkus samples also seed `GET /api/side-effects/event-loop-sleep`, which sleeps 50 ms on the event
-loop handling the request (`EventLoopSleeper#sleepOnEventLoop`), and its counterexample
+The WebFlux and Quarkus samples also seed `GET /api/side-effects/event-loop-sleep`, which sleeps 50 ms on an event loop
+(`EventLoopSleeper#sleepOnEventLoop`): on WebFlux in the `map` of a WebClient call to the sample's own greeting, on the
+Reactor Netty loop the response completed on; on Quarkus in a `@NonBlocking` endpoint, on its Vert.x loop. Its
+counterexample
 `GET /api/side-effects/worker-sleep`, the same sleep on a `boundedElastic` thread (WebFlux) or a Quarkus worker thread:
 with the agent, the first shows a `sleep` row on the event loop's family and the second none. The Spring MVC sample
 shows the Blocking tab `not-applicable`.
