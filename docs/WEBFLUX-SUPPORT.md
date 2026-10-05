@@ -21,6 +21,12 @@ reports, including the view-only **Java Agent** and **Code Inventory** panels an
 unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
+**R2DBC statements are not recorded** (D39). BootUI records SQL through a traced JDBC `DataSource`, so an application
+that reaches its database through R2DBC shows no statements, connections, or SQL timings in the runtime journal: the
+SQL Trace panel stays empty, Runtime Insights names this first among its limitations, and its checks that read SQL
+report `UNAVAILABLE` rather than finding nothing. An application with both a traced JDBC pool and R2DBC sees only its
+JDBC statements counted. R2DBC capture is planned after 2.0, with the other non-JDBC data stores.
+
 **MySQL uses the same shared controller/report on MVC and WebFlux** when the application has a supported **JDBC**
 datasource. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested lines, with 8.4.6 and 9.7.2 live coverage using
 Connector/J 9.7.0 and HikariCP 7.0.2. R2DBC-only applications are outside this scope; MariaDB reached through MySQL

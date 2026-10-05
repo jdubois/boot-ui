@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Carries a request's correlation into the tasks it hands to a framework-managed executor ({@code docs/PLAN-v2.md} D30,
@@ -43,14 +44,51 @@ public final class ManagedTasks {
         return context == null ? BootUiCorrelation.openCleared() : BootUiCorrelation.open(context);
     }
 
-    /** {@code task}, run with the context of the thread submitting it now, as an execution of its request. */
+    /**
+     * {@code task}, run with the context of the thread submitting it now, as an execution of its request. Only its first
+     * run is: a periodic task a scheduler decorates once and runs again and again belongs to the request that scheduled
+     * it once, not on every later run, which runs with no request. A task run on another thread is always its own
+     * execution, even when an application decorator composed around it already restored the request there; only a
+     * caller-runs task, on the submitting thread itself, keeps the request's context.
+     *
+     * <p>A task already propagated is returned as it is, so two decorators carrying BootUI's, such as Spring Boot's
+     * composite of every decorator bean, propagate once.</p>
+     */
     public static Runnable propagate(Runnable task) {
+        if (task instanceof Propagated) {
+            return task;
+        }
         CorrelationContext context = taskContext(BootUiCorrelation.current());
         if (task == null || context == null) {
             return task;
         }
-        return () -> {
-            BootUiCorrelation.Scope scope = open(context);
+        return new Propagated(task, context, Thread.currentThread());
+    }
+
+    /** A task {@link #propagate} wrapped, so it is never wrapped twice. */
+    private static final class Propagated implements Runnable {
+
+        private final Runnable task;
+        private final CorrelationContext context;
+        private final Thread submitter;
+        private final AtomicBoolean first = new AtomicBoolean(true);
+
+        private Propagated(Runnable task, CorrelationContext context, Thread submitter) {
+            this.task = task;
+            this.context = context;
+            this.submitter = submitter;
+        }
+
+        @Override
+        public void run() {
+            BootUiCorrelation.Scope scope;
+            if (!first.getAndSet(false)) {
+                scope = open(null);
+            } else if (Thread.currentThread() == submitter) {
+                scope = open(context);
+            } else {
+                scope = BootUiCorrelation.open(context);
+            }
             try {
                 task.run();
             } finally {
@@ -58,6 +96,6 @@ public final class ManagedTasks {
                     scope.close();
                 }
             }
-        };
+        }
     }
 }

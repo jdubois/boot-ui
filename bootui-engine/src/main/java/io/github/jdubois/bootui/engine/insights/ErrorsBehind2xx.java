@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceVocabulary;
+import io.github.jdubois.bootui.engine.journal.AsyncHandoffPayload;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.FaultTolerancePayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -20,9 +22,19 @@ import java.util.Set;
 
 /**
  * {@code errors-behind-2xx} ({@code docs/PLAN-v2.md} §5.5): 2xx responses whose own request rolled back its root
- * transaction, recorded an exception, wrote an {@code ERROR} log, or received a failed downstream call, strongest
- * evidence first. Matching exceptions a retry or fallback recovered are reported apart; one request can belong to
- * both groups.
+ * transaction, recorded an exception, had a task fail, wrote an {@code ERROR} log, or received a failed downstream call,
+ * strongest evidence first. Matching exceptions a retry or fallback recovered are reported apart; one request can belong
+ * to both groups.
+ *
+ * <p>A request's tasks are the work it handed to a framework-managed executor ({@code task-} executions, M4-15, M4-22)
+ * or that the BootUI agent propagated ({@code async-}, M5-2). Their failures are reported as the task's, never as the
+ * request thread's: an exception, an {@code ERROR} log, a {@code WARN} log carrying an exception, which is how a task
+ * such as JHipster's {@code @Async} mail sender reports what it swallowed, or a task the agent saw fail after the
+ * response had started. A failed task the request waited for and could have handled, such as a joined
+ * {@code CompletableFuture}, is not counted from the agent's outcome alone.</p>
+ *
+ * <p>On Quarkus, a {@code ManagedExecutor} task that runs where its request's context is already current keeps the
+ * request's execution, so its failures count as the request's own exception or {@code ERROR} log.</p>
  */
 public final class ErrorsBehind2xx implements Observation {
 
@@ -32,6 +44,7 @@ public final class ErrorsBehind2xx implements Observation {
     enum Evidence {
         ROLLED_BACK("whose transaction rolled back", "rolled-back transaction"),
         EXCEPTION("that recorded an exception", "exception"),
+        TASK_FAILURE("whose own task failed", "task failure"),
         ERROR_LOG("that wrote an ERROR log", "ERROR log"),
         DOWNSTREAM("that received a 5xx or failed downstream call", "downstream 5xx or failure");
 
@@ -81,6 +94,17 @@ public final class ErrorsBehind2xx implements Observation {
                 JournalSource.FAULT_TOLERANCE);
     }
 
+    /** The agent's task outcomes are read only when the agent records them, so a run without it names no gap. */
+    @Override
+    public Set<JournalSource> optionalReads(InsightsSnapshot snapshot) {
+        if (!snapshot.records(JournalSource.AGENT_EXECUTORS)) {
+            return optionalReads();
+        }
+        Set<JournalSource> sources = EnumSet.copyOf(optionalReads());
+        sources.add(JournalSource.AGENT_EXECUTORS);
+        return sources;
+    }
+
     @Override
     public String notApplicable(InsightsSnapshot snapshot) {
         for (JournalSource source : List.of(
@@ -128,7 +152,8 @@ public final class ErrorsBehind2xx implements Observation {
                 JournalSource.EXCEPTION,
                 JournalSource.LOG,
                 JournalSource.REST_CLIENT,
-                JournalSource.FAULT_TOLERANCE)) {
+                JournalSource.FAULT_TOLERANCE,
+                JournalSource.AGENT_EXECUTORS)) {
             if (snapshot.records(source) && snapshot.visible(source)) {
                 readable.add(source);
             }
@@ -144,12 +169,37 @@ public final class ErrorsBehind2xx implements Observation {
         Map<Evidence, List<String>> evidence = new EnumMap<>(Evidence.class);
         Map<Evidence, List<String>> recovered = new EnumMap<>(Evidence.class);
         Set<Integer> recoveredExceptions = recoveredExceptions(request, readable);
+        // By execution, as recovery is matched on one thread: a retry in one task never excuses another's warning.
+        Map<String, Set<String>> recoveredClasses = new java.util.HashMap<>();
+        for (int index : recoveredExceptions) {
+            RuntimeEvent recoveredEvent = request.children().get(index);
+            if (recoveredEvent.payload() instanceof ExceptionPayload exception) {
+                recoveredClasses
+                        .computeIfAbsent(String.valueOf(recoveredEvent.executionId()), id -> new java.util.HashSet<>())
+                        .add(InsightText.simpleName(exception.exceptionClass()));
+            }
+        }
         for (int i = 0; i < request.children().size(); i++) {
             RuntimeEvent event = request.children().get(i);
             if (!readable.contains(event.source())) {
                 continue;
             }
             Object payload = event.payload();
+            boolean task = ExecutionIds.isTask(event.executionId()) || ExecutionIds.isAsync(event.executionId());
+            if (task && !recoveredExceptions.contains(i)) {
+                String failure = taskFailure(payload);
+                // A task's WARN log of an exception a retry or fallback then recovered is that retry, not a failure.
+                boolean recoveredWarning = failure != null
+                        && payload instanceof LogPayload log
+                        && "WARN".equalsIgnoreCase(log.level())
+                        && recoveredClasses
+                                .getOrDefault(String.valueOf(event.executionId()), Set.of())
+                                .contains(failure);
+                if (failure != null && !recoveredWarning) {
+                    add(evidence, Evidence.TASK_FAILURE, failure);
+                    continue;
+                }
+            }
             if (payload instanceof TransactionPayload transaction) {
                 if (transaction.rolledBack() && !transaction.nested()) {
                     add(
@@ -180,6 +230,46 @@ public final class ErrorsBehind2xx implements Observation {
             groups.add(new Behind(request, recovered, true));
         }
         return groups;
+    }
+
+    /**
+     * What failed in one of the request's tasks, or {@code null} when {@code payload} is not a failure: an exception, an
+     * {@code ERROR} log, a {@code WARN} log carrying an exception, or a task the agent saw fail after the response. A {@code WARN} log without
+     * an exception is a warning, not a failure.
+     */
+    private static String taskFailure(Object payload) {
+        if (payload instanceof ExceptionPayload exception) {
+            return InsightText.simpleName(exception.exceptionClass());
+        }
+        if (payload instanceof LogPayload log) {
+            if ("ERROR".equalsIgnoreCase(log.level())) {
+                return log.exceptionClass() != null
+                        ? InsightText.simpleName(log.exceptionClass())
+                        : log.logger() == null ? "?" : log.logger();
+            }
+            if ("WARN".equalsIgnoreCase(log.level()) && log.exceptionClass() != null) {
+                return InsightText.simpleName(log.exceptionClass());
+            }
+            return null;
+        }
+        if (payload instanceof AsyncHandoffPayload handoff && handoff.failed() && failedAfterResponse(handoff)) {
+            return handoff.exceptionClass() == null ? "task" : InsightText.simpleName(handoff.exceptionClass());
+        }
+        return null;
+    }
+
+    /**
+     * Whether a failed task the agent followed failed once its request's response had started, so the request could not
+     * have handled it: its confirmed failure time first, then its body's, then its run's.
+     */
+    private static boolean failedAfterResponse(AsyncHandoffPayload handoff) {
+        if (handoff.failureAfterResponse() != null) {
+            return handoff.failureAfterResponse();
+        }
+        if (handoff.bodyAfterResponse() != null) {
+            return handoff.bodyAfterResponse();
+        }
+        return Boolean.TRUE.equals(handoff.afterResponse());
     }
 
     private static Set<Integer> recoveredExceptions(ProjectedRequest request, Set<JournalSource> readable) {
@@ -280,6 +370,10 @@ public final class ErrorsBehind2xx implements Observation {
             checks.add("Verify the fallback contract: should the caller know that it received a fallback?");
         } else {
             checks.add("Verify the response contract: should the caller learn that part of this request failed?");
+            if (counts.containsKey(Evidence.TASK_FAILURE)) {
+                checks.add("A task this request handed to another thread failed: verify its failure is handled,"
+                        + " retried or alerted, or that the response does not promise what the task was to do.");
+            }
             if (counts.containsKey(Evidence.ROLLED_BACK)) {
                 checks.add("If the transaction rolled back, the response may describe data that was never saved.");
             }
@@ -301,13 +395,16 @@ public final class ErrorsBehind2xx implements Observation {
                                 b.describe()))
                         .toList(),
                 List.of(
-                        "Only work that carries the request's id is counted; work handed to another thread without"
-                                + " BootUI's correlation is not.",
+                        "Only work that carries the request's id is counted: its own thread's, and its tasks' on"
+                                + " executors BootUI decorates or the BootUI agent follows; work handed to another"
+                                + " thread without BootUI's correlation is not.",
                         "Recovery matches at most one earlier exception of the reported failure class on the same"
                                 + " thread per failed attempt, and requires a terminal success for the same policy,"
                                 + " type, and target, or a successful fallback. It is not causal proof.",
                         "Logs, downstream failures, and root rollbacks are never inferred recovered. Providers that"
-                                + " report no terminal success or fallback cannot establish recovery."));
+                                + " report no terminal success or fallback cannot establish recovery.",
+                        "A task's exception is counted whatever level it was logged at, since a recorded exception"
+                                + " does not keep its log level."));
     }
 
     /** One 2xx request and the errors it recorded. */

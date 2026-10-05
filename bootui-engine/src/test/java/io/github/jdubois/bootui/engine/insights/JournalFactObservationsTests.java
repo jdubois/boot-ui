@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AsyncHandoffPayload;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.FaultTolerancePayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -393,6 +395,188 @@ class JournalFactObservationsTests {
                         category,
                         "RETRY".equals(outcome) || "RETRY_EXHAUSTED".equals(outcome),
                         true));
+    }
+
+    @Test
+    void errorsBehind2xxReportsTheFailureOfARequestsOwnTaskAsTheTasksJHipsterShaped() {
+        // JHipster's MailService: an @Async task catches the MailException and logs it at WARN with the exception,
+        // which
+        // BootUI records twice, as a log event and as an exception, both on the request's task.
+        String register = "/api/register";
+        request(
+                journal,
+                "POST",
+                register,
+                201,
+                child(
+                                JournalSource.LOG,
+                                new LogPayload(
+                                        "io.github.jhipster.sample.service.MailService",
+                                        "WARN",
+                                        "Email could not be sent to user '{}'",
+                                        "org.springframework.mail.MailSendException"))
+                        .inTask("1"),
+                exception("mail", "org.springframework.mail.MailSendException").inTask("1"));
+        // Counterexamples: a task's WARN without an exception, a WARN with an exception on the request's own thread,
+        // and a task failure behind a 4xx.
+        request(
+                journal,
+                "POST",
+                register,
+                201,
+                child(JournalSource.LOG, new LogPayload("MailService", "WARN", "Mail server slow", null))
+                        .inTask("2"),
+                child(
+                        JournalSource.LOG,
+                        new LogPayload("AccountResource", "WARN", "Login already used", "LoginAlreadyUsedException")));
+        request(
+                journal,
+                "POST",
+                register,
+                400,
+                exception("mail", "org.springframework.mail.MailSendException").inTask("3"));
+
+        List<RuntimeObservationDto> found = byKind(service(null, null).report(), ErrorsBehind2xx.KIND);
+
+        assertThat(found).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("POST " + register);
+            assertThat(observation.sentence())
+                    .isEqualTo("`POST " + register + "` answered 2xx in 1 of 2 successful requests: 1 request whose"
+                            + " own task failed.");
+            assertThat(observation.exemplarRequestIds()).containsExactly("r1");
+            assertThat(observation.whatToCheck())
+                    .anySatisfy(check -> assertThat(check).contains("handed to another thread failed"));
+        });
+    }
+
+    @Test
+    void errorsBehind2xxCountsATaskTheAgentSawFailAndNotARetriedTasksWarning() {
+        request(
+                "/api/orders/{id}",
+                200,
+                child(
+                                JournalSource.AGENT_EXECUTORS,
+                                new AsyncHandoffPayload(
+                                        "async-1",
+                                        null,
+                                        "FutureTask",
+                                        "ThreadPoolExecutor.runWorker",
+                                        1_000,
+                                        0,
+                                        null,
+                                        true,
+                                        "java.io.UncheckedIOException",
+                                        true,
+                                        10L,
+                                        false))
+                        .inAsync("1"));
+        // Counterexample: a task that logs the exception it then retries successfully.
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException").inTask("2"),
+                child(
+                                JournalSource.LOG,
+                                new LogPayload("Pricing", "WARN", "retrying", "java.lang.IllegalArgumentException"))
+                        .inTask("2"),
+                child(
+                                JournalSource.FAULT_TOLERANCE,
+                                new FaultTolerancePayload(
+                                        "pricing",
+                                        "RETRY",
+                                        "Pricing.lookup",
+                                        "RETRY",
+                                        1,
+                                        null,
+                                        "IllegalArgumentException",
+                                        true,
+                                        true))
+                        .inTask("2"),
+                child(
+                                JournalSource.FAULT_TOLERANCE,
+                                new FaultTolerancePayload(
+                                        "pricing", "RETRY", "Pricing.lookup", "SUCCESS", 2, null, null, false, true))
+                        .inTask("2"));
+
+        // Counterexample: a failed task the request joined and handled before its response.
+        request(
+                "/api/orders/{id}",
+                200,
+                child(
+                                JournalSource.AGENT_EXECUTORS,
+                                new AsyncHandoffPayload(
+                                        "async-3",
+                                        null,
+                                        "CompletableFuture$AsyncSupply",
+                                        "ThreadPoolExecutor.runWorker",
+                                        1_000,
+                                        0,
+                                        null,
+                                        true,
+                                        "java.io.UncheckedIOException",
+                                        false,
+                                        null,
+                                        false))
+                        .inAsync("3"));
+        // A warning in one task is not excused by a retry another task recovered.
+        request(
+                "/api/orders/{id}",
+                200,
+                exception("pricing", "java.lang.IllegalArgumentException").inTask("4"),
+                child(
+                                JournalSource.FAULT_TOLERANCE,
+                                new FaultTolerancePayload(
+                                        "pricing",
+                                        "RETRY",
+                                        "Pricing.lookup",
+                                        "RETRY",
+                                        1,
+                                        null,
+                                        "IllegalArgumentException",
+                                        true,
+                                        true))
+                        .inTask("4"),
+                child(
+                                JournalSource.FAULT_TOLERANCE,
+                                new FaultTolerancePayload(
+                                        "pricing", "RETRY", "Pricing.lookup", "SUCCESS", 2, null, null, false, true))
+                        .inTask("4"),
+                child(
+                                JournalSource.LOG,
+                                new LogPayload("Pricing", "WARN", "gave up", "java.lang.IllegalArgumentException"))
+                        .inTask("5"));
+
+        Map<String, RuntimeObservationDto> found = byKind(service(null, null).report(), ErrorsBehind2xx.KIND).stream()
+                .collect(Collectors.toMap(RuntimeObservationDto::id, Function.identity()));
+
+        RuntimeObservationDto unrecovered =
+                found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":unrecovered"));
+        assertThat(unrecovered.sentence()).endsWith("in 2 of 4 successful requests: 2 requests whose own task failed.");
+        assertThat(unrecovered.exemplarRequestIds()).containsExactly("r1", "r4");
+        assertThat(found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":recovered"))
+                        .exemplarRequestIds())
+                .as("the retried tasks' exceptions are recovered, and the retrying task's warning is not a failure")
+                .containsExactly("r2", "r4");
+    }
+
+    @Test
+    void whatTheJournalCannotRecordComesFirstAmongTheReportsLimitations() {
+        request("/api/orders/{id}", 200);
+        RuntimeInsightsService insights = service(null, null);
+        insights.setSqlCapture(() -> SqlCapture.notRecorded(SqlCapture.R2DBC_ONLY));
+        insights.setUnrecordedWork(UnrecordedWork.detect(UnrecordedWork.KAFKA_STREAMS_CLASS::equals));
+        assertThat(UnrecordedWork.present(String.class.getName(), getClass().getClassLoader()))
+                .isTrue();
+        assertThat(UnrecordedWork.present("com.example.Missing", getClass().getClassLoader()))
+                .isFalse();
+
+        assertThat(insights.report().limitations()).startsWith(SqlCapture.R2DBC_ONLY, UnrecordedWork.KAFKA_STREAMS);
+
+        insights.setSqlCapture(() -> SqlCapture.notRecorded(SqlCapture.NOT_RECORDED));
+        insights.setUnrecordedWork(UnrecordedWork.detect(new ClassLoader(null) {}));
+        assertThat(insights.report().limitations())
+                .as("an application without a database or Kafka Streams gets neither line")
+                .doesNotContain(SqlCapture.NOT_RECORDED, UnrecordedWork.KAFKA_STREAMS);
     }
 
     @Test
@@ -785,11 +969,22 @@ class JournalFactObservationsTests {
     }
 
     private void request(RuntimeJournal target, String template, int status, Child... children) {
+        request(target, "GET", template, status, children);
+    }
+
+    private void request(RuntimeJournal target, String method, String template, int status, Child... children) {
         String requestId = "r" + (++requests);
         CorrelationContext context = CorrelationContext.forRequest(requestId);
         for (Child child : children) {
             target.offer(RuntimeEvent.of(
-                    child.source(), 1_000, child.nanos(), context, "loop-1", child.kind(), false, child.payload()));
+                    child.source(),
+                    1_000,
+                    child.nanos(),
+                    child.executionId() == null ? context : context.withExecutionId(child.executionId()),
+                    child.executionId() == null ? "loop-1" : "task-1",
+                    child.kind(),
+                    false,
+                    child.payload()));
         }
         target.offer(RuntimeEvent.of(
                 JournalSource.HTTP,
@@ -799,7 +994,7 @@ class JournalFactObservationsTests {
                 "loop-1",
                 null,
                 false,
-                new HttpPayload("GET", template.replace("{id}", "42"), template, null, status)));
+                new HttpPayload(method, template.replace("{id}", "42"), template, null, status)));
         try {
             assertThat(target.awaitDrained(Duration.ofSeconds(5))).isTrue();
         } catch (InterruptedException ex) {
@@ -813,5 +1008,21 @@ class JournalFactObservationsTests {
                 new RuntimeJournalSettings(true, 10_000, 50_000_000, 10_000, 10, 10, sources), RunIdentity.start());
     }
 
-    private record Child(JournalSource source, long nanos, ThreadKind kind, RuntimeEventPayload payload) {}
+    private record Child(
+            JournalSource source, long nanos, ThreadKind kind, RuntimeEventPayload payload, String executionId) {
+
+        Child(JournalSource source, long nanos, ThreadKind kind, RuntimeEventPayload payload) {
+            this(source, nanos, kind, payload, null);
+        }
+
+        /** This event, recorded by a task the request handed to a managed executor. */
+        Child inTask(String taskId) {
+            return new Child(source, nanos, kind, payload, ExecutionIds.TASK_PREFIX + taskId);
+        }
+
+        /** This event, recorded by a task the BootUI agent propagated. */
+        Child inAsync(String taskId) {
+            return new Child(source, nanos, kind, payload, ExecutionIds.ASYNC_PREFIX + taskId);
+        }
+    }
 }

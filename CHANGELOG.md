@@ -9,6 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
+  `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
+  executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of
+  that request: BootUI's task decorator is set where there is none and composed inside the application's where there is
+  one, never replacing it. `errors-behind-2xx` reports a 2xx whose own task failed (an exception, an `ERROR` log, a
+  `WARN` log carrying an exception, or a task the BootUI agent saw fail after the response, not one the request joined),
+  such as a swallowed activation-email failure behind a `201`. A periodic or cron task scheduled during a request
+  belongs to it on its first run only, and a task is propagated once even under Spring Boot's composite of task
+  decorators. Runtime Insights names first among its limitations what the journal cannot record: R2DBC statements on
+  Spring (also stated up front in the WebFlux documentation), and Kafka Streams processing when Kafka Streams is on the
+  classpath, on Spring MVC, Spring WebFlux, and Quarkus. No new observation kind ([Runtime
+  Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-22).
 - **Known limitations of 2.0.** A [Known limitations](docs/KNOWN-LIMITATIONS.md) page lists what 2.0 does not do, per
   stack (R2DBC statements not recorded on WebFlux, no transaction capture on Quarkus, and the panels each stack lacks),
   the BootUI Java agent's shipped and still-planned scope, and the overhead budget. The validation report gains a
