@@ -157,7 +157,7 @@ under both versions.
     `GET /api/records`), and one `framework-warnings-by-route` row per failed `GET /api/records`, because Quarkus's
     message carries a per-request error id. That grouping is a real bug, fixed before the rerun in its own engine
     change.
-  
+
   Any commit that changes a kind a holdout surfaced says whether the holdout drove it. Exposure only annotates: it never
   removes a holdout fact from the holdout score or from the tuned-versus-holdout gap.
 
