@@ -48,7 +48,8 @@ const STATE = {
   disabled: {label: 'Disabled', badge: 'text-bg-secondary'},
   'not-claimed': {label: 'Not claimed', badge: 'text-bg-warning'},
   unavailable: {label: 'Unavailable', badge: 'text-bg-warning'},
-  'not-available': {label: 'Not available', badge: 'text-bg-secondary'}
+  'not-available': {label: 'Not available', badge: 'text-bg-secondary'},
+  'not-applicable': {label: 'Not applicable', badge: 'text-bg-secondary'}
 }
 
 const SCOPE_LABELS = {
@@ -93,14 +94,22 @@ const SENSOR_COLUMNS = {
   processes: {target: 'Command', count: 'Starts', failed: true, exits: true, time: 'Lifetime (total / max ms)'},
   network: {target: 'Host / name', count: 'Count', failed: true, network: true, time: 'Time (total / max ms)'},
   files: {target: 'Path pattern', count: 'Operations', failed: true, origin: true, time: 'Time (total / max ms)'},
-  environment: {target: 'Name', count: 'Reads', origin: true}
+  environment: {target: 'Name', count: 'Reads', origin: true},
+  blocking: {
+    target: 'Event loop / operation',
+    count: 'Calls',
+    failed: true,
+    failedLabel: 'Interrupted or failed',
+    time: 'Blocked (total / max ms)'
+  }
 }
 
 const EMPTY_TEXT = {
   processes: 'No process started yet in this run.',
   network: 'No connection, datagram, or name lookup recorded yet in this run.',
   files: 'No file has been opened yet in this run.',
-  environment: 'No environment variable or system property has been read yet in this run.'
+  environment: 'No environment variable or system property has been read yet in this run.',
+  blocking: 'No blocking call has started on an event loop yet in this run.'
 }
 
 const summary = ref(null)
@@ -416,7 +425,8 @@ function hookStatus(value, label) {
           <p class="text-muted small mb-0">
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
             executable name, network rows a host and port, file rows a path pattern, and environment rows a name:
-            arguments, bytes sent or received, file contents, and values are never recorded.
+            arguments, bytes sent or received, file contents, and values are never recorded. Blocking rows show calls
+            that blocked an event loop, reported, never refused.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>
@@ -546,7 +556,9 @@ function hookStatus(value, label) {
                           <th scope="col">Call site</th>
                           <th v-if="columnsOf(sensor).origin" scope="col">Origin</th>
                           <th scope="col" class="text-end">{{ columnsOf(sensor).count }}</th>
-                          <th v-if="columnsOf(sensor).failed" scope="col" class="text-end">Failed</th>
+                          <th v-if="columnsOf(sensor).failed" scope="col" class="text-end">
+                            {{ columnsOf(sensor).failedLabel || 'Failed' }}
+                          </th>
                           <th v-if="columnsOf(sensor).exits" scope="col" class="text-end">Exits</th>
                           <th v-if="columnsOf(sensor).network" scope="col" class="text-end">Connected</th>
                           <th v-if="columnsOf(sensor).time" scope="col" class="text-end">

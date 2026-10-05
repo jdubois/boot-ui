@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusThreadKinds;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.vertx.http.runtime.filters.Filters;
@@ -126,6 +127,8 @@ public class QuarkusHttpExchangeCaptureFilter {
     }
 
     void handle(RoutingContext rc) {
+        // Routed on a Vert.x event loop: the agent's blocking sensor watches it (M5-5c).
+        QuarkusThreadKinds.registerIfEventLoop();
         CorrelationContext correlation = null;
         try {
             correlation = correlate(rc);

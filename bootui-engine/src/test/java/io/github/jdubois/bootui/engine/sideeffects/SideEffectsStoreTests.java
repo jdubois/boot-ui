@@ -50,6 +50,65 @@ class SideEffectsStoreTests {
     }
 
     @Test
+    void blockingRowsCountInterruptedCallsAsFailedAndAddUpHowLongTheyBlocked() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        int[][] calls = {
+            {SideEffectsCatalog.KIND_SLEEP, SideEffectsCatalog.OUTCOME_RETURNED, 20},
+            {SideEffectsCatalog.KIND_SLEEP, SideEffectsCatalog.OUTCOME_INTERRUPTED, 5},
+            {SideEffectsCatalog.KIND_BLOCKING_NETWORK, SideEffectsCatalog.OUTCOME_ERROR, 7}
+        };
+        for (int[] call : calls) {
+            store.add(new SideEffectsStore.Observation(
+                    new SideEffectRecord(
+                            SideEffectsCatalog.RECORD_BLOCKING,
+                            call[0],
+                            1L,
+                            NOW,
+                            NOW,
+                            0L,
+                            0L,
+                            0L,
+                            1,
+                            call[1],
+                            1,
+                            0,
+                            0,
+                            0,
+                            1L,
+                            call[2] * 1_000_000L,
+                            call[2] * 1_000_000L,
+                            0,
+                            0),
+                    "blocking",
+                    SideEffectsCatalog.kind(SideEffectsCatalog.RECORD_BLOCKING, call[0]),
+                    "reactor-http-nio-{n}",
+                    "com.example.Handler#handle",
+                    null,
+                    "reactor-http-nio-{n}"));
+        }
+
+        List<SideEffectsRowDto> rows = store.rows("blocking", true, true);
+
+        assertThat(rows).extracting(SideEffectsRowDto::kind).containsExactlyInAnyOrder("sleep", "network");
+        SideEffectsRowDto sleep = rows.stream()
+                .filter(row -> row.kind().equals("sleep"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(sleep.count()).isEqualTo(2L);
+        assertThat(sleep.failed()).as("the interrupted sleep").isEqualTo(1L);
+        assertThat(sleep.completed()).as("never a process exit").isZero();
+        assertThat(sleep.totalMillis()).isEqualTo(25L);
+        assertThat(sleep.maxMillis()).isEqualTo(20L);
+        SideEffectsRowDto network = rows.stream()
+                .filter(row -> row.kind().equals("network"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(network.failed()).isEqualTo(1L);
+        assertThat(SideEffectsCatalog.kind(SideEffectsCatalog.RECORD_BLOCKING, SideEffectsCatalog.KIND_BLOCKING_FILE))
+                .isEqualTo("file");
+    }
+
+    @Test
     void waitingObservationsAreBoundedAndDroppedPastTheBound() {
         SideEffectsStore store = new SideEffectsStore(0L);
         for (int i = 0; i < SideEffectsStore.MAX_PENDING + 3; i++) {

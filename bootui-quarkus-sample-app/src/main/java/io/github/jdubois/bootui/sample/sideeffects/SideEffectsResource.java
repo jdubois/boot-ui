@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.sample.sideeffects;
 
 import io.github.jdubois.bootui.sample.restclient.SampleApiClient;
+import io.smallrye.common.annotation.Blocking;
+import io.smallrye.common.annotation.NonBlocking;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -20,6 +22,9 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
  * M5-5d: {@code GET /api/side-effects/report} writes a report in the working directory, outside the temporary directory,
  * and reads a system property ({@link ReportWriter}); its counterexamples {@code /scratch} and {@code /log} write a
  * temporary file and a JDK logging handler's file.
+ * M5-5c: {@code GET /api/side-effects/event-loop-sleep}, {@link NonBlocking}, sleeps on the Vert.x event loop handling
+ * the request, a blocking call the Blocking tab reports; its counterexample {@code GET /api/side-effects/worker-sleep}
+ * makes the same sleep on a worker thread, which it never reports.
  */
 @Path("/api/side-effects")
 @Produces(MediaType.APPLICATION_JSON)
@@ -28,14 +33,17 @@ public class SideEffectsResource {
     private final JavaVersionReporter reporter;
     private final LicenseSdkClient licenses;
     private final ReportWriter reports;
+    private final EventLoopSleeper sleeper;
 
     @RestClient
     SampleApiClient apiClient;
 
-    public SideEffectsResource(JavaVersionReporter reporter, LicenseSdkClient licenses, ReportWriter reports) {
+    public SideEffectsResource(
+            JavaVersionReporter reporter, LicenseSdkClient licenses, ReportWriter reports, EventLoopSleeper sleeper) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.reports = reports;
+        this.sleeper = sleeper;
     }
 
     /** Writes a report outside the temporary directory and reads a system property, on a worker thread (M5-5d). */
@@ -90,5 +98,20 @@ public class SideEffectsResource {
         return ConfigProvider.getConfig()
                 .getOptionalValue(test ? "quarkus.http.test-port" : "quarkus.http.port", Integer.class)
                 .orElse(test ? 8083 : 8082);
+    }
+
+    @GET
+    @Path("/event-loop-sleep")
+    @NonBlocking
+    public Map<String, String> eventLoopSleep() {
+        // Deliberately blocking on the event loop: the seed the Blocking tab reports.
+        return Map.of("thread", sleeper.sleepOnEventLoop());
+    }
+
+    @GET
+    @Path("/worker-sleep")
+    @Blocking
+    public Map<String, String> workerSleep() {
+        return Map.of("thread", sleeper.sleepOnEventLoop());
     }
 }

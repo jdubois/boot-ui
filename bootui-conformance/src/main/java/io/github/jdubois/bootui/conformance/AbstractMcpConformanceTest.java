@@ -506,6 +506,18 @@ public abstract class AbstractMcpConformanceTest {
                 assertThat(observation.path("listed").asBoolean(false))
                         .as("the default list shows only rows listed by default (M4-19)")
                         .isTrue();
+                assertThat(observation.path("kind").asText())
+                        .as("kinds that did not pass their external validation are not listed by default (M4-20)")
+                        .isNotIn(
+                                "route-time-breakdown",
+                                "exception-hotspots",
+                                "connections-per-request",
+                                "ai-usage-by-route",
+                                "repeated-selects",
+                                "lazy-sql-after-handler",
+                                "split-transaction-writes",
+                                "framework-warnings-by-route",
+                                "anonymous-data-reach");
             }
             JsonNode everything = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
             assertThat(everything.path("observations").size()

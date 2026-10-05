@@ -4,6 +4,7 @@ import {computed, ref, watch} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
+import FoldedInsightsLink from './components/FoldedInsightsLink.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
@@ -194,6 +195,8 @@ watch(
     </div>
 
     <template v-else-if="report">
+      <FoldedInsightsLink class="mb-3" theme="transactions" what="Connections each request held at once" />
+
       <div v-if="!pools.length" class="alert alert-secondary">
         No database connection pool beans were detected. Configure a JDBC datasource backed by a supported connection
         pool to inspect saturation here.

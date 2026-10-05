@@ -48,10 +48,10 @@ public final class McpToolDescriptions {
                             + "requests counts completed HTTP exchanges only: zero is not proof nothing ran when "
                             + "an observation names a request or execution, a non-HTTP limitation, or eviction says "
                             + "otherwise. A run-level observation with no exemplar does not. The empty query is the "
-                            + "default list: a route's time breakdown only when prominent, exceptions behind a 5xx, a "
-                            + "failed run, or new, no garbage collection or heap rows, and no insufficient "
-                            + "repeated-selects row under 50 ms that ran fewer than 10 times in any request; a "
-                            + "limitation counts what it left out, and all, a kind, or a route lists it. An empty list "
+                            + "default list: only the kinds that passed their external validation or stayed silent "
+                            + "on it, so no time breakdown, exception hotspot, repeated SELECT, connection, AI, "
+                            + "garbage collection, or heap row; a limitation counts what it left out, names the "
+                            + "kinds not externally validated, and all, a kind, or a route lists it. An empty list "
                             + "means not exercised only when limitations say so. INSUFFICIENT, PARTIAL, "
                             + "NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three follow-up "
                             + "calls, each a tool with its arguments and the equivalent bootui command."),
@@ -327,14 +327,15 @@ public final class McpToolDescriptions {
                     "get_side_effects",
                     "Return Side Effects: what the application does outside the JVM, from the BootUI agent's "
                             + "side-effect sensors; this version records the processes it starts, its network: "
-                            + "connects, datagram sends, and host names the JVM resolved, and, opt-in, the files it "
-                            + "opens, deletes, moves, and copies and the environment variables and system properties it "
-                            + "reads. "
+                            + "connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, "
+                            + "park, a blocking network or file operation) started on an event loop, and, opt-in, the "
+                            + "files it opens, deletes, moves, and copies and the environment variables and system "
+                            + "properties it reads. "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
-                            + "(20) rows, most frequent first, matching query: a sensor id such as processes, network, or "
-                            + "files, 'not captured' for hidden outbound calls, or part of a route, target, client, or "
+                            + "(20) rows, most frequent first, matching query: a sensor id such as processes, network, "
+                            + "files, or blocking, 'not captured' for hidden outbound calls, or part of a route, target, client, or "
                             + "call site. A row is attributed to a request's route, work no request owns, startup, or a "
                             + "thread family, with the call site, the bean method it ran inside, counts, failures, "
                             + "exits or connections, times, and up to three request ids. A process row names the "
@@ -343,7 +344,9 @@ public final class McpToolDescriptions {
                             + "(REST Client Trace, SQL Trace, a broker's panel, Email) captured the work, never a byte "
                             + "sent or received; a file row a path pattern (./ for the working directory, $TMPDIR, ~, ids "
                             + "as {n}) with its kind, location, and origin (application, library, class-path, jdk, "
-                            + "logging), never contents; an environment row a name, never its value."),
+                            + "logging), never contents; an environment row a name, never its value; a blocking row the "
+                            + "operation, the event loop's thread family, and how long it blocked, not-applicable on "
+                            + "Spring MVC, which runs no event loop."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
