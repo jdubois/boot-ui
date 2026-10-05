@@ -88,10 +88,11 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
         String[] claimed = packages == null ? new String[0] : packages;
         refreshIndex(claimed, holders, false);
         String[] answer = search(threadLocal, claimed, holders, deadline);
-        if (answer != null
-                && answer[0] == null
-                && System.currentTimeMillis() - indexedAt >= STALE_INDEX_MILLIS
-                && System.nanoTime() < deadline) {
+        if (answer != null && answer[0] == null && System.currentTimeMillis() - indexedAt >= STALE_INDEX_MILLIS) {
+            if (System.nanoTime() >= deadline) {
+                // Never "not resolved" from a stale index: asked again with time to rebuild it.
+                return null;
+            }
             // The holder's class may have loaded since the index was built: rebuilt once, then searched again.
             refreshIndex(claimed, holders, true);
             answer = search(threadLocal, claimed, holders, deadline);
