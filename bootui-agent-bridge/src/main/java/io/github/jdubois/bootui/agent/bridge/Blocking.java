@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.LongAdder;
  * thread weakly, so a dead loop's slot is reused and a loop of an earlier run, as after a Quarkus live reload, matches
  * only once registered again. Lookups and inserts probe at most {@value #PROBES} slots.
  *
- * <p><b>Fast path.</b> Every hook first reads {@link SideEffects#mask} once: until a loop is registered for the
+ * <p><b>Fast path.</b> Every hook first reads {@link SideEffects#gate} once: until a loop is registered for the
  * generation, nothing else happens, so a stack without event loops pays one volatile read per hook. Then the thread's
  * id is looked up, usually an empty slot. Only a hook started on a registered loop takes the slow path: the duration,
  * the owner, the code-paths stamp, and the frame summary, aggregated in the thread's table as every side-effect record.
@@ -30,30 +30,30 @@ import java.util.concurrent.atomic.LongAdder;
  * ({@link #parking()}, {@link #parked}). {@code Thread.sleep} and {@code Object.wait} are {@code native} on JDK 17, and
  * on later JDKs end in native methods on platform threads, so the agent rewrites their call sites in the application's
  * classes to the substitutes here ({@link #sleep(long)}, {@link #waitOn(Object)}), which call the original and record
- * around it; a library's own sleep is not seen. Network and file operations will report through {@link #starting} and
- * {@link #done} from their own hooks.
+ * around it; a library's own sleep is not seen. A blocking network or file operation the {@code network} or {@code
+ * files} sensor records is reported from its hook ({@link #onLoop}).
  *
  * <p>The static initializer creates only JDK objects and never blocks. JDK types only; every entry point catches
  * everything but what the original call throws.
  */
 public final class Blocking {
 
-    /** Record kinds of the blocking sensor. */
-    public static final int KIND_SLEEP = 1;
+    /** Record kinds of the blocking sensor, distinct from every other sensor's. */
+    public static final int KIND_SLEEP = SideEffects.KIND_SLEEP;
 
-    public static final int KIND_WAIT = 2;
-    public static final int KIND_PARK = 3;
+    public static final int KIND_WAIT = SideEffects.KIND_WAIT;
+    public static final int KIND_PARK = SideEffects.KIND_PARK;
 
-    /** Reserved for the network and files sensors' operations started on an event loop. */
-    public static final int KIND_NETWORK = 4;
+    /** A network or file operation the network or files sensor records, started on an event loop. */
+    public static final int KIND_NETWORK = SideEffects.KIND_BLOCKING_NETWORK;
 
-    public static final int KIND_FILE = 5;
+    public static final int KIND_FILE = SideEffects.KIND_BLOCKING_FILE;
 
     /** Outcomes. */
-    public static final int OUTCOME_RETURNED = 1;
+    public static final int OUTCOME_RETURNED = SideEffects.OUTCOME_RETURNED;
 
-    public static final int OUTCOME_INTERRUPTED = 2;
-    public static final int OUTCOME_ERROR = 3;
+    public static final int OUTCOME_INTERRUPTED = SideEffects.OUTCOME_INTERRUPTED;
+    public static final int OUTCOME_ERROR = SideEffects.OUTCOME_ERROR;
 
     /** The shortest park recorded: shorter ones on an event loop are only counted. */
     public static final long MIN_PARK_NANOS = 1_000_000L;
@@ -163,7 +163,7 @@ public final class Blocking {
             }
             FULL.increment();
         } catch (Throwable ex) {
-            SideEffects.failed(ex);
+            SideEffects.failed(SideEffects.SENSOR_BLOCKING, ex);
         }
     }
 
@@ -203,22 +203,22 @@ public final class Blocking {
      * open theirs. Never throws.
      */
     static long starting(int hook) {
-        int bits = SideEffects.mask;
-        if ((bits & (SideEffects.MASK_LOOPS | SideEffects.MASK_SELF_TEST)) == 0) {
+        // The gate: the mask, with every bit set while a self-test runs.
+        int bits = SideEffects.gate;
+        if ((bits & SideEffects.MASK_LOOPS) == 0) {
             return 0L;
         }
-        return slowStart(bits, hook);
+        return slowStart(hook);
     }
 
-    private static long slowStart(int bits, int hook) {
+    private static long slowStart(int hook) {
         try {
             Thread thread = Thread.currentThread();
-            if ((bits & SideEffects.MASK_SELF_TEST) != 0
-                    && (thread == SideEffects.selfTestThread || thread == callSiteTestThread)) {
+            if (thread == SideEffects.selfTestThread || thread == callSiteTestThread) {
                 SideEffects.SELF_TEST_HITS[hook].increment();
                 return 0L;
             }
-            if ((bits & SideEffects.MASK_LOOPS) == 0) {
+            if ((SideEffects.mask & SideEffects.MASK_LOOPS) == 0) {
                 return 0L;
             }
             Loop loop = find(thread.getId());
@@ -229,15 +229,20 @@ public final class Blocking {
                 return 0L;
             }
             CodePaths.Frame frame = CodePaths.frame();
+            long now = System.nanoTime();
             if (frame.sideEffectDepth != 0) {
-                return 0L;
+                if (now - frame.sideEffectSince < SideEffects.STALE_DEPTH_NANOS) {
+                    return 0L;
+                }
+                // An exit that never ran, as when calling it overflowed the stack: the thread records again.
+                SideEffects.staleDepth();
             }
             frame.sideEffectDepth = 1;
+            frame.sideEffectSince = now;
             STARTED.increment();
-            long now = System.nanoTime();
             return now == 0L ? 1L : now;
         } catch (Throwable ex) {
-            SideEffects.failed(ex);
+            SideEffects.failed(SideEffects.SENSOR_BLOCKING, ex);
             return 0L;
         }
     }
@@ -279,11 +284,55 @@ public final class Blocking {
             SideEffects.record(
                     frame, owner, SideEffects.SENSOR_BLOCKING, kind, target, outcome, 0, stamp, frames, nanos);
         } catch (Throwable ex) {
-            SideEffects.failed(ex);
+            SideEffects.failed(SideEffects.SENSOR_BLOCKING, ex);
         } finally {
             if (frame != null) {
                 frame.sideEffectDepth = 0;
             }
+        }
+    }
+
+    // ---- network and file operations on an event loop -------------------------------------------------------
+
+    /**
+     * A blocking network or file operation the {@code network} or {@code files} sensor recorded ended, its hook still
+     * open on this thread, with the token its entry returned and that record's frames: when it started on a registered
+     * event loop and the blocking sensor records, it is recorded too, as {@code kind}. The other sensor decides which of
+     * its operations block: a socket's connect, a channel's in blocking mode, a lookup the JVM's name service answered,
+     * a {@code DatagramSocket} send, a file opened, deleted, moved, or copied; never Netty's non-blocking connect or its
+     * finish, nor what class loading reads. Called inside that sensor's hook, so the thread's hook stays its own. Never
+     * throws.
+     */
+    static void onLoop(long token, int kind, long frames, Throwable thrown) {
+        try {
+            if ((SideEffects.mask & SideEffects.MASK_LOOPS) == 0 || token == 0L) {
+                return;
+            }
+            Loop loop = find(Thread.currentThread().getId());
+            Claim claim = AgentBridge.current();
+            if (loop == null || claim == null || !claim.armed || loop.generation != claim.generation) {
+                return;
+            }
+            long nanos = System.nanoTime() - token;
+            STARTED.increment();
+            SideEffects.RECORDED[SideEffects.HOOK_ON_LOOP].increment();
+            int outcome = thrown == null
+                    ? OUTCOME_RETURNED
+                    : thrown instanceof java.io.InterruptedIOException ? OUTCOME_INTERRUPTED : OUTCOME_ERROR;
+            CodePaths.Frame frame = CodePaths.FRAME.get();
+            SideEffects.record(
+                    frame,
+                    SideEffects.owner(frame, claim),
+                    SideEffects.SENSOR_BLOCKING,
+                    kind,
+                    loop.name,
+                    outcome,
+                    0,
+                    CodePaths.stamp(),
+                    frames < 0L ? 0L : frames,
+                    nanos);
+        } catch (Throwable ex) {
+            SideEffects.failed(SideEffects.SENSOR_BLOCKING, ex);
         }
     }
 

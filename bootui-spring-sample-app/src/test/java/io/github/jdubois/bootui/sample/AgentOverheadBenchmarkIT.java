@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.sample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.sample.CaptureOverheadBenchmarkTest.Result;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,13 +21,20 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 /**
  * The agent's cumulative overhead ({@code docs/PLAN-v2.md} §5.13 and §8, M5-12): the sample's executable jar, BootUI on
- * in both configurations, without the agent and with it attached and every default sensor claimed ({@code executors},
- * {@code inventory}, {@code code-paths}). It drives the capture overhead scenario's SQL-backed route at the same fixed
+ * in both configurations, without the agent and with it attached and every default sensor claimed
+ * ({@link AgentSensorSettings#DEFAULT_SENSORS}). It drives the capture overhead scenario's SQL-backed route at the same fixed
  * concurrency as {@link CaptureOverheadBenchmarkTest}, after one discarded run, in pairs whose order alternates so drift
  * favours neither configuration, and writes per-run throughput and latency, each pair's throughput ratio, and their
  * median to {@code target/agent-overhead/spring-mvc-agent.md}, with the median overhead in
  * {@code target/agent-overhead/summary.properties}. {@code bootui.benchmark.agent.sensors} claims other sensors than the
  * defaults, such as {@code executors} alone, to measure one sensor's share or a new sensor's cost.
+ *
+ * <p>{@code bootui.benchmark.route=io} drives {@value #IO_ROUTE} instead: the same search plus one outbound connect to a
+ * stub server this test runs and one file read per request, so the side-effect sensors that hook connects and files
+ * are measured on a route that exercises them (M5-5b). {@code bootui.benchmark.agent.baseline-sensors} runs the other
+ * arm with the agent and those sensors instead of without the agent, an A/B of the sensors left out of it.
+ * {@code bootui.benchmark.report} names the report, {@code spring-mvc-agent} by default, whose summary is {@code
+ * summary.properties}; any other name writes {@code <name>.md} and {@code <name>.properties}.
  *
  * <p>The budget is 10 %. Timings depend on the machine, so this is opt-in. It fails only when
  * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it. CI sets it to 30,
@@ -40,6 +48,9 @@ class AgentOverheadBenchmarkIT {
 
     /** The budget from §8: throughput with the agent's default sensors within 10 % of the same run without it. */
     static final double BUDGET_PERCENT = 10;
+
+    /** The I/O variant's route: the search, one outbound connect, and one file read. */
+    static final String IO_ROUTE = "/api/side-effects/benchmark-io?term=console";
 
     private static final Duration WARM_UP = Duration.ofSeconds(10);
 
@@ -62,9 +73,30 @@ class AgentOverheadBenchmarkIT {
         int passes = Integer.getInteger("bootui.benchmark.passes", 3);
         String sensors = System.getProperty("bootui.benchmark.agent.sensors", "");
         String failAbove = System.getProperty("bootui.benchmark.agent.fail-above-percent", "");
+        boolean io = "io".equals(System.getProperty("bootui.benchmark.route", ""));
+        String route = io ? IO_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        String baseline = System.getProperty("bootui.benchmark.agent.baseline-sensors", "");
+        String reportName = System.getProperty("bootui.benchmark.report", "spring-mvc-agent");
+        String baselineLabel = baseline.isBlank() ? "No agent" : "Agent, sensors " + baseline;
+        try (Stub stub = io ? new Stub() : null) {
+            List<String> extra = stub == null ? List.of() : List.of("--sample.benchmark.stub-port=" + stub.port());
+            measure(agent, passes, sensors, failAbove, route, baseline, baselineLabel, reportName, extra);
+        }
+    }
 
+    private static void measure(
+            String agent,
+            int passes,
+            String sensors,
+            String failAbove,
+            String route,
+            String baseline,
+            String baselineLabel,
+            String reportName,
+            List<String> extra)
+            throws Exception {
         // The load generator in this JVM pays for JIT-compiling its HTTP client in its first run, which is discarded.
-        run("JVM warm-up, discarded", null, sensors, 0);
+        run("JVM warm-up, discarded", null, sensors, 0, route, extra);
         List<Result> results = new ArrayList<>();
         List<Result> without = new ArrayList<>();
         List<Result> with = new ArrayList<>();
@@ -75,8 +107,10 @@ class AgentOverheadBenchmarkIT {
             Result withoutAgent = null;
             for (boolean attached : agentFirst ? new boolean[] {true, false} : new boolean[] {false, true}) {
                 Result result = attached
-                        ? run("Agent, " + describe(sensors) + ", pass " + pass, agent, sensors, pass)
-                        : run("No agent, pass " + pass, null, sensors, pass);
+                        ? run("Agent, " + describe(sensors) + ", pass " + pass, agent, sensors, pass, route, extra)
+                        : baseline.isBlank()
+                                ? run(baselineLabel + ", pass " + pass, null, sensors, pass, route, extra)
+                                : run(baselineLabel + ", pass " + pass, agent, baseline, pass, route, extra);
                 results.add(result);
                 if (attached) {
                     withAgent = result;
@@ -91,9 +125,10 @@ class AgentOverheadBenchmarkIT {
         double medianRatio = median(ratios);
         double overheadPercent = (1 - medianRatio) * 100;
 
-        StringBuilder report = new StringBuilder("# Agent overhead: spring-mvc executable jar\n\n")
-                .append("`GET ")
-                .append(CaptureOverheadBenchmarkTest.ROUTE)
+        StringBuilder report = new StringBuilder("# Agent overhead: spring-mvc executable jar")
+                .append(reportName.equals("spring-mvc-agent") ? "" : " (" + reportName + ")")
+                .append("\n\n`GET ")
+                .append(route)
                 .append("` with ")
                 .append(CaptureOverheadBenchmarkTest.CONCURRENCY)
                 .append(" concurrent clients against `java -jar` of the sample, BootUI on in both configurations; ")
@@ -104,6 +139,8 @@ class AgentOverheadBenchmarkIT {
                 .append(passes)
                 .append(" pairs in alternating order after one discarded run. The agent run claims ")
                 .append(describe(sensors))
+                .append("; the other runs ")
+                .append(baseline.isBlank() ? "without the agent" : "the agent with sensors " + baseline)
                 .append(". Java ")
                 .append(System.getProperty("java.version"))
                 .append(", ")
@@ -123,7 +160,7 @@ class AgentOverheadBenchmarkIT {
         }
         report.append(String.format(
                         Locale.ROOT,
-                        "%nThroughput with the agent, per pair: %s %% of the same pair without it.%n",
+                        "%nThroughput with the agent, per pair: %s %% of the same pair's other run.%n",
                         String.join(
                                 ", ",
                                 Arrays.stream(ratios)
@@ -131,9 +168,9 @@ class AgentOverheadBenchmarkIT {
                                         .toList())))
                 .append(String.format(
                         Locale.ROOT,
-                        "%n**Median paired throughput with the agent is %.1f %% of without it: %.1f %% overhead,"
-                                + " against a %.0f %% budget.** Median p99 latency: %.2f ms with the agent, %.2f ms"
-                                + " without.%n",
+                        "%n**Median paired throughput with the agent is %.1f %% of the other run's: %.1f %%"
+                                + " overhead, against a %.0f %% budget.** Median p99 latency: %.2f ms with the agent,"
+                                + " %.2f ms in the other run.%n",
                         medianRatio * 100,
                         overheadPercent,
                         BUDGET_PERCENT,
@@ -142,9 +179,10 @@ class AgentOverheadBenchmarkIT {
 
         Path directory = Path.of("target", "agent-overhead");
         Files.createDirectories(directory);
-        Files.writeString(directory.resolve("spring-mvc-agent.md"), report.toString(), StandardCharsets.UTF_8);
+        boolean defaultReport = reportName.equals("spring-mvc-agent");
+        Files.writeString(directory.resolve(reportName + ".md"), report.toString(), StandardCharsets.UTF_8);
         Files.writeString(
-                directory.resolve("summary.properties"),
+                directory.resolve(defaultReport ? "summary.properties" : reportName + ".properties"),
                 String.format(
                         Locale.ROOT,
                         "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n",
@@ -163,9 +201,11 @@ class AgentOverheadBenchmarkIT {
         }
     }
 
-    private static Result run(String label, String agent, String sensors, int pass) throws Exception {
+    private static Result run(String label, String agent, String sensors, int pass, String route, List<String> extra)
+            throws Exception {
         List<String> jvmOptions = new ArrayList<>(JVM_OPTIONS);
         List<String> arguments = new ArrayList<>(ARGUMENTS);
+        arguments.addAll(extra);
         if (agent != null) {
             jvmOptions.add("-javaagent:" + agent);
             if (!sensors.isBlank()) {
@@ -181,7 +221,7 @@ class AgentOverheadBenchmarkIT {
             if (agent != null) {
                 awaitInventoryScan(sample);
             }
-            URI uri = URI.create("http://localhost:" + sample.port() + CaptureOverheadBenchmarkTest.ROUTE);
+            URI uri = URI.create("http://localhost:" + sample.port() + route);
             HttpClient client =
                     HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
             CaptureOverheadBenchmarkTest.load(client, uri, WARM_UP);
@@ -216,14 +256,14 @@ class AgentOverheadBenchmarkIT {
 
     private static String describe(String sensors) {
         return sensors.isBlank()
-                ? "the default sensors (executors, inventory, code-paths, processes, blocking)"
+                ? "the default sensors (" + String.join(", ", AgentSensorSettings.DEFAULT_SENSORS) + ")"
                 : "sensors " + sensors;
     }
 
     /** The agent run measured what it claims: every sensor it asked for installed and active, code-paths recording. */
     private static void assertSensorsRecorded(JsonNode report, String sensors) {
         List<String> expected = sensors.isBlank()
-                ? List.of("executors", "inventory", "code-paths", "processes", "blocking")
+                ? AgentSensorSettings.DEFAULT_SENSORS
                 : Arrays.stream(sensors.split(",")).map(String::trim).toList();
         List<String> active = new ArrayList<>();
         for (JsonNode sensor : report.path("sensors")) {
@@ -238,6 +278,38 @@ class AgentOverheadBenchmarkIT {
             }
         }
         assertThat(active).as(report.toString()).containsAll(expected);
+    }
+
+    /** A local stub server the I/O route connects to: it accepts each connection and closes it. */
+    static final class Stub implements AutoCloseable {
+
+        private final java.net.ServerSocket server;
+
+        Stub() throws java.io.IOException {
+            server = new java.net.ServerSocket(0, 1_024, java.net.InetAddress.getLoopbackAddress());
+            Thread acceptor = new Thread(
+                    () -> {
+                        while (!server.isClosed()) {
+                            try (java.net.Socket accepted = server.accept()) {
+                                accepted.setSoLinger(true, 0);
+                            } catch (java.io.IOException closed) {
+                                // Closed with the test, or a client that went away.
+                            }
+                        }
+                    },
+                    "benchmark-stub");
+            acceptor.setDaemon(true);
+            acceptor.start();
+        }
+
+        int port() {
+            return server.getLocalPort();
+        }
+
+        @Override
+        public void close() throws java.io.IOException {
+            server.close();
+        }
     }
 
     private static double median(double[] values) {

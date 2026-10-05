@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.webfluxsample.sideeffects;
 
 import java.util.Map;
-import org.springframework.boot.web.server.context.WebServerApplicationContext;
+import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -10,34 +10,64 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
- * Side Effects' seeded process on Spring WebFlux ({@code docs/PLAN-v2.md} §5.16, M5-5a), as on the Spring MVC sample:
- * {@code GET /api/side-effects/java-version} starts the JDK's {@code java -version} on {@code boundedElastic}, never on
- * the event loop, so with the BootUI agent it shows as a {@code java} process started by
- * {@link JavaVersionReporter#version()}, and never its arguments; the counterexample {@code GET
- * /api/side-effects/runtime-version} starts none. {@code GET /api/side-effects/event-loop-sleep} calls the sample's own
- * greeting with a WebClient, then sleeps in its {@code map}, which runs on the Reactor Netty event loop the response
- * completed on, as the {@code event-loop-blocking} seed does: a blocking call the Blocking tab reports (M5-5c). Its
- * counterexample {@code GET /api/side-effects/worker-sleep} makes the same sleep on {@code boundedElastic}, which it
- * never reports.
+ * Side Effects' seeds on Spring WebFlux ({@code docs/PLAN-v2.md} §5.16), as on the Spring MVC sample. M5-5a: {@code GET
+ * /api/side-effects/java-version} starts the JDK's {@code java -version} on {@code boundedElastic}, never on the event
+ * loop, so with the BootUI agent it shows as a {@code java} process started by {@link JavaVersionReporter#version()},
+ * and never its arguments; the counterexample {@code GET /api/side-effects/runtime-version} starts none. M5-5b: {@code
+ * GET /api/side-effects/sdk-call} connects to this application through an SDK's own blocking socket on {@code
+ * boundedElastic} ({@link LicenseSdkClient}), a Network row <b>not captured by any panel</b>; the counterexample {@code
+ * GET /api/side-effects/rest-call} calls the same endpoint through the recorded {@link WebClient}.
+ * M5-5d: {@code GET /api/side-effects/report} writes a report in the working directory, outside the temporary directory,
+ * and reads a system property ({@link ReportWriter}); its counterexamples {@code /scratch} and {@code /log} write a
+ * temporary file and a JDK logging handler's file.
+ * M5-5c: {@code GET /api/side-effects/event-loop-sleep} calls the sample's own greeting with the WebClient, then sleeps
+ * in its {@code map}, which runs on the Reactor Netty event loop the response completed on, as the {@code
+ * event-loop-blocking} seed does: a blocking call the Blocking tab reports. Its counterexample {@code GET
+ * /api/side-effects/worker-sleep} makes the same sleep on {@code boundedElastic}, which it never reports.
  */
 @RestController
 @RequestMapping("/api/side-effects")
 public class SideEffectsController {
 
     private final JavaVersionReporter reporter;
-    private final EventLoopSleeper sleeper;
+    private final LicenseSdkClient licenses;
     private final WebClient webClient;
-    private final WebServerApplicationContext context;
+    private final Environment environment;
+    private final ReportWriter reports;
+    private final EventLoopSleeper sleeper;
 
     public SideEffectsController(
             JavaVersionReporter reporter,
-            EventLoopSleeper sleeper,
-            WebClient.Builder webClients,
-            WebServerApplicationContext context) {
+            LicenseSdkClient licenses,
+            WebClient webClient,
+            Environment environment,
+            ReportWriter reports,
+            EventLoopSleeper sleeper) {
         this.reporter = reporter;
+        this.licenses = licenses;
+        this.webClient = webClient;
+        this.environment = environment;
+        this.reports = reports;
         this.sleeper = sleeper;
-        this.webClient = webClients.build();
-        this.context = context;
+    }
+
+    /** Writes a report outside the temporary directory and reads a system property, on boundedElastic (M5-5d). */
+    @GetMapping("/report")
+    public Mono<Map<String, String>> report() {
+        return Mono.fromCallable(() -> Map.of("report", reports.writeReport()))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The counterexample: a temporary file, written and deleted. */
+    @GetMapping("/scratch")
+    public Mono<Map<String, String>> scratch() {
+        return Mono.fromCallable(() -> Map.of("scratch", reports.scratch())).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The counterexample: a JDK logging handler's file, grouped apart as logging. */
+    @GetMapping("/log")
+    public Mono<Map<String, String>> log() {
+        return Mono.fromCallable(() -> Map.of("log", reports.log())).subscribeOn(Schedulers.boundedElastic());
     }
 
     @GetMapping("/java-version")
@@ -50,13 +80,29 @@ public class SideEffectsController {
         return Mono.just(Map.of("version", reporter.runtimeVersion()));
     }
 
+    @GetMapping("/sdk-call")
+    public Mono<Map<String, String>> sdkCall() {
+        return Mono.fromCallable(() -> Map.of("status", licenses.check(port())))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @GetMapping("/rest-call")
+    public Mono<Map<String, String>> restCall() {
+        return webClient
+                .get()
+                .uri("http://localhost:" + port() + "/api/side-effects/runtime-version")
+                .retrieve()
+                .bodyToMono(String.class)
+                .map(body -> Map.of("body", body));
+    }
+
     @GetMapping("/event-loop-sleep")
     public Mono<Map<String, String>> eventLoopSleep() {
         // Deliberately blocking on the event loop the greeting's response completed on: the seed the Blocking tab
         // reports.
         return webClient
                 .get()
-                .uri("http://127.0.0.1:" + context.getWebServer().getPort() + "/api/greetings/{name}", "sleep")
+                .uri("http://127.0.0.1:" + port() + "/api/greetings/{name}", "sleep")
                 .retrieve()
                 .bodyToMono(String.class)
                 .map(greeting -> Map.of("thread", sleeper.sleepOnEventLoop()));
@@ -66,5 +112,10 @@ public class SideEffectsController {
     public Mono<Map<String, String>> workerSleep() {
         return Mono.fromCallable(() -> Map.of("thread", sleeper.sleepOnEventLoop()))
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private int port() {
+        return Integer.parseInt(
+                environment.getProperty("local.server.port", environment.getProperty("server.port", "8080")));
     }
 }

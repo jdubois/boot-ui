@@ -233,6 +233,80 @@ class BlockingTests {
     }
 
     @Test
+    void aBlockingNetworkOperationOnALoopIsABlockingRecordAndNettysNonBlockingConnectNever() throws Exception {
+        long token = claim(List.of(SideEffects.NETWORK, SideEffects.BLOCKING));
+        SideEffects.enable(SideEffects.MASK_NETWORK | SideEffects.MASK_BLOCKING);
+        context.set(owner(REQUEST));
+        java.net.InetSocketAddress remote = java.net.InetSocketAddress.createUnresolved("db.internal", 5432);
+
+        onLoop("loop-io-10", () -> {
+            Blocking.registerEventLoop();
+            long connect = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+            SideEffects.connected(connect, SideEffects.HOOK_SOCKET_CONNECT, null, remote, true, null);
+            long lookup = SideEffects.networkStarting(SideEffects.HOOK_LOOKUP);
+            SideEffects.lookedUp(lookup, "db.internal", new java.net.InetAddress[0], null);
+            try (java.nio.channels.SocketChannel channel = java.nio.channels.SocketChannel.open()) {
+                channel.configureBlocking(false);
+                long nonBlocking = SideEffects.networkStarting(SideEffects.HOOK_CHANNEL_CONNECT);
+                SideEffects.connected(nonBlocking, SideEffects.HOOK_CHANNEL_CONNECT, channel, remote, false, null);
+            }
+            return null;
+        });
+        // The same connect off event loops is the network sensor's only.
+        onLoop("worker-1", () -> {
+            long connect = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+            SideEffects.connected(connect, SideEffects.HOOK_SOCKET_CONNECT, null, remote, true, null);
+            return null;
+        });
+
+        List<long[]> blocking = drain(token).stream()
+                .filter(record -> record[SideEffects.R_SENSOR] == SideEffects.SENSOR_BLOCKING)
+                .toList();
+        assertThat(blocking.stream()
+                        .mapToLong(record -> record[SideEffects.R_COUNT])
+                        .sum())
+                .as("a connect and a lookup on the loop, never the non-blocking connect")
+                .isEqualTo(2L);
+        assertThat(blocking).allSatisfy(record -> {
+            assertThat(record[SideEffects.R_KIND]).isEqualTo(Blocking.KIND_NETWORK);
+            assertThat(string(record[SideEffects.R_TARGET])).isEqualTo("loop-io-10");
+            assertThat(record[SideEffects.R_REQUEST]).isEqualTo(REQUEST_BITS);
+        });
+    }
+
+    @Test
+    void aFileOpenedOnALoopIsABlockingRecordWhenTheFilesSensorRecordsIt() throws Exception {
+        long token = claim(List.of(SideEffects.FILES, SideEffects.BLOCKING));
+        SideEffects.enable(SideEffects.MASK_FILES | SideEffects.MASK_BLOCKING);
+        SideEffects.warm();
+        context.set(owner(REQUEST));
+        java.nio.file.Path report = java.nio.file.Files.createTempFile("bootui-blocking", ".txt");
+        try {
+            onLoop("loop-io-11", () -> {
+                Blocking.registerEventLoop();
+                long opened = SideEffects.fileOpening(SideEffects.HOOK_FILE_INPUT_STREAM);
+                SideEffects.fileOpened(
+                        opened,
+                        SideEffects.HOOK_FILE_INPUT_STREAM,
+                        SideEffects.KIND_FILE_READ,
+                        report.toString(),
+                        null);
+                return null;
+            });
+        } finally {
+            java.nio.file.Files.deleteIfExists(report);
+        }
+
+        List<long[]> blocking = drain(token).stream()
+                .filter(record -> record[SideEffects.R_SENSOR] == SideEffects.SENSOR_BLOCKING)
+                .toList();
+        assertThat(blocking).singleElement().satisfies(record -> {
+            assertThat(record[SideEffects.R_KIND]).isEqualTo(Blocking.KIND_FILE);
+            assertThat(string(record[SideEffects.R_TARGET])).isEqualTo("loop-io-11");
+        });
+    }
+
+    @Test
     void registrationNeedsAClaimAskingForTheSensor() throws Exception {
         claim(List.of(SideEffects.PROCESSES));
         SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_BLOCKING);
@@ -303,7 +377,7 @@ class BlockingTests {
         long token = enabledClaim();
         SideEffects.beginSelfTest();
         try {
-            assertThat(SideEffects.mask & SideEffects.MASK_SELF_TEST).isNotZero();
+            assertThat(SideEffects.gate).isEqualTo(-1);
             Blocking.parked(Blocking.parking(), null);
         } finally {
             Map<String, Object> hits = SideEffects.endSelfTest();
@@ -321,7 +395,7 @@ class BlockingTests {
             callSites = Blocking.endCallSiteSelfTest();
         }
         assertThat(callSites).containsExactly(1L, 1L);
-        assertThat(SideEffects.mask & SideEffects.MASK_SELF_TEST).isZero();
+        assertThat(SideEffects.gate & SideEffects.MASK_LOOPS).isZero();
         assertThat(drain(token)).isEmpty();
     }
 

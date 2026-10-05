@@ -85,6 +85,26 @@ public final class RuntimeModelBuilder {
         }
     }
 
+    /**
+     * Adds {@code count} observations of an edge at once, first and last seen at the given times, or unknown when 0 or
+     * less, such as an access Side Effects aggregated.
+     */
+    public void observeRange(int from, EdgeType type, int to, long count, long firstSeen, long lastSeen) {
+        if (count <= 0) {
+            return;
+        }
+        observeTimes(from, type, to, count);
+        long[] stats = edges.get(new EdgeKey(from, type, to, Provenance.OBSERVED));
+        if (stats != null) {
+            if (firstSeen > 0) {
+                stats[1] = stats[1] < 0 ? firstSeen : Math.min(stats[1], firstSeen);
+            }
+            if (lastSeen > 0) {
+                stats[2] = Math.max(stats[2], lastSeen);
+            }
+        }
+    }
+
     /** Adds an edge inferred from shared access to a resource, once. */
     public void infer(int from, EdgeType type, int to) {
         edge(new EdgeKey(from, type, to, Provenance.INFERRED), -1);

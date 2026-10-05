@@ -133,9 +133,10 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), and [`blocking`](#the-blocking-sensor),
-the defaults, and the opt-in
-[`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
+[`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
+[`files`](#the-files-sensor), and [`environment`](#the-environment-sensor). The agent installs each one once, on its own
+thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -488,9 +489,11 @@ fragment, a full queue (4 MB of fragments) drops it, and both are counted. Every
 own errors and resets the thread's state, and after 100 internal errors the sensor switches itself off for the JVM's
 life, which its row says. A `StackOverflowError` or `OutOfMemoryError` thrown inside the bridge, as an application's
 runaway recursion through timed methods, resets the thread's state too but is the application's, never counted toward
-that limit. A thread that dies inside a request's scope keeps its tree only until the next run, whose pool starts from
-the free trees. On the machine this was measured on, a timed call costs about 110 ns, most of it the two
-`System.nanoTime()` reads (43 ns each there); a call with no owner about 26 ns, and an excluded one about 10 ns.
+that limit. When such an error strikes again while the bridge resets the thread, before it is done, the next timed
+method to return on that thread resets it again, so the thread never stays counted inside a call it already left. A
+thread that dies inside a request's scope keeps its tree only until the next run, whose pool starts from the free trees.
+On the machine this was measured on, a timed call costs about 110 ns, most of it the two `System.nanoTime()` reads
+(43 ns each there); a call with no owner about 26 ns, and an excluded one about 10 ns.
 
 | Counter | What it counts |
 | --- | --- |
@@ -568,22 +571,217 @@ A start names its owner from the thread's owner slots, which adapter request sco
 when no slot names one, by capturing BootUI's context on the thread: a request, an execution no request owns (a
 scheduled run, a consumed message, a WebSocket message), or neither, when the row falls to startup or the thread's
 family. On Spring WebFlux, the request scope's slot is not yet filled where Reactor restores BootUI's context on another
-scheduler thread; the hot sensors of later slices need that, while `processes`, a rare hook, captures the context
-instead.
+scheduler thread; `processes`, a rare hook, captures the context instead, as `files` does for an operation no slot owns.
 
 The Side Effects bridge has its own ring of 1,024 records and string table. A full ring drops and counts records instead
 of blocking application code. The per-thread aggregation table is for the hotter side-effect sensors in later slices,
-not for process starts. After 100 internal sensor errors, the side-effect sensors switch off for the JVM's life and the
-report says why.
+not for process starts. After 100 internal errors of its own recording, a side-effect sensor switches off for the
+JVM's life, alone, and the report says why; 100 errors in the sensors' shared code switch them all off.
 
 In the report, the sensor's side-effect coverage is `recording` when this application's armed claim includes it and the
-bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason. The Side Effects sensors
-this version does not ship are listed as `not-available` with reason `Not available in this version.`
+bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason. The Side Effects sensors not
+shipped yet are listed as `not-available` with reason `Not available in this version.`
+
+
+## The network sensor
+
+The `network` sensor, on by default, records what the application does on the network for the
+[Side Effects](#side-effects) panel's **Network** tab, `get_side_effects`, and `bootui side-effects`: the hosts and ports
+it connects to, the datagrams it sends, and the host names the JVM resolves, each with the client recognized from the
+calling frames and, for connections and datagrams, whether any panel shows that work. It never reads a byte sent or
+received, a URL's path or query, or a header.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `Socket.connect` | core | `Socket.connect(SocketAddress, int)`, reached by every blocking `Socket` connect, `new Socket(host, port)`, socket factories, and `SSLSocketImpl` through `super` |
+| `SocketChannel.connect` | core | `sun.nio.ch.SocketChannelImpl.connect(SocketAddress)`: Netty, Reactor Netty, Vert.x, Kafka, gRPC, the JDK `HttpClient`, and Unix-domain sockets. A non-blocking connect is recorded as pending |
+| `SocketChannel.blockingConnect` | optional | `SocketChannel.socket().connect(...)`, which does not go through `Socket.connect` |
+| `SocketChannel.finishConnect` | optional | a non-blocking connect's outcome and time, published with the connect's owner, target, and call site on whichever thread finishes it |
+| `DatagramChannel.send` | optional | `sun.nio.ch.DatagramChannelImpl.send(ByteBuffer, SocketAddress)` |
+| `DatagramSocket.send` | optional | `DatagramSocket.send(DatagramPacket)`: the packet's address and port only |
+| `InetAddress.lookup` | optional | `InetAddress.getAddressesFromNameService`, reached only when the JVM's address cache misses a name, so its time is the name service's |
+
+The hooks are delegating advice, as `processes`' is. Their JDK retransformation is checked on JDK 17, 21, and 26 by a
+forked test that installs only this sensor and asserts each hook present, transformed, and passing its self-test, beside
+the OpenTelemetry agent in both orders, JFR's socket events in both orders, and Mockito's inline mock maker mocking
+`Socket` in both orders. Each self-test runs its hook without any I/O: connects and sends to an unresolved address, or a
+Unix-domain address on a TCP channel, which the JDK refuses before touching the network, on a socket without a proxy so
+no proxy selector is asked; a finish with no connect pending; a send on a closed, never-bound socket; and, on a helper
+thread waited for at most 5 seconds, a lookup of a mixed-case spelling of `localhost`, which the JVM's case-sensitive
+cache misses and the hosts file answers.
+
+A hook that fails its self-test is left out for the JVM's life and its sensor keeps recording without it, listed under
+`hooksLeftOut`; a failing core hook disables only its own sensor, and the transformer is reinstalled with the other
+side-effect sensors, so `processes` keeps recording when `network` fails, and the other way round.
+
+A target is the remote's host string and port, `InetSocketAddress.getHostString()`, which never resolves or
+reverse-resolves, with anything up to an `@` dropped, IPv6 bracketed, characters other than letters, digits, and
+`. _ - : [ ] / ~` replaced by `?`, and at most 128 characters; a Unix-domain socket is `unix:` and its path, the home
+directory shown as `~`. Digits are kept, since an address and a port are the information. At most 1,024 distinct
+targets, and apart from them 1,024 looked-up names, are kept per run; the others share `(other hosts)`, whose capture is
+not known.
+
+Connects and lookups are rare and published at once, with the first frame outside the socket plumbing (the JDK's
+socket code, Netty, Vert.x's core, and Reactor's transport), or, when the stack holds one, the outermost frame of a
+telemetry exporter, a metrics or log shipper, or container tooling, whose transport is itself an HTTP client; the first
+frame outside the JDK; the first application frame; and the thread's family, read from a stack walk of at most 128
+frames that stops at the thread's `run`. A thread's family drops a URL's user information, is cut at its first `?`,
+`#`, or `@`, folds digit runs, replaces characters other than safe ones, and keeps at most 64 characters. Once a code-paths
+stamp names the call site, a connect's and a lookup's frames are remembered per target, call site, and thread family,
+and walked again only for a new one. A connect or a lookup takes its owner from the thread's slot, else captures it,
+except on a Netty or Vert.x event loop, which never captures. Datagram sends are hot: their owner comes from the
+thread's slot only, which an adapter's request scope fills even without code paths; the thread's last target is
+reused when the same address is sent to again; the first send of a target from a call site and thread family is
+published at once and its frames remembered, whichever request makes it, and the next ones are counted in the
+thread's table and may lag until that thread's next send. A
+non-blocking connect waiting for its finish is held weakly, swept after a minute, and forgotten when the sensor is
+disabled. Only the outermost hook on a thread records, so a
+resolver's datagram inside a lookup is not counted twice. BootUI's own work, BootUI's and the agent's threads, and
+BootUI's own JDK `HttpClient`s, which run on a `bootui-http-N` executor, are never recorded. The JDK's own loopback pair
+(`sun.nio.ch.PipeImpl`, a pipe or selector wake-up on Windows) is never recorded; loopback connections to databases,
+brokers, and containers are, as they are what a developer runs locally.
+
+The client is recognized in the engine, infrastructure first: by its frames (OpenTelemetry's exporters and SDK only,
+never its instrumentation, agent, context, or API, which sit in the application's own stacks around its REST calls and
+its DataSource), an OpenTelemetry exporter's thread (`BatchSpanProcessor`, `BatchLogRecordProcessor`,
+`PeriodicMetricReader`), the host and port of an exporter endpoint the application configures
+(`management.otlp.*`, `management.opentelemetry.*`, `management.zipkin.tracing.endpoint`, `otel.exporter.*`,
+`quarkus.otel.exporter.otlp.*`, read once), or port 53 (DNS). Then from the frames; then, only when no frame names a
+client, a well-known port (4317 and 4318 OTLP, 9411 Zipkin, 14250 and 14268 Jaeger, 3100 Loki, 8125 StatsD, 12201
+GELF), so an application's own call to one stays its client's; then from the thread's family when a Netty event
+loop's connect carries no frame of the library that asked for it: JDBC drivers, R2DBC, and Vert.x SQL clients; Kafka,
+RabbitMQ, ActiveMQ, AMQP JMS, and IBM MQ clients; Jakarta Mail; the JDK `HttpClient` and `HttpURLConnection`, Apache
+HttpClient, OkHttp, Jetty, Reactor Netty, Vert.x, Spring's and Quarkus's REST clients; Lettuce, Jedis, Redisson,
+MongoDB, Cassandra, Elasticsearch, gRPC, and the AWS, Azure, and Google Cloud SDKs; and infrastructure clients: DNS
+resolvers, OpenTelemetry and Zipkin exporters, metrics registries, log appenders, Spring Boot Docker Compose's and
+Testcontainers' readiness checks, Testcontainers, docker-java, DevTools, and Dev Services.
+
+A connection or a datagram is **not captured by any panel** when no visible panel shows its work:
+
+- A JDBC, messaging, or mail client's connection is captured by SQL Trace, its broker's panel, or Email while that panel
+  is available and enabled, decided on each read: BootUI then records that client's work, which a pool's connection
+  carries later than its connect. A second DataSource BootUI does not wrap is not told apart from the wrapped one.
+- Any other connection is captured by REST Client Trace when a REST client call of the same request or execution, or,
+  for a connection no request or execution owns, one running at the same time (a second either side), names its host
+  and port, or the host alone when the call named no port and the connection's is 80 or 443, or a configured proxy
+  (`http.proxyHost`, `https.proxyHost`, `socksProxyHost`; a `ProxySelector`, an `HttpClient.Builder` proxy, a Reactor
+  Netty proxy, or `HTTPS_PROXY` is not detected, so a call through one reads as not captured). A request's connection
+  waits for that until 2 seconds after its request was named, once it ended, or after the connect when later; an
+  execution's, which any of its events may name while it still runs, 60 seconds; unowned work's 10 seconds, or 60 for a
+  recognized HTTP client, whose call is recorded once it completes; then it is not captured. A non-blocking connect's
+  finish is decided as its connect was.
+- Infrastructure clients are `infrastructure`: no panel is meant to show them.
+- A name lookup is not a connection and has no capture.
+
+These rows are the `hidden-outbound-calls` evidence of PLAN-v2 D36: Side Effects rows, not a Runtime Insights kind.
+`get_side_effects` with `query` `not captured` lists them.
+
+The runtime model gains observed `OPENS` edges from routes, scheduled jobs, and the one bean of an application call
+site's class (never a library's frame) to
+`HOST` nodes keyed `host:port`, hidden with the Side Effects panel (and route edges with HTTP Exchanges); change impact
+never walks them.
+
+Known limits: a non-blocking connect's time is known once it finishes; asynchronous socket channels, a connected
+datagram channel's writes, and native code are not seen; a lookup the JVM's cache answered is not counted
+(`networkaddress.cache.ttl`, 30 seconds by default); a connect a Netty or Vert.x event loop makes outside a request
+scope names no owner; a BootUI `HttpClient`'s connect retried on its selector thread, or a
+redirect it follows there, is recorded as the application's; a mocked `Socket` whose mock maker transformed `Socket`
+before the agent is recorded as connected.
+
+## The files sensor
+
+The `files` sensor, opt-in, records the files application code opens, deletes, moves, and copies, as path
+patterns, never their contents, for the [Side Effects](#side-effects) panel, `get_side_effects`, and
+`bootui side-effects`.
+
+| Hook | Records |
+| --- | --- |
+| `FileInputStream.open` | the private `open(String)` every `FileInputStream` constructor reaches: a read |
+| `FileOutputStream.open` | the private `open(String, boolean)` every `FileOutputStream` constructor reaches, as `FileWriter` and `PrintWriter(String)` do: a write |
+| `RandomAccessFile.open` | the private `open(String, int)`: a read for mode `r`, else a write |
+| `Files.newByteChannel` | `(Path, Set, FileAttribute[])`, which its varargs overload, `readAllBytes`, `readString`, and `lines` reach: a write when the options hold `WRITE` or `APPEND`, else a read |
+| `Files.newInputStream`, `Files.newOutputStream` | a read, a write; `newBufferedReader`, `write`, `writeString`, and `newBufferedWriter` reach them |
+| `Files.delete`, `Files.deleteIfExists` | a delete |
+| `Files.move` | the source as `move from` and the destination as `move to` |
+| `Files.copy` | each path argument of its three overloads, as `copy from` and `copy to` |
+| `FileChannel.open` | `(Path, Set, FileAttribute[])`, which its varargs overload reaches: read or write by its options |
+
+Only the outermost hook on a thread records, so `Files.newInputStream`, which reaches `Files.newByteChannel` through
+the file system provider, records once. A path of another file system than the default one (a zip, `jar:`, `nested:`,
+or `jrt:` path) is never turned into text.
+
+The agent turns a path into a pattern before anything leaves the hook, so a raw path, and the user name in it, never
+reaches BootUI's tables: a relative path is resolved against the working directory without touching the file system;
+the working directory becomes `.`, the temporary directory `$TMPDIR`, and the home `~`, each as the JVM names it and in
+its canonical form (macOS's `/var` and `/private/var`); another user's home becomes `/Users/*`, `/home/*`, or
+`C:/Users/*` (also a UNC `//server/Users/*`, `//?/C:/Users/*`, `/var/home/*`, and `/export/home/*`); a JWT-like
+segment becomes `{token}`, a UUID `{uuid}`, a run of 8 or more hexadecimal characters with a digit `{hex}`, an
+alphanumeric run of 12 or more characters mixing letters and digits, or of 24 or more letters mixing upper and lower
+case, `{id}`, and any other run of digits `{n}`; a shorter run of letters is kept. A
+report written as `report-2026-10-05.csv` in the working directory's `target/reports` is
+`./target/reports/report-{n}-{n}-{n}.csv`. The engine also masks, as `******` and whatever `bootui.expose-values`
+says, a segment its secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL); a secret that matches
+none of these rules and is shorter than them, such as a short all-lower-case token, is kept.
+
+Class files, JAR, WAR, and JMOD files, paths in archive file systems, files under Java's home, and files under a
+directory of the class path are counted in buckets, never recorded per route, interned, or walked, as is any other file
+a class loader reads (a JDK class loader, a `ClassLoader` subclass, or Quarkus', Spring Boot's, JBoss Modules', or
+Tomcat's), whose frame summary is walked once per call site first; so class loading costs
+a counter. Other operations carry where they came from, from a frame summary walked once per path pattern and code-paths
+method (or once per owner when no method is stamped): a JDK logging handler (`java.util.logging`) is **logging**; a
+class loader, a module, a service loader, or a `jar:` URL is **class path**; no frame outside the JDK is **JDK**; the
+first frame outside the JDK in Logback, Log4j, JBoss LogManager, SLF4J, tinylog, or Tomcat's access log valve is
+**logging**, and in Spring Boot's loader, Quarkus' bootstrap, JBoss Modules, or Tomcat's class loader and scanner,
+**class path**; otherwise the row is **application** when a frame in the application's packages called it, else
+**library**. Rows of class path, the JDK, and logging are grouped apart. Each row's location is the working directory,
+the temporary directory, the home, `system` (`/proc`, `/sys`, `/dev`), or elsewhere.
+
+The self-test opens, deletes, moves, and copies paths under a directory that does not exist in the temporary
+directory, so every hook runs and nothing is created. JDK retransformation of the hooked classes is checked on JDK 17,
+21, and 26 (`FilesEnvironmentBehaviorsIT`). `FileInputStream.open` and `FileOutputStream.open` are its core hooks: one
+that fails its self-test disables this sensor alone for the JVM's life; any other files hook that fails is left out,
+listed under `hooksLeftOut`, and the sensor keeps recording. A generation keeps at most 3,000 distinct path patterns;
+beyond that a row's target is `(too many distinct paths)`.
+
+The operation's own time (opening, deleting, moving, or copying) is recorded, not the reads and writes that follow.
+`File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
+are not seen.
+
+`files` is opt-in because its overhead is at the edge of the budget (D37): on the agent overhead benchmark's I/O route
+(one outbound connect and one file read per request), the default sensors plus `files` measured 10.0 % and 10.6 % in
+two CI runs of nine pairs, against the 10 % budget. Add `files` to `bootui.agent.sensors` to record it.
+
+## The environment sensor
+
+The `environment` sensor, opt-in, records the names of the environment variables and system properties application
+code reads directly, never their values:
+
+| Hook | Records |
+| --- | --- |
+| `System.getenv` | `getenv(String)`, the variable's name |
+| `System.getenvAll` | `getenv()`, as `(all variables)` |
+| `System.getProperty` | `getProperty(String)` and `getProperty(String, String)`, the property's name; never the default |
+
+The advice runs at the method's entry and passes only the name to the bridge. A read is recorded the first time a thread
+reads the name for a request or an execution: on a thread no request scope owns, again once a second has passed. A
+row's count is therefore the requests and threads that read it, not the calls. A read whose immediate caller, past
+`System` and the `Boolean.getBoolean`, `Integer.getInteger`, and `Long.getLong` lookups, is a JDK class, such as an XML
+or SSL factory looking up its own property, is not recorded, nor is a read whose immediate caller is a configuration
+framework resolving its own properties (SmallRye Config, MicroProfile Config, Quarkus' configuration, Spring's
+`Environment` and `SpringProperties`), which reads thousands of names at startup. Spring's `Environment` reads the whole maps once, so a
+property it resolves from them is not seen, and `System.getProperties()` is not hooked. A generation keeps at most
+1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
+masked.
+
+`environment` is opt-in until its overhead is reviewed (D37): with it recording, `System.getProperty` takes about 23 to
+28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
+`bootui.agent.sensors` to record it. Its three hooks are core: one that fails its self-test disables the sensor alone.
 
 ## The blocking sensor
 
-The `blocking` sensor, on by default, reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park`
-**started** on an event loop, for the [Side Effects](#side-effects) panel's **Blocking** tab, `get_side_effects`, and
+The `blocking` sensor, on by default, reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, `LockSupport.park`, and
+the [network](#the-network-sensor) and [files](#the-files-sensor) sensors' blocking operations **started** on an event
+loop, for the [Side Effects](#side-effects) panel's **Blocking** tab, `get_side_effects`, and
 `bootui side-effects`. Like BlockHound, it watches the JDK's blocking methods on threads that must not block; unlike
 BlockHound, it reports and never throws.
 
@@ -606,6 +804,7 @@ generation, so a Quarkus live reload's run watches a loop again once it handles 
 | `LockSupport.park` | records parks | every public `LockSupport.park`, `parkNanos`, and `parkUntil` method, with and without a blocker: a contended lock, a `Future.get`, a blocking queue |
 | `Thread.sleep call sites` | records sleeps | every `Thread.sleep(long)`, `Thread.sleep(long, int)`, `Thread.sleep(Duration)`, and `TimeUnit.sleep(long)` call in the application's classes |
 | `Object.wait call sites` | records waits | every `Object.wait()`, `wait(long)`, and `wait(long, int)` call in the application's classes |
+| `network and file operations` | records network and file operations | no hook of its own: a `Socket.connect`, a `SocketChannel` connect in blocking mode, a name lookup, or a `DatagramSocket` send the `network` sensor records, or a file open, delete, move, or copy the `files` sensor records, when it started on an event loop. Netty's non-blocking connect and its finish never block, and are never reported; class loading's reads are never reported; with the `network` or `files` sensor off, its operations are not either |
 
 `Thread.sleep` and `Object.wait` are `native` on JDK 17, and retransformation cannot add the wrappers a native method
 prefix needs; on later JDKs they end in native methods on platform threads, so `park` never sees them either. On every
@@ -635,8 +834,7 @@ see the same sleep, BlockHound's error reaches the caller unchanged, and a later
 
 The sensor does not see a library's own `sleep` or `wait` (outside the application's packages), a sleep through a
 method reference (`Thread::sleep`, an `invokedynamic`), `Thread.join`, a `sleep` qualified by a `Thread` subclass, or
-blocking on a loop before it handled its first request. Network and file operations started on an event loop are not
-reported yet: they come with the `network` and `files` sensors.
+blocking on a loop before it handled its first request.
 
 ## HotSwap
 
@@ -716,7 +914,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `blocking`, and the opt-in `threads`. The Side Effects sensors this version does not ship (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, and `environment`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -986,9 +1184,9 @@ The panel has one tab per sensor group:
 
 | Tab | Sensors | State in this version |
 | --- | --- | --- |
-| Network | `network` | `not-available`: Not available in this version. |
-| Files and processes | `files`, `processes` | `processes` records; `files` is `not-available`: Not available in this version. |
-| Environment | `environment` | `not-available`: Not available in this version. |
+| Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
+| Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in. |
+| Environment | `environment` | Records when `bootui.agent.sensors` opts in; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |
@@ -1014,9 +1212,22 @@ process starts, such as a GitHub panel `gh auth token` call, the agent's threads
 `bootui-`, and work done while the agent transforms a class are never recorded. Only the outermost hook on a thread
 records.
 
-Rows are bounded by the agent evidence contract. The agent writes process records to a Side Effects ring of 1,024
-records and a string table separate from other sensors. A full ring drops and counts records; application work never
-blocks on the panel. The per-thread aggregation table is reserved for the hotter side-effect sensors in later slices.
+The `files` sensor shows a path pattern per row with its kind (`read`, `write`, `delete`, `move from`, `move to`,
+`copy from`, `copy to`), location, and origin, never the file's contents; class path, JDK, and logging rows, and the
+files counted in buckets, are grouped apart in a collapsed table under the application's rows. The `environment` sensor
+shows a variable's or a property's name, never its value. See [The files sensor](#the-files-sensor) and
+[The environment sensor](#the-environment-sensor).
+
+Rows are bounded by the agent evidence contract. The agent writes Side Effects records to a ring of 1,024 records and a
+string table separate from other sensors. A full ring drops and counts records; application work never blocks on the
+panel. The per-thread aggregation table counts the network sensor's repeated datagram sends and the file operations
+and environment reads inside a request scope, flushed when the scope ends; the bridge captures the scope's owner once
+when the `code-paths` sensor did not.
+
+The runtime model gains **file pattern** and **environment variable** nodes: a route, GraphQL operation, or scheduled
+job **opens** the file patterns and **reads** the environment variables and system properties its application rows
+name, while Side Effects is visible (and HTTP Exchanges, for routes), beside the hosts the network sensor's rows
+**open**. Change impact keeps listing only tables and caches as a route's reads and writes.
 
 How rows are named:
 
@@ -1029,14 +1240,18 @@ How rows are named:
   While HTTP Exchanges is disabled, route rows merge under `(route hidden: HTTP Exchanges is disabled)` and carry no
   request ids.
 - Targets are normalized: the home directory becomes `~`, UUIDs become `{uuid}`, long hex strings with a digit become
-  `{hex}`, and digit runs become `{n}`.
+  `{hex}`, and digit runs become `{n}`, except in network targets, whose addresses and ports keep their digits.
 - The call site is the first frame in the application's packages, otherwise the first frame outside the JDK, rendered as
   `Class#method`. When the Code Paths panel is enabled and the `code-paths` sensor is on, the row carries the bean
   method stamp active when the process started. While Code Paths is disabled, rows lose this **inside** method and merge
   without it.
 
-Each row has starts, failed starts, completed exits, non-zero exits, last exit status, total and longest lifetime,
-first and last seen times, and up to three exemplar request ids linking to Live Activity. Rows are capped at 500 per
+Each process row has starts, failed starts, completed exits, non-zero exits, last exit status, total and longest
+lifetime, first and last seen times, and up to three exemplar request ids linking to Live Activity. Each network row has
+its kind (`connect`, `datagram`, or `lookup`), its client, how it is captured (`captured` with the panel's id,
+`not-captured`, or `infrastructure`; none for a lookup), attempts, failures, established connections, total and
+longest connect, send, or resolution time, and the same times and request ids. The **Network** tab shows them with a
+**Not captured by any panel** badge, or a link to the panel that captured the work. Rows are capped at 500 per
 sensor and 2,000 per run; extra observations are counted in the sensor's **Other** row. Up to 10,000 observations wait
 for a route before falling back to `(unknown route)`. These bounds shrink in proportion when
 `bootui.runtime-journal.agent-evidence-max-bytes` is set below its default.
@@ -1061,7 +1276,8 @@ interrupted or that threw, how long they blocked the loop in all and at most, an
 See [the blocking sensor](#the-blocking-sensor) for its hooks and what it does not see.
 
 `get_side_effects` and `bootui side-effects` return every sensor's coverage, then at most `limit` (20) rows matching
-`query`: a sensor id such as `processes` or `blocking`, or part of a route, target, or call site, most frequent first. The MCP tool is
+`query`: a sensor id such as `processes`, `network`, or `blocking`, `not captured` for the connections no panel shows,
+or part of a route, target, client, or call site, most frequent first. The MCP tool is
 advertised only while the agent is armed for the run.
 
 The Spring sample seeds two routes: `GET /api/side-effects/java-version` starts the JDK's `java -version` from
@@ -1071,6 +1287,20 @@ route shows a `java` process row and the counterexample shows none. The WebFlux 
 routes, and the Quarkus sample's `ScheduledJavaVersion`, when `side-effects-seed.scheduled-every` sets its period (the
 agent Playwright leg uses `20s`; it is off otherwise), starts `java -version` from a scheduled run, a row of that run
 (`scheduled …ScheduledJavaVersion#report`) with no request.
+
+The three samples also seed the network sensor: `GET /api/side-effects/sdk-call` asks the application's own
+`/api/side-effects/runtime-version` through `LicenseSdkClient`, an SDK-style client with its own `java.net.Socket`, so
+with the agent a `connect` row to `localhost:<port>` from `LicenseSdkClient#check` reads **Not captured by any panel**,
+and the license header it sends never appears; the counterexample `GET /api/side-effects/rest-call` asks the same
+application through the recorded REST client (`RestClient` on Spring MVC, `WebClient` on WebFlux, the MicroProfile REST
+client on Quarkus), and no row of its route is ever not captured.
+
+The three samples also seed files and environment: `GET /api/side-effects/report` reads the `sample.report.title`
+system property and writes a dated report under `target/bootui-side-effects` in the working directory, a `write` of
+`./target/bootui-side-effects/report-{n}-{n}-{n}.csv` outside the temporary directory, and a read of
+`sample.report.title` (with `environment` opted in). The counterexamples: `GET /api/side-effects/scratch` writes and
+deletes a temporary file, under `$TMPDIR`, and `GET /api/side-effects/log` writes through a JDK logging file handler,
+grouped apart as logging; class loading shows only in the buckets. No file contents or property value appears.
 
 The WebFlux and Quarkus samples also seed `GET /api/side-effects/event-loop-sleep`, which sleeps 50 ms on an event loop
 (`EventLoopSleeper#sleepOnEventLoop`): on WebFlux in the `map` of a WebClient call to the sample's own greeting, on the

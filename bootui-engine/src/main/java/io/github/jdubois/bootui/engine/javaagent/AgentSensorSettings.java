@@ -5,16 +5,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3, M5-4a, M5-5a): which sensors to
+ * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3, M5-4a, M5-5): which sensors to
  * install ({@code bootui.agent.sensors}), for the {@code executors} and {@code threads} sensors which tasks and threads
  * to leave alone because they already propagate their context ({@code bootui.agent.executors.skip-tasks},
  * {@code bootui.agent.executors.skip-threads}) and how long a handoff's work is attributed to its request
  * ({@code bootui.agent.executors.max-handoff}), and the capacity of the agent's transport ring
  * ({@code bootui.agent.ring-capacity}).
  *
- * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths},
- *     {@code processes}, and {@code blocking}, and the opt-in {@code threads}; the Side Effects sensors this version does not ship are
- *     accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
+ * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
+ *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, and {@code environment}; the
+ *     Side Effects sensors this version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is
+ *     rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -52,28 +53,51 @@ public record AgentSensorSettings(
     public static final String PROCESSES = "processes";
 
     /**
-     * The Side Effects sensor recording {@code Thread.sleep}, {@code Object.wait}, and {@code LockSupport.park} started
-     * on an event loop (M5-5c, §5.16), on by default: off event loops, its {@code park} hook returns after one volatile
-     * read until an adapter registered a loop, then after one table lookup.
+     * The Side Effects sensor recording the hosts the application connects to, the datagrams it sends, and the names the
+     * JVM resolves (M5-5b, §5.16), on by default: rare hooks on connects and cache-missing lookups, datagram sends
+     * counted per thread; never a byte sent or received.
+     */
+    public static final String NETWORK = "network";
+
+    /**
+     * The Side Effects sensor recording the files the application reads and writes (M5-5d, §5.16), never contents: path
+     * patterns, with class loading, the JDK's own files, and logging appenders grouped apart; opt-in (D37), as its
+     * cumulative overhead on the benchmark's I/O route reached the 10 % budget.
+     */
+    public static final String FILES = "files";
+
+    /**
+     * The Side Effects sensor recording the environment variables and system properties the application reads by name
+     * (M5-5d, §5.16), never their values; opt-in (D37), as it advises {@code System.getProperty}, which frameworks call
+     * often.
+     */
+    public static final String ENVIRONMENT = "environment";
+
+    /**
+     * The Side Effects sensor recording {@code Thread.sleep}, {@code Object.wait}, {@code LockSupport.park}, and the
+     * network and files sensors' blocking operations started on an event loop (M5-5c, §5.16), on by default: off event
+     * loops, its {@code park} hook returns after one volatile read until an adapter registered a loop, then after one
+     * table lookup.
      */
     public static final String BLOCKING = "blocking";
 
     /** The Side Effects sensors this version ships. */
-    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES, BLOCKING);
+    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS =
-            List.of(EXECUTORS, THREADS, INVENTORY, CODE_PATHS, PROCESSES, BLOCKING);
+            List.of(EXECUTORS, THREADS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING);
 
     /**
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS = List.of(
-            "network", "files", "environment", "thread-activity", "thread-locals", "resources", "security-sinks");
+    public static final List<String> NOT_AVAILABLE_SENSORS =
+            List.of("thread-activity", "thread-locals", "resources", "security-sinks");
 
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, BLOCKING);
+    public static final List<String> DEFAULT_SENSORS =
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
 
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;
@@ -191,6 +215,21 @@ public record AgentSensorSettings(
     /** Whether the {@code processes} sensor is asked for. */
     public boolean processes() {
         return sensors.contains(PROCESSES);
+    }
+
+    /** Whether the {@code network} sensor is asked for. */
+    public boolean network() {
+        return sensors.contains(NETWORK);
+    }
+
+    /** Whether the {@code files} sensor is asked for. */
+    public boolean files() {
+        return sensors.contains(FILES);
+    }
+
+    /** Whether the opt-in {@code environment} sensor is asked for. */
+    public boolean environment() {
+        return sensors.contains(ENVIRONMENT);
     }
 
     /** Whether the {@code blocking} sensor is asked for. */

@@ -27,7 +27,14 @@ public enum NodeType {
     /** An exception group, by its group id. */
     EXCEPTION_GROUP,
     /** An application event, by its type, which executions publish and listeners consume (M4-8). */
-    EVENT;
+    EVENT,
+    /** A file path pattern an execution opened, from the BootUI agent's Side Effects (M5-5d), such as {@code ./reports/{n}.csv}. */
+    FILE_PATTERN,
+    /**
+     * An environment variable ({@code env:NAME}) or a system property ({@code property:name}) an execution read, from the
+     * BootUI agent's Side Effects (M5-5d).
+     */
+    ENVIRONMENT_VARIABLE;
 
     /** Whether nodes of this type are executions, which own the work recorded under them. */
     public boolean execution() {

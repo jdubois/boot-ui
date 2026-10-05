@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
 import io.github.jdubois.bootui.core.dto.HttpProbeResponse;
+import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
 import io.github.jdubois.bootui.spi.ServerPortSupplier;
 import java.io.IOException;
 import java.net.URI;
@@ -73,7 +74,7 @@ public class HttpProbeService {
         this.serverPort = serverPort;
         this.limits = limits == null ? HttpProbeLimits.defaults() : limits;
         this.httpClient =
-                HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
+                BootUiHttpClients.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
     }
 
     /**

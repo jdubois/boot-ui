@@ -4,7 +4,9 @@
 #
 # Pushes, schedules, and manual runs always run them, so every merge to main or v2 is covered. A pull request runs them
 # when it carries the `agent` label or changes a path below; any other pull request skips them, which keeps the queue
-# short while many pull requests are open. Writes `agent=true|false` to $GITHUB_OUTPUT.
+# short while many pull requests are open. Writes `agent=true|false` to $GITHUB_OUTPUT, and `extras=true|false`: the
+# costlier agent measurements (the network sensor's own overhead A/B) run only for pushes, manual runs, and pull
+# requests labelled `agent`, never for a pull request that only changes an agent path.
 #
 # Inputs (environment): GITHUB_EVENT_NAME, GITHUB_OUTPUT, and for pull requests PR_NUMBER, PR_LABELS (comma
 # separated), GITHUB_REPOSITORY, and GH_TOKEN. With FORCE_ALL=true it always answers true (used for pull requests into
@@ -16,20 +18,29 @@ answer() {
   echo "Agent legs: $1 ($2)"
 }
 
+extras() {
+  echo "extras=$1" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+}
+
 if [[ "${FORCE_ALL:-false}" == "true" ]]; then
   answer true "every lane runs for this branch"
+  extras true
   exit 0
 fi
 
 if [[ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]]; then
   answer true "${GITHUB_EVENT_NAME:-local} runs every lane"
+  extras true
   exit 0
 fi
 
 if [[ ",${PR_LABELS:-}," == *",agent,"* ]]; then
   answer true "the pull request is labelled agent"
+  extras true
   exit 0
 fi
+
+extras false
 
 # Paths whose changes can change what the agent legs observe: the agent and its bridge, the engine and adapter code
 # that claims it, drains it, or opens the scopes it reads, the agent-backed panels, their sample seeds and specs, the
@@ -38,6 +49,8 @@ pattern='^('
 pattern+='bootui-agent-bridge/|bootui-agent/'
 pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(javaagent|codepaths|inventory|sideeffects|correlation)/'
 pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/journal/AgentEvidence'
+pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/model/(SideEffectAccess|RuntimeModelService|RuntimeModelProjection)'
+pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(model/HostOpen|support/BootUiHttpClients)'
 pattern+='|bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/(javaagent|codepaths|inventory|sideeffects)/'
 pattern+='|bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/(activity/RequestCorrelationFilter|reactive/ReactiveRequestCorrelationFilter)'
 # Where the adapters register their event loops with the blocking sensor (M5-5c).

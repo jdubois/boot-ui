@@ -21,7 +21,8 @@ import java.util.function.Supplier;
  * token is the thread's depth before the call plus one, tagged with the thread's frame epoch; 0 is the no-op sentinel,
  * which an inactive sensor, an excluded method ({@link #EXCLUDED}), or a suppressed exception yields, so enter and exit
  * always balance. An exit pops to its token's depth, which tolerates a missing exit, and ignores a token of an earlier
- * epoch, so a frame reset after an internal error never mismatches later exits.
+ * epoch, so a frame reset after an internal error never mismatches later exits; such an exit only resets the frame again
+ * if an instrumented call entered since the reset lost its exit, since every one of them ran inside it.
  *
  * <p><b>Fragments.</b> A fragment starts at the outermost instrumented entry on a thread, or where an adapter calls
  * {@link #begin()} around a request's scope. It captures its owner once, through the claim's {@code capture} under the
@@ -270,9 +271,22 @@ public final class CodePaths {
             if (frame == null) {
                 return;
             }
+            if ((token >>> DEPTH_BITS) != (frame.epoch & EPOCH_MASK)) {
+                // A token of an earlier epoch: every instrumented call entered since the frame was reset ran inside
+                // this one, so none is open any more. One still counted lost its exit, as when a second
+                // StackOverflowError escaped the entry that took it before the frame could be reset again. Depth alone
+                // decides: a fragment begin() opened may legitimately outlive this call until its asynchronous end().
+                if (frame.depth != 0) {
+                    if (frame.tree != null) {
+                        ABANDONED.increment();
+                    }
+                    resetFrame(frame);
+                }
+                return;
+            }
             int target = (token & DEPTH_MASK) - 1;
-            if ((token >>> DEPTH_BITS) != (frame.epoch & EPOCH_MASK) || target >= frame.depth) {
-                // A token of an earlier epoch, or a call already popped by a later exit.
+            if (target >= frame.depth) {
+                // A call already popped by a later exit.
                 return;
             }
             frame.depth = target;
@@ -310,15 +324,22 @@ public final class CodePaths {
      */
     public static void begin() {
         long[] owner = null;
+        boolean attempted = false;
         try {
             try {
                 if (active) {
+                    attempted = true;
                     owner = beginFragment();
                 }
             } finally {
+                // Without an owner from code paths, as without the sensor, for a nested begin(), or after an internal
+                // error, a side-effect sensor with a hot hook still needs the scope's owner in its slot.
+                if (owner == null) {
+                    owner = SideEffects.scopeOwner();
+                }
                 // The side-effect sensors' owner slot, with the owner captured here if any (PLAN-v2 M5-5 design B1),
                 // pushed even when the fragment failed, so the scopeEnd() of end() stays balanced.
-                SideEffects.scopeBegin(owner);
+                SideEffects.scopeBegin(owner, attempted);
             }
         } catch (Throwable ex) {
             failed(ex);
@@ -752,20 +773,7 @@ public final class CodePaths {
             }
             Frame frame = FRAME.get();
             if (frame != null) {
-                if (frame.tree != null && frame.tree.generation == generation) {
-                    // Possibly inconsistent: never back to the pool, and its slot is free again.
-                    CREATED.decrementAndGet();
-                }
-                frame.tree = null;
-                frame.base = -1;
-                frame.begun = -1;
-                frame.untracked = -1;
-                frame.nested = 0;
-                frame.depth = 0;
-                frame.phase = PHASE_UNKNOWN;
-                frame.submitter = 0L;
-                frame.handoffs = 0;
-                frame.epoch++;
+                resetFrame(frame);
             }
             if (!application && errors >= MAX_ERRORS && !off) {
                 off = true;
@@ -776,6 +784,27 @@ public final class CodePaths {
         } catch (Throwable ignored) {
             // Never throw from the error path.
         }
+    }
+
+    /**
+     * Forgets everything open on the thread and bumps its epoch, so tokens taken before are ignored: after an error
+     * inside an entry point, or at the exit of a call that outlived calls whose exits were lost.
+     */
+    private static void resetFrame(Frame frame) {
+        if (frame.tree != null && frame.tree.generation == generation) {
+            // Possibly inconsistent: never back to the pool, and its slot is free again.
+            CREATED.decrementAndGet();
+        }
+        frame.tree = null;
+        frame.base = -1;
+        frame.begun = -1;
+        frame.untracked = -1;
+        frame.nested = 0;
+        frame.depth = 0;
+        frame.phase = PHASE_UNKNOWN;
+        frame.submitter = 0L;
+        frame.handoffs = 0;
+        frame.epoch++;
     }
 
     // ---- the pool --------------------------------------------------------------------------------------------------
@@ -1122,7 +1151,7 @@ public final class CodePaths {
     /** One thread's state: primitives and the tree it borrowed while a fragment records. */
     static final class Frame {
 
-        /** Bumped when the frame is reset after an error: older tokens are ignored. */
+        /** Bumped when the frame is reset after an error or a lost exit: older tokens are ignored. */
         int epoch;
 
         /** Open instrumented calls with a non-zero token. */
@@ -1170,8 +1199,33 @@ public final class CodePaths {
         /** The side-effect hooks open on the thread: only the outermost records. */
         int sideEffectDepth;
 
+        /**
+         * When the open side-effect hook started, from {@link System#nanoTime()}: a depth older than {@code
+         * SideEffects.STALE_DEPTH_NANOS} is stale, left by an exit that never ran, and no longer silences the thread.
+         */
+        long sideEffectSince;
+
         /** The thread's side-effect aggregation table, created at its first aggregated record. */
         SideEffects.Table sideEffects;
+
+        /** The names the environment sensor recorded for the thread's current owner, created at its first read. */
+        SideEffects.Seen environmentSeen;
+
+        /** The thread name the network sensor last interned for this thread, its family's id, and that id's generation. */
+        String sideEffectThreadName;
+
+        int sideEffectThreadId;
+        long sideEffectThreadGeneration = -1L;
+
+        /** Whether this thread, under that name, is a Netty or Vert.x event loop, whose hooks never capture an owner. */
+        boolean sideEffectEventLoop;
+
+        /** The network sensor's last datagram address on this thread, by identity, its port, target id, and generation. */
+        Object sideEffectAddress;
+
+        int sideEffectPort;
+        int sideEffectTarget;
+        long sideEffectTargetGeneration = -1L;
     }
 
     /**

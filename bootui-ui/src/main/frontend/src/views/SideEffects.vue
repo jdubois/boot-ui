@@ -46,11 +46,6 @@ const STATE = {
   'not-applicable': {label: 'Not applicable', badge: 'text-bg-secondary'}
 }
 
-const EMPTY = {
-  processes: 'No process started yet in this run.',
-  blocking: 'No blocking call has started on an event loop yet in this run.'
-}
-
 const SCOPE_LABELS = {
   route: 'Route',
   execution: 'Execution',
@@ -67,6 +62,48 @@ const SCOPE_ORDER = {
   thread: 3,
   unattributed: 4,
   other: 99
+}
+
+const ORIGIN_LABELS = {
+  application: 'Application',
+  library: 'Library',
+  'class-path': 'Class path',
+  jdk: 'JDK',
+  logging: 'Logging',
+  unknown: 'Unknown'
+}
+
+const LOCATION_LABELS = {
+  'working-directory': 'Working directory',
+  'temporary-directory': 'Temporary directory',
+  home: 'Home',
+  system: 'System',
+  'java-home': 'Java home',
+  elsewhere: 'Elsewhere'
+}
+
+const GROUPED_APART = new Set(['class-path', 'jdk', 'logging'])
+
+const SENSOR_COLUMNS = {
+  processes: {target: 'Command', count: 'Starts', failed: true, exits: true, time: 'Lifetime (total / max ms)'},
+  network: {target: 'Host / name', count: 'Count', failed: true, network: true, time: 'Time (total / max ms)'},
+  files: {target: 'Path pattern', count: 'Operations', failed: true, origin: true, time: 'Time (total / max ms)'},
+  environment: {target: 'Name', count: 'Reads', origin: true},
+  blocking: {
+    target: 'Event loop / operation',
+    count: 'Calls',
+    failed: true,
+    failedLabel: 'Interrupted or failed',
+    time: 'Blocked (total / max ms)'
+  }
+}
+
+const EMPTY_TEXT = {
+  processes: 'No process started yet in this run.',
+  network: 'No connection, datagram, or name lookup recorded yet in this run.',
+  files: 'No file has been opened yet in this run.',
+  environment: 'No environment variable or system property has been read yet in this run.',
+  blocking: 'No blocking call has started on an event loop yet in this run.'
 }
 
 const summary = ref(null)
@@ -222,6 +259,10 @@ function rowKey(row) {
     row.target,
     row.callSite,
     row.insideMethod,
+    row.origin,
+    row.location,
+    row.client,
+    row.capture,
     row.firstSeen
   ].join('|')
 }
@@ -234,6 +275,49 @@ function sensorRows(report) {
       .join('|')
       .localeCompare([b.attribution, b.target, b.callSite].join('|'))
   })
+}
+
+function columnsOf(sensor) {
+  return SENSOR_COLUMNS[sensor.id] ?? {target: 'Target', count: 'Count', failed: true}
+}
+
+function columnCount(sensor) {
+  const columns = columnsOf(sensor)
+  return (
+    5 +
+    (columns.failed ? 1 : 0) +
+    (columns.exits ? 1 : 0) +
+    (columns.time ? 1 : 0) +
+    (columns.origin ? 1 : 0) +
+    (columns.network ? 3 : 0)
+  )
+}
+
+function groupedApart(row) {
+  return GROUPED_APART.has(row.origin)
+}
+
+/** The application's rows, then, collapsed, those of class loading, the JDK, and logging, grouped apart. */
+function sections(report) {
+  const rows = sensorRows(report)
+  const own = rows.filter((row) => !groupedApart(row))
+  const apart = rows.filter(groupedApart)
+  const list = []
+  if (own.length || !apart.length) list.push({id: 'own', apart: false, rows: own})
+  if (apart.length) list.push({id: 'apart', apart: true, rows: apart})
+  return list
+}
+
+function originLabel(origin) {
+  return ORIGIN_LABELS[origin] ?? origin
+}
+
+function locationLabel(location) {
+  return LOCATION_LABELS[location] ?? location
+}
+
+function emptyText(sensor) {
+  return EMPTY_TEXT[sensor.id] ?? `No ${sensor.label.toLowerCase()} row has been recorded yet.`
 }
 
 function moreRows(report) {
@@ -256,12 +340,27 @@ function formatLifetime(row) {
   return `${formatMillis(row.totalMillis)} / ${formatMillis(row.maxMillis)}`
 }
 
-function isBlocking(sensor) {
-  return sensor?.id === 'blocking'
+const CAPTURE = {
+  captured: {label: 'Captured', badge: 'text-bg-success'},
+  'not-captured': {label: 'Not captured by any panel', badge: 'text-bg-warning'},
+  infrastructure: {label: 'Infrastructure', badge: 'text-bg-secondary'}
 }
 
-function emptyMessage(sensor) {
-  return EMPTY[sensor.id] ?? `No ${sensor.label.toLowerCase()} row has been recorded yet.`
+const PANEL_ROUTES = {
+  'rest-client-trace': {path: '/rest-client-trace', label: 'REST Client Trace'},
+  'sql-trace': {path: '/sql-trace', label: 'SQL Trace'},
+  kafka: {path: '/kafka', label: 'Kafka'},
+  rabbitmq: {path: '/rabbitmq', label: 'RabbitMQ'},
+  jms: {path: '/jms', label: 'JMS'},
+  email: {path: '/email', label: 'Email'}
+}
+
+function captureOf(row) {
+  return CAPTURE[row.capture] ?? null
+}
+
+function capturingPanel(row) {
+  return PANEL_ROUTES[row.capturedBy] ?? (row.capturedBy ? {path: null, label: row.capturedBy} : null)
 }
 
 function hookStatus(value, label) {
@@ -314,8 +413,9 @@ function hookStatus(value, label) {
           </h3>
           <p class="text-muted small mb-0">
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
-            executable name; arguments and environment are never recorded. Blocking rows show calls that blocked an
-            event loop, reported, never refused.
+            executable name, network rows a host and port, file rows a path pattern, and environment rows a name:
+            arguments, bytes sent or received, file contents, and values are never recorded. Blocking rows show calls
+            that blocked an event loop, reported, never refused.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>
@@ -387,6 +487,10 @@ function hookStatus(value, label) {
             <div v-if="sensor.state !== 'recording'" class="alert alert-secondary small py-2 side-effects-state-note">
               <strong>{{ stateOf(sensor).label }}.</strong>
               {{ sensor.reason || 'This sensor is not recording rows right now.' }}
+              <template v-if="sensor.id === 'environment' && sensor.state === 'not-claimed'">
+                It is opt-in: add <code>environment</code> to <code>bootui.agent.sensors</code> to record the names
+                read.
+              </template>
             </div>
 
             <div v-if="sensorErrors[sensor.id]" class="alert alert-danger" role="alert">
@@ -407,97 +511,146 @@ function hookStatus(value, label) {
                 icon="bi-record-circle"
                 class="side-effects-empty"
               >
-                {{ emptyMessage(sensor) }}
+                {{ emptyText(sensor) }}
               </UnavailableState>
 
               <template v-else-if="sensorRows(sensorReports[sensor.id]).length">
-                <div class="table-responsive">
-                  <table class="table table-sm align-middle side-effects-table">
-                    <caption class="visually-hidden">
-                      Side effects recorded by
-                      {{
-                        sensor.label
-                      }}
-                    </caption>
-                    <thead v-if="isBlocking(sensor)">
-                      <tr>
-                        <th scope="col">Attribution</th>
-                        <th scope="col">Event loop / operation</th>
-                        <th scope="col">Call site</th>
-                        <th scope="col" class="text-end">Calls</th>
-                        <th scope="col" class="text-end">Interrupted or failed</th>
-                        <th scope="col" class="text-end">Blocked (total / max ms)</th>
-                        <th scope="col">Last seen</th>
-                        <th scope="col">Requests</th>
-                      </tr>
-                    </thead>
-                    <thead v-else>
-                      <tr>
-                        <th scope="col">Attribution</th>
-                        <th scope="col">Command / target</th>
-                        <th scope="col">Call site</th>
-                        <th scope="col" class="text-end">Starts</th>
-                        <th scope="col" class="text-end">Failed</th>
-                        <th scope="col" class="text-end">Exits</th>
-                        <th scope="col" class="text-end">Lifetime (total / max ms)</th>
-                        <th scope="col">Last seen</th>
-                        <th scope="col">Requests</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="row in sensorRows(sensorReports[sensor.id])"
-                        :key="rowKey(row)"
-                        :class="{'side-effects-row-other': row.scope === 'other'}"
-                      >
-                        <td>
-                          <span
-                            :class="['badge', row.scope === 'other' ? 'text-bg-secondary' : 'text-bg-light border']"
-                            >{{ scopeLabel(row.scope) }}</span
-                          >
-                          <div class="small bootui-break-anywhere mt-1">{{ attribution(row) }}</div>
-                        </td>
-                        <td>
-                          <code class="bootui-break-anywhere">{{ row.target || '—' }}</code>
-                          <div v-if="row.kind" class="small text-muted">{{ row.kind }}</div>
-                        </td>
-                        <td>
-                          <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
-                          <span v-else class="text-muted">—</span>
-                          <div v-if="row.insideMethod" class="small text-muted bootui-break-anywhere">
-                            inside {{ row.insideMethod }}
-                          </div>
-                        </td>
-                        <td class="text-end">{{ formatNumber(row.count) }}</td>
-                        <td class="text-end">{{ formatNumber(row.failed) }}</td>
-                        <td v-if="!isBlocking(sensor)" class="text-end">
-                          {{ formatNumber(row.completed) }}
-                          <div v-if="row.nonZeroExits > 0" class="small">
-                            <span class="badge text-bg-warning">{{ formatNumber(row.nonZeroExits) }} non-zero</span>
-                            <span v-if="row.lastExitStatus != null" class="text-muted ms-1">
-                              last {{ row.lastExitStatus }}</span
-                            >
-                          </div>
-                        </td>
-                        <td class="text-end">{{ formatLifetime(row) }}</td>
-                        <td>
-                          <span>{{ formatSeen(row.lastSeen) }}</span>
-                          <div class="small text-muted">{{ formatTimestamp(row.lastSeen) }}</div>
-                        </td>
-                        <td>
-                          <template v-if="row.exemplarRequestIds?.length">
-                            <template v-for="(id, index) in row.exemplarRequestIds" :key="id">
-                              <router-link :to="{path: '/activity', query: {request: id}}">
-                                <code>{{ id }}</code> </router-link
-                              ><template v-if="Number(index) < row.exemplarRequestIds.length - 1">, </template>
-                            </template>
+                <component
+                  :is="section.apart ? 'details' : 'div'"
+                  v-for="section in sections(sensorReports[sensor.id])"
+                  :key="section.id"
+                  :class="section.apart ? 'side-effects-apart mb-3' : ''"
+                >
+                  <summary v-if="section.apart" class="small fw-semibold mb-2">
+                    Class path, JDK, and logging ({{ formatNumber(section.rows.length) }}), grouped apart
+                  </summary>
+                  <div class="table-responsive">
+                    <table class="table table-sm align-middle side-effects-table">
+                      <caption class="visually-hidden">
+                        Side effects recorded by
+                        {{
+                          sensor.label
+                        }}{{
+                          section.apart ? ': class path, JDK, and logging' : ''
+                        }}
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Attribution</th>
+                          <th scope="col">{{ columnsOf(sensor).target }}</th>
+                          <template v-if="columnsOf(sensor).network">
+                            <th scope="col">Client</th>
+                            <th scope="col">Captured</th>
                           </template>
-                          <span v-else class="text-muted">—</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                          <th scope="col">Call site</th>
+                          <th v-if="columnsOf(sensor).origin" scope="col">Origin</th>
+                          <th scope="col" class="text-end">{{ columnsOf(sensor).count }}</th>
+                          <th v-if="columnsOf(sensor).failed" scope="col" class="text-end">
+                            {{ columnsOf(sensor).failedLabel || 'Failed' }}
+                          </th>
+                          <th v-if="columnsOf(sensor).exits" scope="col" class="text-end">Exits</th>
+                          <th v-if="columnsOf(sensor).network" scope="col" class="text-end">Connected</th>
+                          <th v-if="columnsOf(sensor).time" scope="col" class="text-end">
+                            {{ columnsOf(sensor).time }}
+                          </th>
+                          <th scope="col">Last seen</th>
+                          <th scope="col">Requests</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="!section.rows.length">
+                          <td :colspan="columnCount(sensor)" class="small text-muted">
+                            Only class loading, the JDK, and logging so far.
+                          </td>
+                        </tr>
+                        <tr
+                          v-for="row in section.rows"
+                          :key="rowKey(row)"
+                          :class="{'side-effects-row-other': row.scope === 'other'}"
+                        >
+                          <td>
+                            <span
+                              :class="['badge', row.scope === 'other' ? 'text-bg-secondary' : 'text-bg-light border']"
+                              >{{ scopeLabel(row.scope) }}</span
+                            >
+                            <div class="small bootui-break-anywhere mt-1">{{ attribution(row) }}</div>
+                          </td>
+                          <td>
+                            <code class="bootui-break-anywhere">{{ row.target || '—' }}</code>
+                            <div class="small text-muted">
+                              <span v-if="row.kind">{{ row.kind }}</span>
+                              <span v-if="row.location" class="badge text-bg-light border ms-1 side-effects-location">{{
+                                locationLabel(row.location)
+                              }}</span>
+                            </div>
+                          </td>
+                          <template v-if="columnsOf(sensor).network">
+                            <td>
+                              <span v-if="row.client">{{ row.client }}</span>
+                              <span v-else class="text-muted">unrecognized</span>
+                            </td>
+                            <td>
+                              <template v-if="captureOf(row)">
+                                <span :class="['badge', captureOf(row).badge, 'side-effects-capture']">{{
+                                  captureOf(row).label
+                                }}</span>
+                                <div v-if="capturingPanel(row)" class="small mt-1">
+                                  <router-link v-if="capturingPanel(row).path" :to="capturingPanel(row).path">{{
+                                    capturingPanel(row).label
+                                  }}</router-link>
+                                  <span v-else>{{ capturingPanel(row).label }}</span>
+                                </div>
+                              </template>
+                              <span v-else class="text-muted">—</span>
+                            </td>
+                          </template>
+                          <td>
+                            <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
+                            <span v-else class="text-muted">—</span>
+                            <div v-if="row.insideMethod" class="small text-muted bootui-break-anywhere">
+                              inside {{ row.insideMethod }}
+                            </div>
+                          </td>
+                          <td v-if="columnsOf(sensor).origin">
+                            <span v-if="row.origin" class="badge text-bg-light border side-effects-origin">{{
+                              originLabel(row.origin)
+                            }}</span>
+                            <span v-else class="text-muted">—</span>
+                          </td>
+                          <td class="text-end">{{ formatNumber(row.count) }}</td>
+                          <td v-if="columnsOf(sensor).failed" class="text-end">{{ formatNumber(row.failed) }}</td>
+                          <td v-if="columnsOf(sensor).exits" class="text-end">
+                            {{ formatNumber(row.completed) }}
+                            <div v-if="row.nonZeroExits > 0" class="small">
+                              <span class="badge text-bg-warning">{{ formatNumber(row.nonZeroExits) }} non-zero</span>
+                              <span v-if="row.lastExitStatus != null" class="text-muted ms-1">
+                                last {{ row.lastExitStatus }}</span
+                              >
+                            </div>
+                          </td>
+                          <td v-if="columnsOf(sensor).network" class="text-end">
+                            {{ row.kind === 'connect' ? formatNumber(row.completed) : '—' }}
+                          </td>
+                          <td v-if="columnsOf(sensor).time" class="text-end">{{ formatLifetime(row) }}</td>
+                          <td>
+                            <span>{{ formatSeen(row.lastSeen) }}</span>
+                            <div class="small text-muted">{{ formatTimestamp(row.lastSeen) }}</div>
+                          </td>
+                          <td>
+                            <template v-if="row.exemplarRequestIds?.length">
+                              <template v-for="(id, index) in row.exemplarRequestIds" :key="id">
+                                <router-link :to="{path: '/activity', query: {request: id}}">
+                                  <code>{{ id }}</code> </router-link
+                                ><template v-if="Number(index) < row.exemplarRequestIds.length - 1">, </template>
+                              </template>
+                            </template>
+                            <span v-else class="text-muted">—</span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </component>
 
                 <button
                   v-if="moreRows(sensorReports[sensor.id])"
@@ -550,7 +703,8 @@ function hookStatus(value, label) {
   font-weight: 600;
 }
 
-.side-effects-limitations summary {
+.side-effects-limitations summary,
+.side-effects-apart summary {
   cursor: pointer;
 }
 </style>

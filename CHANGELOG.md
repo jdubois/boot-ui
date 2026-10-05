@@ -138,6 +138,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/side-effects/sensor`, `get_side_effects`, and `bootui side-effects` are available on Spring MVC, Spring WebFlux, and
   Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects), PLAN-v2
   §5.16, M5-5a).
+- **Network sensor in the BootUI agent.** A new `network` agent sensor, on by default, records the hosts and ports the
+  application connects to (`Socket.connect`, `SocketChannel` connects, a non-blocking connect's finish with its time),
+  the datagrams it sends, and the host names the JVM resolves on an address-cache miss, with the client recognized from
+  the calling frames (JDBC drivers, messaging and mail clients, the JDK `HttpClient`, Lettuce, MongoDB, cloud SDKs,
+  ...), never a byte sent or received. The Side Effects panel's Network tab marks a connection **Not captured by any
+  panel** when neither a REST Client Trace call of the same request or time nor, for a JDBC, messaging, or mail client,
+  an enabled SQL Trace, broker panel, or Email shows its work; `get_side_effects --query "not captured"` lists these hidden outbound calls. The runtime model gains observed
+  `OPENS` edges from routes, jobs, and beans to hosts. Each hook passes a JDK 17, 21, and 26 retransformation check
+  and an I/O-free self-test; a failing optional hook is left out and a failing sensor no longer takes the other
+  side-effect sensors down. BootUI's own JDK `HttpClient`s run on a `bootui-http-N` executor so they are never recorded
+  ([The network sensor](docs/features/java-agent.md#the-network-sensor), PLAN-v2 §5.16, M5-5b).
 - **Processes sensor in the BootUI agent.** A new `processes` agent sensor, on by default, hooks the JDK
   `ProcessBuilder.start` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and
   `Runtime.exec(...)`. It records only the sanitized command name (a started process's executable file name; for a
@@ -148,17 +159,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
-- **Blocking sensor in the BootUI agent.** A new `blocking` agent sensor, on by default, reports `Thread.sleep`,
-  `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park` started on an event loop, reported, never thrown, in Side
-  Effects' **Blocking** tab, `get_side_effects`, and `bootui side-effects`: rows by attribution, operation, event loop's
-  thread family, and call site, with interrupted or failed calls, total and longest blocked time, and exemplar request
-  ids. The adapters register the event loops they classify: Reactor Netty's on Spring WebFlux and for a WebClient, and
-  Vert.x's on Quarkus; Spring MVC shows the tab `not-applicable` until a WebClient's loop is registered. Advice on every
-  public `LockSupport.park*` method returns after one volatile read off event loops until a loop is registered, then
-  after one table lookup (about 2.4 ns per park); `Thread.sleep` and `Object.wait`, native on JDK 17, are seen at their
-  call sites in the application's classes, rewritten on every JDK. Parks shorter than 1 ms are only counted. Checked on
-  JDK 17, 21, and 26, beside the OpenTelemetry agent and BlockHound
-  ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), PLAN-v2 §5.16, M5-5c).
+- **Files and environment sensors in the BootUI agent.** The opt-in `files` and `environment` agent sensors record
+  the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
+  and the environment variables and system properties it reads, by name; never contents or values, with class loading,
+  the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor), M5-5d).
+- **Blocking sensor in the BootUI agent.** A new `blocking` sensor reports `Thread.sleep`, `Object.wait`,
+  `LockSupport.park`, and the network and files sensors' blocking operations started on an event loop, reported, never
+  thrown, in Side Effects' **Blocking** tab; Spring MVC shows it `not-applicable`
+  ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -314,6 +322,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
   downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
   readable; the full `docker` profile is unchanged.
+- **All-in-one Spring sample launcher.** `run-local-all.sh` runs the Spring MVC sample with the BootUI Java agent, the
+  full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
+  Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
+  compared with the previous one after a full restart.
 
 ### Changed
 
@@ -362,8 +374,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
   (PLAN-v2 M5-7a).
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, and `blocking`, while `threads` remains opt-in. The Side Effects sensors this version does
-  not ship (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`)
+  `code-paths`, `processes`, `network`, and `blocking`, while `threads`, `files`, and `environment` are opt-in. The Side
+  Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`)
   are accepted with a warning and reported not available. Any other id now fails the application's start, on Spring and
   Quarkus alike, while the BootUI agent is attached, with an error naming the accepted ids.
 
@@ -598,6 +610,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through
+  timed methods could overflow the stack a second time while the agent bridge was resetting the thread after the first
+  overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop
+  every later request on it from recording, or leave an abandoned fragment collecting its calls. The next timed method
+  to return on the thread now resets it again, and the dropped fragment is counted under `abandonedFragments`
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
 - **One framework warning per message, not per failed request.** Runtime Insights' `framework-warnings-by-route`
   grouped events by their exact message, so a framework that writes the request path and a per-request id into the
   message, as Quarkus's error handler does (`HTTP Request to /api/records failed, error id: …`), listed each failed

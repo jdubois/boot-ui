@@ -177,6 +177,80 @@ describe('Side Effects panel', () => {
     )
   })
 
+  it('shows network rows with their client, a not-captured badge, and a link to the capturing panel', async () => {
+    const hidden = row({
+      sensor: 'network',
+      kind: 'connect',
+      attribution: 'GET /api/side-effects/sdk-call',
+      target: 'localhost:8081',
+      callSite: 'demo.LicenseSdkClient#check',
+      insideMethod: null,
+      count: 2,
+      failed: 0,
+      completed: 2,
+      nonZeroExits: 0,
+      lastExitStatus: null,
+      client: null,
+      capture: 'not-captured',
+      capturedBy: null
+    })
+    const captured = row({
+      sensor: 'network',
+      kind: 'connect',
+      attribution: 'GET /api/side-effects/rest-call',
+      target: 'localhost:8081',
+      callSite: 'demo.RestCall#call',
+      insideMethod: null,
+      count: 1,
+      failed: 0,
+      completed: 1,
+      nonZeroExits: 0,
+      lastExitStatus: null,
+      client: 'JDK HttpClient',
+      capture: 'captured',
+      capturedBy: 'rest-client-trace'
+    })
+    const lookup = row({
+      sensor: 'network',
+      kind: 'lookup',
+      attribution: 'startup',
+      scope: 'startup',
+      target: 'db.internal',
+      callSite: 'org.postgresql.Driver#connect',
+      insideMethod: null,
+      count: 1,
+      failed: 0,
+      completed: 0,
+      client: 'PostgreSQL JDBC',
+      capture: null,
+      capturedBy: null,
+      exemplarRequestIds: []
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=network&offset=0&limit=50': sensorReport('network', [hidden, captured, lookup]),
+      'api/side-effects': summary({sensors: {network: {state: 'recording', reason: null, rows: 3, occurrences: 4}}})
+    }))
+    await flushPromises()
+
+    const table = wrapper.get('.side-effects-table')
+    expect(table.findAll('thead th').map((cell) => cell.text())).toContain('Captured')
+    const rows = table.findAll('tbody tr')
+    expect(rows).toHaveLength(3)
+    const sdk = rows.find((entry) => entry.text().includes('sdk-call'))
+    expect(sdk.text()).toContain('Not captured by any panel')
+    expect(sdk.text()).toContain('unrecognized')
+    expect(sdk.text()).toContain('localhost:8081')
+    const rest = rows.find((entry) => entry.text().includes('rest-call'))
+    expect(rest.text()).toContain('JDK HttpClient')
+    expect(rest.get('.side-effects-capture').text()).toBe('Captured')
+    expect(rest.findAll('.router-link-stub').map((link) => link.attributes('data-to'))).toContain(
+      '"/rest-client-trace"'
+    )
+    const name = rows.find((entry) => entry.text().includes('db.internal'))
+    expect(name.text()).toContain('lookup')
+    expect(name.find('.side-effects-capture').exists()).toBe(false)
+  })
+
   it('loads a recording processes sensor lazily, sorts Other last, and links exemplars', async () => {
     const routeRow = row()
     const otherRow = row({
@@ -406,5 +480,121 @@ describe('Side Effects panel', () => {
     expect(wrapper.text()).toContain('java')
     expect(wrapper.text()).toContain('node')
     expect(wrapper.find('.side-effects-load-more').exists()).toBe(false)
+  })
+
+  it('shows file rows by pattern, location, and origin, with class path, JDK, and logging grouped apart', async () => {
+    const report = row({
+      sensor: 'files',
+      kind: 'write',
+      target: './target/bootui-side-effects/report-{n}-{n}-{n}.csv',
+      origin: 'application',
+      location: 'working-directory',
+      callSite: 'demo.ReportWriter#writeReport',
+      completed: 0,
+      nonZeroExits: 0,
+      lastExitStatus: null
+    })
+    const log = row({
+      sensor: 'files',
+      kind: 'write',
+      target: '$TMPDIR/app-{n}.log',
+      origin: 'logging',
+      location: 'temporary-directory',
+      callSite: null,
+      exemplarRequestIds: []
+    })
+    const classes = row({
+      scope: 'unattributed',
+      attribution: 'all threads (counted)',
+      sensor: 'files',
+      kind: 'open',
+      target: '(class files)',
+      origin: 'class-path',
+      location: null,
+      callSite: null,
+      exemplarRequestIds: []
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=files&offset=0&limit=50': sensorReport('files', [classes, log, report]),
+      'api/side-effects/sensor?sensor=processes&offset=0&limit=50': sensorReport('processes', []),
+      'api/side-effects': summary({
+        sensors: {
+          files: {state: 'recording', reason: null},
+          processes: {state: 'recording', reason: null}
+        }
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Files and processes')
+      .trigger('click')
+    await flushPromises()
+
+    const own = wrapper.findAll('.side-effects-sensor')[0]
+    const tables = own.findAll('.side-effects-table')
+    expect(tables).toHaveLength(2)
+    expect(tables[0].text()).toContain('Path pattern')
+    expect(tables[0].text()).toContain('./target/bootui-side-effects/report-{n}-{n}-{n}.csv')
+    expect(tables[0].text()).toContain('Working directory')
+    expect(tables[0].text()).toContain('Application')
+    expect(tables[0].text()).not.toContain('(class files)')
+    const apart = own.get('details.side-effects-apart')
+    expect(apart.get('summary').text()).toContain('Class path, JDK, and logging (2)')
+    expect(tables[1].text()).toContain('(class files)')
+    expect(tables[1].text()).toContain('Logging')
+    expect(tables[1].text()).toContain('Temporary directory')
+  })
+
+  it('shows environment rows by name and explains that the sensor is opt-in', async () => {
+    const read = row({
+      sensor: 'environment',
+      kind: 'system property',
+      target: 'sample.report.title',
+      origin: 'application',
+      location: null,
+      count: 2,
+      failed: 0,
+      completed: 0,
+      nonZeroExits: 0,
+      lastExitStatus: null
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=environment&offset=0&limit=50': sensorReport('environment', [read]),
+      'api/side-effects': summary({sensors: {environment: {state: 'recording', reason: null}}})
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Environment')
+      .trigger('click')
+    await flushPromises()
+
+    const table = wrapper.get('.side-effects-table')
+    expect(table.text()).toContain('Name')
+    expect(table.text()).toContain('Reads')
+    expect(table.text()).toContain('sample.report.title')
+    expect(table.text()).toContain('system property')
+    expect(table.text()).not.toContain('Failed')
+    wrapper.unmount()
+
+    ;({wrapper} = mountPanel({
+      'api/side-effects': summary({
+        sensors: {
+          environment: {
+            state: 'not-claimed',
+            reason: "This application's bootui.agent.sensors does not include environment."
+          }
+        }
+      }),
+      'api/side-effects/sensor?sensor=environment&offset=0&limit=50': sensorReport('environment', [])
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Environment')
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.side-effects-state-note').text()).toContain('It is opt-in')
   })
 })

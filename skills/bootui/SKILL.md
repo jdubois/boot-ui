@@ -137,7 +137,7 @@ bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
 bootui code paths --json                        # with the agent: which methods each route spends its time in
-bootui side-effects --json                      # with the agent: which processes routes or background work started
+bootui side-effects --json                      # with the agent: processes, hosts, files, env reads per route or work
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -216,11 +216,15 @@ assembly only.
 
 With the agent attached, run `bootui side-effects --json` (`get_side_effects`): every sensor's coverage first, then the
 most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
-environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`. Pass
-`--query processes`, a route, target, or call site to narrow it. `blocking` records `Thread.sleep`, `Object.wait`, and
-`LockSupport.park` started on an event loop (Spring WebFlux, Quarkus), by operation, loop family, and call site, with
-how long it blocked; on Spring MVC it is not applicable. The other sensor groups are listed as not available in this
-version.
+environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`; `network`
+records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
+recognized from the calling frames, never a byte sent or received; the opt-in `files` records path patterns (`./` working
+directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
+opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
+`Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
+Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC. Pass `--query not-captured` to list the
+outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`, a route, target,
+client, or call site to narrow it. The other sensor groups are listed as not available in this version.
 
 ### Read MySQL operational evidence
 

@@ -131,6 +131,108 @@ class SelfTestMutationIT {
                 .contains("self-test failed for [ProcessBuilder.start]");
     }
 
+    @Test
+    void everyNetworkHookPassesBesideTheProcessesHook() throws Exception {
+        ChildJvm.Output output = run("", "processes,network");
+
+        for (String hook : NetworkBehaviorsIT.HOOKS) {
+            assertThat(selfTest(output, hook)).as("%s: %s", hook, output).isEqualTo("passed");
+        }
+        assertThat(output.value("SENSOR_network"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true")
+                .contains("hooksLeftOut=[]");
+    }
+
+    /** M5-5b: an optional hook that fails is left out, and its sensor keeps recording with the others. */
+    @Test
+    void aMissingOptionalNetworkHookIsLeftOutAndTheSensorKeepsRecording() throws Exception {
+        ChildJvm.Output output = run("InetAddress.lookup", "processes,network");
+
+        assertThat(selfTest(output, "InetAddress.lookup")).as(output.toString()).isEqualTo("failed");
+        assertThat(selfTest(output, "Socket.connect")).as(output.toString()).isEqualTo("passed");
+        assertThat(output.value("SENSOR_network"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true")
+                .contains("hooksLeftOut=[InetAddress.lookup]");
+    }
+
+    @Test
+    void theFilesAndEnvironmentHooksPassWithNothingOmitted() throws Exception {
+        ChildJvm.Output output = run("", "files,environment");
+
+        assertThat(selfTest(output, "FileInputStream.open"))
+                .as(output.toString())
+                .isEqualTo("passed");
+        assertThat(selfTest(output, "System.getProperty")).as(output.toString()).isEqualTo("passed");
+        assertThat(output.value("SENSOR_files")).as(output.toString()).contains("selfTestPassed=true");
+        assertThat(output.value("SENSOR_environment")).as(output.toString()).contains("selfTestPassed=true");
+    }
+
+    /**
+     * A files hook failing its self-test stops the files sensor alone, for the JVM's life: the transformer is
+     * reinstalled with the environment sensor's hooks, which pass and record (PLAN-v2 M5-5d review R5).
+     */
+    @Test
+    void aMissingFilesHookFailsTheFilesSensorAloneAndTheOthersAreReinstalled() throws Exception {
+        ChildJvm.Output output = run("FileInputStream.open", "files,environment,processes");
+
+        assertThat(selfTest(output, "FileInputStream.open"))
+                .as(output.toString())
+                .isEqualTo("failed");
+        assertThat(output.value("SENSOR_files"))
+                .as(output.toString())
+                .contains("state=self-test-failed")
+                .contains("selfTestPassed=false")
+                .contains("self-test failed for [FileInputStream.open]");
+        assertThat(output.value("SENSOR_environment"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true");
+        assertThat(output.value("SENSOR_processes"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true");
+    }
+
+    /** M5-5d: an optional files hook that fails is left out, and the files sensor keeps recording with the others. */
+    @Test
+    void aMissingOptionalFilesHookIsLeftOutAndTheFilesSensorKeepsRecording() throws Exception {
+        ChildJvm.Output output = run("Files.copy", "files");
+
+        assertThat(selfTest(output, "Files.copy")).as(output.toString()).isEqualTo("failed");
+        assertThat(selfTest(output, "FileOutputStream.open"))
+                .as(output.toString())
+                .isEqualTo("passed");
+        assertThat(output.value("SENSOR_files"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true")
+                .contains("hooksLeftOut=[Files.copy]");
+    }
+
+    /** M5-5b: a core hook that fails takes its own sensor down, never another one. */
+    @Test
+    void aMissingCoreNetworkHookFailsTheNetworkSensorAloneAndProcessesKeepsRecording() throws Exception {
+        ChildJvm.Output output = run("Socket.connect", "processes,network");
+
+        assertThat(selfTest(output, "Socket.connect")).as(output.toString()).isEqualTo("failed");
+        assertThat(output.value("SENSOR_network"))
+                .as(output.toString())
+                .contains("state=self-test-failed")
+                .contains("selfTestPassed=false")
+                .contains("self-test failed for [Socket.connect]");
+        assertThat(output.value("SENSOR_processes"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true");
+        assertThat(selfTest(output, "ProcessBuilder.start"))
+                .as(output.toString())
+                .isEqualTo("passed");
+    }
+
     private static ChildJvm.Output run(String omitted) throws Exception {
         return run(omitted, "executors,threads");
     }
