@@ -1,0 +1,17 @@
+diff --git a/pom.xml b/pom.xml
+index 323f1f8..2476557 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -121,6 +121,12 @@
+             <scope>runtime</scope>
+         </dependency>
+ 
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-spring-boot-starter</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
++
+         <!-- WebApp dependencies -->
+         <dependency>
+             <groupId>org.springframework.boot</groupId>

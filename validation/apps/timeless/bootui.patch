@@ -1,0 +1,16 @@
+diff --git a/timeless-api/pom.xml b/timeless-api/pom.xml
+index 1ea5652..463b740 100644
+--- a/timeless-api/pom.xml
++++ b/timeless-api/pom.xml
+@@ -41,6 +41,11 @@
+     </dependencyManagement>
+ 
+     <dependencies>
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-quarkus</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
+         <dependency>
+             <groupId>io.quarkus</groupId>
+             <artifactId>quarkus-arc</artifactId>

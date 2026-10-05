@@ -149,6 +149,32 @@ COMPOSE_PROJECT_NAME=my-agent-sample ./bootui-spring-sample-app/run-local-agent.
 Stop it with `Ctrl-C`, then `docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down` (with the same
 `COMPOSE_PROJECT_NAME` if you set one).
 
+## Run it with everything: the Java agent, PostgreSQL, Spring AI, and run history
+
+To try every feature at once, use the all-in-one launcher:
+
+```bash
+./bootui-spring-sample-app/run-local-all.sh
+```
+
+It attaches the BootUI Java agent as [above](#run-it-with-the-bootui-java-agent-and-postgresql) (including
+`BOOTUI_AGENT_JAR`), and runs the full `docker` profile, so PostgreSQL with `pg_stat_statements`, Redis, Kafka, and
+Ollama for Spring AI all start, as in [Run it with Docker](#run-it-with-docker). It also activates the `run-history`
+profile ([`application-run-history.properties`](src/main/resources/application-run-history.properties)), which keeps
+BootUI's history across full restarts:
+
+- Live Activity's durable persistence writes the runtime journal's history to the sample's PostgreSQL database (the
+  `bootui_activity` table), so Live Activity still shows the previous runs' requests after a restart.
+- `bootui.runtime-journal.baseline-file` keeps the last run's summary in `bootui-spring-sample-app/.bootui/run-baseline.bin`
+  (git-ignored). Stop the application, start it again, and exercise it: **Compared with the previous run** in Runtime
+  Insights (also `bootui insights compare`) then compares the new run's behavior and latency with the run before the
+  restart. The code changes the agent saw are listed against the previous run in the same JVM, so recompile while it
+  runs, as DevTools restarts keep the JVM, to see them first in the comparison.
+
+Both stores hold metadata only, never values. To start from a clean history, delete `.bootui/run-baseline.bin` and
+remove the database with `docker compose -f bootui-spring-sample-app/compose.yaml down`. As in the full `docker` profile,
+Kafka and Ollama bind the fixed host ports 9092 and 11434, so only one instance of this variant can run at a time.
+
 ## Run it with Docker and MySQL
 
 Use MySQL 8.4.6 **as the application's primary database**, with Redis for caching and no Kafka or Ollama.
@@ -158,9 +184,9 @@ The dedicated launcher builds the sample and runs the lightweight stack:
 ./bootui-spring-sample-app/run-local-mysql.sh
 ```
 
-The original `run-local.sh` continues to run the Docker-free `dev` profile, and `run-local-ai.sh` runs the full
-`docker` profile. Every `run-local*.sh` script uses the isolated `.m2` repository and forwards additional Maven
-arguments to the application launch.
+The original `run-local.sh` continues to run the Docker-free `dev` profile, `run-local-ai.sh` runs the full
+`docker` profile, and `run-local-all.sh` adds the Java agent and run history to it. Every `run-local*.sh` script uses
+the isolated `.m2` repository and forwards additional Maven arguments to the application launch.
 
 No Maven profile or externally configured database is needed. Spring Boot starts
 [`compose-mysql.yaml`](compose-mysql.yaml), discovers MySQL's dynamically mapped localhost port and credentials,

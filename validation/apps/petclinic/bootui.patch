@@ -1,0 +1,16 @@
+diff --git a/pom.xml b/pom.xml
+index db5b9f7..041c0be 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -63,6 +63,11 @@
+       <groupId>org.springframework.boot</groupId>
+       <artifactId>spring-boot-starter-webmvc</artifactId>
+     </dependency>
++    <dependency>
++      <groupId>com.julien-dubois.bootui</groupId>
++      <artifactId>bootui-spring-boot-starter</artifactId>
++      <version>@BOOTUI_VERSION@</version>
++    </dependency>
+ 
+     <dependency>
+       <groupId>javax.cache</groupId>

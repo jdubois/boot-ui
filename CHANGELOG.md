@@ -314,6 +314,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
   downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
   readable; the full `docker` profile is unchanged.
+- **All-in-one Spring sample launcher.** `run-local-all.sh` runs the Spring MVC sample with the BootUI Java agent, the
+  full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
+  Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
+  compared with the previous one after a full restart.
 
 ### Changed
 
