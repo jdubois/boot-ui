@@ -85,6 +85,7 @@ import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
@@ -468,6 +469,21 @@ public class BootUiEngineConfiguration {
     }
 
     /**
+     * The engine side of the BootUI agent's opt-in {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6a):
+     * routes its records into the runtime journal, which installs itself on it as on every recorder. The run's
+     * {@link AgentClaimOwner} starts it once the context is refreshed and its claim is armed; it stops routing when the
+     * context closes. Without the agent, or without the sensor, it starts nothing.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    AgentCaughtExceptions bootUiAgentCaughtExceptions(ObjectProvider<AgentClaimOwner> owner) {
+        return new AgentCaughtExceptions(AgentBridgeAccess.locate(), () -> {
+            AgentClaimOwner current = owner.getIfUnique();
+            return current == null ? null : current.claim();
+        });
+    }
+
+    /**
      * Code Inventory ({@code docs/PLAN-v2.md} §5.15): this run's executed and changed application methods and its
      * dependency use, from the BootUI agent's inventory sensor. The run's {@link AgentClaimOwner} starts it once the
      * context is refreshed and its claim is armed; it stops its drain and scan threads when the context closes. Without
@@ -532,7 +548,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
             ObjectProvider<BeanProvider> beans,
-            AgentEvidence evidence) {
+            AgentEvidence evidence,
+            BootUiExposure exposure) {
         CodePathsService service = new CodePathsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -553,6 +570,8 @@ public class BootUiEngineConfiguration {
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.getIfUnique(), null));
+        // Method probes' argument and return shapes follow the live bootui.expose-values (M5-8, D44).
+        service.setExposure(exposure);
         return service;
     }
 

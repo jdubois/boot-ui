@@ -16,8 +16,11 @@ import java.util.stream.Stream;
 
 /**
  * Method probes' bridge side (PLAN-v2 §5.14, M5-8): user-triggered, bounded recordings of one application method's next
- * invocations, metadata only (D37): each invocation's duration, thread kind, request id, outcome (returned, or the
- * thrown exception's type name), and calling frame; never an argument or a return value.
+ * invocations: each invocation's duration, thread kind, request id, outcome (returned, or the thrown exception's type
+ * name), and calling frame; never an argument or a return value. A probe started with {@code shapes} also records the
+ * <b>shapes</b> of its first {@value #MAX_SHAPED_ARGUMENTS} arguments, at entry, and of its return value
+ * ({@link ProbeShapes}, D37, D44): class names and, for an allowlist of JDK types, a size, a length, a presence, or an
+ * enum constant's name, read without running any application code; never the values themselves.
  *
  * <p><b>Bounds.</b> A probe records at most {@value #MAX_INVOCATIONS} invocations, during at most
  * {@value #MAX_WINDOW_MILLIS} ms from the moment the agent activates it, and at most {@value #SLOTS} probes exist at
@@ -32,6 +35,12 @@ import java.util.stream.Stream;
  * probe that ended. Entry allocates nothing; exit, at most {@value #MAX_INVOCATIONS} times per probe, captures the
  * request id through the claim's capture under the re-entrancy guard, walks at most {@value #MAX_FRAMES} frames for the
  * calling frame, and publishes one record on the transport ring ({@link AgentRing#SENSOR_METHOD_PROBES}).
+ *
+ * <p><b>Shapes.</b> A probe started with shapes is installed with another advice, which passes its arguments to
+ * {@link #arguments} and its return value to {@link #exit(int, long, long, Throwable, Object)} only once {@link #enter}
+ * returned a start, so that advice allocates its argument array and boxes only for a recorded invocation. {@link #enter}
+ * then carries the invocation's index in the low five bits of the start; each shapes record ({@link #PROBE_SHAPES}) and
+ * the invocation's record carry that index, so the engine joins them. At most four shapes records an invocation.
  *
  * <p><b>Slots.</b> A slot is freed when the agent reports the probe removed or failed, and also, without the agent, when
  * a probe stays starting or ending longer than {@value #STUCK_MILLIS} ms, so a stuck or dead agent thread can never
@@ -62,6 +71,25 @@ public final class MethodProbes {
 
     /** The ring record type of one recorded invocation. */
     public static final int PROBE_HIT = 1;
+
+    /**
+     * The ring record type of up to three shapes of one invocation: {@code a} is {@code id << 8 | index << 3 | part},
+     * parts 0 to 2 holding arguments {@code 3 * part} to {@code 3 * part + 2} in {@code b}, {@code c}, and {@code d},
+     * part {@value #RETURN_PART} the return value's shape in {@code b}.
+     */
+    public static final int PROBE_SHAPES = 2;
+
+    /** The shapes record part of a return value. */
+    public static final int RETURN_PART = 3;
+
+    /** Arguments whose shapes a probe records at most: the first ones, in three records. */
+    public static final int MAX_SHAPED_ARGUMENTS = 9;
+
+    /** Whether this bridge records shapes, for the engine to read before starting a probe with them. */
+    public static final int SHAPES_PROTOCOL = 1;
+
+    /** A shapes probe's invocation index, in the low bits of what {@link #enter} returns. */
+    static final long INDEX_MASK = 31L;
 
     /** Probe states. */
     public static final int STARTING = 0;
@@ -142,9 +170,15 @@ public final class MethodProbes {
                 end(probe, END_WINDOW);
                 return 0L;
             }
-            if (probe.entered.incrementAndGet() > probe.max) {
+            int entered = probe.entered.incrementAndGet();
+            if (entered > probe.max) {
                 end(probe, END_INVOCATIONS);
                 return 0L;
+            }
+            if (probe.shapes) {
+                // The invocation's index in the low bits, at the cost of at most 31 ns of its duration.
+                long started = (now & ~INDEX_MASK) | (entered - 1);
+                return started == 0L ? INDEX_MASK + 1L : started;
             }
             return now == 0L ? 1L : now;
         } catch (Throwable ex) {
@@ -158,14 +192,78 @@ public final class MethodProbes {
      * probe ended meanwhile, since it started within the bound. Never throws.
      */
     public static void exit(int slot, long id, long started, Throwable thrown) {
+        record(slot, id, started, thrown, null, false);
+    }
+
+    /**
+     * Called at every exit of a probed method whose probe records shapes, with what {@link #enter} returned and the
+     * returned value ({@code null} when it threw or returns nothing): records the return value's shape, then the
+     * invocation. Never throws.
+     */
+    public static void exit(int slot, long id, long started, Throwable thrown, Object returned) {
+        record(slot, id, started, thrown, returned, true);
+    }
+
+    /**
+     * Called at the entry of a probed method whose probe records shapes, once {@link #enter} returned {@code started},
+     * not 0: publishes the shapes of its first {@value #MAX_SHAPED_ARGUMENTS} arguments. Never throws.
+     */
+    public static void arguments(int slot, long id, long started, Object[] arguments) {
+        if (started == 0L || arguments == null || arguments.length == 0) {
+            return;
+        }
+        try {
+            Probe probe = slot(slot, id);
+            if (probe == null || !probe.shapes) {
+                return;
+            }
+            long index = started & INDEX_MASK;
+            int count = Math.min(arguments.length, MAX_SHAPED_ARGUMENTS);
+            for (int part = 0; part * 3 < count; part++) {
+                int first = part * 3;
+                publishShapes(
+                        probe,
+                        index,
+                        part,
+                        ProbeShapes.shape(arguments[first]),
+                        first + 1 < count ? ProbeShapes.shape(arguments[first + 1]) : ProbeShapes.ABSENT,
+                        first + 2 < count ? ProbeShapes.shape(arguments[first + 2]) : ProbeShapes.ABSENT);
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    private static void publishShapes(Probe probe, long index, int part, long first, long second, long third) {
+        boolean published = AgentRing.publish(
+                AgentRing.SENSOR_METHOD_PROBES,
+                PROBE_SHAPES,
+                probe.generation,
+                System.currentTimeMillis(),
+                (probe.id << 8) | (index << 3) | part,
+                first,
+                second,
+                third);
+        if (!published) {
+            probe.shapesDropped.incrementAndGet();
+        }
+    }
+
+    private static void record(int slot, long id, long started, Throwable thrown, Object returned, boolean withReturn) {
         if (started == 0L) {
             return;
         }
         try {
-            long duration = Math.max(0L, System.nanoTime() - started);
+            long now = System.nanoTime();
             Probe probe = find(slot, id);
             if (probe == null) {
                 return;
+            }
+            long index = probe.shapes ? started & INDEX_MASK : 0L;
+            long duration = Math.max(0L, now - (probe.shapes ? started & ~INDEX_MASK : started));
+            if (probe.shapes && withReturn && thrown == null && !returnsVoid(probe)) {
+                publishShapes(
+                        probe, index, RETURN_PART, ProbeShapes.shape(returned), ProbeShapes.ABSENT, ProbeShapes.ABSENT);
             }
             int kind = Thread.currentThread().getClass().getName().endsWith("VirtualThread")
                     ? THREAD_VIRTUAL
@@ -180,7 +278,7 @@ public final class MethodProbes {
                     PROBE_HIT,
                     probe.generation,
                     System.currentTimeMillis(),
-                    (probe.id << 8) | ((long) outcome << 2) | kind,
+                    (probe.id << 8) | (index << 3) | ((long) outcome << 2) | kind,
                     duration,
                     request,
                     ((long) caller << 32) | (exception & 0xFFFFFFFFL));
@@ -283,7 +381,7 @@ public final class MethodProbes {
     /**
      * Starts a probe for the claim {@code token}: {@code method} is {@code binary.Class#name} with, for an overloaded
      * method, its descriptor ({@code binary.Class#name(I)J}); {@code maxInvocations} and {@code windowMillis} may lower
-     * the bounds. The answer's {@code status} is {@value #STARTED} with the {@code probe}, or {@value #INVALID},
+     * the bounds, and {@code shapes} ({@code Boolean.TRUE}) asks for argument and return shapes. The answer's {@code status} is {@value #STARTED} with the {@code probe}, or {@value #INVALID},
      * {@value #REFUSED}, {@code stale}, {@code unavailable}, or {@code failed} with a {@code reason}. The probe starts
      * {@code starting}: the agent installs it off the caller's thread. Never throws.
      */
@@ -325,6 +423,7 @@ public final class MethodProbes {
                         null);
             }
             int max = bound(request.get("maxInvocations"), MAX_INVOCATIONS);
+            boolean shapes = Boolean.TRUE.equals(request.get("shapes"));
             long windowMillis = bound(request.get("windowMillis"), MAX_WINDOW_MILLIS);
             Probe probe;
             String refusal = null;
@@ -364,7 +463,8 @@ public final class MethodProbes {
                             descriptor,
                             max,
                             windowMillis,
-                            prefixes(claim.packages));
+                            prefixes(claim.packages),
+                            shapes);
                     SLOT.set(free, probe);
                 }
             } finally {
@@ -385,6 +485,7 @@ public final class MethodProbes {
             call.put("className", className);
             call.put("methodName", methodName);
             call.put("descriptor", descriptor);
+            call.put("shapes", Boolean.valueOf(shapes));
             Map<String, Object> agent = AgentBridge.callAgent(call);
             if (agent == null || !"ok".equals(agent.get("status"))) {
                 String reason = agent == null
@@ -673,6 +774,12 @@ public final class MethodProbes {
         return false;
     }
 
+    /** Whether the probed method is known to return nothing: its descriptor resolved, or named, ends with {@code V}. */
+    private static boolean returnsVoid(Probe probe) {
+        String known = probe.resolvedDescriptor != null ? probe.resolvedDescriptor : probe.descriptor;
+        return known != null && known.endsWith(")V");
+    }
+
     /**
      * Whether {@code probe} may be the overload {@code descriptor} names: the same descriptor, or either one unnamed, as
      * {@code Foo#bar} and {@code Foo#bar(I)J} may be the same method.
@@ -745,7 +852,7 @@ public final class MethodProbes {
     /** Loads and links what the advice calls, on the agent's thread, before a probe is installed. */
     public static void warm() {
         try {
-            Probe probe = new Probe(0L, -1, -1L, "warm.Up#warm", "warm.Up", "warm", null, 1, 1L, new String[0]);
+            Probe probe = new Probe(0L, -1, -1L, "warm.Up#warm", "warm.Up", "warm", null, 1, 1L, new String[0], false);
             caller(probe);
             probe.describe();
             Reentrancy.guarded();
@@ -753,6 +860,8 @@ public final class MethodProbes {
             Thread.currentThread().getClass().getName().endsWith("VirtualThread");
             CodeInventory.parseRequestId("0000000000000000");
             Exclusions.excluded("warm.Up");
+            returnsVoid(probe);
+            ProbeShapes.warm();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -815,12 +924,18 @@ public final class MethodProbes {
         final long windowMillis;
         final long windowNanos;
         final String[] packagePrefixes;
+        /** Whether it records argument and return shapes. */
+        final boolean shapes;
+
         final long requestedMillis;
         final long requestedNanos;
         final AtomicInteger state = new AtomicInteger(STARTING);
         final AtomicInteger entered = new AtomicInteger();
         final AtomicInteger recorded = new AtomicInteger();
         final AtomicInteger dropped = new AtomicInteger();
+        /** Shapes records the ring could not take. */
+        final AtomicInteger shapesDropped = new AtomicInteger();
+
         volatile long activatedNanos;
         volatile long activatedMillis;
         /** Until activated, far enough ahead for no advice to see it passed. */
@@ -844,7 +959,8 @@ public final class MethodProbes {
                 String descriptor,
                 int max,
                 long windowMillis,
-                String[] packagePrefixes) {
+                String[] packagePrefixes,
+                boolean shapes) {
             this.id = id;
             this.slot = slot;
             this.generation = generation;
@@ -856,6 +972,7 @@ public final class MethodProbes {
             this.windowMillis = windowMillis;
             this.windowNanos = windowMillis * 1_000_000L;
             this.packagePrefixes = packagePrefixes;
+            this.shapes = shapes;
             this.requestedMillis = System.currentTimeMillis();
             this.requestedNanos = System.nanoTime();
             this.deadlineNanos = requestedNanos + windowNanos;
@@ -886,6 +1003,8 @@ public final class MethodProbes {
             map.put("invocations", Integer.valueOf(Math.min(entered.get(), max)));
             map.put("recorded", Integer.valueOf(recorded.get()));
             map.put("dropped", Integer.valueOf(dropped.get()));
+            map.put("shapes", Boolean.valueOf(shapes));
+            map.put("shapesDropped", Integer.valueOf(shapesDropped.get()));
             return map;
         }
     }

@@ -73,7 +73,10 @@ public class CodePathsController {
 
     @PostMapping("/probes")
     public CodePathsProbeDto startProbe(@RequestBody(required = false) CodePathsProbeRequest request) {
-        return service.probes().start(request == null ? null : request.method());
+        return service.probes()
+                .start(
+                        request == null ? null : request.method(),
+                        request != null && Boolean.TRUE.equals(request.recordShapes()));
     }
 
     @GetMapping("/probes/{id}")
@@ -116,12 +119,12 @@ public class CodePathsController {
      * in-band tool error with the REST status.
      */
     public CodePathsProbeDto agentStartProbe(String method) {
-        return forAgents(() -> service.probes().start(method));
+        return forAgents(() -> service.probes().startForAgents(method));
     }
 
-    /** Method probes for agents: {@code get_method_probe} and {@code bootui probe show}. */
+    /** Method probes for agents: {@code get_method_probe} and {@code bootui probe show}, never with a shape. */
     public CodePathsProbeDto agentProbe(String id) {
-        return forAgents(() -> service.probes().probe(id));
+        return forAgents(() -> service.probes().probeForAgents(id));
     }
 
     private static CodePathsProbeDto forAgents(Supplier<CodePathsProbeDto> call) {

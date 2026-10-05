@@ -44,6 +44,7 @@ import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventorySettings;
 import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
@@ -351,7 +352,8 @@ public class BootUiEngineProducer {
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
             AgentEvidence evidence,
-            Instance<QuarkusBeanProvider> beans) {
+            Instance<QuarkusBeanProvider> beans,
+            QuarkusExposurePolicy exposure) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         // Its panel and HTTP Exchanges, which owns route trees and request outcomes, gate its reads (docs/PLAN-v2.md
         // §8).
@@ -363,6 +365,8 @@ public class BootUiEngineProducer {
                 journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.isResolvable() ? beans.get() : null, null));
+        // Method probes' argument and return shapes follow the live bootui.expose-values (M5-8, D44).
+        service.setExposure(exposure);
         return service;
     }
 
@@ -413,6 +417,23 @@ public class BootUiEngineProducer {
     /** Stops routing Side Effects' records with the application. */
     public void closeSideEffectsService(@Disposes SideEffectsService service) {
         service.close();
+    }
+
+    /**
+     * The engine side of the BootUI agent's opt-in {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6a):
+     * routes its records into the runtime journal, which is installed on it at startup as on every recorder.
+     * {@code QuarkusAgentClaimLifecycle} starts it; a live reload's next start claims again and produces a new one.
+     */
+    @Produces
+    @Singleton
+    public AgentCaughtExceptions agentCaughtExceptions(Instance<QuarkusAgentClaim> claim) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        return new AgentCaughtExceptions(AgentBridgeAccess.locate(), current::claim);
+    }
+
+    /** Stops routing caught exceptions with the application. */
+    public void closeAgentCaughtExceptions(@Disposes AgentCaughtExceptions caught) {
+        caught.close();
     }
 
     /**

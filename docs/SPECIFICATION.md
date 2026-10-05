@@ -754,15 +754,20 @@ Features:
   (`binary.Class#name`, with its descriptor for an overloaded one) and records its next 20 invocations, for at most 60
   seconds, five probes at once: each invocation's duration, thread kind, request id, outcome (returned, or the thrown
   exception's type), and calling frame (the first frame of the application's packages above the method, past proxies
-  and interceptors). Metadata only: never an argument or a return value. The method must be one the agent's inventory
+  and interceptors). Metadata only by default: never an argument or a return value. Started with **Record argument and
+  return shapes** (`"recordShapes": true`, D44), a probe also records the shapes of the first nine arguments, at entry,
+  and of the return value: runtime types, nullness, and, by exact JDK class, collection, map, and array sizes and
+  `Optional` presence, read without calling any application method; a string's length, a `char[]` or `byte[]` length,
+  and an enum constant's name are shown under `bootui.expose-values=FULL` only, no shape under `METADATA_ONLY`, and MCP,
+  the CLI, and exports never show one. The method must be one the agent's inventory
   or code-paths transformer saw, in the claimed packages; only the current run's copy of its class is advised (a probe
   on a class this run has not loaded yet waits for it, within its window). The agent enforces the bounds where the
   method runs, ends a probe with its run (a restart, a live reload, a disarm, or a release), and removes its advice by
   retransformation, keeping the inventory and code-paths advice; a removal it cannot confirm is reported. A method
   returning a reactive or asynchronous result is flagged: its durations time the assembly only. `GET
   /bootui/api/code-paths/probes` lists the run's probes with their invocations, `POST /code-paths/probes` with
-  `{"method": ...}` starts one (400 for a method that cannot be probed, 409 when refused: unavailable, five running, or
-  already probed), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
+  `{"method": ..., "recordShapes": true}` starts one (400 for a method that cannot be probed, 409 when refused:
+  unavailable, five running, already probed, or shapes unavailable), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
   or `DELETE /code-paths/probes/{id}` stops one. `start_method_probe` (`bootui probe start <method>`) and
   `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode (D24).
 
@@ -772,7 +777,8 @@ Acceptance criteria:
   and otherwise unavailable with the Java Agent panel's reason, and every read answers the same `available: false`
   shape. Its reads start no scan, network call, or mutation; its method probes are actions that the global or per-panel
   read-only policy (`bootui.panels.code-paths.read-only`) refuses, in the API, MCP, and the CLI.
-- A probe never outlives its bound, and never records an argument or a return value.
+- A probe never outlives its bound, and never records an argument or a return value; its shapes run no application
+  method and never reach MCP, the CLI, or an export.
 - On the Spring sample with the agent, the seeded slow route's breakdown names `SlowPricingService.quote`, and the route
   tree's handler-phase time reconciles with the handler phase within 5 %; the seeded N+1 route's `repeated-selects`
   names `InsightOrderService.ordersLineByLine`, its statements show under that method, and Beans at runtime lists the

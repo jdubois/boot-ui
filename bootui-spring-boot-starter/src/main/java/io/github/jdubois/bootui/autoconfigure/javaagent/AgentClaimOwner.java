@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.javaagent;
 
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
@@ -149,6 +150,12 @@ public final class AgentClaimOwner
                 applicationContext.getBeanProvider(CodePathsService.class).getIfUnique();
         if (codePaths != null) {
             codePaths.start();
+        }
+        // Caught exceptions into the runtime journal (PLAN-v2 M5-6a), when the claim asked for the sensor.
+        AgentCaughtExceptions caught =
+                applicationContext.getBeanProvider(AgentCaughtExceptions.class).getIfUnique();
+        if (caught != null) {
+            caught.start();
         }
         // Side Effects' rows from the side-effect sensors (PLAN-v2 §5.16); the bean stops routing at close.
         SideEffectsService sideEffects =
