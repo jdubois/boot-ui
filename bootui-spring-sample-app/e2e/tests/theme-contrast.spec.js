@@ -162,6 +162,9 @@ test('keeps the request profile drawer opaque in every theme', async ({page, ope
    rendered strip, so a stray Bootstrap rule or an unthemed override fails here even when
    the tokens themselves are sound. */
 test('keeps panel tabs legible and their focus visible in every theme', async ({page, openView}) => {
+  // Tab colors ease over 150ms; under reduced motion PanelTabs drops the transition, so the
+  // colors read right after hover() are the settled hover state rather than a midpoint.
+  await page.emulateMedia({reducedMotion: 'reduce'})
   for (const theme of ['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95']) {
     await page.goto('/bootui/')
     await page.evaluate((value) => localStorage.setItem('bootui.theme', value), theme)

@@ -226,8 +226,12 @@ describe.each(['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win
         const value = resolve(tokens[name])
         return value === 'transparent' ? {red: 0, green: 0, blue: 0, alpha: 0} : parseColor(value)
       }
+      // A fill is a solid color, a gradient, or `transparent`, which shows the tray through
+      // it; each becomes a stop the label on that fill is composited over.
       const stops = (name) =>
-        [...resolve(tokens[name]).matchAll(/#[\da-f]{3,8}\b|rgba?\([^)]*\)/gi)].map((match) => parseColor(match[0]))
+        [...resolve(tokens[name]).matchAll(/#[\da-f]{3,8}\b|rgba?\([^)]*\)|\btransparent\b/gi)].map((match) =>
+          match[0].toLowerCase() === 'transparent' ? {red: 0, green: 0, blue: 0, alpha: 0} : parseColor(match[0])
+        )
       const cards = ['light', 'dark'].includes(theme)
         ? [
             ...backgroundStops(tokens).map((stop, index) => [
@@ -247,6 +251,8 @@ describe.each(['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win
 
     it('keeps every tab label at or above 4.5:1 at rest, hovered, selected, and disabled', () => {
       const {color, stops} = tabTheme()
+      // Every theme's selected fill must yield a stop, or its selected label goes unchecked.
+      expect(stops('--bootui-tab-active-bg').length).toBeGreaterThan(0)
       const ratio = (foreground, background) => contrastRatio(foreground, background).toFixed(2)
       const issues = failures((card) => {
         const tray = composite(color('--bootui-tab-tray-bg'), card)
