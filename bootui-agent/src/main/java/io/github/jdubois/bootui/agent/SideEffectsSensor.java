@@ -54,7 +54,9 @@ import net.bytebuddy.matcher.ElementMatchers;
  * hooks the private {@code open} methods of {@code FileInputStream} and {@code FileOutputStream}, its core hooks, and of
  * {@code RandomAccessFile}, the {@code Files} methods that open, delete, move, and copy, and {@code FileChannel.open};
  * the opt-in {@value SideEffects#ENVIRONMENT} (M5-5d) hooks {@code System.getenv(String)}, {@code System.getenv()}, and
- * {@code System.getProperty}, all core.
+ * {@code System.getProperty}, all core; {@value SideEffects#BLOCKING} (M5-5c) hooks every public {@code
+ * LockSupport.park*} method, its core hook, whose advice returns at entry off event loops (its call-site hooks on
+ * {@code Thread.sleep} and {@code Object.wait} are a visit of {@link ApplicationMethodsSensor}).
  *
  * <p>A self-test per hook runs it on the sensor's worker thread, which the bridge counts and never records, without
  * starting a process or sending a byte: a command holding a NUL character, which {@code ProcessBuilder} refuses before
@@ -62,7 +64,7 @@ import net.bytebuddy.matcher.ElementMatchers;
  * refuses before any I/O, on a socket without a proxy, so no proxy selector is asked; a finish with no connect pending; a send on a closed socket; and, on a helper
  * thread with a bounded wait, a lookup of a spelling of {@code localhost} the JVM's case-sensitive cache does not hold,
  * which the hosts file answers; files opened, deleted, moved, and copied under a directory that does not exist; and a
- * variable and a property no one sets.
+ * variable and a property no one sets; and a park with its permit already given, which returns at once.
  *
  * <p>Failures are isolated. A hook that fails its self-test is left out of the transformer for the JVM's life; when it
  * is one of its sensor's core hooks, the sensor is disabled for the JVM's life instead, and the transformer reinstalled
@@ -83,6 +85,7 @@ final class SideEffectsSensor {
     static final String FILES = "java.nio.file.Files";
     static final String FILE_CHANNEL = "java.nio.channels.FileChannel";
     static final String SYSTEM = "java.lang.System";
+    static final String LOCK_SUPPORT = "java.util.concurrent.locks.LockSupport";
 
     static final String CORE = "core";
     static final String OPTIONAL = "optional";
@@ -110,12 +113,13 @@ final class SideEffectsSensor {
         {"FileChannel.open", FILE_CHANNEL, "record", SideEffects.FILES, OPTIONAL},
         {"System.getenv", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getenvAll", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
-        {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE}
+        {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
+        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE}
     };
 
     /** The side-effect sensors, in status order. */
     static final String[] SENSORS = {
-        SideEffects.PROCESSES, SideEffects.NETWORK, SideEffects.FILES, SideEffects.ENVIRONMENT
+        SideEffects.PROCESSES, SideEffects.NETWORK, SideEffects.FILES, SideEffects.ENVIRONMENT, SideEffects.BLOCKING
     };
 
     /** The variable and property the environment self-test reads, which no one sets. */
@@ -522,6 +526,17 @@ final class SideEffectsSensor {
                                             .and(ElementMatchers.takesArguments(String.class)
                                                     .or(ElementMatchers.takesArguments(String.class, String.class))))));
         }
+        if ((mask & SideEffects.MASK_BLOCKING) != 0) {
+            types.add(LOCK_SUPPORT);
+            // Every public park method: park, parkNanos, and parkUntil, with and without a blocker.
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "LockSupport.park",
+                            Advice.to(SideEffectsAdvice.Park.class)
+                                    .on(ElementMatchers.nameStartsWith("park")
+                                            .and(ElementMatchers.isPublic())
+                                            .and(ElementMatchers.isStatic()))));
+        }
         AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
@@ -553,6 +568,9 @@ final class SideEffectsSensor {
             }
             if ((mask & SideEffects.MASK_ENVIRONMENT) != 0) {
                 environmentSteps(steps);
+            }
+            if ((mask & SideEffects.MASK_BLOCKING) != 0) {
+                steps.put(SideEffects.BLOCKING, parkStep());
             }
         } finally {
             hits = SideEffects.endSelfTest();
@@ -631,6 +649,21 @@ final class SideEffectsSensor {
             SideEffects.disable(remaining, error);
         }
         state = "self-test-failed";
+    }
+
+    /**
+     * Parks this agent thread with its permit already given, so it returns at once, then for one nanosecond: the hook
+     * counts both, records neither.
+     */
+    static String parkStep() {
+        try {
+            java.util.concurrent.locks.LockSupport.unpark(Thread.currentThread());
+            java.util.concurrent.locks.LockSupport.park(SideEffectsSensor.class);
+            java.util.concurrent.locks.LockSupport.parkNanos(1L);
+            return "ok";
+        } catch (Throwable ex) {
+            return "error: " + ex;
+        }
     }
 
     /** Starts a command {@code ProcessBuilder} refuses before spawning anything: the hook runs, nothing starts. */

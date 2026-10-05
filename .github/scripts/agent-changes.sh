@@ -53,6 +53,9 @@ pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/model/(Si
 pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(model/HostOpen|support/BootUiHttpClients)'
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(javaagent|codepaths|inventory|sideeffects)/'
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(activity/RequestCorrelationFilter|reactive/ReactiveRequestCorrelationFilter)'
+# Where the adapters register their event loops with the blocking sensor (M5-5c).
+pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(reactive/ReactiveThreadKinds|restclienttrace/RestClientTraceExchangeFilter)'
+pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/QuarkusHttpExchangeCaptureFilter'
 pattern+='|bootui-quarkus(-deployment)?/src/main/java/io/github/jdubois/bootui/quarkus/(deployment/)?(agent|javaagent|codepaths|inventory|sideeffects|correlation)/'
 pattern+='|bootui-ui/src/main/frontend/src/views/(JavaAgent|CodeInventory|CodePaths|SideEffects|MethodProbes)'
 pattern+='|bootui-ui/src/main/frontend/src/views/components/(MethodProbes|RequestCodePath|ChangeImpact|RunComparison)'

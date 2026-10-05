@@ -5,7 +5,8 @@ import {expect, test} from './fixtures.js'
  * The Side Effects view on Quarkus (docs/PLAN-v2.md §5.16, M5-5a). The default suite runs the sample without the BootUI
  * agent, so the panel is unavailable with the Java Agent panel's reason and links there, and its reads answer the
  * unavailable shape. The agent suite (playwright.agent.config.js) sets the `agentAttached` fixture option and asserts
- * the processes sensor records while the sensors this version does not ship say so.
+ * the processes sensor records while the sensors this version does not ship say so, and that a sleep on the Vert.x event
+ * loop is a blocking row while the same sleep on a worker is not.
  */
 test.describe('Side Effects view (Quarkus)', () => {
   test('lists every sensor with its coverage, or says why it cannot', async ({openView, page, agentAttached}) => {
@@ -42,7 +43,7 @@ test.describe('Side Effects view (Quarkus)', () => {
       )
       .toBe('recording')
     const report = await (await page.request.get('/bootui/api/side-effects')).json()
-    expect(report.sensors.find((sensor) => sensor.id === 'blocking').reason).toBe('Not available in this version.')
+    expect(report.sensors.find((sensor) => sensor.id === 'resources').reason).toBe('Not available in this version.')
 
     expect((await page.request.get(`/api/side-effects/java-version`)).ok()).toBeTruthy()
     expect((await page.request.get(`/api/side-effects/runtime-version`)).ok()).toBeTruthy()
@@ -169,5 +170,53 @@ test.describe('Side Effects view (Quarkus)', () => {
     ).toContainText('Not captured by any panel')
     await page.getByRole('tab', {name: /Files and processes/}).click()
     await expect(page.locator('main')).toContainText('Processes the application starts')
+  })
+
+  test('reports a sleep on the Vert.x event loop and never the same sleep on a worker', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the blocking sensor needs the BootUI agent')
+    await expect
+      .poll(
+        async () =>
+          (await (await page.request.get('/bootui/api/side-effects')).json()).sensors.find(
+            (sensor) => sensor.id === 'blocking'
+          ).state,
+        {timeout: 30_000}
+      )
+      .toBe('recording')
+
+    const seed = await (await page.request.get('/api/side-effects/event-loop-sleep')).json()
+    expect(seed.thread).toMatch(/^vert\.x-eventloop-thread-/)
+    const counterexample = await (await page.request.get('/api/side-effects/worker-sleep')).json()
+    expect(counterexample.thread).not.toMatch(/eventloop/)
+
+    const seedRoute = 'GET /api/side-effects/event-loop-sleep'
+    await expect
+      .poll(
+        async () => {
+          const rows = (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()).rows
+          return rows?.find((row) => row.attribution === seedRoute && row.kind === 'sleep')?.count ?? 0
+        },
+        {timeout: 30_000}
+      )
+      .toBeGreaterThanOrEqual(1)
+    const report = await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()
+    const row = report.rows.find((candidate) => candidate.attribution === seedRoute && candidate.kind === 'sleep')
+    expect(row.target).toBe('vert.x-eventloop-thread-{n}')
+    expect(row.callSite).toMatch(/EventLoopSleeper#sleepOnEventLoop$/)
+    expect(row.maxMillis).toBeGreaterThanOrEqual(40)
+    expect(report.rows.some((candidate) => candidate.attribution === 'GET /api/side-effects/worker-sleep')).toBe(false)
+
+    // An idle Vert.x event loop waits in epoll, never in LockSupport.park: traffic and a short idle add no park row.
+    await page.waitForTimeout(2_000)
+    const idle = await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()
+    expect(idle.rows.filter((candidate) => candidate.kind === 'park' && /eventloop/.test(candidate.target))).toEqual([])
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Blocking/}).click()
+    await expect(page.locator('.side-effects-table')).toContainText('EventLoopSleeper#sleepOnEventLoop')
   })
 })

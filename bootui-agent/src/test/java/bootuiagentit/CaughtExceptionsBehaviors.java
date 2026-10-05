@@ -3,7 +3,9 @@ package bootuiagentit;
 import bootuicaughtapp.Handlers;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.AgentRing;
+import io.github.jdubois.bootui.agent.bridge.Blocking;
 import io.github.jdubois.bootui.agent.bridge.CaughtExceptions;
+import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -13,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -20,7 +23,8 @@ import java.util.function.Supplier;
  * The caught-exceptions sensor's behaviors (PLAN-v2 M5-6a), in a forked JVM beside the agent, on
  * {@code bootuicaughtapp}, whose classes come from a jar, with a harness engine whose context is a thread-local request
  * id. {@code alone} claims the sensor alone, {@code all} with the inventory and code-paths sensors on the same methods
- * (the code paths' advice checking every frame), {@code blockhound} runs the behaviors on a thread BlockHound watches.
+ * (the code paths' advice checking every frame), {@code blocking} with them and the blocking sensor, whose call-site
+ * rewrite shares the transformer (M5-5c), {@code blockhound} runs the behaviors on a thread BlockHound watches.
  * Prints one PASS or FAIL line per behavior, then the sensor's status.
  */
 public final class CaughtExceptionsBehaviors {
@@ -46,14 +50,20 @@ public final class CaughtExceptionsBehaviors {
         // Loaded and run before the claim: its class is retransformed when the sensor installs.
         Handlers early = new Handlers();
         Object blockHound = "blockhound".equals(mode) ? installBlockHound() : null;
-        List<String> sensors = "all".equals(mode)
-                ? List.of("inventory", "code-paths", CaughtExceptions.SENSOR)
-                : List.of(CaughtExceptions.SENSOR);
+        boolean blocking = "blocking".equals(mode);
+        List<String> sensors = blocking
+                ? List.of("inventory", "code-paths", CaughtExceptions.SENSOR, SideEffects.BLOCKING)
+                : "all".equals(mode)
+                        ? List.of("inventory", "code-paths", CaughtExceptions.SENSOR)
+                        : List.of(CaughtExceptions.SENSOR);
         token = claim(sensors, List.of("bootuicaughtapp.Handlers"));
         awaitSelfTest(CaughtExceptions.SENSOR);
-        if ("all".equals(mode)) {
+        if ("all".equals(mode) || blocking) {
             awaitSelfTest("code-paths");
             awaitSelfTest("inventory");
+        }
+        if (blocking) {
+            awaitSelfTest(SideEffects.BLOCKING);
         }
         Callable<Void> behaviors = () -> {
             behaviors(early);
@@ -77,6 +87,9 @@ public final class CaughtExceptionsBehaviors {
             behaviors.call();
         }
         aFreshClassLoaderGetsTheVisitAsItDefinesAClassWithTheSameSites();
+        if (blocking) {
+            besideTheBlockingCallSiteVisit(sensors, early);
+        }
         aClaimSwitchingTheSensorOffThenOnRunsItsSelfTestAgainBeforeRecording(sensors, early);
         releaseRestores(early);
         System.out.println("SENSOR=" + sensor(CaughtExceptions.SENSOR));
@@ -224,6 +237,137 @@ public final class CaughtExceptionsBehaviors {
                         && Boolean.TRUE.equals(again.get("selfTestPassed"))
                         && on.equals(
                                 List.of("CAUGHT " + APP + "swallowed()I#0#java/io/IOException java.io.IOException")));
+    }
+
+    /**
+     * The blocking call-site rewrite and this sensor's visit on one method, run on a registered event loop: a caught
+     * record and the blocking records; a claim dropping blocking keeps this sensor recording, never self-testing it
+     * again; a claim dropping this sensor keeps the rewritten call sites. Ends with {@code sensors} claimed again.
+     */
+    static void besideTheBlockingCallSiteVisit(List<String> sensors, Handlers handlers) throws Exception {
+        String record = "CAUGHT " + APP + "sleepsInTry()I#0#java/lang/IllegalStateException"
+                + " java.lang.IllegalStateException";
+        drain();
+        drainBlocking();
+        Object answer = onLoop("it-loop-both", handlers::sleepsInTry);
+        List<String> caught = drain();
+        long[] blocked = awaitBlocking(3);
+        check(
+                "one method beside both visits yields its caught record and its blocking records (" + answer + ", "
+                        + caught + ", sleeps " + blocked[0] + ", waits " + blocked[1] + ")",
+                Integer.valueOf(11).equals(answer)
+                        && caught.equals(List.of(record))
+                        && blocked[0] == 2
+                        && blocked[1] == 1);
+
+        List<String> withoutBlocking = new ArrayList<>(sensors);
+        withoutBlocking.remove(SideEffects.BLOCKING);
+        token = claim(withoutBlocking, List.of("bootuicaughtapp.Handlers"));
+        // A self-test run again would first reset its verdict: it never reads false while the visits switch.
+        boolean alwaysPassed = true;
+        for (int i = 0; i < 400; i++) {
+            Map<String, Object> row = sensor(CaughtExceptions.SENSOR);
+            alwaysPassed &= Boolean.TRUE.equals(row.get("selfTestPassed"));
+            if (Boolean.TRUE.equals(row.get("idle")) && i > 0) {
+                break;
+            }
+            Thread.sleep(5);
+        }
+        drain();
+        drainBlocking();
+        Object again = onLoop("it-loop-caught-only", handlers::sleepsInTry);
+        List<String> caughtOnly = drain();
+        Thread.sleep(200);
+        drainBlocking();
+        check(
+                "a claim dropping blocking keeps the caught exceptions recording, with no new self-test ("
+                        + alwaysPassed + ", " + caughtOnly + ", " + BLOCKING_RECORDS.size() + ")",
+                alwaysPassed
+                        && Integer.valueOf(11).equals(again)
+                        && caughtOnly.equals(List.of(record))
+                        && BLOCKING_RECORDS.isEmpty());
+
+        List<String> withoutCaught = new ArrayList<>(sensors);
+        withoutCaught.remove(CaughtExceptions.SENSOR);
+        token = claim(withoutCaught, List.of("bootuicaughtapp.Handlers"));
+        awaitSelfTest(SideEffects.BLOCKING);
+        awaitIdle(CaughtExceptions.SENSOR);
+        drain();
+        drainBlocking();
+        Object last = onLoop("it-loop-blocking-only", handlers::sleepsInTry);
+        List<String> none = drain();
+        long[] stillBlocked = awaitBlocking(3);
+        check(
+                "a claim dropping the caught exceptions keeps the blocking call sites (" + none + ", sleeps "
+                        + stillBlocked[0] + ", waits " + stillBlocked[1] + ")",
+                Integer.valueOf(11).equals(last) && none.isEmpty() && stillBlocked[0] == 2 && stillBlocked[1] == 1);
+
+        token = claim(sensors, List.of("bootuicaughtapp.Handlers"));
+        SensorWait.awaitSettled(CaughtExceptions.SENSOR);
+        SensorWait.awaitSettled(SideEffects.BLOCKING);
+    }
+
+    static final List<long[]> BLOCKING_RECORDS = new ArrayList<>();
+
+    /** Runs {@code work} under the request on a new thread registered as an event loop, then publishes its records. */
+    static Object onLoop(String name, Callable<Object> work) throws Exception {
+        AtomicReference<Object> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(
+                () -> {
+                    try {
+                        Blocking.registerEventLoop();
+                        CONTEXT.set(REQUEST);
+                        result.set(work.call());
+                    } catch (Throwable ex) {
+                        failure.set(ex);
+                    } finally {
+                        CONTEXT.remove();
+                        SideEffects.flushThread();
+                    }
+                },
+                name);
+        thread.start();
+        thread.join();
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
+        return result.get();
+    }
+
+    static void drainBlocking() {
+        BLOCKING_RECORDS.clear();
+        SideEffects.drain(token, record -> {
+            if (record[SideEffects.R_SENSOR] == SideEffects.SENSOR_BLOCKING) {
+                BLOCKING_RECORDS.add(record.clone());
+            }
+        });
+    }
+
+    /** The sleeps and waits the blocking sensor recorded, by their counts, once {@code expected} are in. */
+    static long[] awaitBlocking(long expected) throws Exception {
+        List<long[]> all = new ArrayList<>();
+        long[] counts = new long[2];
+        for (int i = 0; i < 100; i++) {
+            SideEffects.drain(token, record -> {
+                if (record[SideEffects.R_SENSOR] == SideEffects.SENSOR_BLOCKING) {
+                    all.add(record.clone());
+                }
+            });
+            counts = new long[2];
+            for (long[] record : all) {
+                if (record[SideEffects.R_KIND] == Blocking.KIND_SLEEP) {
+                    counts[0] += record[SideEffects.R_COUNT];
+                } else if (record[SideEffects.R_KIND] == Blocking.KIND_WAIT) {
+                    counts[1] += record[SideEffects.R_COUNT];
+                }
+            }
+            if (counts[0] + counts[1] >= expected) {
+                break;
+            }
+            Thread.sleep(50);
+        }
+        return counts;
     }
 
     static void awaitIdle(String id) throws Exception {

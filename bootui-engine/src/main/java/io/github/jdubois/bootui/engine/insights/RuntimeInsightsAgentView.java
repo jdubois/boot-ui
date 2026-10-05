@@ -38,8 +38,8 @@ import java.util.function.Supplier;
 public final class RuntimeInsightsAgentView {
 
     /**
-     * The observation kinds that only describe latency. The default list includes a prominent route's breakdown (M4-18b,
-     * M4-19); {@code query=latency} selects every row of these kinds.
+     * The observation kinds that only describe latency, which the default list leaves out since their external
+     * validation (M4-20); {@code query=latency} selects every row of these kinds.
      */
     static final Set<String> LATENCY_KINDS = Set.of(RouteTimeBreakdown.KIND, GcInflatedLatency.KIND);
 
@@ -135,8 +135,10 @@ public final class RuntimeInsightsAgentView {
             if (unlisted != null) {
                 limitations.add(unlisted);
             }
-            limitations.add("Latency rows are included for prominent routes: a warm median of 20 ms or more, or"
-                    + " authorization taking 20 % of the time or 50 decisions a request.");
+        }
+        String validation = validation(listed);
+        if (validation != null) {
+            limitations.add(validation);
         }
         String leftOut = leftOut(matching, listed);
         if (leftOut != null) {
@@ -219,6 +221,11 @@ public final class RuntimeInsightsAgentView {
         List<String> limitations = new ArrayList<>();
         if (!observation.listed() && observation.unlistedReason() != null) {
             limitations.add("Not listed by default: " + observation.unlistedReason());
+        }
+        ExternalValidation.Entry validation = ExternalValidation.of(observation.kind());
+        if (validation.outcome() != ExternalValidation.Outcome.PASSED
+                && !validation.reason().equals(observation.unlistedReason())) {
+            limitations.add(validation.reason());
         }
         limitations.addAll(observation.limitations());
         return new RuntimeInsightAgentDetailDto(
@@ -523,6 +530,44 @@ public final class RuntimeInsightsAgentView {
                         ? null
                         : observation.whatToCheck().get(0),
                 observation.listed());
+    }
+
+    /**
+     * The external validation of the kinds {@code rows} come from, other than those that passed it ({@code
+     * docs/PLAN-v2.md} M4-20), or {@code null} when every one passed: an agent weighs a row of a kind no reviewer judged
+     * differently from one of a kind that passed.
+     */
+    static String validation(List<RuntimeObservationDto> rows) {
+        Map<ExternalValidation.Outcome, List<String>> kinds = new java.util.EnumMap<>(ExternalValidation.Outcome.class);
+        for (RuntimeObservationDto row : rows) {
+            ExternalValidation.Outcome outcome =
+                    ExternalValidation.of(row.kind()).outcome();
+            List<String> named = kinds.computeIfAbsent(outcome, ignored -> new ArrayList<>());
+            if (outcome != ExternalValidation.Outcome.PASSED && !named.contains(row.kind())) {
+                named.add(row.kind());
+            }
+        }
+        List<String> parts = new ArrayList<>();
+        kinds.forEach((outcome, named) -> {
+            if (named.isEmpty()) {
+                return;
+            }
+            String which = String.join(", ", named);
+            switch (outcome) {
+                case NOT_VALIDATED ->
+                    parts.add("not externally validated, since they found nothing or never ran on the validation"
+                            + " applications: " + which);
+                case FAILED -> parts.add("did not pass their external validation: " + which);
+                case UNDER_SAMPLED -> parts.add("too few facts to validate: " + which);
+                case NOT_LISTED -> parts.add("not listed by design: " + which);
+                case NOT_JUDGED -> parts.add("added after the validation run, not judged yet (D36): " + which);
+                default -> {}
+            }
+        });
+        return parts.isEmpty()
+                ? null
+                : "External validation (M4-20) of these rows' kinds: " + String.join("; ", parts)
+                        + ". Verify such a row against the code before acting on it.";
     }
 
     /**

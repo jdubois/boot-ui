@@ -790,12 +790,14 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
-  sensors record by default, and `files` and `environment` (M5-5d) when opted in. The `thread-activity`,
-  `thread-locals`, `resources`, `blocking`, and `security-sinks` sensors are still listed but report `not-available`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
+  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d) when opted in. The `thread-activity`,
+  `thread-locals`, `resources`, and `security-sinks` sensors are still listed but report `not-available`
   with reason `Not available in this version.`
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
+- The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
+  WebClient, Vert.x's on Quarkus, each from the first request or response it handles there.
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -891,6 +893,17 @@ Acceptance criteria:
 - With the agent and `side-effects-seed.scheduled-every` set, the Quarkus sample's scheduled
   `ScheduledJavaVersion#report` run shows a `java` process row of scope `execution`, named as the runtime journal names
   that scheduled run, with no exemplar request.
+- The `blocking` sensor reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park` started on an
+  adapter-registered event loop, reported, never thrown: advice on every public `LockSupport.park*` method, which
+  returns after one volatile read off event loops until a loop is registered, and on every JDK the `sleep` and `wait`
+  call sites of the application's classes rewritten to the bridge's substitutes, since those methods are native on JDK
+  17. A park shorter than 1 ms is only counted. The **Blocking** tab shows rows by attribution, operation, event loop's
+  thread family, and call site, with calls, interrupted or failed calls, total and longest blocked time, and up to three
+  exemplar request ids. On Spring MVC, without an event loop, the sensor is `not-applicable` until a WebClient's loop is
+  registered. The WebFlux and Quarkus samples' `GET /api/side-effects/event-loop-sleep` shows a `sleep` row on the event
+  loop's family, and their `GET /api/side-effects/worker-sleep` counterexample, the same sleep on a worker, shows none. A
+  connect, a name lookup, or a `DatagramSocket` send the `network` sensor records, and a file the `files` sensor records,
+  is a `network` or `file` row too when it started on an event loop, never Netty's non-blocking connect.
 - With the agent, the three samples' `GET /api/side-effects/sdk-call` shows a `connect` row to `localhost:<port>` from
   `LicenseSdkClient#check` that is `not-captured`, and its request header never appears; the counterexample
   `GET /api/side-effects/rest-call`, through the recorded REST client, shows no `not-captured` row.
@@ -899,7 +912,8 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `network`; `threads`,
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
+  `threads`,
   `files`, and `environment` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
@@ -1863,20 +1877,25 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
+  Every check carries `validation` and `validationReason`, its kind's external validation ([PLAN-v2.md](PLAN-v2.md)
+  M4-20, recorded once in the engine's `ExternalValidation`): `PASSED` (`errors-behind-2xx`,
+  `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on the validation applications)
+  are listed by default, the latter marked in the panel; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
+  `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
+  its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
+  `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
+  reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` ([PLAN-v2.md](PLAN-v2.md) M4-19, D35): a `route-time-breakdown` is listed only when prominent
-  (a warm median of 20 ms or more, authorization taking 20 % of the warm time, or a median of 50 authorization
-  decisions a request; this replaces §5.5's former "or one phase ≥ 50 %", which nearly every short route met; a route
-  with fewer than five warm requests is listed as insufficient only when two to four of them have a warm median of
-  100 ms or more);
-  `exception-hotspots` lists groups behind a 5xx, a failed run or message, a redirect, or not observed in the previous
-  run, and collapses those seen only behind 4xx responses, and those caught in scheduled runs or messages that
-  completed, into one counted row each; `lazy-sql-after-handler` leaves out
-  a statement `repeated-selects` already lists from the same call site; `framework-warnings-by-route` leaves out a
-  `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts in one row the framework `ERROR` events
-  that carried no request id; `gc-inflated-latency` and `heap-growth-after-gc` are reached from the Memory panel
-  (revisiting D18). The four ORM and application-event kinds of D29 are listed, since their counterexample fixtures
-  pass the cross-observation harness (M4-18e). The panel's **Show all routes**, a search, or a deep link lists the rest.
+  not, `unlistedReason` (M4-19, M4-20): the kind's validation reason for a kind that is not listed, or else the kind's
+  own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
+  taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
+  groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
+  three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves
+  to `lazy-sql-after-handler` a statement that kind reports on the same route when every affected request repeated it
+  after the handler returned and the lazy row names each of its call sites, its check's reason counting them, and names the render-time call site of statements run after the handler; and
+  `framework-warnings-by-route` leaves out a `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts
+  in one row the framework `ERROR` events that carried no request id. The panel's **Show all routes**, a search, or a
+  deep link lists the rest.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a

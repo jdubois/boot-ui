@@ -321,8 +321,8 @@ read tools return short, stable facts rather than a dashboard:
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so a route's time breakdown only when prominent, exceptions behind a 5xx, a failed run, a redirect, or new, no garbage collection or heap rows, and no insufficient repeated-selects row under 50 ms that ran fewer than 10 times in any request; a limitation counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
-| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations |
+| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so only the kinds that passed their external validation or stayed silent on it (M4-20), and no time breakdown, exception hotspot, repeated SELECT, connection, AI, garbage collection, or heap row; a limitation names the returned rows' kinds that are not externally validated, and another counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
+| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations, and a row of a kind not externally validated says so |
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
 | `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then `sideEffects` (with the agent: hosts, file patterns, processes, and variable names new, gone, or whose owner was not exercised, per sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED` with the reason; at most 8), then at most 8 route/execution behavior rows and edges; latency is left out |
 
@@ -363,9 +363,9 @@ known, runs the tests, calls
    routes whose requests ran the method itself; a route under `notObserved` ran without showing it, which is not proof
    it never does.
 2. After the edit and a DevTools restart or Quarkus live reload, run the tests, then
-   `bootui insights list --query repeated-selects --json`. The default list keeps a sufficient repeated SELECT, including
-   a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times in any
-   request, so that query shows whether a weak cheap repeat is gone. Absence is evidence only when the
+   `bootui insights list --query repeated-selects --json`. The default list leaves repeated SELECTs out since their
+   external validation (M4-20), so that query shows whether a repeat is gone; a statement repeated after the handler
+   returned is reported by `lazy-sql-after-handler` instead, with its cause. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
 3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
    come first: the methods changed since the previous run, which ran, and on which routes; its `sideEffects` then name
@@ -444,17 +444,18 @@ side-effect sensors and, in this version, the processes application code starts 
 its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
 each with the recognized client and whether any panel captured the work, and, opt-in, the files it opens, deletes, moves,
 and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
-sensor. Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
+sensor, and the blocking calls started on an event loop from the `blocking` sensor. Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, or `files`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, or `blocking`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
 
 Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
 `(route hidden: HTTP Exchanges is disabled)` and expose no request ids. When Code Paths is disabled, rows lose their
 inside bean method. A disabled Side Effects panel shows no rows. Sensor groups this version does not ship are listed as
-`not-available` with reason `Not available in this version.`
+`not-available` with reason `Not available in this version.` `blocking` is
+`not-applicable` on Spring MVC until a WebClient's event loop is registered.
 
 ### MySQL operational evidence
 

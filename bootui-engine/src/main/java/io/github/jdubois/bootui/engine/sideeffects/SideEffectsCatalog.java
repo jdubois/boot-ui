@@ -23,6 +23,9 @@ public final class SideEffectsCatalog {
     static final int RECORD_FILES = 3;
     static final int RECORD_ENVIRONMENT = 4;
 
+    /** The bridge's sensor id of {@code blocking} in records ({@code Blocking}, M5-5c). */
+    static final int RECORD_BLOCKING = 5;
+
     /** The bridge's record kinds. */
     static final int KIND_PROCESS_START = 1;
 
@@ -40,12 +43,20 @@ public final class SideEffectsCatalog {
     static final int KIND_FILE_COPY_TO = 13;
     static final int KIND_ENVIRONMENT_VARIABLE = 14;
     static final int KIND_SYSTEM_PROPERTY = 15;
+    static final int KIND_SLEEP = 16;
+    static final int KIND_WAIT = 17;
+    static final int KIND_PARK = 18;
+    static final int KIND_BLOCKING_NETWORK = 19;
+    static final int KIND_BLOCKING_FILE = 20;
 
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
 
     static final int OUTCOME_IO_ERROR = 2;
+
+    /** Also the blocking sensor's call that threw, as BlockHound's error from inside it. */
     static final int OUTCOME_ERROR = 3;
+
     static final int OUTCOME_EXITED = 4;
     static final int OUTCOME_CONNECTED = 5;
     static final int OUTCOME_PENDING = 6;
@@ -62,6 +73,19 @@ public final class SideEffectsCatalog {
     static final String DATAGRAM = "datagram";
     static final String LOOKUP = "lookup";
     static final int OUTCOME_DONE = 10;
+
+    /** The blocking sensor's outcomes: a call that returned, or that was interrupted. */
+    static final int OUTCOME_RETURNED = 11;
+
+    static final int OUTCOME_INTERRUPTED = 12;
+
+    /** What a blocking row's kind says. */
+    public static final String SLEEP = "sleep";
+
+    public static final String WAIT = "wait";
+    public static final String PARK = "park";
+    public static final String BLOCKING_NETWORK = "network";
+    public static final String BLOCKING_FILE = "file";
 
     /** What a file row did, as rows name it. */
     public static final String READ = "read";
@@ -117,7 +141,7 @@ public final class SideEffectsCatalog {
             new Sensor("thread-activity", THREADS_AND_LEAKS, "Threads and executors started per route", false, 0),
             new Sensor("thread-locals", THREADS_AND_LEAKS, "Thread locals left set after a request", false, 0),
             new Sensor("resources", THREADS_AND_LEAKS, "Streams and sockets left open", false, 0),
-            new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", false, 0),
+            new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", true, RECORD_BLOCKING),
             new Sensor("security-sinks", SECURITY_SINKS, "Request input reaching SQL, commands, and paths", false, 0));
 
     private SideEffectsCatalog() {}
@@ -155,6 +179,16 @@ public final class SideEffectsCatalog {
                 default -> "operation";
             };
         }
+        if (recordId == RECORD_BLOCKING) {
+            return switch (kind) {
+                case KIND_SLEEP -> SLEEP;
+                case KIND_WAIT -> WAIT;
+                case KIND_PARK -> PARK;
+                case KIND_BLOCKING_NETWORK -> BLOCKING_NETWORK;
+                case KIND_BLOCKING_FILE -> BLOCKING_FILE;
+                default -> "operation";
+            };
+        }
         return switch (kind) {
             case KIND_FILE_READ -> READ;
             case KIND_FILE_WRITE -> WRITE;
@@ -174,8 +208,16 @@ public final class SideEffectsCatalog {
         return kind != null && !READ.equals(kind) && !COPY_FROM.equals(kind);
     }
 
+    /** Whether a record of {@code recordId} and {@code kind} is a process's exit, not a new occurrence. */
+    static boolean processExit(int recordId, int kind) {
+        return recordId == RECORD_PROCESSES && kind == KIND_PROCESS_EXIT;
+    }
+
     /** Whether an outcome is a failure. */
     static boolean failed(int outcome) {
-        return outcome == OUTCOME_IO_ERROR || outcome == OUTCOME_ERROR || outcome == OUTCOME_UNKNOWN_HOST;
+        return outcome == OUTCOME_IO_ERROR
+                || outcome == OUTCOME_ERROR
+                || outcome == OUTCOME_UNKNOWN_HOST
+                || outcome == OUTCOME_INTERRUPTED;
     }
 }
