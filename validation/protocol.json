@@ -1,0 +1,112 @@
+{
+  "name": "BootUI 2.0 validation protocol, registered 2026-10-05 (M4-20a)",
+  "registration": {
+    "ref": "m4-20-protocol-1",
+    "kind": "annotated tag (git cat-file -t is tag) on the merged commit, created by the maintainer right before the rerun, after any addition to the known misses, and never moved",
+    "excluded": [".work/", "scoring/fixtures/"]
+  },
+  "seed": "bootui-v2-rerun-1",
+  "hiddenSample": 10,
+  "tunedApps": ["petclinic", "jhipster", "super-heroes", "webflux-gateway", "kafka"],
+  "holdoutApps": ["bookstore", "timeless"],
+  "agentRuns": {
+    "jhipster": ["work-after-response"],
+    "bookstore": ["work-after-response"],
+    "super-heroes": ["changed-code-not-executed"],
+    "petclinic": ["changed-code-not-executed"]
+  },
+  "agentKinds": ["work-after-response", "changed-code-not-executed"],
+  "agentRunExpectedFacts": {
+    "_note": "Facts a working kind is expected to give on each agent run. changed-code-not-executed: one per changed class not executed, verified on smoke runs (2 per run). work-after-response: no expectation; the 2026-10-05 smoke runs found none on JHipster (133 eligible requests) or the bookstore (213), whose failed emails JHipster now reports as errors-behind-2xx (M4-22)",
+    "super-heroes": {
+      "changed-code-not-executed": 2
+    },
+    "petclinic": {
+      "changed-code-not-executed": 2
+    },
+    "jhipster": {
+      "work-after-response": null
+    },
+    "bookstore": {
+      "work-after-response": null
+    }
+  },
+  "unlistedByDesign": ["gc-inflated-latency", "heap-growth-after-gc"],
+  "wholeKindUnlistedReasons": ["Garbage collection and heap rows are reached from the Memory panel"],
+  "knownUnlistedReasons": [
+    "Its warm median is under 20 ms",
+    "It has fewer than",
+    "Its time is not split into phases",
+    "It was recorded only behind 4xx responses",
+    "It was recorded only behind 2xx and 4xx responses",
+    "Every scheduled run or message that recorded it completed",
+    "Repeated SELECTs already reports this statement",
+    "Garbage collection and heap rows are reached from the Memory panel",
+    "It is a WARN message BootUI has no specific check for",
+    "Spring MVC resolved an exception to a 4xx response"
+  ],
+  "reviewers": {
+    "prompt": "REVIEWER-PROMPT.md",
+    "panel": [
+      {
+        "id": "r1",
+        "model": "claude-opus-5.5"
+      },
+      {
+        "id": "r2",
+        "model": "gpt-6-sol"
+      }
+    ]
+  },
+  "holdoutExposure": [
+    {
+      "app": "bookstore",
+      "date": "2026-10-05",
+      "seen": "Start check with 2 traffic iterations, before M4-19: route-time-breakdown rows on every route (most INSUFFICIENT), exception-hotspots on GET /orders/{orderNumber} (OrderNotFoundException) and GET /admin/catalog/products/{code} (ProductNotFoundException), heap-growth-after-gc INSUFFICIENT; proxy-bypass and transaction-across-remote-call INSUFFICIENT, event-loop-blocking, work-after-response, and changed-code-not-executed NOT_APPLICABLE. And the startup failure with Spring Modulith (#1274)."
+    },
+    {
+      "app": "timeless",
+      "date": "2026-10-05",
+      "seen": "Start checks with 2 to 10 traffic iterations, before and after M4-19: route-time-breakdown rows (POST /api/messages with AI calls at 94 %, POST /api/sign-in at 277 ms), ai-usage-by-route on POST /api/messages, exception-hotspots (UnauthorizedException, ResteasyReactiveViolationException, NullPointerException on GET /api/records, NotFoundException), and framework-warnings-by-route with one row per failed GET /api/records, since Quarkus's message carries a per-request error id. That grouping was fixed before the rerun by #1276 (e1bc61de5)."
+    }
+  ],
+  "allowedHoldoutFixes": [
+    {
+      "app": "bookstore",
+      "change": "Start Spring Modulith applications with BootUI: back off from their event multicaster",
+      "pr": 1274,
+      "commit": "baece9096"
+    },
+    {
+      "app": "timeless",
+      "change": "Group framework warnings that differ only by ids or numeric path segments",
+      "pr": 1276,
+      "commit": "e1bc61de5"
+    }
+  ],
+  "gates": {
+    "target": {
+      "usefulPercent": 70,
+      "misleading": 0
+    },
+    "postM3": {
+      "usefulPercent": 50
+    },
+    "escalation": {
+      "pooledBelowPercent": 30,
+      "holdoutGapAbovePoints": 20
+    },
+    "perKind": {
+      "minFacts": 3,
+      "minApps": 2,
+      "usefulPercent": 50,
+      "misleading": 0
+    }
+  },
+  "timeToFirstObservation": {
+    "targetMinutes": 5
+  },
+  "investigations": {
+    "count": 10
+  }
+}

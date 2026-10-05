@@ -1,0 +1,386 @@
+{
+  "registered": "2026-10-05, before the rerun (M4-20a). The maintainer may add items before the registration tag m4-20-protocol-1 is created, never after.",
+  "outcomes": {
+    "misses": "found-default (a default-visible fact states it), found-hidden (only a hidden row states it), honest-gap (a check or coverage line says it cannot see it), missed, not-exercised (allowed only for an item registered with \"exercised\": false, since the traffic is fixed now)",
+    "counterexamples": "respected (no default-visible fact presents it as a problem to fix), violated (name the facts, which must be adjudicated Misleading)",
+    "firstRun": "found, hidden, missed, or not run: an item the first run found and the rerun finds only in a hidden row is reported as a filter regression"
+  },
+  "applications": {
+    "petclinic": {
+      "misses": [
+        {
+          "id": "PC-1",
+          "fact": "The pet-type selector re-runs the pet-types query 5 to 6 times per form render, from PetTypeFormatter.parse (PetTypeFormatter.java:52-53, fragments/selectField.html:13-14).",
+          "kinds": ["repeated-selects"],
+          "subjects": [
+            "GET /owners/{ownerId}/pets/new",
+            "POST /owners/{ownerId}/pets/new",
+            "GET /owners/{ownerId}/pets/{petId}/edit",
+            "POST /owners/{ownerId}/pets/{petId}/edit"
+          ],
+          "firstRun": "found"
+        },
+        {
+          "id": "PC-2",
+          "fact": "The owner list renders one pagination link per page (owners/ownersList.html:34-37), so GET /owners has a heavy tail that grows with the owner table.",
+          "kinds": ["route-time-breakdown"],
+          "subjects": ["GET /owners"],
+          "firstRun": "found"
+        },
+        {
+          "id": "PC-3",
+          "fact": "Tomcat logs an ERROR for every GET /oups that no request owns, 972 in the first run.",
+          "kinds": ["framework-warnings-by-route"],
+          "subjects": ["No request"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "PC-4",
+          "fact": "Every write route is anonymous, since the application has no security at all; a check that needs authorization data must say it saw none rather than report a clean result.",
+          "kinds": ["anonymous-data-reach", "anonymous-success-on-restricted-route"],
+          "subjects": ["(check)"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "PC-5",
+          "fact": "In the agent run, change.patch changes Owner.getPet(String), which nothing calls: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["org.springframework.samples.petclinic.owner.Owner"],
+          "firstRun": "not run",
+          "run": "petclinic+agent"
+        },
+        {
+          "id": "PC-6",
+          "fact": "In the agent run, change.patch changes Vet.addSpecialty, which nothing calls: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["org.springframework.samples.petclinic.vet.Vet"],
+          "firstRun": "not run",
+          "run": "petclinic+agent"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "PC-C1",
+          "fact": "GET /oups throws on purpose to show the error page (CrashController.java:31-34).",
+          "subjects": ["GET /oups"]
+        },
+        {
+          "id": "PC-C2",
+          "fact": "The repeated pet-type SELECTs come from a view formatter, not lazy loading: open-in-view and fetch joins do not apply (application.properties:11).",
+          "subjects": ["GET /owners/{ownerId}/pets/new"]
+        },
+        {
+          "id": "PC-C3",
+          "fact": "Vets are cached (VetRepository.java:44-46); their reads are not an N+1.",
+          "subjects": ["GET /vets", "GET /vets.html"]
+        },
+        {
+          "id": "PC-C4",
+          "fact": "In the agent run, change.patch changes Owner.addVisit, which every valid visit runs: changed-code-not-executed must not report it.",
+          "subjects": ["org.springframework.samples.petclinic.owner.Owner"],
+          "run": "petclinic+agent"
+        }
+      ]
+    },
+    "jhipster": {
+      "misses": [
+        {
+          "id": "JH-1",
+          "fact": "POST /api/admin/users answers 201 while its @Async activation email fails against the SMTP server that does not run, and the exception is swallowed (UserResource.java:119, MailService.java:54-80, application-dev.yml:51-53).",
+          "kinds": ["errors-behind-2xx", "work-after-response"],
+          "subjects": ["POST /api/admin/users"],
+          "firstRun": "missed",
+          "run": "jhipster and jhipster+agent"
+        },
+        {
+          "id": "JH-2",
+          "fact": "The dev profile's DEBUG logging and LoggingAspect dominate handler time and allocation (application-dev.yml:18, LoggingAspectConfiguration.java:13).",
+          "kinds": ["route-time-breakdown"],
+          "subjects": ["POST /api/admin/users", "POST /api/authenticate"],
+          "firstRun": "missed"
+        },
+        {
+          "id": "JH-3",
+          "fact": "POST /api/account/reset-password/init with a JSON-quoted email fails validation and never reaches the reset logic (AccountResource.java:162).",
+          "kinds": ["exception-hotspots"],
+          "subjects": ["POST /api/account/reset-password/init"],
+          "firstRun": "found"
+        },
+        {
+          "id": "JH-4",
+          "fact": "A valid POST /api/account/reset-password/init answers 200 while its @Async reset email fails against the SMTP server that does not run (AccountResource.java:162-173, MailService.java:115-118). Its request is new in the rerun's traffic.",
+          "kinds": ["errors-behind-2xx", "work-after-response"],
+          "subjects": ["POST /api/account/reset-password/init"],
+          "firstRun": "not run",
+          "run": "jhipster and jhipster+agent"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "JH-C1",
+          "fact": "BCrypt on authentication and user creation is deliberate cost (SecurityConfiguration.java:41).",
+          "subjects": ["POST /api/authenticate", "POST /api/admin/users"]
+        },
+        {
+          "id": "JH-C2",
+          "fact": "Invalid bodies, bad credentials, anonymous calls, and missing ids answer the intended 400, 401, and 404.",
+          "subjects": ["(several)"]
+        },
+        {
+          "id": "JH-C3",
+          "fact": "Actuator requests and requests Spring Security rejects reach no application handler: their time is not application code.",
+          "subjects": ["GET /management/health", "GET /management/info", "GET /api/account"]
+        }
+      ]
+    },
+    "super-heroes": {
+      "misses": [
+        {
+          "id": "SH-1",
+          "fact": "DELETE /api/villains (not exercised) loads every villain and deletes them one by one (VillainService.java:130-136); the routes the traffic never reaches must be listed as not exercised.",
+          "kinds": ["coverage"],
+          "subjects": ["DELETE /api/villains", "PUT /api/villains"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "SH-2",
+          "fact": "GET /api/villains is not paginated, and GET /api/villains/random runs a count and an offset query per request (VillainService.java:46-57, Villain.java:36-51).",
+          "kinds": ["route-time-breakdown"],
+          "subjects": ["GET /api/villains", "GET /api/villains/random"],
+          "firstRun": "found"
+        },
+        {
+          "id": "SH-3",
+          "fact": "GET / renders the complete villain list rather than a bounded page (UIResource.java:31-40).",
+          "kinds": ["route-time-breakdown"],
+          "subjects": ["GET /"],
+          "firstRun": "found"
+        },
+        {
+          "id": "SH-4",
+          "fact": "In the agent run, change.patch changes deleteAllVillains, which nothing runs: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["io.quarkus.sample.superheroes.villain.service.VillainService"],
+          "firstRun": "not run",
+          "run": "super-heroes+agent"
+        },
+        {
+          "id": "SH-5",
+          "fact": "In the agent run, change.patch changes VillainResource.deleteAllVillains (DELETE /api/villains), which the traffic never calls: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["io.quarkus.sample.superheroes.villain.rest.VillainResource"],
+          "firstRun": "not run",
+          "run": "super-heroes+agent"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "SH-C1",
+          "fact": "Invalid villains answer 400 through bean validation, and missing or non-numeric ids answer 404, on purpose.",
+          "subjects": ["POST /api/villains", "GET /api/villains/{id}"]
+        },
+        {
+          "id": "SH-C2",
+          "fact": "Health, OpenAPI, and hello endpoints are framework or trivial endpoints, not application performance problems.",
+          "subjects": ["GET /q/health", "GET /q/openapi", "GET /api/villains/hello"]
+        },
+        {
+          "id": "SH-C3",
+          "fact": "Blocking endpoints run on virtual threads (@RunOnVirtualThread), not on the event loop.",
+          "subjects": ["(event-loop-blocking)"]
+        },
+        {
+          "id": "SH-C4",
+          "fact": "In the agent run, change.patch changes findAllVillainsHavingName, which the traffic runs: changed-code-not-executed must not report it.",
+          "subjects": ["io.quarkus.sample.superheroes.villain.service.VillainService"],
+          "run": "super-heroes+agent"
+        }
+      ]
+    },
+    "webflux-gateway": {
+      "misses": [
+        {
+          "id": "WF-1",
+          "fact": "GET /api/admin/users loads the whole user and authority join over R2DBC and pages, sorts, and limits it in memory (UserRepository.java:100-114); BootUI cannot see R2DBC, and must say so.",
+          "kinds": ["coverage"],
+          "subjects": ["GET /api/admin/users"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "WF-2",
+          "fact": "Each successful user creation hides a failed activation email behind its 201 (UserResource.java:132, MailService.java:53-56).",
+          "kinds": ["errors-behind-2xx"],
+          "subjects": ["POST /api/admin/users"],
+          "firstRun": "found"
+        },
+        {
+          "id": "WF-3",
+          "fact": "Every PUT /api/admin/users/{login} fails, since the body carries no id and the path's login is not used (UserResource.java:154-167).",
+          "kinds": ["exception-hotspots"],
+          "subjects": ["PUT /api/admin/users/{login}"],
+          "firstRun": "found"
+        },
+        {
+          "id": "WF-4",
+          "fact": "Gateway routes to a service that does not run answer 500 rather than a gateway error or fallback (application.yml:116-135).",
+          "kinds": ["exception-hotspots"],
+          "subjects": ["GET /services/absent/api/orders", "GET /services/absent/management/health/readiness"],
+          "firstRun": "found"
+        },
+        {
+          "id": "WF-5",
+          "fact": "Declared routes the traffic never reaches must be listed as not exercised (at least seven in the first run).",
+          "kinds": ["coverage"],
+          "subjects": ["(not exercised)"],
+          "firstRun": "missed"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "WF-C1",
+          "fact": "Anonymous readiness and the deliberate 401 probes are configured behaviour (SecurityConfiguration.java:81-82).",
+          "subjects": ["GET /api/account", "GET /api/admin/users"]
+        },
+        {
+          "id": "WF-C2",
+          "fact": "WebFlux marks no phases: time is not attributed to application code it cannot see.",
+          "subjects": ["(route-time-breakdown)"]
+        }
+      ]
+    },
+    "kafka": {
+      "misses": [
+        {
+          "id": "K-1",
+          "fact": "The payment and stock listeners read in a read-only transaction and save in a second one, with a repeated select during the merge (payment and stock OrderManageService.java:24-39).",
+          "kinds": ["split-transaction-writes", "repeated-selects"],
+          "subjects": ["consume kafka:orders"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "K-2",
+          "fact": "Listener-only services do SQL, transaction, and ORM work per consumed message that must be visible per execution.",
+          "kinds": ["route-time-breakdown", "coverage"],
+          "subjects": ["consume kafka:orders"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "K-3",
+          "fact": "Kafka Streams consumes, joins, and materializes the order table in order-service (OrderApp.java:68-94), which the journal does not record; a coverage line must say so.",
+          "kinds": ["coverage"],
+          "subjects": ["(coverage)"],
+          "firstRun": "hidden"
+        },
+        {
+          "id": "K-4",
+          "fact": "GET /orders scans the whole Kafka Streams store on every request and does not close its KeyValueIterator (OrderController.java:51-61).",
+          "kinds": ["route-time-breakdown"],
+          "subjects": ["GET /orders"],
+          "firstRun": "found"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "K-C1",
+          "fact": "Saga rejections for stock or payment are the intended outcome of the traffic.",
+          "subjects": ["(listeners)"]
+        },
+        {
+          "id": "K-C2",
+          "fact": "POST /orders does not wait for the broker: the asynchronous acknowledgement is not handler time (OrderController.java:37-42).",
+          "subjects": ["POST /orders"]
+        }
+      ]
+    },
+    "bookstore": {
+      "misses": [
+        {
+          "id": "BS-1",
+          "fact": "POST /orders publishes OrderCreatedEvent; two @ApplicationModuleListener handlers run after the commit in their own transactions (OrderEventInventoryHandler reads then saves the stock level), Spring Modulith records each publication in its JDBC registry, and the event is externalized to RabbitMQ (OrderService.java:33-44, OrderEventInventoryHandler.java:19-23).",
+          "kinds": ["work-after-response", "after-commit-writes", "route-time-breakdown"],
+          "subjects": ["POST /orders"],
+          "firstRun": "not run",
+          "run": "bookstore and bookstore+agent"
+        },
+        {
+          "id": "BS-2",
+          "fact": "The URL rules leave /buy, /cart, /update-cart, and GET /products open to anonymous visitors and protect /admin/** by role; an anonymous request never reaches an admin page (WebSecurityConfig.java:33-43).",
+          "kinds": ["anonymous-data-reach", "anonymous-success-on-restricted-route"],
+          "subjects": ["POST /buy", "GET /admin/catalog/products"],
+          "firstRun": "not run"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "BS-C1",
+          "fact": "Anonymous cart and catalog access is the intended rule, not a data-reach problem.",
+          "subjects": ["POST /buy", "POST /update-cart", "GET /cart", "GET /products"]
+        },
+        {
+          "id": "BS-C2",
+          "fact": "A customer gets 403 on /admin/**, and an anonymous visitor a redirect to the login form, on purpose.",
+          "subjects": ["GET /admin/orders", "GET /admin/inventory"]
+        },
+        {
+          "id": "BS-C3",
+          "fact": "An unknown order or product code answers 404 through OrderNotFoundException or ProductNotFoundException, on purpose.",
+          "subjects": ["GET /orders/{orderNumber}", "GET /admin/catalog/products/{code}"]
+        }
+      ]
+    },
+    "timeless": {
+      "misses": [
+        {
+          "id": "TL-1",
+          "fact": "GET /api/records without page and limit throws a NullPointerException, since RecordResource calls Optional.of on a missing query parameter, and answers 500.",
+          "kinds": ["exception-hotspots", "framework-warnings-by-route"],
+          "subjects": ["GET /api/records"],
+          "firstRun": "not run"
+        },
+        {
+          "id": "TL-2",
+          "fact": "POST /api/messages is open to anonymous callers at the HTTP level (its comment relies on a network rule): given a phone number it reads the user, calls the AI, and writes records (MessageResource.java).",
+          "kinds": ["anonymous-data-reach"],
+          "subjects": ["POST /api/messages"],
+          "firstRun": "not run"
+        },
+        {
+          "id": "TL-3",
+          "fact": "AI calls dominate POST /api/messages, with two model calls in one request when the getBalance tool runs, and that tool reads every record of the user (GetBalanceTool.java).",
+          "kinds": ["ai-usage-by-route", "route-time-breakdown"],
+          "subjects": ["POST /api/messages"],
+          "firstRun": "not run"
+        },
+        {
+          "id": "TL-4",
+          "fact": "GET /api/records counts the user's records, reads one page, and then reads the amount and type of every record of the user on every request (RecordResource.getRecords).",
+          "kinds": ["route-time-breakdown"],
+          "subjects": ["GET /api/records"],
+          "firstRun": "not run"
+        }
+      ],
+      "counterexamples": [
+        {
+          "id": "TL-C1",
+          "fact": "BCrypt makes POST /api/sign-in slow on purpose.",
+          "subjects": ["POST /api/sign-in"]
+        },
+        {
+          "id": "TL-C2",
+          "fact": "The AI call runs before QuarkusTransaction.requiringNew, outside any transaction: no transaction is held across it.",
+          "subjects": ["POST /api/messages"]
+        },
+        {
+          "id": "TL-C3",
+          "fact": "Panache's blocking JDBC runs on worker threads, not on the Vert.x event loop.",
+          "subjects": ["(event-loop-blocking)"]
+        },
+        {
+          "id": "TL-C4",
+          "fact": "Anonymous calls to @Authenticated resources answer 401, a duplicate sign-up 409, and another user's profile 403, on purpose.",
+          "subjects": ["GET /api/records", "POST /api/sign-up", "GET /api/users/{id}"]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+diff --git a/pom.xml b/pom.xml
+index cbd0292..419accd 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -107,6 +107,11 @@
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-actuator</artifactId>
+         </dependency>
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-spring-boot-starter</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-aspectj</artifactId>

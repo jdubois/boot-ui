@@ -1,0 +1,15 @@
+diff --git a/src/main/java/io/github/jhipster/sample/repository/UserRepository.java b/src/main/java/io/github/jhipster/sample/repository/UserRepository.java
+index 997f2d4..6a81fb4 100644
+--- a/src/main/java/io/github/jhipster/sample/repository/UserRepository.java
++++ b/src/main/java/io/github/jhipster/sample/repository/UserRepository.java
+@@ -27,6 +27,10 @@ import reactor.util.function.Tuples;
+  */
+ @Repository
+ public interface UserRepository extends R2dbcRepository<User, Long>, UserRepositoryInternal {
++    String USERS_BY_LOGIN_CACHE = "usersByLogin";
++
++    String USERS_BY_EMAIL_CACHE = "usersByEmail";
++
+     Mono<User> findOneByActivationKey(String activationKey);
+ 
+     Flux<User> findAllByActivatedIsFalseAndActivationKeyIsNotNullAndCreatedDateBefore(LocalDateTime dateTime);

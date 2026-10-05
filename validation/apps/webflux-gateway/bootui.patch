@@ -1,0 +1,16 @@
+diff --git a/pom.xml b/pom.xml
+index f468d19..548e394 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -178,6 +178,11 @@
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-webflux</artifactId>
+         </dependency>
++        <dependency>
++            <groupId>com.julien-dubois.bootui</groupId>
++            <artifactId>bootui-spring-boot-starter-reactive</artifactId>
++            <version>@BOOTUI_VERSION@</version>
++        </dependency>
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-webflux-test</artifactId>

@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * {@code framework-warnings-by-route} ({@code docs/PLAN-v2.md} §5.5): {@code WARN} and {@code ERROR} events that
@@ -95,7 +96,7 @@ public final class FrameworkWarningsByRoute implements Observation {
                 Map<String, Integer> perRequest = new LinkedHashMap<>();
                 for (RuntimeEvent event : request.children(JournalSource.LOG)) {
                     if (event.payload() instanceof LogPayload log && isFramework(log.logger())) {
-                        String key = log.logger() + "\n" + log.level() + "\n" + log.template();
+                        String key = log.logger() + "\n" + log.level() + "\n" + messageKey(log.template());
                         groups.computeIfAbsent(key, k -> new Group(log));
                         perRequest.merge(key, 1, Integer::sum);
                     }
@@ -134,7 +135,7 @@ public final class FrameworkWarningsByRoute implements Observation {
                     afterRequest++;
                     continue;
                 }
-                String key = log.logger() + "\n" + log.template();
+                String key = log.logger() + "\n" + messageKey(log.template());
                 counts.computeIfAbsent(key, k -> new long[1])[0]++;
                 logs.putIfAbsent(key, log);
             }
@@ -162,7 +163,7 @@ public final class FrameworkWarningsByRoute implements Observation {
         for (Map.Entry<String, long[]> entry : ranked) {
             LogPayload log = logs.get(entry.getKey());
             String template = log.template() == null ? "" : log.template();
-            String shown = text.message(template);
+            String shown = text.message(messageKey(template));
             total += entry.getValue()[0];
             rows.add(List.of(
                     log.logger(), shown == null ? "" : InsightText.quoted(shown), String.valueOf(entry.getValue()[0])));
@@ -234,8 +235,9 @@ public final class FrameworkWarningsByRoute implements Observation {
     private Finding finding(String route, String key, Group group, long eligible, JournalTextExposure text) {
         LogPayload log = group.log;
         String template = log.template() == null ? "" : log.template();
-        // The raw template only matches known fragments; what is quoted follows the live exposure policy (§8).
-        String shown = text.message(template);
+        // The raw template only matches known fragments; what is quoted is the group's message, without the ids that
+        // differ between its events, under the live exposure policy (§8).
+        String shown = text.message(messageKey(template));
         String sentence = "`" + route + "` logged `" + log.level() + "` from `" + InsightText.simpleName(log.logger())
                 + "` in " + group.rows.size() + " of " + InsightText.counted(eligible, InsightText.unit(route)) + " ("
                 + InsightText.counted(group.events, "event") + ")"
@@ -299,6 +301,31 @@ public final class FrameworkWarningsByRoute implements Observation {
                 "Invalid character found in the request target",
                 "Tomcat rejected a URL with unencoded characters: check how the client builds it.");
         return Collections.unmodifiableMap(known);
+    }
+
+    /** A UUID, with the request counter some frameworks append to it, as Quarkus's error handler does. */
+    private static final Pattern UUID = Pattern.compile(
+            "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:-\\d+)?\\b");
+
+    /** A hexadecimal id of 16 characters or more, such as a trace id, holding both letters and digits. */
+    private static final Pattern HEX_ID =
+            Pattern.compile("\\b(?=[0-9a-fA-F]*[a-fA-F])(?=[0-9a-fA-F]*\\d)[0-9a-fA-F]{16,}\\b");
+
+    /** A path segment that is a number, such as the id in {@code /api/villains/50}. */
+    private static final Pattern NUMERIC_SEGMENT = Pattern.compile("(?<=/)\\d+(?=[/?#\\s,;:]|$)");
+
+    /**
+     * A message without the parts that differ between the events of one message: ids and numeric path segments. A
+     * logger that formats the message itself, as Quarkus's error handler does with a per-request error id and the
+     * request path, would otherwise make each failed request a group of its own.
+     */
+    static String messageKey(String template) {
+        if (template == null) {
+            return null;
+        }
+        String key = UUID.matcher(template).replaceAll("<id>");
+        key = HEX_ID.matcher(key).replaceAll("<id>");
+        return NUMERIC_SEGMENT.matcher(key).replaceAll("<n>");
     }
 
     private static final class Group {

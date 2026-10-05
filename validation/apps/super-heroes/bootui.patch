@@ -1,0 +1,16 @@
+diff --git a/rest-villains/pom.xml b/rest-villains/pom.xml
+index 350c32f35..a3e9b37d8 100644
+--- a/rest-villains/pom.xml
++++ b/rest-villains/pom.xml
+@@ -38,6 +38,11 @@
+     </dependencies>
+   </dependencyManagement>
+   <dependencies>
++    <dependency>
++      <groupId>com.julien-dubois.bootui</groupId>
++      <artifactId>bootui-quarkus</artifactId>
++      <version>@BOOTUI_VERSION@</version>
++    </dependency>
+     <dependency>
+       <groupId>io.quarkus</groupId>
+       <artifactId>quarkus-rest-jackson</artifactId>

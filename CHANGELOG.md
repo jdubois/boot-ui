@@ -316,6 +316,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
   downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
   readable; the full `docker` profile is unchanged.
+- **All-in-one Spring sample launcher.** `run-local-all.sh` runs the Spring MVC sample with the BootUI Java agent, the
+  full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
+  Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
+  compared with the previous one after a full restart.
 
 ### Changed
 
@@ -599,6 +603,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
 
 ### Fixed
+
+- **One framework warning per message, not per failed request.** Runtime Insights' `framework-warnings-by-route`
+  grouped events by their exact message, so a framework that writes the request path and a per-request id into the
+  message, as Quarkus's error handler does (`HTTP Request to /api/records failed, error id: …`), listed each failed
+  request as a row of its own. Messages that differ only by a UUID, a long hexadecimal id, or a numeric path segment are
+  now one group, quoted with `<id>` and `<n>` in place of those parts, on every stack; the row's id no longer changes
+  with each run. ([PLAN-v2.md](docs/PLAN-v2.md) M4-20)
 
 - **A Spring Modulith application starts with BootUI.** BootUI's application event multicaster, which records
   application events in the runtime journal, claimed the context's `applicationEventMulticaster` bean name before

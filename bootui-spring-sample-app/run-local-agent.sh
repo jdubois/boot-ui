@@ -47,6 +47,7 @@ esac
 
 # spring-boot.run.agents adds -javaagent to the forked JVM and leaves spring-boot.run.jvmArguments free for callers.
 # DevTools restarts stay enabled: each restart claims the agent again in the same slot, and Code Inventory then lists
-# the methods an edit changed.
+# the methods an edit changed. BOOTUI_SAMPLE_PROFILES picks other profiles, as run-local-all.sh does.
 exec ./mvnw -B -ntp -Dmaven.test.skip=true -pl bootui-spring-sample-app \
-    spring-boot:run -Dspring-boot.run.profiles=docker-postgresql "-Dspring-boot.run.agents=$AGENT_JAR" "$@"
+    spring-boot:run "-Dspring-boot.run.profiles=${BOOTUI_SAMPLE_PROFILES:-docker-postgresql}" \
+    "-Dspring-boot.run.agents=$AGENT_JAR" "$@"
