@@ -34,6 +34,8 @@ These override any instinct carried over from ordinary pull-request work, where 
    - `CHANGELOG.md` has its `[Unreleased]` heading cut to `## [VERSION] - YYYY-MM-DD`, landed on the source branch as
      its own commit before dispatch. The workflow never touches `CHANGELOG.md`, so a release run against an uncut
      changelog ships without notes and cannot be corrected under the tag.
+   - The release notes are short, following the release notes rules below. Condense `[Unreleased]` in the cut commit
+     when feature pull requests left long entries; do not add detail of your own.
    - Nothing else is expected to land on the source branch during the run. The workflow aborts if the branch advances
      between preparation and tagging, and that abort is correct behavior, not a flake.
 3. Dispatch the **Release** workflow from the source branch with the target version. Leave `auto_publish` enabled
@@ -62,6 +64,24 @@ These override any instinct carried over from ordinary pull-request work, where 
    `jbang bootui@jdubois/boot-ui` resolves the new version and the documentation site was redeployed from the tag. JBang
    reads the catalog from the default branch, so an older-major patch released from a maintenance branch leaves both
    on the newest major.
+
+## Release notes
+
+A release section is skimmed, not studied: a reader should learn the main changes in under a minute and follow links
+for detail.
+
+- Open with a one- or two-sentence summary naming the headline changes only.
+- Use each Keep a Changelog heading (Added, Changed, Deprecated, Removed, Fixed, Security) at most once. Aim for at most
+  about eight bullets per heading and about 40 lines for the whole section; a small release stays small.
+- Write each bullet as a bold lead phrase plus one short sentence of user-visible effect, at most two wrapped lines,
+  followed by at most one docs link and its pull request references.
+- Merge related small items into one bullet, such as new advisor rules across catalogs, advisor accuracy fixes, or
+  notable dependency upgrades.
+- Leave out implementation details, class, DTO, and field names, rule-by-rule descriptions, per-adapter caveats,
+  configuration properties a user need not set, CI, test, and refactoring work, and how a change was validated. Name
+  stacks only when a feature does not cover Spring MVC, Spring WebFlux, and Quarkus.
+- Never drop a breaking change, a removal, a security fix, or a default-behavior change; shorten it instead.
+- Never invent facts while condensing. When a missing entry is needed, write it to the same short shape.
 
 ## Changing release machinery
 
