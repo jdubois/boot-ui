@@ -210,8 +210,10 @@ public final class BlockingBehaviors {
         held.await();
         on("it-loop-4", () -> {
             LoopWork.lockBriefly(lock);
-            // A park shorter than a millisecond is only counted.
-            LockSupport.parkNanos(1_000L);
+            // A park shorter than a millisecond is only counted: several, as a loaded runner can overshoot one.
+            for (int i = 0; i < 20; i++) {
+                LockSupport.parkNanos(1_000L);
+            }
             return null;
         });
         holder.join();
