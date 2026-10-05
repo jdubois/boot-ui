@@ -563,7 +563,7 @@ public final class SideEffects {
             if (state == null || channel == null || (!finished && thrown == null) || state.pending.isEmpty()) {
                 return;
             }
-            PendingConnect pending = state.pending.remove(new Identity(channel));
+            PendingConnect pending = state.pending.remove(Identity.of(channel));
             Claim claim = AgentBridge.current();
             if (pending == null || !recording(claim, MASK_NETWORK) || pending.owner.generation != claim.generation) {
                 return;
@@ -625,8 +625,14 @@ public final class SideEffects {
             long stamp = CodePaths.stamp();
             Owner owner = networkOwner(frame, claim);
             long now = System.currentTimeMillis();
-            Memo key = new Memo(targetId, stamp, outcome);
+            // The call site without the request's fragment sequence, and the thread's family: the frames of a send
+            // depend on where it is made, never on which request made it.
+            Memo key = new Memo(targetId, stamp > 0L ? stamp & SITE_MASK : stamp, outcome, owner.threadName);
             long[] known = state.memo.get(key);
+            if (known == null && frame.sideEffects != null) {
+                // Past the memo's bound, the thread's own table still remembers this send's frames.
+                known = frame.sideEffects.known(SENSOR_NETWORK, KIND_DATAGRAM, targetId, outcome, stamp);
+            }
             if (known == null) {
                 long[] walked = networkFrames(claim);
                 if (walked == null) {
@@ -696,7 +702,7 @@ public final class SideEffects {
                 JDK_LOOPBACK_SKIPPED.increment();
                 return;
             }
-            int target = networkTarget(hostName(host));
+            int target = lookupTarget(hostName(host));
             int outcome;
             if (thrown == null) {
                 // A statically mocked lookup may answer null.
@@ -839,28 +845,40 @@ public final class SideEffects {
     /** A datagram packet's address, never its data: {@code (connected)} when it names none. */
     private static Object packetAddress(java.net.DatagramPacket packet) {
         java.net.InetAddress address = packet.getAddress();
-        return address == null ? "(connected)" : new java.net.InetSocketAddress(address, packet.getPort());
+        if (address == null) {
+            return "(connected)";
+        }
+        int port = packet.getPort();
+        // A packet given an address but no port: the send fails, and the target is no host and port.
+        return port < 0 || port > 0xFFFF ? "(other)" : new java.net.InetSocketAddress(address, port);
     }
 
     /** A network target interned, at most {@value #MAX_NETWORK_TARGETS} distinct ones per generation. */
     static int networkTarget(String text) {
         Network state = NETWORK_STATE.get();
-        if (state == null) {
-            return intern(text);
+        return state == null ? intern(text) : quota(state.targets, text);
+    }
+
+    /** A looked-up name interned, at most {@value #MAX_NETWORK_TARGETS} distinct ones, apart from the targets. */
+    static int lookupTarget(String text) {
+        Network state = NETWORK_STATE.get();
+        return state == null ? intern(text) : quota(state.lookups, text);
+    }
+
+    private static int quota(java.util.concurrent.ConcurrentHashMap<String, Integer> known, String text) {
+        Integer id = known.get(text);
+        if (id != null) {
+            return id.intValue();
         }
-        Integer known = state.targets.get(text);
-        if (known != null) {
-            return known.intValue();
-        }
-        if (state.targets.size() >= MAX_NETWORK_TARGETS) {
+        if (known.size() >= MAX_NETWORK_TARGETS) {
             NETWORK_TARGETS_OVERFLOW.increment();
             return intern(OTHER_HOSTS);
         }
-        int id = intern(text);
-        if (id != 0) {
-            state.targets.putIfAbsent(text, Integer.valueOf(id));
+        int interned = intern(text);
+        if (interned != 0) {
+            known.putIfAbsent(text, Integer.valueOf(interned));
         }
-        return id;
+        return interned;
     }
 
     private static void pendingConnect(
@@ -876,7 +894,8 @@ public final class SideEffects {
         if (state == null) {
             return;
         }
-        if (state.pending.size() >= MAX_PENDING_CONNECTS) {
+        if (state.pending.size() >= MAX_PENDING_CONNECTS || (state.puts.incrementAndGet() & 63) == 0) {
+            // Connects closed or timed out without a finish are swept, never left to fill the map.
             state.sweep(System.nanoTime());
             if (state.pending.size() >= MAX_PENDING_CONNECTS) {
                 CONNECTS_UNPAIRED.increment();
@@ -884,7 +903,7 @@ public final class SideEffects {
             }
         }
         state.pending.put(
-                new Identity(channel),
+                Identity.stored(channel),
                 new PendingConnect(owner, target, client, stamp, frames, startNanos, startMillis));
     }
 
@@ -967,6 +986,9 @@ public final class SideEffects {
                 new java.util.concurrent.ConcurrentHashMap<Memo, long[]>();
         final java.util.concurrent.ConcurrentHashMap<Identity, PendingConnect> pending =
                 new java.util.concurrent.ConcurrentHashMap<Identity, PendingConnect>();
+        final java.util.concurrent.ConcurrentHashMap<String, Integer> lookups =
+                new java.util.concurrent.ConcurrentHashMap<String, Integer>();
+        final AtomicLong puts = new AtomicLong();
 
         Network(long generation) {
             this.generation = generation;
@@ -977,7 +999,8 @@ public final class SideEffects {
             Iterator<Map.Entry<Identity, PendingConnect>> iterator =
                     pending.entrySet().iterator();
             while (iterator.hasNext()) {
-                if (now - iterator.next().getValue().startNanos > PENDING_CONNECT_NANOS) {
+                Map.Entry<Identity, PendingConnect> entry = iterator.next();
+                if (entry.getKey().value() == null || now - entry.getValue().startNanos > PENDING_CONNECT_NANOS) {
                     iterator.remove();
                     CONNECTS_UNPAIRED.increment();
                 }
@@ -985,17 +1008,22 @@ public final class SideEffects {
         }
     }
 
-    /** A datagram first sighting's key. */
+    /** A code-paths stamp's node and method bits, without the fragment's sequence. */
+    static final long SITE_MASK = (1L << (CodePaths.STAMP_NODE_BITS + CodePaths.STAMP_METHOD_BITS)) - 1;
+
+    /** A datagram first sighting's key: its target, call site, outcome, and thread family. */
     static final class Memo {
 
         final int target;
-        final long stamp;
+        final long site;
         final int outcome;
+        final int thread;
 
-        Memo(int target, long stamp, int outcome) {
+        Memo(int target, long site, int outcome, int thread) {
             this.target = target;
-            this.stamp = stamp;
+            this.site = site;
             this.outcome = outcome;
+            this.thread = thread;
         }
 
         @Override
@@ -1004,32 +1032,60 @@ public final class SideEffects {
                 return false;
             }
             Memo that = (Memo) other;
-            return target == that.target && stamp == that.stamp && outcome == that.outcome;
+            return target == that.target && site == that.site && outcome == that.outcome && thread == that.thread;
         }
 
         @Override
         public int hashCode() {
-            return (31 * target + (int) (stamp ^ (stamp >>> 32))) * 31 + outcome;
+            return ((31 * target + (int) (site ^ (site >>> 32))) * 31 + outcome) * 31 + thread;
         }
     }
 
-    /** A channel as a key by identity: none of its methods, not even {@code hashCode}, is ever called. */
+    /**
+     * A channel as a key by identity, held weakly once stored, so a channel the application closed without finishing
+     * its connect is never kept: none of its methods, not even {@code hashCode}, is ever called.
+     */
     static final class Identity {
 
-        final Object value;
+        private final int hash;
+        private final Object strong;
+        private final java.lang.ref.WeakReference<Object> weak;
 
-        Identity(Object value) {
-            this.value = value;
+        private Identity(Object value, boolean stored) {
+            this.hash = System.identityHashCode(value);
+            this.strong = stored ? null : value;
+            this.weak = stored ? new java.lang.ref.WeakReference<Object>(value) : null;
+        }
+
+        /** A key to look a channel up with. */
+        static Identity of(Object value) {
+            return new Identity(value, false);
+        }
+
+        /** A key to store, holding the channel weakly. */
+        static Identity stored(Object value) {
+            return new Identity(value, true);
+        }
+
+        Object value() {
+            return strong != null ? strong : weak.get();
         }
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof Identity && ((Identity) other).value == value;
+            if (other == this) {
+                return true;
+            }
+            if (!(other instanceof Identity)) {
+                return false;
+            }
+            Object mine = value();
+            return mine != null && mine == ((Identity) other).value();
         }
 
         @Override
         public int hashCode() {
-            return System.identityHashCode(value);
+            return hash;
         }
     }
 
@@ -1519,6 +1575,20 @@ public final class SideEffects {
             lastMillis[i] = now;
         }
 
+        /** The {@code {frames, detail}} of an entry recorded for this key, or {@code null}. */
+        long[] known(int entrySensor, int entryKind, int entryTarget, int entryOutcome, long entryStamp) {
+            for (int i = 0; i < size; i++) {
+                if (sensor[i] == entrySensor
+                        && kind[i] == entryKind
+                        && target[i] == entryTarget
+                        && outcome[i] == entryOutcome
+                        && stamp[i] == entryStamp) {
+                    return new long[] {frames[i], detail[i]};
+                }
+            }
+            return null;
+        }
+
         void flush() {
             TABLE_FLUSHES.increment();
             int flushed = size;
@@ -1841,6 +1911,14 @@ public final class SideEffects {
     /** The agent disables the sensors of {@code bits}: their self-test failed, or their transformer was removed. */
     public static void disable(int bits, String reason) {
         enabled &= ~bits;
+        if ((bits & MASK_NETWORK) != 0) {
+            // Never kept past the sensor's life: the channels still waiting and the datagram frames remembered.
+            Network network = NETWORK_STATE.get();
+            if (network != null) {
+                network.pending.clear();
+                network.memo.clear();
+            }
+        }
         for (int i = 1; i < SENSOR_NAMES.length; i++) {
             if ((bits & (1 << i)) != 0) {
                 DISABLED_REASONS[i] = reason;
@@ -1898,12 +1976,16 @@ public final class SideEffects {
             Network network = new Network(-1L);
             network.targets.putIfAbsent("warm", Integer.valueOf(0));
             network.targets.get("warm");
-            network.memo.putIfAbsent(new Memo(0, 0L, 0), new long[2]);
-            network.memo.get(new Memo(0, 0L, 0));
-            network.pending.put(new Identity(network), new PendingConnect(owner, 0, 0, 0L, 0L, 0L, 0L));
+            network.memo.putIfAbsent(new Memo(0, 0L, 0, 0), new long[2]);
+            network.memo.get(new Memo(0, 0L, 0, 0));
+            network.pending.put(Identity.stored(network), new PendingConnect(owner, 0, 0, 0L, 0L, 0L, 0L));
+            network.puts.incrementAndGet();
             network.sweep(Long.MAX_VALUE);
-            network.pending.remove(new Identity(network));
+            network.pending.remove(Identity.of(network));
             network.pending.isEmpty();
+            quota(network.lookups, "warm");
+            table.known(0, 0, 0, 0, 0L);
+            packetAddress(new java.net.DatagramPacket(new byte[0], 0, java.net.InetAddress.getLoopbackAddress(), 1));
             status(PROCESSES);
             status(NETWORK);
         } catch (Throwable ex) {

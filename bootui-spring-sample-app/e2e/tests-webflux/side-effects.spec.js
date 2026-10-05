@@ -45,9 +45,19 @@ test.describe('Side Effects view on Spring WebFlux', () => {
         {timeout: 30_000}
       )
       .toBe('recording')
-    expect(report.sensors.find((sensor) => sensor.id === 'network').hooks.map((hook) => hook.id)).toContain(
-      'Socket.connect'
+    await expect
+      .poll(
+        async () =>
+          (await (await request.get(`${baseURL}/bootui/api/side-effects`)).json()).sensors.find(
+            (sensor) => sensor.id === 'network'
+          ).state,
+        {timeout: 30_000}
+      )
+      .toBe('recording')
+    const network = (await (await request.get(`${baseURL}/bootui/api/side-effects`)).json()).sensors.find(
+      (sensor) => sensor.id === 'network'
     )
+    expect(network.hooks.map((hook) => hook.id)).toContain('Socket.connect')
 
     expect((await request.get(`${baseURL}/api/side-effects/java-version`)).ok()).toBeTruthy()
     expect((await request.get(`${baseURL}/api/side-effects/runtime-version`)).ok()).toBeTruthy()

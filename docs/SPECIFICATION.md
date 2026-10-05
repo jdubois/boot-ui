@@ -787,8 +787,8 @@ Data sources:
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
   sensors record. The `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, and
   `security-sinks` sensors are still listed but report `not-available` with reason `Not available in this version.`
-- The runtime journal's REST client, SQL, connection, messaging, and mail events decide whether a panel captured a
-  network connection's work.
+- The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
+  whether a panel captured a network connection's work.
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -822,10 +822,11 @@ Features:
   first send per target and call site is published at once and the next ones counted in the thread's table.
 - A network connection or datagram row is `captured` (with the panel id), `not-captured` (no visible panel shows the
   work), or `infrastructure` (DNS resolvers, telemetry exporters, metrics and log shippers, container tooling). A
-  JDBC, messaging, or mail client's is captured while SQL Trace, the broker's panel, or Email recorded such work in the
-  run, decided on read. Any other is captured when a REST client call of the same request or execution, or, unowned,
+  JDBC, messaging, or mail client's is captured while SQL Trace, the broker's panel, or Email is available and enabled,
+  decided on read. Any other is captured when a REST client call of the same request or execution, or, unowned,
   at the same time with a second of slack, names its host and port, or a configured proxy; it waits for that until its
-  request ended plus 2 seconds, or 10 seconds unowned. The runtime model gains observed `OPENS` edges from routes,
+  request ended plus 2 seconds, or, unowned, 10 seconds, 60 for a recognized HTTP client; a finish record is decided as
+  its connect was. The runtime model gains observed `OPENS` edges from routes,
   scheduled jobs, and beans to `HOST` nodes keyed `host:port`, hidden with the panel; change impact never walks them.
 - BootUI's own process starts and connections (its JDK `HttpClient`s run on a `bootui-http-N` executor), agent
   threads, BootUI threads, reentrant inner hooks, and work during class transformation are not recorded, nor is the

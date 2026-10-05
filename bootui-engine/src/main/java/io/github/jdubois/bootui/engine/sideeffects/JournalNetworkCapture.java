@@ -1,14 +1,10 @@
 package io.github.jdubois.bootui.engine.sideeffects;
 
-import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
-import io.github.jdubois.bootui.engine.journal.MailPayload;
-import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
-import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,9 +17,7 @@ import java.util.function.Function;
 
 /**
  * {@link NetworkCapture} over the runtime journal ({@code docs/PLAN-v2.md} §5.16, M5-5b): an index of the REST client
- * calls the journal recorded, by host, at most {@value #MAX_CALLS} of them, the oldest dropped first, and whether this
- * run recorded SQL, connection, messaging (per broker), and mail events, which stays true once seen, so an evicted
- * event never turns a connection into a hidden one. It reads only the entries recorded since its last refresh, and
+ * calls the journal recorded, by host, at most {@value #MAX_CALLS} of them, the oldest dropped first. It reads only the entries recorded since its last refresh, and
  * starts over when the journal is cleared. The proxies the JVM is configured with ({@code http.proxyHost}, {@code
  * https.proxyHost}, {@code socksProxyHost} and their ports) are read when it is created: a connect to one of them is
  * captured when any REST client call matches it by owner or time.
@@ -40,12 +34,9 @@ public final class JournalNetworkCapture implements NetworkCapture {
     private final Set<String> proxies;
     private final Map<String, List<Call>> byHost = new HashMap<>();
     private final ArrayDeque<Call> order = new ArrayDeque<>();
-    private final Set<String> brokers = new HashSet<>();
     private long lastSequence = Long.MIN_VALUE;
     private long clears = Long.MIN_VALUE;
     private String runId;
-    private boolean sql;
-    private boolean mail;
 
     /** One REST client call: its host, port ({@code -1} when its authority named none), owner, and time window. */
     record Call(String host, int port, String requestId, String executionId, long startMillis, long endMillis) {}
@@ -99,9 +90,6 @@ public final class JournalNetworkCapture implements NetworkCapture {
             lastSequence = Long.MIN_VALUE;
             byHost.clear();
             order.clear();
-            brokers.clear();
-            sql = false;
-            mail = false;
         }
         List<JournalEntry> entries =
                 lastSequence == Long.MIN_VALUE ? journal.entries() : journal.entriesAfter(lastSequence);
@@ -117,13 +105,7 @@ public final class JournalNetworkCapture implements NetworkCapture {
     /** Indexes one event; public for tests that build the index without a journal. */
     synchronized void learn(RuntimeEvent event) {
         Object payload = event.payload();
-        if (payload instanceof SqlPayload || payload instanceof ConnectionPayload) {
-            sql = true;
-        } else if (payload instanceof MessagingPayload message && message.broker() != null) {
-            brokers.add(message.broker().toLowerCase(Locale.ROOT));
-        } else if (payload instanceof MailPayload) {
-            mail = true;
-        } else if (payload instanceof RestClientPayload call && call.authority() != null) {
+        if (payload instanceof RestClientPayload call && call.authority() != null) {
             String[] hostPort = hostPort(call.authority());
             if (hostPort == null) {
                 return;
@@ -198,21 +180,6 @@ public final class JournalNetworkCapture implements NetworkCapture {
             return false;
         }
         return call.startMillis() - SLACK_MILLIS <= lastMillis && firstMillis <= call.endMillis() + SLACK_MILLIS;
-    }
-
-    @Override
-    public synchronized boolean sql() {
-        return sql;
-    }
-
-    @Override
-    public synchronized boolean messaging(String broker) {
-        return broker != null && brokers.contains(broker.toLowerCase(Locale.ROOT));
-    }
-
-    @Override
-    public synchronized boolean mail() {
-        return mail;
     }
 
     /**

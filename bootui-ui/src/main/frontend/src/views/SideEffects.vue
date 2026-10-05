@@ -329,8 +329,8 @@ function hookStatus(value, label) {
           </h3>
           <p class="text-muted small mb-0">
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
-            executable name; arguments and environment are never recorded. Network rows show only a host and port,
-            never a byte sent or received.
+            executable name; arguments and environment are never recorded. Network rows show only a host and port, never
+            a byte sent or received.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>

@@ -143,8 +143,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the datagrams it sends, and the host names the JVM resolves on an address-cache miss, with the client recognized from
   the calling frames (JDBC drivers, messaging and mail clients, the JDK `HttpClient`, Lettuce, MongoDB, cloud SDKs,
   ...), never a byte sent or received. The Side Effects panel's Network tab marks a connection **Not captured by any
-  panel** when no visible REST Client Trace call of the same request or time, SQL Trace, broker panel, or Email shows its
-  work; `get_side_effects --query "not captured"` lists these hidden outbound calls. The runtime model gains observed
+  panel** when neither a REST Client Trace call of the same request or time nor, for a JDBC, messaging, or mail client,
+  an enabled SQL Trace, broker panel, or Email shows its work; `get_side_effects --query "not captured"` lists these hidden outbound calls. The runtime model gains observed
   `OPENS` edges from routes, jobs, and beans to hosts. Each hook passes a JDK 17, 21, and 26 retransformation check
   and an I/O-free self-test; a failing optional hook is left out and a failing sensor no longer takes the other
   side-effect sensors down. BootUI's own JDK `HttpClient`s run on a `bootui-http-N` executor so they are never recorded

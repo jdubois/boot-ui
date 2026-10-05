@@ -3,8 +3,6 @@ package io.github.jdubois.bootui.engine.sideeffects;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
-import io.github.jdubois.bootui.engine.journal.MailPayload;
-import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
@@ -54,19 +52,6 @@ class JournalNetworkCaptureTests {
 
         assertThat(capture.restClient("proxy.corp", 3128, "r1", null, T, T)).isTrue();
         assertThat(capture.restClient("proxy.corp", 3128, "r9", null, T, T)).isFalse();
-    }
-
-    @Test
-    void sqlMessagingAndMailStaySeenOnceRecorded() {
-        JournalNetworkCapture capture = new JournalNetworkCapture(null, key -> null);
-        assertThat(capture.sql()).isFalse();
-
-        capture.learn(event(JournalSource.MESSAGING, new MessagingPayload("kafka", true, "orders", false), null));
-        capture.learn(event(JournalSource.MAIL, new MailPayload(1, 0, true), null));
-
-        assertThat(capture.messaging("kafka")).isTrue();
-        assertThat(capture.messaging("rabbitmq")).isFalse();
-        assertThat(capture.mail()).isTrue();
     }
 
     @Test

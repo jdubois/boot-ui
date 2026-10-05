@@ -210,6 +210,52 @@ class NetworkSideEffectsTests {
     }
 
     @Test
+    void aPacketWithAnAddressButNoPortIsNoTargetAndNeverAnInternalError() throws Exception {
+        long token = enabledClaim();
+        java.net.DatagramPacket packet = new java.net.DatagramPacket(new byte[1], 1);
+        packet.setAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}));
+
+        long started = SideEffects.networkStarting(SideEffects.HOOK_DATAGRAM_SOCKET_SEND);
+        SideEffects.datagramSent(
+                started, SideEffects.HOOK_DATAGRAM_SOCKET_SEND, packet, new IllegalArgumentException("port"));
+
+        assertThat(drain(token)).singleElement().satisfies(record -> {
+            assertThat(string(record[SideEffects.R_TARGET])).isIn("(other)", "127.0.0.1:0");
+            assertThat(outcome(record)).isEqualTo(SideEffects.OUTCOME_ERROR);
+        });
+        assertThat(SideEffects.status(SideEffects.NETWORK)).containsEntry("errors", 0L);
+    }
+
+    @Test
+    void aDatagramSitesFramesAreRememberedAcrossRequestsAndForgottenWhenTheSensorIsDisabled() throws Exception {
+        enabledClaim();
+        assertThat(SideEffects.SITE_MASK & CodePaths.pack(7L, 3, 11))
+                .isEqualTo(SideEffects.SITE_MASK & CodePaths.pack(8L, 3, 11));
+        context.set(owner(REQUEST));
+        InetSocketAddress target = new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 8125);
+        long started = SideEffects.networkStarting(SideEffects.HOOK_DATAGRAM_CHANNEL_SEND);
+        SideEffects.datagramSent(started, SideEffects.HOOK_DATAGRAM_CHANNEL_SEND, target, null);
+        assertThat(SideEffects.status(SideEffects.NETWORK)).containsEntry("datagramMemo", 1);
+
+        SideEffects.disable(SideEffects.MASK_NETWORK, null);
+
+        assertThat(SideEffects.status(SideEffects.NETWORK))
+                .containsEntry("datagramMemo", 0)
+                .containsEntry("pendingConnects", 0);
+    }
+
+    @Test
+    void lookedUpNamesHaveTheirOwnBoundApartFromTargets() {
+        enabledClaim();
+        for (int i = 0; i < SideEffects.MAX_NETWORK_TARGETS; i++) {
+            SideEffects.lookupTarget("name-" + i);
+        }
+
+        assertThat(string(SideEffects.lookupTarget("one-more"))).isEqualTo(SideEffects.OTHER_HOSTS);
+        assertThat(string(SideEffects.networkTarget("db:5432"))).isEqualTo("db:5432");
+    }
+
+    @Test
     void aLookupRecordsItsOutcomeAndANullAnswerIsAnError() {
         long token = enabledClaim();
 

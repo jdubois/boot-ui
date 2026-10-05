@@ -615,13 +615,16 @@ A target is the remote's host string and port, `InetSocketAddress.getHostString(
 reverse-resolves, with anything up to an `@` dropped, IPv6 bracketed, characters other than letters, digits, and
 `. _ - : [ ] / ~` replaced by `?`, and at most 128 characters; a Unix-domain socket is `unix:` and its path, the home
 directory shown as `~`. Digits are kept, since an address and a port are the information. At most 1,024 distinct
-targets are kept per run; the others share `(other hosts)`.
+targets, and apart from them 1,024 looked-up names, are kept per run; the others share `(other hosts)`, whose capture is
+not known.
 
 Connects and lookups are rare and published at once, with the first frame outside the socket plumbing (the JDK's
 socket code, Netty, Vert.x's core, and Reactor's transport), the first frame outside the JDK, the first application
 frame, and the thread's family, digits folded, read from a stack walk of at most 128 frames. Datagram sends are hot: the
-first send of a target from a call site is published at once and its frames remembered, the next ones are counted in
-the thread's table and may lag until that thread's next send. Only the outermost hook on a thread records, so a
+first send of a target from a call site and thread family is published at once and its frames remembered, whichever
+request makes it, the next ones are counted in the thread's table and may lag until that thread's next send. A
+non-blocking connect waiting for its finish is held weakly, swept after a minute, and forgotten when the sensor is
+disabled. Only the outermost hook on a thread records, so a
 resolver's datagram inside a lookup is not counted twice. BootUI's own work, BootUI's and the agent's threads, and
 BootUI's own JDK `HttpClient`s, which run on a `bootui-http-N` executor, are never recorded. The JDK's own loopback pair
 (`sun.nio.ch.PipeImpl`, a pipe or selector wake-up on Windows) is never recorded; loopback connections to databases,
@@ -638,13 +641,14 @@ Testcontainers, docker-java, DevTools, and Dev Services.
 A connection or a datagram is **not captured by any panel** when no visible panel shows its work:
 
 - A JDBC, messaging, or mail client's connection is captured by SQL Trace, its broker's panel, or Email while that panel
-  recorded such work in this run, decided on each read, since a pool opens its connections before its first statement.
-  A second DataSource BootUI does not wrap is not told apart from the wrapped one.
+  is available and enabled, decided on each read: BootUI then records that client's work, which a pool's connection
+  carries later than its connect. A second DataSource BootUI does not wrap is not told apart from the wrapped one.
 - Any other connection is captured by REST Client Trace when a REST client call of the same request or execution, or,
   for a connection no request or execution owns, one running at the same time (a second either side), names its host
   and port, or the host alone when the call named no port and the connection's is 80 or 443, or a configured proxy
   (`http.proxyHost`, `https.proxyHost`, `socksProxyHost`). It waits for that until its request ended and 2 more
-  seconds, or 10 seconds for unowned work, then is not captured.
+  seconds, or, for unowned work, 10 seconds, or 60 for a recognized HTTP client, whose call is recorded once it
+  completes, then is not captured. A non-blocking connect's finish is decided as its connect was.
 - Infrastructure clients are `infrastructure`: no panel is meant to show them.
 - A name lookup is not a connection and has no capture.
 

@@ -30,7 +30,7 @@ class NetworkClientsTests {
                 "api.example.com:443");
 
         assertThat(client.label()).isEqualTo("JDK HttpClient");
-        assertThat(SideEffectsService.captureKey(client)).isEqualTo(SideEffectsStore.REST_WAITING);
+        assertThat(SideEffectsService.captureKey(client)).isEqualTo(SideEffectsStore.REST_WAITING_HTTP);
         assertThat(NetworkClients.recognize("sun.net.NetworkClient#doConnect", null, null, "main", "x:80")
                         .label())
                 .isEqualTo("JDK HttpURLConnection");

@@ -206,6 +206,58 @@ class SideEffectsStoreTests {
     }
 
     @Test
+    void aNonBlockingConnectsFinishIsDecidedAsItsConnectWasIntoTheSameRow() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        boolean[] matched = {false};
+        store.setCapture(capture(matched));
+        store.add(network(
+                SideEffectsCatalog.KIND_CONNECT,
+                SideEffectsCatalog.OUTCOME_PENDING,
+                0L,
+                0L,
+                SideEffectsStore.REST_WAITING));
+        store.resolve(Map.of(), NOW + SideEffectsStore.UNOWNED_CAPTURE_MILLIS);
+        // A call recorded once the connect was decided not captured never splits its finish into another row.
+        matched[0] = true;
+        store.add(network(
+                SideEffectsCatalog.KIND_CONNECT_FINISH,
+                SideEffectsCatalog.OUTCOME_CONNECTED,
+                0L,
+                4_000_000L,
+                SideEffectsStore.REST_WAITING));
+        store.resolve(Map.of(), NOW + SideEffectsStore.UNOWNED_CAPTURE_MILLIS + 1);
+
+        assertThat(store.rows("network", true, true, captured()))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.capture()).isEqualTo(SideEffectsRowDto.NOT_CAPTURED);
+                    assertThat(row.count()).isEqualTo(1L);
+                    assertThat(row.completed()).isEqualTo(1L);
+                    assertThat(row.totalMillis()).isEqualTo(4L);
+                });
+    }
+
+    @Test
+    void anUnownedHttpClientsConnectWaitsLongerForItsCallToBeRecorded() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        store.setCapture(capture(new boolean[] {false}));
+        store.add(network(
+                SideEffectsCatalog.KIND_CONNECT,
+                SideEffectsCatalog.OUTCOME_CONNECTED,
+                0L,
+                1L,
+                SideEffectsStore.REST_WAITING_HTTP));
+
+        store.resolve(Map.of(), NOW + SideEffectsStore.UNOWNED_CAPTURE_MILLIS);
+        assertThat(store.pendingCount()).isEqualTo(1);
+        store.resolve(Map.of(), NOW + SideEffectsStore.UNOWNED_HTTP_CAPTURE_MILLIS);
+
+        assertThat(store.rows("network", true, true, captured()))
+                .singleElement()
+                .satisfies(row -> assertThat(row.capture()).isEqualTo(SideEffectsRowDto.NOT_CAPTURED));
+    }
+
+    @Test
     void aSqlClientsConnectIsKeyedByItsCategoryAndDecidedOnRead() {
         SideEffectsStore store = new SideEffectsStore(0L);
         store.add(network(
@@ -232,21 +284,6 @@ class SideEffectsStoreTests {
             public boolean restClient(
                     String host, int port, String requestId, String executionId, long first, long last) {
                 return matched[0] && "localhost".equals(host) && port == 6379;
-            }
-
-            @Override
-            public boolean sql() {
-                return false;
-            }
-
-            @Override
-            public boolean messaging(String broker) {
-                return false;
-            }
-
-            @Override
-            public boolean mail() {
-                return false;
             }
         };
     }

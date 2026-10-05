@@ -81,8 +81,8 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_CAPTURE =
             "Not captured by any panel: no visible panel shows the connection's work. A"
                     + " JDBC, messaging, or mail client's connection counts as captured while SQL Trace, its broker's panel, or"
-                    + " Email recorded such work in this run, since pools connect before their first statement; a second"
-                    + " DataSource BootUI does not wrap is not told apart. Any other connection is captured when a REST client"
+                    + " Email is available and enabled, as BootUI then records that client's work, which a pool's"
+                    + " connection carries later; a second DataSource BootUI does not wrap is not told apart. Any other connection is captured when a REST client"
                     + " call of the same request or execution, or, for unowned work, at the same time, names its host and port"
                     + " (or a configured proxy). Infrastructure clients, such as DNS resolvers, telemetry exporters, and"
                     + " container tooling, are no panel's to show.";
@@ -428,17 +428,12 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     /**
-     * How a network row's capture key reads now, as {@code {capture, capturedBy}}: a category's panel captured it when
-     * the run recorded such work and that panel is visible; a REST client capture holds while REST Client Trace is
-     * visible; any other is not captured, or infrastructure.
+     * How a network row's capture key reads now, as {@code {capture, capturedBy}}: a JDBC, messaging, or mail client's
+     * connection is captured by SQL Trace, its broker's panel, or Email while that panel is available and enabled, as
+     * BootUI then records that client's work, which a pool's connection carries later than its connect; a REST client
+     * capture holds while REST Client Trace is visible; any other is not captured, or infrastructure.
      */
     private Function<String, String[]> captures() {
-        NetworkCapture capture = networkCapture;
-        try {
-            capture.refresh();
-        } catch (RuntimeException ex) {
-            // Read from what was indexed before.
-        }
         Map<String, Boolean> visible = new HashMap<>();
         Function<String, Boolean> shown = panel -> visible.computeIfAbsent(
                 panel, id -> evidence.read(new PanelProbe(id)).shown());
@@ -452,15 +447,12 @@ public final class SideEffectsService implements AutoCloseable {
             String panel = null;
             if (SideEffectsStore.REST_CAPTURED.equals(key)) {
                 panel = BootUiPanels.REST_CLIENT_TRACE;
-            } else if (SideEffectsStore.CAPTURE_SQL.equals(key) && capture.sql()) {
+            } else if (SideEffectsStore.CAPTURE_SQL.equals(key)) {
                 panel = BootUiPanels.SQL_TRACE;
-            } else if (SideEffectsStore.CAPTURE_MAIL.equals(key) && capture.mail()) {
+            } else if (SideEffectsStore.CAPTURE_MAIL.equals(key)) {
                 panel = BootUiPanels.EMAIL;
             } else if (key.startsWith(SideEffectsStore.CAPTURE_MESSAGING)) {
-                String broker = key.substring(SideEffectsStore.CAPTURE_MESSAGING.length());
-                if (capture.messaging(broker)) {
-                    panel = JournalSourcePanels.messagingPanel(broker);
-                }
+                panel = JournalSourcePanels.messagingPanel(key.substring(SideEffectsStore.CAPTURE_MESSAGING.length()));
             }
             if (panel != null && shown.apply(panel)) {
                 return new String[] {SideEffectsRowDto.CAPTURED, panel};
@@ -548,7 +540,7 @@ public final class SideEffectsService implements AutoCloseable {
             return 0L;
         }
         synchronized (lock) {
-            return current.generation * 31 + current.store.observations() * 17 + current.clears;
+            return current.generation * 31 + current.store.version() * 17 + current.clears;
         }
     }
 
@@ -689,6 +681,9 @@ public final class SideEffectsService implements AutoCloseable {
         return evidence.read(codePathsPanel).shown();
     }
 
+    /** The bridge's shared target past its bound of distinct network targets. */
+    static final String OTHER_HOSTS = "(other hosts)";
+
     /** Whether a frame is the JDK's. */
     static boolean jdk(String frame) {
         return frame.startsWith("java.")
@@ -708,6 +703,7 @@ public final class SideEffectsService implements AutoCloseable {
             case NetworkClients.SQL -> SideEffectsStore.CAPTURE_SQL;
             case NetworkClients.MAIL -> SideEffectsStore.CAPTURE_MAIL;
             case NetworkClients.MESSAGING -> SideEffectsStore.CAPTURE_MESSAGING + client.broker();
+            case NetworkClients.HTTP -> SideEffectsStore.REST_WAITING_HTTP;
             default -> SideEffectsStore.REST_WAITING;
         };
     }
@@ -961,7 +957,8 @@ public final class SideEffectsService implements AutoCloseable {
                     host = hostPort[0];
                     port = hostPort[1] == null ? -1 : Integer.parseInt(hostPort[1]);
                 }
-                captureKey = captureKey(recognized);
+                // A target past the sensor's bound names no host: whether a panel shows it is unknown.
+                captureKey = OTHER_HOSTS.equals(target) ? null : captureKey(recognized);
             }
             return new SideEffectsStore.Observation(
                     record,

@@ -31,8 +31,7 @@ import java.util.function.Function;
  *
  * <p>A network connect or datagram (M5-5b) is also keyed by its client and how a panel captures it. A client whose
  * work SQL Trace, a messaging panel, or Email shows is keyed by that category, and whether that panel captured it is
- * decided on read, from whether the run recorded such events, as a pool opens its connections before its first
- * statement. Any other connect waits until a REST client call of the same owner, or, unowned, at the same time, names
+ * decided on read, from whether that panel is visible, as a pool opens its connections before its first statement. Any other connect waits until a REST client call of the same owner, or, unowned, at the same time, names
  * its host and port, or until it no longer can: {@value #CAPTURE_GRACE_MILLIS} ms after its owner was named (its
  * request ended), or {@value #UNOWNED_CAPTURE_MILLIS} ms for an unowned one, when it is not captured. Not thread-safe:
  * its service serializes it.
@@ -77,6 +76,15 @@ final class SideEffectsStore {
     static final String REST_NOT_CAPTURED = "rest:not-captured";
     static final String REST_WAITING = "rest:waiting";
 
+    /** An HTTP client's connection waiting for a REST client call, which may take long to be recorded. */
+    static final String REST_WAITING_HTTP = "rest:waiting-http";
+
+    /** How long an unowned HTTP client's connect waits: its call is recorded once it completes. */
+    static final long UNOWNED_HTTP_CAPTURE_MILLIS = 60_000L;
+
+    /** The connect decisions kept for their finish records at most. */
+    static final int MAX_CONNECT_DECISIONS = 4_096;
+
     /**
      * What a store observes: a record, its strings resolved and its target normalized; for a network record, its
      * recognized client, how it is captured ({@code captureKey}), and its host and port.
@@ -112,7 +120,7 @@ final class SideEffectsStore {
         }
 
         boolean waiting() {
-            return REST_WAITING.equals(captureKey);
+            return REST_WAITING.equals(captureKey) || REST_WAITING_HTTP.equals(captureKey);
         }
     }
 
@@ -274,6 +282,19 @@ final class SideEffectsStore {
 
     private long observations;
     private long folded;
+    private long version;
+
+    /**
+     * How each waiting connect was decided, by its owner, target, call site, and start, so the finish record of a
+     * non-blocking connect is decided as its connect was, never into a row of its own.
+     */
+    private final LinkedHashMap<String, String> connectDecisions = new LinkedHashMap<>(16, 0.75f, false) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_CONNECT_DECISIONS;
+        }
+    };
+
     private NetworkCapture capture = NetworkCapture.NONE;
 
     /** @param readyAt when the application finished starting, in epoch milliseconds: earlier observations are startup's */
@@ -318,7 +339,14 @@ final class SideEffectsStore {
         pending.clear();
         routes.clear();
         misses.clear();
+        connectDecisions.clear();
         folded = 0;
+        version++;
+    }
+
+    /** Changes whenever a row is added to or the store is cleared: a cheap fingerprint of its rows. */
+    long version() {
+        return version;
     }
 
     /** Adds one observation: a request's waits for its route, any other is attributed now. */
@@ -366,6 +394,17 @@ final class SideEffectsStore {
             return observation;
         }
         SideEffectRecord record = observation.record();
+        String connect = connectKey(observation);
+        if (record.kind() == SideEffectsCatalog.KIND_CONNECT_FINISH) {
+            String decided = connectDecisions.get(connect);
+            if (decided != null) {
+                return observation.withCapture(decided);
+            }
+            if (!force) {
+                // Its connect, published first, is decided first.
+                return null;
+            }
+        }
         boolean matched;
         try {
             matched = capture.restClient(
@@ -378,10 +417,18 @@ final class SideEffectsStore {
         } catch (RuntimeException ex) {
             matched = false;
         }
-        if (matched) {
-            return observation.withCapture(REST_CAPTURED);
+        String decided = matched ? REST_CAPTURED : force ? REST_NOT_CAPTURED : null;
+        if (decided != null && record.kind() == SideEffectsCatalog.KIND_CONNECT) {
+            connectDecisions.put(connect, decided);
         }
-        return force ? observation.withCapture(REST_NOT_CAPTURED) : null;
+        return decided == null ? null : observation.withCapture(decided);
+    }
+
+    /** What a connect and its finish record share: owner, target, call site, and start. */
+    private static String connectKey(Observation observation) {
+        SideEffectRecord record = observation.record();
+        return record.request() + "|" + record.execution() + "|" + observation.target() + "|" + observation.callSite()
+                + "|" + record.firstMillis();
     }
 
     /** An unowned observation: startup's, its thread family's, or unattributed. */
@@ -444,7 +491,10 @@ final class SideEffectsStore {
             }
             long age = now - waiting.since();
             if (waiting.key() == null) {
-                Observation decided = decide(observation, age >= UNOWNED_CAPTURE_MILLIS);
+                long wait = REST_WAITING_HTTP.equals(observation.captureKey())
+                        ? UNOWNED_HTTP_CAPTURE_MILLIS
+                        : UNOWNED_CAPTURE_MILLIS;
+                Observation decided = decide(observation, age >= wait);
                 if (decided != null) {
                     attributeUnowned(decided);
                     iterator.remove();
@@ -507,6 +557,7 @@ final class SideEffectsStore {
     }
 
     private void aggregate(Observation observation, String scope, String attribution, String requestId) {
+        version++;
         String sensor = observation.sensor();
         Key key = new Key(
                 scope,
