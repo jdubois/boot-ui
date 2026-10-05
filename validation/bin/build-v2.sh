@@ -2,19 +2,37 @@
 # Builds the BootUI checkout this harness lives in (the v2 branch) into the harness Maven repository and records what
 # was built: version, commit, and the SHA-256 of the bootui-engine jar every application must resolve.
 #
-# Usage: validation/bin/build-v2.sh [--no-build]
-#   --no-build  record an existing installation without rebuilding (it must match the checkout's target/ jar)
+# Usage: validation/bin/build-v2.sh [--no-build] [--allow-dirty]
+#   --no-build     record an existing installation without rebuilding (it must match the checkout's target/ jar); the
+#                  record is for smoke tests only, since nothing proves which tree built it
+#   --allow-dirty  build a checkout with uncommitted or untracked changes, for a smoke test only: the build is recorded
+#                  with BOOTUI_TREE_CLEAN=false, and rerun.sh and ttfo.sh refuse it for a measured run
 source "$(dirname "$0")/lib.sh"
 
 build=true
-if [ "${1:-}" = "--no-build" ]; then build=false; fi
+allow_dirty=false
+for arg in "$@"; do
+  case "$arg" in
+    --no-build) build=false ;;
+    --allow-dirty) allow_dirty=true ;;
+    *) die "unknown option $arg" ;;
+  esac
+done
 
 require_cmd git
 cd "$REPO_ROOT"
 commit="$(git rev-parse HEAD)"
 branch="$(git rev-parse --abbrev-ref HEAD)"
-dirty="$(git status --porcelain --untracked-files=no | grep -v '^.. validation/' || true)"
-[ -z "$dirty" ] || log "warning: the checkout has uncommitted changes outside validation/; they are part of the build"
+# The recorded commit is the build only when the tree is exactly that commit: any uncommitted or untracked change, in
+# validation/ too, would be built (or registered) without being part of the commit.
+tree_clean=true
+# Without a build, nothing shows the installed jar came from this clean tree.
+$build || tree_clean=false
+if [ -n "$(git status --porcelain)" ]; then
+  $allow_dirty || die "the checkout has uncommitted or untracked changes; commit them, or pass --allow-dirty for a smoke test"
+  tree_clean=false
+  log "warning: building a dirty checkout; this build cannot be used for a measured run"
+fi
 version="$(./mvnw -q -DforceStdout -Dmaven.repo.local="$M2" help:evaluate -Dexpression=project.version)"
 
 if $build; then
@@ -37,6 +55,7 @@ fi
 cat >"$BUILD_ENV" <<EOF
 BOOTUI_VERSION=$version
 BOOTUI_COMMIT=$commit
+BOOTUI_TREE_CLEAN=$tree_clean
 BOOTUI_BRANCH=$branch
 BOOTUI_ENGINE_SHA256=$built_sha
 BOOTUI_AGENT_JAR=$M2/com/julien-dubois/bootui/bootui-agent/$version/bootui-agent-$version.jar

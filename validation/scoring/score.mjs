@@ -11,7 +11,8 @@
 //
 // The harness must match the registration tag (protocol.json `registration.ref`, an annotated tag on the commit that
 // registered the protocol), and every run's BootUI commit must descend from it; `--registration-ref none` skips that
-// check for tests, and the output says it is not a final score. Time to first observation and the investigations are
+// check for tests, and the output says it is not a final score. The local tag must be the one origin publishes;
+// `--offline` accepts an unreachable origin and stamps the score as not final. Time to first observation and the investigations are
 // required; `--partial` scores without them and stamps the output as partial. The recall
 // list is always the registered validation/recall/known-misses.json, and the worksheet is rebuilt from the evidence
 // and must match the one the reviewers judged.
@@ -177,9 +178,12 @@ export function score(judged, protocol, inventory = []) {
     if (kindFacts.length === 0) {
       // Silent means the kind produced no row at all; a kind whose every row was filtered out of the default list
       // cannot escape its gate by being hidden.
-      const anyRow = (entry ? entry.listed + entry.hidden : 0) + kindHidden.length > 0
+      // With no fact, the kind's listed rows are honesty rows (INSUFFICIENT or NOT_APPLICABLE).
+      const listedRows = entry ? entry.listed : 0
+      const anyRow = listedRows + (entry ? entry.hidden : 0) + kindHidden.length > 0
       if (byDesign) status = 'NOT_LISTED'
       else if (misleading > 0) status = 'FAIL'
+      else if (listedRows > 0) status = 'LISTED_NO_FACTS'
       else if (anyRow) status = 'ALL_HIDDEN'
       else status = ran ? 'SILENT' : 'NOT_EXERCISED'
     } else if (misleading > g.perKind.misleading) status = 'FAIL'
@@ -192,6 +196,7 @@ export function score(judged, protocol, inventory = []) {
       SILENT: 'stays listed, marked as not externally validated',
       NOT_EXERCISED: 'stays listed, marked as not externally validated: its check never ran',
       ALL_HIDDEN: 'hidden, not externally validated: no row of it was listed by default',
+      LISTED_NO_FACTS: 'hidden, not externally validated: only honesty rows were listed',
       NOT_LISTED: 'not listed by default; judged through the hidden sample'
     }
     // Under escalation, every kind that does not pass its gate folds, the silent, not-exercised, and under-sampled
@@ -413,6 +418,11 @@ export function markdown(result) {
   const out = []
   if (result.registration.ref !== result.expectedRegistration || !result.registration.sha) {
     out.push(`**Not checked against the registration tag (${result.registration.ref}): not a final score.**`, '')
+  } else if (!result.registration.final) {
+    out.push(
+      `**The tag \`${result.registration.ref}\` was not checked against origin (--offline): not a final score.**`,
+      ''
+    )
   } else {
     out.push(
       `Registered protocol: annotated tag \`${result.registration.ref}\` (\`${result.registration.tag}\`) on ` +
@@ -672,7 +682,8 @@ function main() {
       ttfo: {type: 'string'},
       out: {type: 'string'},
       'to-adjudicate': {type: 'boolean', default: false},
-      partial: {type: 'boolean', default: false}
+      partial: {type: 'boolean', default: false},
+      offline: {type: 'boolean', default: false}
     }
   })
   if (!values.worksheet || !values.out || values.reviewer.length === 0) {
@@ -688,7 +699,9 @@ function main() {
   if (worksheet.harnessSha256 !== current) {
     problems.push('the harness changed since the worksheet was generated: the protocol is not the registered one')
   }
-  const registration = checkRegistration(values['registration-ref'] || protocol.registration.ref)
+  const registration = checkRegistration(values['registration-ref'] || protocol.registration.ref, [], {
+    offline: values.offline
+  })
   problems.push(...registration.problems)
   if ((worksheet.notes || []).some((n) => n.startsWith('INCOMPLETE'))) {
     problems.push('the worksheet was built from an incomplete run set (--allow-incomplete)')
@@ -741,7 +754,7 @@ function main() {
   problems.push(...judged.problems)
   if (values.evidence) {
     // The worksheet the reviewers judged must be the one the evidence gives under the registered rules.
-    const rebuilt = worksheetFor(values.evidence, protocol, registration.ref)
+    const rebuilt = worksheetFor(values.evidence, protocol, registration.ref, {offline: values.offline})
     problems.push(...rebuilt.problems)
     const shape = (w) => JSON.stringify({rows: w.rows, inventory: w.inventory})
     if (shape(rebuilt.worksheet) !== shape(worksheet))
@@ -752,7 +765,7 @@ function main() {
   }
   const result = {
     protocol: protocol.name,
-    registration: {ref: registration.ref, tag: registration.tag, sha: registration.sha},
+    registration: {ref: registration.ref, tag: registration.tag, sha: registration.sha, final: registration.final},
     expectedRegistration: protocol.registration.ref,
     harnessSha256: current,
     reviewers: protocol.reviewers.panel,

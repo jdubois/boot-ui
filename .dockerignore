@@ -17,3 +17,5 @@
 .env
 .env.*
 .mvn/timing.properties
+# The validation harness's work area: cloned applications, their Maven repository, and evidence
+validation/.work

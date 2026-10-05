@@ -59,7 +59,8 @@ repository for BootUI and every application; never point it at `~/.m2`, which ma
 same version.
 
 ```bash
-# 1. Build the checked-out v2 branch into the harness repository and record its engine jar's SHA-256.
+# 1. Build the checked-out v2 branch into the harness repository and record its engine jar's SHA-256. It refuses a
+#    checkout with any change (--allow-dirty records a build only smoke tests can use).
 validation/bin/build-v2.sh
 
 # 2. One measured run per application, without the agent: build, start, prove the build, traffic, collect, stop.
@@ -117,7 +118,8 @@ summaries (duration, request count, statuses per route), and per service `runtim
 3. The maintainer fills `to-adjudicate.csv` in as `adjudication.csv` (`id,judgment,reason`), and writes `recall.csv`
    (`id,outcome,rows,note`) for every item of `recall/known-misses.json`. Two reviewers who agree are never overruled.
 4. The final score refuses to run while anything is missing, while the registered files differ from the
-   `m4-20-protocol-1` tag, while the worksheet differs from the one the evidence gives, or without the investigations
+   `m4-20-protocol-1` tag or that tag is not the one origin publishes (`--offline` marks the score not final), while
+   the worksheet differs from the one the evidence gives, or without the investigations
    and the time to first observation (`--partial` scores without them, marked as partial):
 
    ```bash

@@ -49,12 +49,27 @@ export function harnessHash(home = validationHome) {
 const git = (args) =>
   execFileSync('git', args, {cwd: validationHome, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim()
 
+/** The tag object SHA origin publishes for `ref`, or null when origin has no such tag; throws when it is unreachable. */
+export function remoteTag(ref) {
+  const line = execFileSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${ref}`], {
+    cwd: validationHome,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 60_000
+  })
+    .split('\n')
+    .find((l) => l.endsWith(`refs/tags/${ref}`))
+  return line ? line.split(/\s+/)[0] : null
+}
+
 /**
- * Checks the harness against the registration tag: no tracked difference, no untracked file, and every run's BootUI
- * commit descends from the tag. `ref` 'none' skips the check (tests and smoke runs), and the result says so.
+ * Checks the harness against the registration tag: the local tag is annotated and is the one origin publishes (a tag
+ * deleted and recreated locally on a later commit does not match), no tracked difference, no untracked file, and every
+ * run's BootUI commit descends from the tag. `ref` 'none' skips the check (tests and smoke runs). `offline` accepts an
+ * unreachable origin, and the result is marked `final: false`.
  */
-export function checkRegistration(ref, bootuiCommits = []) {
-  if (ref === 'none') return {ref, sha: null, tag: null, problems: []}
+export function checkRegistration(ref, bootuiCommits = [], {offline = false, lookupRemote = remoteTag} = {}) {
+  if (ref === 'none') return {ref, sha: null, tag: null, final: false, problems: []}
   const problems = []
   let sha = null
   let tag = null
@@ -66,11 +81,28 @@ export function checkRegistration(ref, bootuiCommits = []) {
       ref,
       sha,
       tag,
+      final: false,
       problems: [`the registration tag ${ref} does not exist: create it on the commit that registered the protocol`]
     }
   }
   if (git(['cat-file', '-t', tag]) !== 'tag')
     problems.push(`${ref} is a lightweight tag; the registration is an annotated tag`)
+  let final = true
+  try {
+    const published = lookupRemote(ref)
+    if (published === null) problems.push(`origin has no tag ${ref}: push the registration tag`)
+    else if (published !== tag) {
+      problems.push(
+        `the local tag ${ref} (${tag.slice(0, 9)}) is not the one origin publishes (${published.slice(0, 9)})`
+      )
+    }
+  } catch {
+    if (offline) final = false
+    else
+      problems.push(
+        `origin is unreachable, so ${ref} cannot be checked against it; pass --offline for a score marked not final`
+      )
+  }
   const pathspec = ['--', '.', ...EXCLUDED.map((p) => `:(exclude)${p}`)]
   try {
     git(['diff', '--quiet', sha, ...pathspec])
@@ -87,7 +119,7 @@ export function checkRegistration(ref, bootuiCommits = []) {
       problems.push(`BootUI commit ${commit.slice(0, 9)} does not descend from ${ref}`)
     }
   }
-  return {ref, sha, tag, problems}
+  return {ref, sha, tag, final, problems}
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) console.log(harnessHash())

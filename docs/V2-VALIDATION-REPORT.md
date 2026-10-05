@@ -124,8 +124,10 @@ stub, collector, rubric, reviewer prompt, known misses, and scoring scripts. Rig
 to the known misses, the maintainer creates the annotated tag `m4-20-protocol-1` on the merged commit, never moves it,
 and records its SHA in the sign-off. (Not `v…`: `release.yml` starts on any pushed tag matching `v*`.) The scorer
 refuses to run unless the harness matches that tag, every run's BootUI commit descends from it, the worksheet the
-reviewers judged is the one the evidence gives, and the run set is complete. It checks that the tag is annotated, and
-writes the tag object's SHA and its commit's SHA into its output.
+reviewers judged is the one the evidence gives, and the run set is complete. It checks that the tag is annotated and
+is the tag origin publishes (a tag deleted and recreated locally does not match), and writes the tag object's SHA and
+its commit's SHA into its output. If origin cannot be reached, it refuses, unless `--offline` is given, which marks the
+score as not final.
 Changing a rule after the evidence is collected is a protocol change: it is dated, says why, and reports the scores
 under both versions.
 
@@ -134,7 +136,8 @@ under both versions.
 - The rerun starts once M4-18, M4-19, M4-21, and M4-22 are merged into `v2`, together with the fix for the Spring
   Modulith startup failure found while selecting the holdouts (#1274, merged as `baece9096`; the bookstore now starts
   without any workaround) and the Timeless message-grouping fix below. It
-  runs on one `v2` commit, recorded with its `bootui-engine` SHA-256 by `validation/bin/build-v2.sh`. A measured run
+  runs on one `v2` commit, recorded with its `bootui-engine` SHA-256 by `validation/bin/build-v2.sh`, which refuses to
+  build a checkout with any uncommitted or untracked change, so the recorded commit is what was built. A measured run
   refuses a checkout with any uncommitted or untracked change (`validation/` included), a checkout that is not that
   commit, and any workaround argument (`VALIDATION_APP_ARGS`). Each run records the BootUI commit, the engine jar's
   SHA-256, and the harness's SHA-256 in its `run.json`, and the worksheet refuses runs that do not all share them.
@@ -270,10 +273,11 @@ state, comparing exact fractions, never rounded shares:
 | §2.3, after M3 | ≥ 50 % useful, pooled and on the tuned and holdout applications separately | Reported per group |
 | Per kind (D35) | A kind with at least 3 facts on at least 2 applications, over every run: at least 50 % useful, and nothing misleading | It stays listed by default; otherwise it folds into its panel or stays hidden |
 | Per kind, few facts | 1 or 2 facts, or facts on one application only | It is hidden, marked as not externally validated: too few facts (D35, "below that the kind folds into its panel or stays hidden"); something of the kind misleading fails it |
-| Per kind, all hidden | No fact, but rows of the kind left out of the default list | It is hidden, marked as not externally validated: a kind cannot escape its gate by having every row filtered out |
+| Per kind, all hidden | No fact, no row listed, and rows of the kind left out of the default list | It is hidden, marked as not externally validated: a kind cannot escape its gate by having every row filtered out |
+| Per kind, only honesty rows listed | No fact, and the kind's listed rows are all `INSUFFICIENT` or `NOT_APPLICABLE` | It is hidden, marked as not externally validated: only honesty rows were listed |
 | Per kind, silent | No row of the kind anywhere, listed or hidden, and its checks ran | It stays listed, marked as not externally validated |
 | Per kind, not exercised | No row of the kind anywhere, and no run evaluated its check (not applicable or unavailable everywhere) | It stays listed, marked as not externally validated, and the report says its check never ran |
-| Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent, not-exercised, all-hidden, and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
+| Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent, not-exercised, all-hidden, honesty-only, and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
 
 Only kinds with no row at all stay listed as not externally validated. Every kind any run's report evaluates is
 gated, so a kind that found nothing cannot drop out. The per-kind gate pools the tuned, holdout, and agent facts of the

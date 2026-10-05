@@ -7,7 +7,7 @@
 // is still gated, and the harness hash, which the scorer checks.
 // Agent-attached runs contribute only their registered kinds; the rest is judged on the run without the agent.
 //
-//   node validation/scoring/worksheet.mjs --evidence <root> --out <dir> [--registration-ref <tag>|none]
+//   node validation/scoring/worksheet.mjs --evidence <root> --out <dir> [--registration-ref <tag>|none] [--offline]
 //                                         [--allow-incomplete]
 //
 // <root> holds one directory per run with a run.json (written by bin/rerun.sh) and, per service (or at the top), the
@@ -242,12 +242,13 @@ export function buildWorksheet({runs, superseded = []}, protocol, harness = null
 }
 
 /** Builds the worksheet of an evidence root and every problem with it, as both commands need. */
-export function worksheetFor(evidenceRoot, protocol, registrationRef) {
+export function worksheetFor(evidenceRoot, protocol, registrationRef, {offline = false} = {}) {
   const harness = harnessHash()
   const loaded = loadRuns(evidenceRoot)
   const registration = checkRegistration(
     registrationRef,
-    loaded.runs.map((r) => r.bootuiCommit)
+    loaded.runs.map((r) => r.bootuiCommit),
+    {offline}
   )
   const worksheet = buildWorksheet(loaded, protocol, harness)
   // Every subject the evidence holds per application, listed or hidden, so the recall check can tell a counterexample
@@ -274,6 +275,7 @@ function main() {
       evidence: {type: 'string'},
       out: {type: 'string'},
       'registration-ref': {type: 'string'},
+      offline: {type: 'boolean', default: false},
       'allow-incomplete': {type: 'boolean', default: false}
     }
   })
@@ -287,7 +289,8 @@ function main() {
   const {worksheet, registration, problems} = worksheetFor(
     values.evidence,
     protocol,
-    values['registration-ref'] || protocol.registration.ref
+    values['registration-ref'] || protocol.registration.ref,
+    {offline: values.offline}
   )
   if (problems.length) {
     for (const problem of problems) console.error(`${values['allow-incomplete'] ? 'warning' : 'error'}: ${problem}`)
@@ -296,7 +299,12 @@ function main() {
       `INCOMPLETE: ${problems.length} problems with the run set, the registration, or the evidence`
     )
   }
-  worksheet.registration = {ref: registration.ref, sha: registration.sha}
+  worksheet.registration = {
+    ref: registration.ref,
+    tag: registration.tag,
+    sha: registration.sha,
+    final: registration.final
+  }
   mkdirSync(values.out, {recursive: true})
   writeFileSync(join(values.out, 'worksheet.json'), JSON.stringify(worksheet, null, 2) + '\n')
   const template = worksheet.rows.map((r) => ({

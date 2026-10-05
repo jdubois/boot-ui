@@ -22,6 +22,7 @@ require_cmd node curl git
 load_pin "$app"
 load_build
 [ -z "${VALIDATION_APP_ARGS:-}" ] || die "VALIDATION_APP_ARGS is set; a measured run takes no workaround argument"
+[ "${BOOTUI_TREE_CLEAN:-false}" = true ] || die "the recorded build was made from a dirty checkout; rebuild it with build-v2.sh"
 [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] || die "the checkout has uncommitted or untracked changes"
 [ "$(git -C "$REPO_ROOT" rev-parse HEAD)" = "$BOOTUI_COMMIT" ] ||
   die "the checkout is not at the recorded build $BOOTUI_COMMIT; run validation/bin/build-v2.sh"

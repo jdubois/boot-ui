@@ -18,7 +18,7 @@ import {
   worstLatencyMillis
 } from './lib.mjs'
 import {investigations, judge, readCsvById, recall, score, timeToFirstObservation} from './score.mjs'
-import {harnessHash} from './harness.mjs'
+import {checkRegistration, harnessHash} from './harness.mjs'
 import {buildWorksheet, checkRuns, loadRuns} from './worksheet.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -666,22 +666,28 @@ test('time to first observation takes one measurement per application on the rer
   assert.equal(t.problems.filter((p) => p.startsWith('no time to first observation')).length, 5)
 })
 
-test('a kind whose rows are all hidden is not silent', () => {
+test('a kind whose rows are all hidden, or whose only listed rows are honesty rows, is not silent', () => {
   const rows = [
-    {id: 'a/hidden/1', app: 'a', role: 'tuned', kind: 'safe-method-dml', section: 'hidden', subject: 'GET /x'}
+    {id: 'a/hidden/1', app: 'a', role: 'tuned', kind: 'safe-method-dml', section: 'hidden', subject: 'GET /x'},
+    {id: 'a/fact/1', app: 'a', role: 'tuned', kind: 'repeated-selects', section: 'fact', subject: 'GET /y'},
+    {id: 'h/fact/1', app: 'h', role: 'holdout', kind: 'repeated-selects', section: 'fact', subject: 'GET /z'}
   ]
-  const judged = judge(
-    {rows},
-    {r1: reviewerMap({'a/hidden/1': 'Noise'}), r2: reviewerMap({'a/hidden/1': 'Noise'})},
-    new Map()
-  )
+  const j = {'a/hidden/1': 'Noise', 'a/fact/1': 'Actionable', 'h/fact/1': 'Actionable'}
+  const judged = judge({rows}, {r1: reviewerMap(j), r2: reviewerMap(j)}, new Map())
   const inventory = [
     {kind: 'safe-method-dml', checks: {a: 'EVALUATED'}, listed: 0, hidden: 4, unlistedByDesign: false},
-    {kind: 'proxy-bypass', checks: {a: 'EVALUATED'}, listed: 0, hidden: 0, unlistedByDesign: false}
+    {kind: 'proxy-bypass', checks: {a: 'EVALUATED'}, listed: 0, hidden: 0, unlistedByDesign: false},
+    {kind: 'route-time-breakdown', checks: {a: 'EVALUATED'}, listed: 2, hidden: 5, unlistedByDesign: false}
   ]
-  const kinds = Object.fromEntries(score(judged, protocol, inventory).perKind.map((k) => [k.kind, k]))
+  const s = score(judged, protocol, inventory)
+  assert.equal(s.escalation.triggered, false)
+  const kinds = Object.fromEntries(s.perKind.map((k) => [k.kind, k]))
   assert.equal(kinds['safe-method-dml'].status, 'ALL_HIDDEN')
+  assert.equal(kinds['safe-method-dml'].outcome, 'hidden, not externally validated: no row of it was listed by default')
+  assert.equal(kinds['route-time-breakdown'].status, 'LISTED_NO_FACTS', 'only INSUFFICIENT rows listed')
+  assert.equal(kinds['route-time-breakdown'].outcome, 'hidden, not externally validated: only honesty rows were listed')
   assert.equal(kinds['proxy-bypass'].status, 'SILENT')
+  assert.equal(kinds['proxy-bypass'].outcome, 'stays listed, marked as not externally validated')
 })
 
 test('recall: found rows belong to the item’s application, and unmatched counterexample subjects warn', () => {
@@ -715,4 +721,67 @@ test('investigations must run on the rerun commit', () => {
   const r = investigations(rows, protocol, 'c0ffee')
   assert.match(r.problems[0], /1 investigations did not run on the rerun's BootUI commit/)
   assert.equal(r.meetsTarget, false)
+})
+
+test('three facts or more on a single application are under-sampled, and so hidden', () => {
+  const rows = [0, 1, 2, 3].map((i) => ({
+    id: `a/fact/${i}`,
+    app: 'a',
+    role: 'tuned',
+    kind: 'repeated-selects',
+    section: 'fact',
+    subject: `S${i}`
+  }))
+  const all = Object.fromEntries(rows.map((r) => [r.id, 'Actionable']))
+  const s = score(judge({rows}, {r1: reviewerMap(all), r2: reviewerMap(all)}, new Map()), protocol, [])
+  const kind = s.perKind.find((k) => k.kind === 'repeated-selects')
+  assert.equal(kind.usefulPercent, 100)
+  assert.equal(kind.status, 'UNDER_SAMPLED')
+  assert.equal(kind.outcome, 'folds (escalation)', 'the holdouts have no fact, so the escalation triggers')
+  const agentApp = [
+    ...rows,
+    {id: 'a+agent/fact/9', app: 'a+agent', role: 'agent', kind: 'repeated-selects', section: 'fact', subject: 'S9'}
+  ]
+  const both = Object.fromEntries(agentApp.map((r) => [r.id, 'Actionable']))
+  const t = score(judge({rows: agentApp}, {r1: reviewerMap(both), r2: reviewerMap(both)}, new Map()), protocol, [])
+  assert.equal(t.perKind.find((k) => k.kind === 'repeated-selects').apps, 1, 'an agent run is the same application')
+})
+
+test('the registration tag must be annotated and the one origin publishes; offline is not final', () => {
+  const git = (...args) => execFileSync('git', args, {cwd: here, encoding: 'utf8'}).trim()
+  const name = `m4-20-selftest-${process.pid}`
+  git(
+    '-c',
+    'user.name=selftest',
+    '-c',
+    'user.email=selftest@example.invalid',
+    'tag',
+    '-a',
+    name,
+    '-m',
+    'self-test',
+    'HEAD'
+  )
+  try {
+    const tag = git('rev-parse', `refs/tags/${name}`)
+    const clean = (r) => r.problems.filter((p) => !/differs from|does not register/.test(p))
+    assert.deepEqual(clean(checkRegistration(name, [], {lookupRemote: () => tag})), [])
+    assert.equal(checkRegistration(name, [], {lookupRemote: () => tag}).final, true)
+    assert.match(
+      clean(checkRegistration(name, [], {lookupRemote: () => 'f'.repeat(40)}))[0],
+      /not the one origin publishes/
+    )
+    assert.match(clean(checkRegistration(name, [], {lookupRemote: () => null}))[0], /origin has no tag/)
+    const unreachable = () => {
+      throw new Error('unreachable')
+    }
+    assert.match(clean(checkRegistration(name, [], {lookupRemote: unreachable}))[0], /origin is unreachable/)
+    const offline = checkRegistration(name, [], {lookupRemote: unreachable, offline: true})
+    assert.deepEqual(clean(offline), [])
+    assert.equal(offline.final, false)
+  } finally {
+    git('tag', '-d', name)
+  }
+  assert.match(checkRegistration('m4-20-no-such-tag').problems[0], /does not exist/)
+  assert.equal(checkRegistration('none').final, false)
 })
