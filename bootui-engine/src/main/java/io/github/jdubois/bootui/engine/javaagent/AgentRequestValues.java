@@ -155,20 +155,23 @@ public final class AgentRequestValues {
     public static final int POSITION_IN_LITERAL = 1;
 
     public static final int POSITION_OUTSIDE_LITERAL = 2;
+    public static final int POSITION_UNKNOWN = 3;
     public static final int FLAG_NUMERIC = 4;
 
     /**
      * Publishes an engine-side sink's match of the calling thread's request's value named {@code name}: the sink's
      * {@code kind}, its {@code target} already redacted and normalized ({@code null} to keep none), {@code flags},
-     * {@code rawHash}, a keyed hash of the raw text, and the code-paths {@code stamp}. Never a value. Never throws.
+     * {@code rawHash} and {@code redactedHash}, keyed hashes of the raw text and of the redacted text before any masking
+     * or normalization, and the code-paths {@code stamp}. Never a value. Never throws.
      */
-    public static void publish(int kind, String name, int flags, String target, long rawHash, long stamp) {
+    public static void publish(
+            int kind, String name, int flags, String target, long rawHash, long redactedHash, long stamp) {
         MethodHandle publish = handles.publish;
         if (publish == null || name == null) {
             return;
         }
         try {
-            publish.invokeExact(kind, name, flags, target, rawHash, stamp);
+            publish.invokeExact(kind, name, flags, target, rawHash, redactedHash, stamp);
         } catch (Throwable ex) {
             // The agent never fails a request.
         }
@@ -360,6 +363,7 @@ public final class AgentRequestValues {
                                         String.class,
                                         int.class,
                                         String.class,
+                                        long.class,
                                         long.class,
                                         long.class)));
             } catch (Throwable ex) {

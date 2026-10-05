@@ -118,6 +118,29 @@ class RequestValuesSinksTests {
     }
 
     @Test
+    void aPathOpenedTwiceByTheRequestIsRedactedBothTimesInEveryRecord() {
+        long token = claim(List.of(SideEffects.FILES, SideEffects.SECURITY_SINKS));
+        SideEffects.enable(SideEffects.MASK_FILES);
+        SideEffects.places(PLACES);
+        context.set(owner(REQUEST));
+        String value = seeded("quarterly");
+        RequestValues.begin(REQUEST, new String[] {"name"}, new String[] {value}, null, null);
+
+        for (int i = 0; i < 2; i++) {
+            long opening = SideEffects.fileOpening(SideEffects.HOOK_FILE_INPUT_STREAM);
+            SideEffects.fileOpened(
+                    opening,
+                    SideEffects.HOOK_FILE_INPUT_STREAM,
+                    SideEffects.KIND_FILE_READ,
+                    "/srv/app/reports/" + value + ".csv",
+                    null);
+        }
+
+        assertThat(sinks(token)).hasSize(2);
+        assertThat(String.join("|", interned())).doesNotContain(value);
+    }
+
+    @Test
     void aDigitsOnlyValueIsFlaggedSoTheEngineWaitsForConfirmation() {
         long token = claim(List.of(SideEffects.FILES, SideEffects.SECURITY_SINKS));
         SideEffects.enable(SideEffects.MASK_FILES);
@@ -145,6 +168,7 @@ class RequestValuesSinksTests {
                 RequestValues.POSITION_IN_LITERAL,
                 "select * from users where name = '{name}'",
                 42L,
+                43L,
                 0L);
 
         List<long[]> sinks = sinks(token);

@@ -806,33 +806,37 @@ A row names the sink, the parameter's name, the call site, and the sink's text w
 | SQL text | Where SQL Trace's JDBC capture records the statement, on the thread that ran it. R2DBC is not captured | The statement with every literal masked, as SQL Trace's fingerprint masks it whatever the exposure, and `{name}` in the value's place; the row says whether it sat **inside** or **outside a literal** |
 | Command | The `processes` sensor's `ProcessBuilder.start` hook, in each of the command's first 32 elements | The command's file name and the argument's index, `convert, argument 2`, never an argument |
 | File path | The `files` sensor's hooks, so only with `files` claimed | The path pattern of the redacted path, `./reports/{name}.csv`; the `files` row names that pattern too |
-| Outbound URL | Where the REST client panel records the call: `RestTemplate`, `RestClient`, `WebClient`, and the Quarkus REST client, on the thread that issues it | The redacted URL's scheme, host, port, and path, and its query's keys only |
+| Outbound URL | Where the REST client panel records the call: `RestTemplate`, `RestClient`, `WebClient`, and the Quarkus REST client, on the thread that issues it, its host, decoded path, and decoded query parameters checked apart | The scheme, host, and port, the redacted path with numeric and UUID segments as `{id}`, and the query's keys only; never user information or the fragment, and no text when the value is in the host |
 
 **How values are held.** The adapters hand the values to the agent's request value holder at the handler phase, only
 while matching is on: Spring MVC parses the query string itself and reads the handler mapping's path variables, never
 calling `getParameter*`, so a body is never read; Spring WebFlux takes the query parameters it already parsed and reads
 the path variables once its handler mapping set them, never the form data; Quarkus takes the decoded query and the
 matched path parameters. Form values, headers, and bodies are never held. The holder keeps at most 128 requests and 32
-values of 4 to 256 characters each, the application's own strings, and removes a request's values where its response
+values of 4 to 256 characters each (on Spring MVC, BootUI's own decoding of the query string), and removes a request's values where its response
 really completes: the filter's end, the async cycle's end, the WebFlux chain's end, or Quarkus' response end handler.
 A missed end is swept after 60 seconds, and a new claim, a DevTools restart, a live reload, or a release wipes the
 holder. The values are not part of BootUI's correlation context, so no executor snapshot copies them, and a task the
 agent propagated, or any other request's work, is never matched; a task the request hands to a managed executor still
 matches, until the response completes. Matching is bounded per request: at most 256 checks, 16 KB of text per check,
-and 4 Mi character comparisons in all; an identical text checked again is skipped. When a text was scanned only in part,
-or held more matches than could be redacted, the row keeps no text. **Clear recording** clears the rows; the holder,
+and 4 Mi character comparisons in all; an identical text that matched nothing is not checked again. When a text was
+scanned only in part, or held more matches than could be redacted, the row keeps no text. Once a request reached its
+budget, its later sinks are not checked, so a `files` or `processes` row may then name a path or command that holds a
+value; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
 empty between requests, is not evidence.
 
 **False positives.** A value that sits outside an SQL literal, or that is made of digits only, may be a word the text
 always holds, as a value equal to a column name. Such a match is shown only once a second request produced a different
 raw text with the same redacted text, which shows the text varies with the value; until then the panel counts it as not
-shown yet. Any other match is shown from one request, marked as seen in one request so far. Only per-process keyed
-hashes of the raw texts are compared, never the texts.
+shown yet; a value repeated in requests with the same text confirms nothing. Any other match is shown from one
+request, marked as seen in one request so far. Only per-process keyed hashes of the raw and redacted texts are compared,
+never the texts. Past the tab's row cap, a match not confirmed yet is counted, never shown in its Other row.
 
 The sensor adds no hook of its own in this version: its deserialization, weak algorithm, and trust manager checks
 follow (M5-6b2), and the `HttpClient` and `URL.openConnection` hooks are deferred, so a JDK `HttpClient` call is checked
-only when it goes through a REST client BootUI records. With matching on, the Java Agent panel's status shows the
-holder's counters (`requestValues`).
+only when it goes through a REST client BootUI records. With matching on, the tab's limitations show the holder's
+counters: requests held, checks run, and what it skipped or could not keep; the sensor's reason names the sinks it
+cannot check because their sensor is not claimed.
 
 ## The caught-exceptions sensor
 

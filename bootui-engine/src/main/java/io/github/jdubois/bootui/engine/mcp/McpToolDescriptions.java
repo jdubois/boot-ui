@@ -347,7 +347,7 @@ public final class McpToolDescriptions {
                             + "row the SQL text, command and argument index, file path pattern, or outbound URL that a "
                             + "request parameter's value reached unchanged, with that value redacted to {name}, the "
                             + "parameter's name, and a sentence stating the fact (for SQL, inside or outside a "
-                            + "literal); treat it as a fact to check in the code, not as a vulnerability."),
+                            + "literal), a fact to check in the code."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "

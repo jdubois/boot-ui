@@ -282,24 +282,30 @@ class RequestValuesTests {
         context.set(owner(REQUEST, null));
         RequestValues.begin(REQUEST, names("name"), values("alice"), null, null);
         int[] spans = new int[RequestValues.SPANS_LENGTH];
+        String[] names = new String[RequestValues.MAX_VALUES];
 
-        assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, null))
-                .isEqualTo(1);
-        assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, null))
+        assertThat(RequestValues.match("select 1", RequestValues.SINK_SQL, spans, null))
                 .isZero();
-        assertThat(spans[RequestValues.S_FLAGS]).isEqualTo(RequestValues.F_REPEATED);
-        assertThat(RequestValues.redact("q 'alice'", spans, new String[RequestValues.MAX_VALUES]))
+        assertThat(RequestValues.match("select 1", RequestValues.SINK_SQL, spans, null))
+                .isZero();
+        assertThat(spans[RequestValues.S_FLAGS])
+                .as("a text that matched nothing is not checked again")
+                .isEqualTo(RequestValues.F_REPEATED);
+        assertThat(RequestValues.redact("select 1", spans, names))
                 .as("a check that compared nothing keeps no text")
                 .isNull();
         for (int i = 0; i < 2 * RequestValues.MAX_CHECKS; i++) {
-            RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, null);
+            RequestValues.match("select 1", RequestValues.SINK_SQL, spans, null);
         }
         assertThat(RequestValues.status().get("stopped"))
                 .as("a statement repeated in a loop spends no check")
                 .isEqualTo(0L);
-        assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_FILE, spans, null))
-                .as("another kind of sink")
+        assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, names))
                 .isEqualTo(1);
+        assertThat(RequestValues.match("q 'alice'", RequestValues.SINK_SQL, spans, names))
+                .as("a text that matched is compared and redacted again")
+                .isEqualTo(1);
+        assertThat(RequestValues.redact("q 'alice'", spans, names)).isEqualTo("q '{name}'");
 
         for (int i = 0; i < RequestValues.MAX_CHECKS; i++) {
             RequestValues.match("text " + i, RequestValues.SINK_SQL, spans, null);

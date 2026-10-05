@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.codepaths.CodePathStamps;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
@@ -879,6 +880,10 @@ public final class SideEffectsService implements AutoCloseable {
                 if (current.clears > 0) {
                     limitations.add(RECORDING_CLEARED);
                 }
+                String holder = holderLine(AgentRequestValues.enabled() ? AgentRequestValues.status() : Map.of());
+                if (holder != null) {
+                    limitations.add(holder);
+                }
                 long unconfirmed = current.store.unconfirmed();
                 if (unconfirmed > 0) {
                     limitations.add(unconfirmed
@@ -892,6 +897,41 @@ public final class SideEffectsService implements AutoCloseable {
             }
         }
         return limitations;
+    }
+
+    /**
+     * The request value holder's counters as one limitation (M5-6b): how many requests held values and how many sink
+     * checks ran, then what it skipped or could not keep, each only when it happened; {@code null} without the holder.
+     */
+    static String holderLine(Map<String, Object> holder) {
+        if (holder == null || holder.isEmpty()) {
+            return null;
+        }
+        StringBuilder line = new StringBuilder("Request-value matching: ")
+                .append(count(holder, "requests"))
+                .append(" requests held values, ")
+                .append(count(holder, "checks"))
+                .append(" sink checks ran.");
+        append(line, holder, "valuesTooLong", " values longer than 256 characters were not held.");
+        append(line, holder, "valuesOverCount", " values past 32 in a request were not held.");
+        append(line, holder, "tableFull", " requests held nothing: 128 requests held values already.");
+        append(line, holder, "stopped", " requests reached their matching budget: later sinks were not checked.");
+        append(line, holder, "partial", " texts were checked in their first 16 KB only.");
+        append(line, holder, "busy", " checks were skipped while another check of the same request ran.");
+        append(line, holder, "notKept", " targets or names were not kept: too many distinct ones in this run.");
+        append(line, holder, "dropped", " matches were dropped: the agent's ring was full.");
+        return line.toString();
+    }
+
+    private static long count(Map<String, Object> holder, String key) {
+        return holder.get(key) instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private static void append(StringBuilder line, Map<String, Object> holder, String key, String text) {
+        long value = count(holder, key);
+        if (value > 0) {
+            line.append(' ').append(value).append(text);
+        }
     }
 
     /** This run's counters, for status and tests: JDK types. */
@@ -1297,8 +1337,10 @@ public final class SideEffectsService implements AutoCloseable {
                 shown = target;
             }
             String location = null;
-            if (record.kind() == SideEffectsCatalog.KIND_SINK_SQL) {
-                location = (record.outcome() & 0x3) == SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+            int position = record.outcome() & 0x3;
+            if (record.kind() == SideEffectsCatalog.KIND_SINK_SQL
+                    && position != SideEffectsCatalog.SINK_POSITION_UNKNOWN) {
+                location = position == SideEffectsCatalog.SINK_OUTSIDE_LITERAL
                         ? SideEffectsCatalog.OUTSIDE_LITERAL
                         : SideEffectsCatalog.INSIDE_LITERAL;
             }

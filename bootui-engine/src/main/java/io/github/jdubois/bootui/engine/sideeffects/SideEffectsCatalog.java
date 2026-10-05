@@ -40,6 +40,7 @@ public final class SideEffectsCatalog {
     static final int SINK_IN_LITERAL = 1;
 
     static final int SINK_OUTSIDE_LITERAL = 2;
+    static final int SINK_POSITION_UNKNOWN = 3;
     static final int SINK_NUMERIC = 4;
 
     /** Where in an SQL text a value sat, as a security-sinks row's location says. */

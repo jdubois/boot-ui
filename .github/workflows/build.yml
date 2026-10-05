@@ -581,7 +581,7 @@ jobs:
 
       # Request-value matching of the security-sinks sensor (M5-6b1, D37), on the sinks route (two query parameters,
       # one SQL statement, and one file read): its own increment, the same sensors with matching on against off, fifteen
-      # pairs, fails the build above 3 %; the cumulative overhead with it, nine pairs against no agent, prints PASS or
+      # pairs, fails the build above 3 %; the cumulative overhead with it, fifteen pairs against no agent, prints PASS or
       # FAIL against 10 % and fails only above 30 %. Matching stays opt-in whatever they measure.
       - name: Measure request-value matching's share on the sinks route
         if: needs.changes.outputs.extras == 'true'
@@ -599,7 +599,7 @@ jobs:
         if: needs.changes.outputs.extras == 'true'
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
-          -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
           -Dbootui.benchmark.agent.rule-percent=10
           -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-agent-sinks
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,security-sinks

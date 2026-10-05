@@ -126,6 +126,9 @@ public final class RequestValues {
 
     public static final int POSITION_OUTSIDE_LITERAL = 2;
 
+    /** Where a matched value sat is not known: its span was past the spans reported. */
+    public static final int POSITION_UNKNOWN = 3;
+
     /** In a record's outcome byte: the matched value is made of digits only. */
     public static final int FLAG_NUMERIC = 4;
 
@@ -188,6 +191,7 @@ public final class RequestValues {
     private static final LongAdder REFUSED_EXECUTION = new LongAdder();
     private static final LongAdder FORCED = new LongAdder();
     private static final LongAdder PUBLISHED = new LongAdder();
+    private static final LongAdder DROPPED = new LongAdder();
     private static final LongAdder NOT_KEPT = new LongAdder();
     private static final AtomicInteger INTERNED = new AtomicInteger();
     private static final LongAdder ERRORS = new LongAdder();
@@ -550,11 +554,13 @@ public final class RequestValues {
      * An engine-side sink (an SQL statement, a REST client URL) matched the calling thread's request's value named
      * {@code name}: publishes one {@code security-sinks} record of kind {@code kind} with {@code target}, the sink's
      * text already redacted and normalized by the caller ({@code null} when it keeps none), {@code flags} ({@link
-     * #POSITION_IN_LITERAL}, {@link #POSITION_OUTSIDE_LITERAL}, {@link #FLAG_NUMERIC}), {@code rawHash}, the caller's
-     * keyed hash of the raw text, and the code-paths {@code stamp}. Its call site is the first application frame, never
+     * #POSITION_IN_LITERAL}, {@link #POSITION_OUTSIDE_LITERAL}, {@link #FLAG_NUMERIC}), {@code rawHash} and {@code
+     * redactedHash}, the caller's keyed hashes of the raw text and of the redacted text before any masking or
+     * normalization, and the code-paths {@code stamp}. Its call site is the first application frame, never
      * the recorder's. Never a value. Never throws.
      */
-    public static void sinkMatched(int kind, String name, int flags, String target, long rawHash, long stamp) {
+    public static void sinkMatched(
+            int kind, String name, int flags, String target, long rawHash, long redactedHash, long stamp) {
         try {
             Claim claim = AgentBridge.current();
             if (claim == null || !claim.armed || claim.generation != sensorGeneration || name == null) {
@@ -566,7 +572,17 @@ public final class RequestValues {
             }
             // The application frame only: the first frame outside the JDK is the recorder's, BootUI's own.
             long frames = SideEffects.frames(claim) & 0xFFFFFFFFL;
-            publish(claim, request, kind, flags, target, name, rawHash & Long.MAX_VALUE, stamp, frames);
+            publish(
+                    claim,
+                    request,
+                    kind,
+                    flags,
+                    target,
+                    name,
+                    rawHash & Long.MAX_VALUE,
+                    redactedHash & Long.MAX_VALUE,
+                    stamp,
+                    frames);
         } catch (Throwable ex) {
             ERRORS.increment();
         }
@@ -598,7 +614,9 @@ public final class RequestValues {
                     continue;
                 }
                 executable |= i == 0;
-                String target = executable ? "(the executable), argument " + i : commandName + ", argument " + i;
+                String target = i == 0
+                        ? "(the executable)"
+                        : executable ? "(the executable), argument " + i : commandName + ", argument " + i;
                 publishEach(claim, request, SINK_COMMAND, 0, target, argument, mask, spans, names, stamp, frames);
             }
         } catch (Throwable ex) {
@@ -653,21 +671,29 @@ public final class RequestValues {
             long stamp,
             long frames) {
         long rawHash = keyedHash(text);
+        String redacted = redact(text, spans, names);
+        long redactedHash = redacted == null ? 0L : keyedHash(redacted);
         for (int i = 0; i < MAX_VALUES; i++) {
             if ((mask & (1 << i)) == 0) {
                 continue;
             }
-            publish(
-                    claim,
-                    request,
-                    kind,
-                    position | numericFlag(text, spans, i),
-                    target,
-                    names[i],
-                    rawHash,
-                    stamp,
-                    frames);
+            int flags = position | numericFlag(text, spans, i);
+            if (!reported(spans, i)) {
+                flags |= POSITION_UNKNOWN;
+            }
+            publish(claim, request, kind, flags, target, names[i], rawHash, redactedHash, stamp, frames);
         }
+    }
+
+    /** Whether a span of value {@code index} was reported: one past {@value #MAX_SPANS} spans is not. */
+    static boolean reported(int[] spans, int index) {
+        int count = Math.min(spans[S_COUNT], MAX_SPANS);
+        for (int s = 0; s < count; s++) {
+            if (spans[S_FIRST + 3 * s] == index) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** {@link #FLAG_NUMERIC} when the first span of value {@code index} holds digits only, else 0. */
@@ -721,6 +747,7 @@ public final class RequestValues {
             String target,
             String name,
             long rawHash,
+            long redactedHash,
             long stamp,
             long frames) {
         SideEffects.Owner owner = new SideEffects.Owner();
@@ -742,10 +769,12 @@ public final class RequestValues {
         values[SideEffects.R_FLAGS] = SideEffects.flags(flags & 0xFF, owner, internQuota(name));
         values[SideEffects.R_COUNT] = 1L;
         values[SideEffects.R_NANOS] = rawHash;
-        values[SideEffects.R_MAX_NANOS] = rawHash;
+        values[SideEffects.R_MAX_NANOS] = redactedHash;
         values[SideEffects.R_FRAMES] = frames;
         if (SideEffects.publish(SideEffects.SENSOR_SECURITY_SINKS, values)) {
             PUBLISHED.increment();
+        } else {
+            DROPPED.increment();
         }
     }
 
@@ -753,6 +782,10 @@ public final class RequestValues {
     private static int internQuota(String text) {
         if (text == null) {
             return 0;
+        }
+        int known = SideEffects.internedId(text);
+        if (known > 0) {
+            return known;
         }
         if (INTERNED.get() >= INTERN_QUOTA) {
             NOT_KEPT.increment();
@@ -803,6 +836,8 @@ public final class RequestValues {
                 for (int i = 0; i + 1 < pulled.length; i += 2) {
                     add(entry, (String) pulled[i], (String) pulled[i + 1]);
                 }
+                // A text that matched none of the earlier values may hold a new one.
+                entry.hashCount = 0;
                 entry.late = null;
                 entry.lateKeys = null;
             }
@@ -812,7 +847,8 @@ public final class RequestValues {
             if (entry.stopped) {
                 return flag(spans, F_STOPPED);
             }
-            // Before the budgets: a statement repeated in a loop costs neither a check nor comparisons.
+            // Before the budgets: a statement repeated in a loop costs neither a check nor comparisons. Only texts that
+            // matched nothing are remembered, so a repeated text holding a value is compared again and redacted again.
             for (int i = 0; i < entry.hashCount && i < HASHES; i++) {
                 if (entry.hashes[i] == hash) {
                     REPEATED.increment();
@@ -831,8 +867,6 @@ public final class RequestValues {
                 return flag(spans, F_STOPPED);
             }
             entry.comparisons += cost;
-            entry.hashes[entry.hashCount % HASHES] = hash;
-            entry.hashCount++;
             CHECKS.increment();
             mask = 0;
             int written = 0;
@@ -864,6 +898,10 @@ public final class RequestValues {
                         found[i] = entry.names[i];
                     }
                 }
+            }
+            if (mask == 0) {
+                entry.hashes[entry.hashCount % HASHES] = hash;
+                entry.hashCount++;
             }
             if (spans != null && spans.length > S_FLAGS) {
                 spans[S_COUNT] = written;
@@ -1171,6 +1209,7 @@ public final class RequestValues {
             map.put("refusedExecution", Long.valueOf(REFUSED_EXECUTION.sum()));
             map.put("lockTakeovers", Long.valueOf(FORCED.sum()));
             map.put("published", Long.valueOf(PUBLISHED.sum()));
+            map.put("dropped", Long.valueOf(DROPPED.sum()));
             map.put("notKept", Long.valueOf(NOT_KEPT.sum()));
             map.put("errors", Long.valueOf(ERRORS.sum()));
         } catch (Throwable ex) {
@@ -1211,6 +1250,7 @@ public final class RequestValues {
             REFUSED_EXECUTION,
             FORCED,
             PUBLISHED,
+            DROPPED,
             NOT_KEPT,
             ERRORS
         };

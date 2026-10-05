@@ -3379,6 +3379,16 @@ public final class SideEffects {
         return internRoom(text, ROOM_OTHER);
     }
 
+    /** {@code text}'s id when the current generation's table already holds it, else 0; interns nothing. */
+    static int internedId(String text) {
+        AgentRing.Interns interns = INTERNS.get();
+        if (text == null || interns == null) {
+            return 0;
+        }
+        Integer known = interns.ids.get(text);
+        return known == null ? 0 : known.intValue();
+    }
+
     /**
      * The interned strings of {@code generation} with ids {@code from} onwards, index 0 being id {@code from}; {@code
      * null} when the current table belongs to another generation. Never throws.

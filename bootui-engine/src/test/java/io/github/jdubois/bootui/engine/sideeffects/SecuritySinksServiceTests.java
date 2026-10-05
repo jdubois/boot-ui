@@ -183,6 +183,25 @@ class SecuritySinksServiceTests {
     }
 
     @Test
+    void aStatementWithMoreMatchesThanCanBeRedactedKeepsNoText() {
+        start();
+        String value = seeded("alice-smith");
+        StringBuilder sql = new StringBuilder("select * from users where");
+        for (int i = 0; i < 9; i++) {
+            sql.append(i == 0 ? "" : " or").append(" name = '").append(value).append("'");
+        }
+        inRequest(FIRST, "name", value, () -> Launcher.sql(sql.toString(), context.get()));
+
+        assertThat(rows()).singleElement().satisfies(row -> {
+            assertThat(row.target()).isEqualTo(SideEffectsService.TEXT_NOT_KEPT);
+            assertThat(row.toString()).doesNotContain(value);
+        });
+        assertThat(service.sensor(SideEffectsCatalog.SECURITY_SINKS_ID, null, null)
+                        .limitations())
+                .anyMatch(line -> line.startsWith("Request-value matching: "));
+    }
+
+    @Test
     void workTheRequestHandedOffIsNeverChecked() {
         start();
         inRequest(FIRST, "name", seeded("alice-smith"), () -> {

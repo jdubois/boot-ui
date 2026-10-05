@@ -168,8 +168,13 @@ test.describe('Side Effects view', () => {
     agentAttached
   }) => {
     test.skip(!agentAttached, 'Security sinks need the BootUI agent and request-value matching')
-    const value = `seed${Date.now()}`
-    const bound = `bound${Date.now()}`
+    // Letters only, so a files pattern, which folds digits, could not hide a value that leaked.
+    const letters = () =>
+      Date.now()
+        .toString(36)
+        .replace(/[0-9]/g, (digit) => 'abcdefghij'[Number(digit)])
+    const value = `seed${letters()}`
+    const bound = `bound${letters()}`
     const sinkRows = async () =>
       (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json()).rows ??
       []
@@ -186,6 +191,7 @@ test.describe('Side Effects view', () => {
     expect(sql.parameter).toBe('name')
     expect(sql.location).toBe('inside a literal')
     expect(sql.detail).toContain('Check that it is bound as a parameter or escaped.')
+    expect((await sinkRows()).some((row) => row.attribution?.includes('search-bound'))).toBe(false)
 
     // A file path and an outbound URL holding the value.
     expect((await page.request.get(`/api/sinks/reports/${value}`)).ok()).toBeTruthy()

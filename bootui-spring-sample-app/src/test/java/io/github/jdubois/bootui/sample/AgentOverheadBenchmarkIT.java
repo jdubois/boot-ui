@@ -296,6 +296,9 @@ class AgentOverheadBenchmarkIT {
                 assertSensorsRecorded(
                         sample.probe().get("/bootui/api/java-agent").json(), sensors);
             }
+            if (extra.contains(REQUEST_VALUES_ON) || extra.contains(REQUEST_VALUES_OFF)) {
+                assertRequestValues(sample, extra.contains(REQUEST_VALUES_ON));
+            }
             long[] all = samples.stream().flatMapToLong(Arrays::stream).sorted().toArray();
             return new Result(label, all.length, seconds, all);
         }
@@ -316,6 +319,37 @@ class AgentOverheadBenchmarkIT {
             Thread.sleep(250);
         }
         throw new IllegalStateException("The Code Inventory scan did not end in 60 s: " + sample.tail());
+    }
+
+    static final String REQUEST_VALUES_ON = "--bootui.agent.security-sinks.request-values=true";
+    static final String REQUEST_VALUES_OFF = "--bootui.agent.security-sinks.request-values=false";
+
+    /**
+     * The run measured what its arm claims (M5-6b): with matching on, the holder held requests' values and checked
+     * sinks; with it off, it held none. Read from the security-sinks sensor's limitations, which carry the holder's
+     * counters while matching is on.
+     */
+    private static void assertRequestValues(SampleExecutableJar sample, boolean on) {
+        JsonNode report = sample.probe()
+                .get("/bootui/api/side-effects/sensor?sensor=security-sinks")
+                .json();
+        String counters = null;
+        for (JsonNode line : report.path("limitations")) {
+            if (line.asText().startsWith("Request-value matching: ")) {
+                counters = line.asText();
+            }
+        }
+        if (!on) {
+            assertThat(counters).as(report.toString()).isNull();
+            return;
+        }
+        assertThat(counters).as(report.toString()).isNotNull();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                        "^Request-value matching: (\\d+) requests held values, (\\d+) sink checks ran\\.")
+                .matcher(counters);
+        assertThat(matcher.find()).as(counters).isTrue();
+        assertThat(Long.parseLong(matcher.group(1))).as(counters).isPositive();
+        assertThat(Long.parseLong(matcher.group(2))).as(counters).isPositive();
     }
 
     /** Application arguments from a comma-separated property, such as {@code --a=b,--c=d}. */

@@ -175,8 +175,13 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     agentAttached
   }) => {
     test.skip(!agentAttached, 'Security sinks need the BootUI agent and request-value matching')
-    const value = `seed${Date.now()}`
-    const bound = `bound${Date.now()}`
+    // Letters only, so a files pattern, which folds digits, could not hide a value that leaked.
+    const letters = () =>
+      Date.now()
+        .toString(36)
+        .replace(/[0-9]/g, (digit) => 'abcdefghij'[Number(digit)])
+    const value = `seed${letters()}`
+    const bound = `bound${letters()}`
     const sinkRows = async () =>
       (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json()).rows ??
       []
