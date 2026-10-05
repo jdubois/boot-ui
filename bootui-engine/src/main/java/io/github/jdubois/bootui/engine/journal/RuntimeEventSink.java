@@ -37,6 +37,15 @@ public interface RuntimeEventSink {
     }
 
     /**
+     * Offers an event the BootUI agent recorded on an application thread and BootUI's drain thread publishes
+     * ({@code docs/PLAN-v2.md} M5-6a). Implementations may bypass only the publishing thread's own BootUI-work guard,
+     * since the agent already left BootUI's threads and work out when it recorded; every other guard still applies.
+     */
+    default boolean offerAgentRecord(RuntimeEvent event) {
+        return offer(event);
+    }
+
+    /**
      * Whether events of {@code source} are recorded, so a recorder can skip work only the journal needs, such as
      * walking the stack for application frames.
      */

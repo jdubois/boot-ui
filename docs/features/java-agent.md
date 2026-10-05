@@ -134,8 +134,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
 [`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), and [`network`](#the-network-sensor),
-the defaults, and the opt-in [`threads`](#the-threads-sensor), [`files`](#the-files-sensor), and
-[`environment`](#the-environment-sensor). The agent installs each one once, on its own thread, then
+the defaults, and the opt-in [`threads`](#the-threads-sensor), [`files`](#the-files-sensor),
+[`environment`](#the-environment-sensor), and [`caught-exceptions`](#the-caught-exceptions-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -786,6 +786,59 @@ masked.
 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
 `bootui.agent.sensors` to record it. Its three hooks are core: one that fails its self-test disables the sensor alone.
 
+## The caught-exceptions sensor
+
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,caught-exceptions` adds the opt-in `caught-exceptions`
+sensor, which reports the exceptions application code catches and which of them are thrown again. It stays off by
+default until its overhead is measured against the default sensors' 10 % budget. This version records the events in
+the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel; the panel's **Caught in
+application code** section and the `exceptions-caught-in-code` rows follow.
+
+| Hook | Role | What it covers |
+| --- | --- | --- |
+| `handler entry` | reports caught exceptions | each exception handler that names a type, in the classes of the claimed packages |
+| `exceptional exit` | sees caught exceptions thrown again | each method with such a handler, except constructors |
+
+**What is instrumented.** The sensor's visit joins the [inventory and code paths' transformer](#the-code-paths-sensor)
+and applies to every class the inventory sensor would instrument, applied last, so it reads each class's own
+exception tables. At the entry of each handler that names a type, after its frame and line number, it inserts one
+call to the agent's bridge with the caught exception and the handler's site: straight-line code adding no branch
+target, so the class's stack map frames stay valid and none is added. `finally` blocks and `synchronized` blocks'
+catch-any handlers are left alone. To each method with such a handler but a constructor it appends one catch-any
+handler covering the method's own code, after the method's own entries so theirs keep precedence: it tells the bridge
+the exception is leaving the method and rethrows it, so an exception thrown again by the method or by a helper it
+calls (`ExceptionUtils.rethrow`, Lombok's `@SneakyThrows`) is seen. That handler's frame lists `this` and the
+declared parameters, as Byte Buddy's advice requires; a parameter the method stores a value of another verification
+kind into is left unknown (`TOP`). Nothing computes frames or resolves a type inside the transformer, so no class is
+loaded there. Classes older than Java 7 are left alone. A handler another agent's inlined advice added (it has no line
+number in its first instructions while its method has some), or that is also a jump target, is skipped at run time.
+
+**What is recorded.** The caught exception's class, its handler's site (class, method, line, and declared types), its
+owner (the request, a request's task, or an execution no request owns, as a scheduled run), its thread, and its
+identity hash, which only joins a later throw to its catch inside BootUI; never its message, stack trace, or fields.
+The identities of the exception and of up to 8 throwables of its cause and suppressed chain stay pending for at most
+60 seconds, in a table of 4,096: a pending one leaving an instrumented method by a throw, wrapped or not, or caught
+again by an instrumented handler, is recorded as thrown, with the owner it was caught under. An entry evicted for room
+is recorded as such, so its fate is never taken as known. On one thread, a site caught more than 16 times for one owner
+is only counted after that, and the count is recorded when the thread's next caught exception has another owner.
+Nothing is recorded without an owner, on BootUI's own threads or work, or before the sensor's self-test passed, which
+runs again whenever the sensor is switched on again or reinstalled.
+
+**Self-test and failure isolation.** A bundled probe class, loaded after the transformer installed, so the JVM verifies
+the visit's output as it defines the class, holds the shapes the visit must keep valid (wide and reassigned parameters,
+a constructor, a lambda, a multi-catch, a `finally`, try-with-resources) and a rethrow through a helper: both hooks must
+fire. A failed self-test removes only this sensor's visit. A class whose transformation fails with it, or whose
+retransformation the JVM rejects with it, never gets it again and is transformed again with the other sensors' visits.
+A stress test defines every class of Spring Framework, Hibernate ORM, Jackson, Netty, Vert.x, Quarkus, and Kotlin's
+standard library and coroutines (compiled by kotlinc) with and without the visit on JDK 17, 21, and 26: each class that
+verifies without it verifies with it, also beneath an advice that checks every frame. CI runs it on a representative
+subset of those jars; `-Dbootui.agent.verifier-stress=full` runs every one. Should an application class still
+fail to load with a `VerifyError` naming `CaughtExceptions`, remove `caught-exceptions` from `bootui.agent.sensors`
+and report the class.
+
+**Cost.** None on the normal path: the inserted code runs only when an exception is caught, or leaves a method that
+catches some, where a bridge call is added to the exception's own cost.
+
 ## HotSwap
 
 A debugger's HotSwap, as IntelliJ IDEA's **Reload Changed Classes** through JDI, or another agent's
@@ -864,7 +917,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `network`, and the opt-in `threads`, `files`, and `environment`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `network`, and the opt-in `threads`, `files`, `environment`, and `caught-exceptions`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |

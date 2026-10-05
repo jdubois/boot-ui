@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.CaughtExceptions;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
 import io.github.jdubois.bootui.agent.bridge.Exclusions;
@@ -62,6 +63,12 @@ import net.bytebuddy.utility.JavaModule;
  * inventory's alone, so its inventory is not lost with it. Retransformations run in batches of {@value #BATCH}, a
  * rejected batch split in halves down to the class the JVM rejects.
  *
+ * <p><b>Caught exceptions.</b> A raw ASM visit ({@link CaughtExceptionsVisit}, PLAN-v2 M5-6a) on every claimed class
+ * the inventory's visit would instrument, applied last so it reads the class's own exception tables: a call at each
+ * typed exception handler's entry, and one appended catch-any handler per method with such a handler that reports the
+ * exception leaving the method and rethrows it. A class whose transformation fails with it, or whose retransformation
+ * the JVM rejects with it, never gets that visit again and is transformed with the others alone.
+ *
  * <p>The transformer matches the union of every package claimed since it was installed, not only the current claim's:
  * a narrower later claim neither leaves a refined package's classes in a new class loader uninstrumented, nor hides the
  * classes it instrumented from Byte Buddy's reset, which finds the classes to restore through the same matchers. The
@@ -98,6 +105,15 @@ final class ApplicationMethodsSensor {
     /** The code-paths sensor's hook. */
     static final String[][] CODE_PATHS_HOOKS = {{"bean methods", "(bean classes)", "record"}};
 
+    /** The caught-exceptions self-test probe, likewise. */
+    static final String CAUGHT_PROBE = "io.github.jdubois.bootui.agent.CaughtProbe";
+
+    /** The caught-exceptions sensor's hooks. */
+    static final String[][] CAUGHT_HOOKS = {
+        {"handler entry", "(claimed packages)", "record"},
+        {"exceptional exit", "(claimed packages)", "record"}
+    };
+
     /** The most bean class names kept across claims. */
     static final int MAX_BEAN_CLASSES = 50_000;
 
@@ -119,6 +135,8 @@ final class ApplicationMethodsSensor {
 
     private static final int VISIT_CODE_PATHS = 2;
 
+    private static final int VISIT_CAUGHT = 4;
+
     private final Instrumentation instrumentation;
     private final boolean privileged;
     private final TransformStats stats = new TransformStats();
@@ -137,6 +155,12 @@ final class ApplicationMethodsSensor {
      * limit: never given that visit again, until a release restored them.
      */
     private final Set<String> codePathsRejected = ConcurrentHashMap.newKeySet();
+    /** Classes whose transformation failed with the caught-exceptions visit: never given it again, until a release. */
+    private final Set<String> caughtRejected = ConcurrentHashMap.newKeySet();
+    /** The classes instrumented with the caught-exceptions visit. */
+    private final Set<String> caughtTypes = ConcurrentHashMap.newKeySet();
+    /** The visits the last transformation of each class applied, so a retransformation the JVM rejects is blamed. */
+    private final ConcurrentHashMap<String, Integer> appliedByType = new ConcurrentHashMap<String, Integer>();
     /** Those of them waiting to be retransformed with the inventory visit alone, with the ids to fail if they are not. */
     private final ConcurrentHashMap<String, int[]> inventoryRetries = new ConcurrentHashMap<String, int[]>();
 
@@ -169,14 +193,20 @@ final class ApplicationMethodsSensor {
     private volatile boolean inventoryOn;
 
     private volatile boolean codePathsOn;
+
+    private volatile boolean caughtOn;
     /** Which visits applied when the last retransformation for a switch ran, to tell what changed. */
     private boolean appliedInventory;
 
     private boolean appliedCodePaths;
+
+    private boolean appliedCaught;
     /** Whether each visit was ever on, for its status. */
     private volatile boolean inventoryEver;
 
     private volatile boolean codePathsEver;
+
+    private volatile boolean caughtEver;
 
     private volatile ResettableClassFileTransformer transformer;
     private volatile boolean recording;
@@ -202,6 +232,11 @@ final class ApplicationMethodsSensor {
     private volatile String codePathsSelfTestError;
     private volatile String inventoryFailure;
     private volatile String codePathsFailure;
+    private volatile Map<String, String> caughtSelfTest = new LinkedHashMap<String, String>();
+    private volatile Map<String, String> caughtSelfTestSteps = new LinkedHashMap<String, String>();
+    private volatile boolean caughtSelfTestPassed;
+    private volatile String caughtSelfTestError;
+    private volatile String caughtFailure;
     private Thread worker;
     private int jobs;
 
@@ -211,10 +246,10 @@ final class ApplicationMethodsSensor {
     }
 
     /**
-     * A claim asking for the inventory sensor, the code-paths sensor, or both: installs the transformer once and
-     * self-tests each visit, off the claiming thread; then, and at every later claim, retransforms the claimed packages'
-     * loaded classes the transformer never instrumented, the classes whose visits change, and the bean classes named for
-     * the first time.
+     * A claim asking for the inventory, code-paths, or caught-exceptions sensor, or several: installs the transformer
+     * once and self-tests each visit, off the claiming thread; then, and at every later claim, retransforms the claimed
+     * packages' loaded classes the transformer never instrumented, the classes whose visits change, and the bean classes
+     * named for the first time.
      */
     synchronized void claimed(
             long claimGeneration,
@@ -222,6 +257,16 @@ final class ApplicationMethodsSensor {
             Collection<String> claimedBeans,
             boolean inventory,
             boolean codePaths) {
+        claimed(claimGeneration, claimedPackages, claimedBeans, inventory, codePaths, false);
+    }
+
+    synchronized void claimed(
+            long claimGeneration,
+            List<String> claimedPackages,
+            Collection<String> claimedBeans,
+            boolean inventory,
+            boolean codePaths,
+            boolean caught) {
         generation = claimGeneration;
         if (inventory) {
             Set<ClassLoader> existing = Collections.newSetFromMap(new IdentityHashMap<ClassLoader, Boolean>());
@@ -242,16 +287,21 @@ final class ApplicationMethodsSensor {
         }
         widen(packages);
         boolean newBeans = addBeans(claimedBeans);
-        boolean switched = inventory != inventoryOn || codePaths != codePathsOn;
+        boolean switched = inventory != inventoryOn || codePaths != codePathsOn || caught != caughtOn;
         inventoryOn = inventory;
         codePathsOn = codePaths;
+        caughtOn = caught;
         inventoryEver |= inventory;
         codePathsEver |= codePaths;
+        caughtEver |= caught;
         if (!inventory) {
             inventoryFailure = null;
         }
         if (!codePaths) {
             codePathsFailure = null;
+        }
+        if (!caught) {
+            caughtFailure = null;
         }
         if (transformer != null && (jobs & RELEASE) == 0) {
             schedule(jobs | REFINE | (switched ? SWITCH : 0) | (newBeans ? BEANS : 0) | (selfTested() ? 0 : INSTALL));
@@ -263,7 +313,9 @@ final class ApplicationMethodsSensor {
 
     /** Whether every visit on passed its self-test. */
     private boolean selfTested() {
-        return (!inventoryOn || selfTestPassed) && (!codePathsOn || codePathsSelfTestPassed);
+        return (!inventoryOn || selfTestPassed)
+                && (!codePathsOn || codePathsSelfTestPassed)
+                && (!caughtOn || caughtSelfTestPassed);
     }
 
     /**
@@ -387,8 +439,8 @@ final class ApplicationMethodsSensor {
             hooks.add(row);
         }
         map.put("hooks", hooks);
-        // The transformer is shared: its counters go to the inventory's row whenever it applies, else to the other's.
-        if (inventoryOn || !codePathsOn) {
+        // The transformer is shared: its counters go to the inventory's row whenever it applies, else to another's.
+        if (inventoryOn || (!codePathsOn && !caughtOn)) {
             stats.putInto(map);
         }
         return map;
@@ -429,6 +481,46 @@ final class ApplicationMethodsSensor {
         return map;
     }
 
+    /** Whether a claim ever asked for the caught-exceptions sensor: its status row is reported from then on. */
+    boolean caughtEver() {
+        return caughtEver;
+    }
+
+    /** The caught-exceptions sensor's status row. */
+    Map<String, Object> caughtStatus() {
+        Map<String, Object> map = new LinkedHashMap<String, Object>();
+        map.put("id", CaughtExceptions.SENSOR);
+        map.put("state", visitState(caughtOn, caughtEver, caughtFailure));
+        map.put("idle", Boolean.valueOf(idle()));
+        map.put("durationMillis", Long.valueOf(durationMillis));
+        map.put("selfTestPassed", Boolean.valueOf(caughtOn && caughtSelfTestPassed));
+        map.put("selfTestError", caughtSelfTestError);
+        map.put("selfTestSteps", new LinkedHashMap<String, String>(caughtSelfTestSteps));
+        map.put("packages", new ArrayList<String>(packages));
+        map.put("instrumentedTypes", Integer.valueOf(caughtTypes.size()));
+        map.put("rejectedTypes", Integer.valueOf(caughtRejected.size()));
+        map.put("sites", Integer.valueOf(CaughtExceptions.siteCount()));
+        List<Object> hooks = new ArrayList<Object>();
+        Map<String, String> results = caughtSelfTest;
+        for (String[] hook : CAUGHT_HOOKS) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("id", hook[0]);
+            row.put("kind", hook[2]);
+            row.put("type", hook[1]);
+            row.put("present", Boolean.TRUE);
+            row.put("transformed", Boolean.valueOf(transformer != null && caughtOn));
+            row.put("selfTest", results.getOrDefault(hook[0], "not-run"));
+            hooks.add(row);
+        }
+        map.put("hooks", hooks);
+        if (!inventoryOn && !codePathsOn && caughtOn) {
+            stats.putInto(map);
+        } else {
+            map.put("sharedTransformer", inventoryOn ? CodeInventory.SENSOR : CodePaths.SENSOR);
+        }
+        return map;
+    }
+
     /** A visit's state: the transformer's while it applies, else whether it was removed or never applied. */
     private String visitState(boolean on, boolean ever, String failure) {
         if (failure != null) {
@@ -451,7 +543,7 @@ final class ApplicationMethodsSensor {
                         reset();
                     }
                     if ((job & INSTALL) != 0 && transformer == null) {
-                        if (!inventoryOn && !codePathsOn) {
+                        if (!inventoryOn && !codePathsOn && !caughtOn) {
                             continue;
                         }
                         install();
@@ -486,6 +578,8 @@ final class ApplicationMethodsSensor {
         // Link everything recording calls before a transformer can call it inside class loading.
         CodeInventory.warm();
         CodePaths.warm();
+        CaughtExceptions.warm();
+        CaughtExceptionsVisit.warm();
         ClassLoadRecorder.warm();
         warmSeen();
         if (inventoryOn) {
@@ -494,6 +588,7 @@ final class ApplicationMethodsSensor {
         synchronized (this) {
             appliedInventory = inventoryOn;
             appliedCodePaths = codePathsOn;
+            appliedCaught = caughtOn;
             addedBeans.clear();
         }
         // A release's reset cleared the matching: start again from the current claim's packages. The refine job that
@@ -547,16 +642,21 @@ final class ApplicationMethodsSensor {
     private void switchVisits() {
         boolean inventory;
         boolean codePaths;
+        boolean caught;
         boolean inventoryChanged;
+        boolean caughtChanged;
         synchronized (this) {
             inventory = inventoryOn;
             codePaths = codePathsOn;
+            caught = caughtOn;
             inventoryChanged = inventory != appliedInventory;
-            if (inventory == appliedInventory && codePaths == appliedCodePaths) {
+            caughtChanged = caught != appliedCaught;
+            if (inventory == appliedInventory && codePaths == appliedCodePaths && caught == appliedCaught) {
                 return;
             }
             appliedInventory = inventory;
             appliedCodePaths = codePaths;
+            appliedCaught = caught;
             addedBeans.clear();
         }
         if (inventoryChanged) {
@@ -583,14 +683,21 @@ final class ApplicationMethodsSensor {
             codePathsSelfTest = new LinkedHashMap<String, String>();
             codePathsTypes.clear();
         }
+        if (!caught) {
+            caughtSelfTestPassed = false;
+            caughtSelfTest = new LinkedHashMap<String, String>();
+            // Switched on again later, it records only once its new self-test passed.
+            CaughtExceptions.suspend();
+        }
+        // The inventory's and the caught exceptions' visits apply to every claimed class, the code paths' to beans.
+        boolean everyClass = inventoryChanged || caughtChanged;
         List<String> names = matching;
         Set<String> beans = beanClasses;
         List<Class<?>> classes = new ArrayList<Class<?>>();
         for (Class<?> type : instrumentation.getAllLoadedClasses()) {
             String name = type.getName();
-            boolean probe = PROBE.equals(name) || CODE_PATHS_PROBE.equals(name);
             boolean candidate =
-                    probe || (AgentInstaller.inPackages(name, names) && (inventoryChanged || beans.contains(name)));
+                    probe(name) || (AgentInstaller.inPackages(name, names) && (everyClass || beans.contains(name)));
             if (candidate && instrumentation.isModifiableClass(type)) {
                 classes.add(type);
             }
@@ -640,8 +747,17 @@ final class ApplicationMethodsSensor {
             instrumentation.retransformClasses(batch.toArray(new Class<?>[0]));
         } catch (Throwable ex) {
             if (batch.size() == 1) {
-                stats.skipped(batch.get(0).getName(), ex);
-                rejected(batch.get(0).getName());
+                String name = batch.get(0).getName();
+                Integer applied = appliedByType.get(name);
+                if (applied != null && (applied.intValue() & VISIT_CAUGHT) != 0 && caughtRejected.add(name)) {
+                    // Blamed first: retransformed once more without it, so the other visits keep the class.
+                    caughtTypes.remove(name);
+                    stats.failure("caught exceptions left out of " + name + ": " + ex);
+                    retransformBatch(batch);
+                    return;
+                }
+                stats.skipped(name, ex);
+                rejected(name);
                 return;
             }
             int half = batch.size() / 2;
@@ -749,12 +865,12 @@ final class ApplicationMethodsSensor {
             return;
         }
         Set<String> beans = beanClasses;
-        boolean inventory = inventoryOn;
+        boolean everyClass = inventoryOn || caughtOn;
         List<Class<?>> classes = new ArrayList<Class<?>>();
         for (Class<?> type : instrumentation.getAllLoadedClasses()) {
             String name = type.getName();
             if (AgentInstaller.inPackages(name, added)
-                    && (inventory || beans.contains(name))
+                    && (everyClass || beans.contains(name))
                     && !wasSeen(type.getClassLoader(), name)
                     && instrumentation.isModifiableClass(type)) {
                 classes.add(type);
@@ -826,10 +942,13 @@ final class ApplicationMethodsSensor {
         transformer = null;
         selfTestPassed = false;
         codePathsSelfTestPassed = false;
+        caughtSelfTestPassed = false;
+        CaughtExceptions.suspend();
         synchronized (this) {
             retransformedPackages = Collections.emptyList();
             appliedInventory = false;
             appliedCodePaths = false;
+            appliedCaught = false;
         }
         if (installed == null) {
             clearMatching();
@@ -854,6 +973,8 @@ final class ApplicationMethodsSensor {
         pending.clear();
         visits.clear();
         codePathsTypes.clear();
+        caughtTypes.clear();
+        appliedByType.clear();
         if (restored) {
             // Only now: the reset found the classes to restore through the matchers, so they had to stay this wide.
             clearMatching();
@@ -862,6 +983,7 @@ final class ApplicationMethodsSensor {
             stuck = true;
             CodeInventory.disable(generation, true, "its classes could not be restored");
             CodePaths.disable(generation, true, "its classes could not be restored");
+            CaughtExceptions.disable(generation, true, "its classes could not be restored");
         }
         state = restored ? "released" : "release-failed";
     }
@@ -873,6 +995,7 @@ final class ApplicationMethodsSensor {
             addedBeans.clear();
         }
         codePathsRejected.clear();
+        caughtRejected.clear();
         inventoryRetries.clear();
         synchronized (seen) {
             seen.clear();
@@ -923,7 +1046,7 @@ final class ApplicationMethodsSensor {
     }
 
     static boolean probe(String name) {
-        return PROBE.equals(name) || CODE_PATHS_PROBE.equals(name);
+        return PROBE.equals(name) || CODE_PATHS_PROBE.equals(name) || CAUGHT_PROBE.equals(name);
     }
 
     /** §5.13's never-instrumented classes, and every class outside the claimed packages but the probes: by name only. */
@@ -962,7 +1085,7 @@ final class ApplicationMethodsSensor {
             if (!AgentInstaller.inPackages(name, matching)) {
                 return false;
             }
-            if (!inventoryOn && !restoring && !beanClasses.contains(name)) {
+            if (!inventoryOn && !caughtOn && !restoring && !beanClasses.contains(name)) {
                 return false;
             }
             return !type.isSynthetic() && !testRoot(protectionDomain);
@@ -1111,9 +1234,10 @@ final class ApplicationMethodsSensor {
             }
             String name = type.getName();
             boolean codePathsProbe = CODE_PATHS_PROBE.equals(name);
+            boolean caughtProbe = CAUGHT_PROBE.equals(name);
             int applied = 0;
             DynamicType.Builder<?> visited = builder;
-            if (inventoryOn && !codePathsProbe) {
+            if (inventoryOn && !codePathsProbe && !caughtProbe) {
                 int definition = inventoryDefinitions.token(classLoader);
                 Advice definitionAdvice = inventoryAdviceByDefinition.computeIfAbsent(
                         definition,
@@ -1130,6 +1254,11 @@ final class ApplicationMethodsSensor {
                     && !codePathsRejected.contains(name)) {
                 visited = visited.visit(codePathsAdvice.on(new CodePathsMethods(recordComponents(type))));
                 applied |= VISIT_CODE_PATHS;
+            }
+            if (caughtOn && (caughtProbe || !probe(name)) && !caughtRejected.contains(name)) {
+                // Last, so it is the outermost visitor and reads the class's own exception tables.
+                visited = visited.visit(new CaughtExceptionsVisit());
+                applied |= VISIT_CAUGHT;
             }
             visits.put(name, Integer.valueOf(applied));
             return visited;
@@ -1159,10 +1288,16 @@ final class ApplicationMethodsSensor {
             String name = type.getName();
             Integer applied = visits.remove(name);
             int bits = applied == null ? 0 : applied.intValue();
+            appliedByType.put(name, Integer.valueOf(bits));
             if ((bits & VISIT_CODE_PATHS) != 0 && !CODE_PATHS_PROBE.equals(name)) {
                 codePathsTypes.add(name);
             } else {
                 codePathsTypes.remove(name);
+            }
+            if ((bits & VISIT_CAUGHT) != 0 && !CAUGHT_PROBE.equals(name)) {
+                caughtTypes.add(name);
+            } else {
+                caughtTypes.remove(name);
             }
             IdList ids = pending.remove(name);
             // Loaded and never instrumented in its class loader: it ran uninstrumented until now. A loaded class seen
@@ -1190,7 +1325,19 @@ final class ApplicationMethodsSensor {
                 String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable error) {
             Integer applied = visits.remove(typeName);
             codePathsTypes.remove(typeName);
+            caughtTypes.remove(typeName);
             IdList ids = pending.remove(typeName);
+            if (applied != null && (applied.intValue() & VISIT_CAUGHT) != 0) {
+                // Blamed first: its frames are the visit most likely to be refused. The class is transformed again
+                // without it, with the others' visits.
+                caughtRejected.add(typeName);
+                stats.failure("caught exceptions left out of " + typeName + ": " + error);
+                if ((applied.intValue() & (VISIT_INVENTORY | VISIT_CODE_PATHS)) != 0) {
+                    int[] failed = ids != null ? ids.toArray() : idsByType.get(typeName);
+                    retryLater(typeName, failed == null ? new int[0] : failed);
+                }
+                return;
+            }
             if (applied != null && (applied.intValue() & VISIT_CODE_PATHS) != 0) {
                 // The code-paths visit may be what failed, as one pushing a method past the JVM's 64 KB code limit:
                 // never applied to the class again, so a retransformation with the inventory's alone keeps that one.
@@ -1216,7 +1363,7 @@ final class ApplicationMethodsSensor {
         public void onIgnored(TypeDescription type, ClassLoader classLoader, JavaModule module, boolean loaded) {
             // A loaded class of a matched package the transformer leaves alone (synthetic, from a test root): seen, so
             // no later claim retransforms it again for nothing.
-            if (loaded && inventoryOn && AgentInstaller.inPackages(type.getName(), matching)) {
+            if (loaded && (inventoryOn || caughtOn) && AgentInstaller.inPackages(type.getName(), matching)) {
                 markSeen(classLoader, type.getName());
             }
         }
@@ -1302,6 +1449,44 @@ final class ApplicationMethodsSensor {
         if (codePathsOn && !codePathsSelfTestPassed) {
             selfTestCodePaths();
         }
+        if (caughtOn && !caughtSelfTestPassed) {
+            selfTestCaught();
+        }
+    }
+
+    private void selfTestCaught() {
+        Map<String, String> steps = new LinkedHashMap<String, String>();
+        long[] hits;
+        CaughtExceptions.beginSelfTest();
+        try {
+            steps.put("probe", ExecutorSensor.step(new CaughtStep(), 5));
+        } finally {
+            hits = CaughtExceptions.endSelfTest();
+        }
+        String outcome = steps.get("probe");
+        boolean ran = "ok".equals(outcome);
+        boolean rejected = caughtRejected.contains(CAUGHT_PROBE);
+        Map<String, String> results = new LinkedHashMap<String, String>();
+        results.put(CAUGHT_HOOKS[0][0], hits[0] > 0 ? "passed" : ran ? "failed" : "not-exercised (" + outcome + ")");
+        results.put(CAUGHT_HOOKS[1][0], hits[1] > 0 ? "passed" : ran ? "failed" : "not-exercised (" + outcome + ")");
+        caughtSelfTest = results;
+        caughtSelfTestSteps = steps;
+        if (ran && hits[0] > 0 && hits[1] > 0 && !rejected) {
+            caughtSelfTestPassed = true;
+            caughtSelfTestError = null;
+            caughtFailure = null;
+            CaughtExceptions.enable();
+        } else {
+            caughtSelfTestPassed = false;
+            caughtSelfTestError = "self-test failed: handler entries " + hits[0] + ", exits " + hits[1]
+                    + (rejected ? ", the probe's transformation was rejected" : "") + " " + steps;
+            CaughtExceptions.suspend();
+            CaughtExceptions.disable(generation, false, caughtSelfTestError);
+            AgentBridge.message("the BootUI agent's caught-exceptions sensor failed its self-test and was removed: "
+                    + caughtSelfTestError);
+            removeVisit(VISIT_CAUGHT);
+            caughtFailure = stuck ? "self-test-failed (release-failed)" : "self-test-failed";
+        }
     }
 
     private void selfTestInventory() {
@@ -1332,7 +1517,7 @@ final class ApplicationMethodsSensor {
             CodeInventory.disable(generation, false, selfTestError);
             AgentBridge.message(
                     "the BootUI agent's inventory sensor failed its self-test and was removed: " + selfTestError);
-            removeVisit(true);
+            removeVisit(VISIT_INVENTORY);
             inventoryFailure = stuck ? "self-test-failed (release-failed)" : "self-test-failed";
         }
     }
@@ -1363,21 +1548,23 @@ final class ApplicationMethodsSensor {
             CodePaths.disable(generation, false, codePathsSelfTestError);
             AgentBridge.message("the BootUI agent's code-paths sensor failed its self-test and was removed: "
                     + codePathsSelfTestError);
-            removeVisit(false);
+            removeVisit(VISIT_CODE_PATHS);
             codePathsFailure = stuck ? "self-test-failed (release-failed)" : "self-test-failed";
         }
     }
 
     /** Removes one visit after its self-test failed: the whole transformer when it was the last one. */
-    private void removeVisit(boolean inventory) {
+    private void removeVisit(int visit) {
         synchronized (this) {
-            if (inventory) {
+            if (visit == VISIT_INVENTORY) {
                 inventoryOn = false;
-            } else {
+            } else if (visit == VISIT_CODE_PATHS) {
                 codePathsOn = false;
+            } else {
+                caughtOn = false;
             }
         }
-        if (!inventoryOn && !codePathsOn) {
+        if (!inventoryOn && !codePathsOn && !caughtOn) {
             reset();
         } else {
             switchVisits();
@@ -1426,6 +1613,24 @@ final class ApplicationMethodsSensor {
                     || !String.valueOf(before + 1).equals(thrown)
                     || afterThrow != before) {
                 throw new IllegalStateException(found);
+            }
+        }
+    }
+
+    /**
+     * Runs the caught-exceptions probe, loading it now if needed, so the installed transformer instruments it as it is
+     * defined: its handlers must report their entries, and its rethrow through a helper the method's exit.
+     */
+    static final class CaughtStep implements ExecutorSensor.Step {
+
+        @Override
+        public void run(int seconds) throws Exception {
+            Class<?> probe = Class.forName(CAUGHT_PROBE, true, ApplicationMethodsSensor.class.getClassLoader());
+            Method run = probe.getDeclaredMethod("run");
+            run.setAccessible(true);
+            Object answer = run.invoke(null);
+            if (!Integer.valueOf(CaughtProbe.EXPECTED).equals(answer)) {
+                throw new IllegalStateException("the probe answered " + answer);
             }
         }
     }

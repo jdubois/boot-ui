@@ -209,6 +209,9 @@ function sensorRetransformation(sensor) {
 function hookRole(sensor, hook) {
   if (hook.kind === 'record') {
     if (sensor.id === 'code-paths') return 'times bean methods per request'
+    if (sensor.id === 'caught-exceptions') {
+      return hook.id === 'exceptional exit' ? 'sees caught exceptions thrown again' : 'reports caught exceptions'
+    }
     return hook.id === 'class load' ? 'counts loaded classes' : 'records first calls'
   }
   if (sensor.id === 'threads') return hook.kind === 'apply' ? 'runs threads' : 'starts threads'
