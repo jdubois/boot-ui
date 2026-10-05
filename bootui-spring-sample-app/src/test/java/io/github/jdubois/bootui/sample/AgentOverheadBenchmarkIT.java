@@ -36,6 +36,13 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * {@code bootui.benchmark.report} names the report, {@code spring-mvc-agent} by default, whose summary is {@code
  * summary.properties}; any other name writes {@code <name>.md} and {@code <name>.properties}.
  *
+ * <p>{@code bootui.benchmark.route=sinks} drives {@value #SINKS_ROUTE}: two query parameters, the search's SQL
+ * statement, and one file read, for the security-sinks sensor's request-value matching (M5-6b). {@code
+ * bootui.benchmark.agent.extra} and {@code bootui.benchmark.agent.baseline-extra} add comma-separated application
+ * arguments to the agent arm and to the other arm, so an A/B can claim the same sensors with matching on and off.
+ * {@code bootui.benchmark.agent.rule-percent} prints whether the median met a rule (PASS or FAIL) without failing on it;
+ * {@code fail-above-percent} prints the same and fails.
+ *
  * <p>The budget is 10 %. Timings depend on the machine, so this is opt-in. It fails only when
  * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it. CI sets it to 30,
  * well above the run-to-run noise on a shared runner, so only a clear regression fails a build (see CONTRIBUTING.md):</p>
@@ -51,6 +58,9 @@ class AgentOverheadBenchmarkIT {
 
     /** The I/O variant's route: the search, one outbound connect, and one file read. */
     static final String IO_ROUTE = "/api/side-effects/benchmark-io?term=console";
+
+    /** The security-sinks variant's route (M5-6b): two query parameters, one SQL statement, and one file read. */
+    static final String SINKS_ROUTE = "/api/side-effects/benchmark-sinks?term=console&tag=sample-tag";
 
     private static final Duration WARM_UP = Duration.ofSeconds(10);
 
@@ -73,14 +83,30 @@ class AgentOverheadBenchmarkIT {
         int passes = Integer.getInteger("bootui.benchmark.passes", 3);
         String sensors = System.getProperty("bootui.benchmark.agent.sensors", "");
         String failAbove = System.getProperty("bootui.benchmark.agent.fail-above-percent", "");
-        boolean io = "io".equals(System.getProperty("bootui.benchmark.route", ""));
-        String route = io ? IO_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        String routeName = System.getProperty("bootui.benchmark.route", "");
+        boolean io = "io".equals(routeName);
+        String route = io ? IO_ROUTE : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        List<String> agentExtra = arguments(System.getProperty("bootui.benchmark.agent.extra", ""));
+        List<String> baselineExtra = arguments(System.getProperty("bootui.benchmark.agent.baseline-extra", ""));
+        String rule = System.getProperty("bootui.benchmark.agent.rule-percent", "");
         String baseline = System.getProperty("bootui.benchmark.agent.baseline-sensors", "");
         String reportName = System.getProperty("bootui.benchmark.report", "spring-mvc-agent");
         String baselineLabel = baseline.isBlank() ? "No agent" : "Agent, sensors " + baseline;
         try (Stub stub = io ? new Stub() : null) {
             List<String> extra = stub == null ? List.of() : List.of("--sample.benchmark.stub-port=" + stub.port());
-            measure(agent, passes, sensors, failAbove, route, baseline, baselineLabel, reportName, extra);
+            measure(
+                    agent,
+                    passes,
+                    sensors,
+                    failAbove,
+                    route,
+                    baseline,
+                    baselineLabel,
+                    reportName,
+                    extra,
+                    agentExtra,
+                    baselineExtra,
+                    rule);
         }
     }
 
@@ -93,8 +119,15 @@ class AgentOverheadBenchmarkIT {
             String baseline,
             String baselineLabel,
             String reportName,
-            List<String> extra)
+            List<String> extra,
+            List<String> agentExtra,
+            List<String> baselineExtra,
+            String rule)
             throws Exception {
+        List<String> agentArguments = new ArrayList<>(extra);
+        agentArguments.addAll(agentExtra);
+        List<String> baselineArguments = new ArrayList<>(extra);
+        baselineArguments.addAll(baselineExtra);
         // The load generator in this JVM pays for JIT-compiling its HTTP client in its first run, which is discarded.
         run("JVM warm-up, discarded", null, sensors, 0, route, extra);
         List<Result> results = new ArrayList<>();
@@ -107,10 +140,22 @@ class AgentOverheadBenchmarkIT {
             Result withoutAgent = null;
             for (boolean attached : agentFirst ? new boolean[] {true, false} : new boolean[] {false, true}) {
                 Result result = attached
-                        ? run("Agent, " + describe(sensors) + ", pass " + pass, agent, sensors, pass, route, extra)
+                        ? run(
+                                "Agent, " + describe(sensors) + ", pass " + pass,
+                                agent,
+                                sensors,
+                                pass,
+                                route,
+                                agentArguments)
                         : baseline.isBlank()
-                                ? run(baselineLabel + ", pass " + pass, null, sensors, pass, route, extra)
-                                : run(baselineLabel + ", pass " + pass, agent, baseline, pass, route, extra);
+                                ? run(baselineLabel + ", pass " + pass, null, sensors, pass, route, baselineArguments)
+                                : run(
+                                        baselineLabel + ", pass " + pass,
+                                        agent,
+                                        baseline,
+                                        pass,
+                                        route,
+                                        baselineArguments);
                 results.add(result);
                 if (attached) {
                     withAgent = result;
@@ -176,6 +221,25 @@ class AgentOverheadBenchmarkIT {
                         BUDGET_PERCENT,
                         CaptureOverheadBenchmarkTest.median(with, result -> result.percentileMillis(99)),
                         CaptureOverheadBenchmarkTest.median(without, result -> result.percentileMillis(99))));
+
+        if (!agentExtra.isEmpty() || !baselineExtra.isEmpty()) {
+            report.append(String.format(
+                    Locale.ROOT,
+                    "%nThe agent run also passes %s; the other run %s.%n",
+                    agentExtra.isEmpty() ? "nothing more" : String.join(" ", agentExtra),
+                    baselineExtra.isEmpty() ? "nothing more" : "passes " + String.join(" ", baselineExtra)));
+        }
+        String limit = !rule.isBlank() ? rule : failAbove;
+        if (!limit.isBlank()) {
+            boolean pass = overheadPercent <= Double.parseDouble(limit);
+            report.append(String.format(
+                    Locale.ROOT,
+                    "%n**%s**: %.1f %% against a rule of at most %s %% over %d pairs.%n",
+                    pass ? "PASS" : "FAIL",
+                    overheadPercent,
+                    limit,
+                    passes));
+        }
 
         Path directory = Path.of("target", "agent-overhead");
         Files.createDirectories(directory);
@@ -254,6 +318,16 @@ class AgentOverheadBenchmarkIT {
         throw new IllegalStateException("The Code Inventory scan did not end in 60 s: " + sample.tail());
     }
 
+    /** Application arguments from a comma-separated property, such as {@code --a=b,--c=d}. */
+    private static List<String> arguments(String property) {
+        return property.isBlank()
+                ? List.of()
+                : Arrays.stream(property.split(","))
+                        .map(String::trim)
+                        .filter(text -> !text.isEmpty())
+                        .toList();
+    }
+
     private static String describe(String sensors) {
         return sensors.isBlank()
                 ? "the default sensors (" + String.join(", ", AgentSensorSettings.DEFAULT_SENSORS) + ")"
@@ -264,7 +338,12 @@ class AgentOverheadBenchmarkIT {
     private static void assertSensorsRecorded(JsonNode report, String sensors) {
         List<String> expected = sensors.isBlank()
                 ? AgentSensorSettings.DEFAULT_SENSORS
-                : Arrays.stream(sensors.split(",")).map(String::trim).toList();
+                : Arrays.stream(sensors.split(","))
+                        .map(String::trim)
+                        // Its request-value matching rides on other sensors' hooks: the agent reports no hook of its
+                        // own.
+                        .filter(sensor -> !sensor.equals(AgentSensorSettings.SECURITY_SINKS))
+                        .toList();
         List<String> active = new ArrayList<>();
         for (JsonNode sensor : report.path("sensors")) {
             if ("installed".equals(sensor.path("state").asText())

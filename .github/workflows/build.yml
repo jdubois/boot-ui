@@ -515,7 +515,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 100
+    timeout-minutes: 140
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -579,6 +579,33 @@ jobs:
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      # Request-value matching of the security-sinks sensor (M5-6b1, D37), on the sinks route (two query parameters,
+      # one SQL statement, and one file read): its own increment, the same sensors with matching on against off, fifteen
+      # pairs, fails the build above 3 %; the cumulative overhead with it, nine pairs against no agent, prints PASS or
+      # FAIL against 10 % and fails only above 30 %. Matching stays opt-in whatever they measure.
+      - name: Measure request-value matching's share on the sinks route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=3
+          -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-sinks-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,security-sinks
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,files,security-sinks
+          -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=true
+          -Dbootui.benchmark.agent.baseline-extra=--bootui.agent.security-sinks.request-values=false
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with request-value matching on the sinks route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.agent.rule-percent=10
+          -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-agent-sinks
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,security-sinks
+          -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=true
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
       - name: Publish the overhead report
         if: ${{ !cancelled() }}
         run: |
@@ -593,7 +620,8 @@ jobs:
           if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
             echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
           fi
-          for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-files-ab spring-mvc-agent-io-files; do
+          for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-files-ab spring-mvc-agent-io-files \
+            spring-mvc-sinks-ab spring-mvc-agent-sinks; do
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")

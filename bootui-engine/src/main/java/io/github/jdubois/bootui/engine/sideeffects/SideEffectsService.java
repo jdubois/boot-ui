@@ -74,8 +74,8 @@ public final class SideEffectsService implements AutoCloseable {
             + " the host names the JVM resolves; and, opt-in, the files it opens, deletes, moves, and copies, through"
             + " FileInputStream, FileOutputStream, RandomAccessFile, the Files methods, and FileChannel.open, and the"
             + " environment variables and system properties it reads by name through System.getenv and"
-            + " System.getProperty. Threads,"
-            + " blocking, and security sinks are not available in this version.";
+            + " System.getProperty; and, opt-in, request input reaching SQL text, a command, a file path, or an outbound"
+            + " URL unchanged (security sinks). Threads and blocking are not available in this version.";
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -653,6 +653,8 @@ public final class SideEffectsService implements AutoCloseable {
     private static boolean matches(SideEffectsRowDto row, String needle) {
         return contains(row.attribution(), needle)
                 || contains(row.target(), needle)
+                || contains(row.parameter(), needle)
+                || contains(row.kind(), needle)
                 || contains(row.callSite(), needle)
                 || contains(row.insideMethod(), needle)
                 || contains(row.sensor(), needle)

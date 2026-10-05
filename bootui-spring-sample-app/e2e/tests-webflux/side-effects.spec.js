@@ -169,4 +169,49 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     await page.getByRole('tab', {name: /Files and processes/}).click()
     await expect(page.locator('main')).toContainText('Processes the application starts')
   })
+
+  test('shows request input reaching a sink as a fact, with the value redacted (M5-6b)', async ({
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'Security sinks need the BootUI agent and request-value matching')
+    const value = `seed${Date.now()}`
+    const bound = `bound${Date.now()}`
+    const sinkRows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json()).rows ??
+      []
+
+    // This sample uses R2DBC, which SQL Trace does not capture: no SQL text row.
+
+    // A file path and an outbound URL holding the value.
+    expect((await page.request.get(`/api/sinks/reports/${value}`)).ok()).toBeTruthy()
+    expect((await page.request.get(`/api/sinks/lookup?name=${value}`)).ok()).toBeTruthy()
+    await expect
+      .poll(async () => (await sinkRows()).filter((row) => ['file path', 'outbound URL'].includes(row.kind)).length, {
+        timeout: 30_000
+      })
+      .toBeGreaterThanOrEqual(2)
+    const rows = await sinkRows()
+    expect(rows.find((row) => row.kind === 'file path').target).toContain('{name}')
+    expect(rows.find((row) => row.kind === 'outbound URL').target).toMatch(/\?(.*&)?user/)
+    for (const row of rows) {
+      expect(row.detail).not.toMatch(/vulnerab|injection/i)
+    }
+
+    // No value reaches any Side Effects read, nor the bound query's statement.
+    const everything = JSON.stringify([
+      await (await page.request.get('/bootui/api/side-effects')).json(),
+      ...(await Promise.all(
+        ['processes', 'network', 'files', 'environment', 'security-sinks'].map(async (sensor) =>
+          (await page.request.get(`/bootui/api/side-effects/sensor?sensor=${sensor}&limit=500`)).json()
+        )
+      ))
+    ])
+    expect(everything).not.toContain(value)
+    expect(everything).not.toContain(bound)
+
+    await page.goto('/bootui/#/side-effects')
+    await page.getByRole('tab', {name: /Security sinks/}).click()
+    await expect(page.locator('main')).toContainText('Request input reached this')
+  })
 })

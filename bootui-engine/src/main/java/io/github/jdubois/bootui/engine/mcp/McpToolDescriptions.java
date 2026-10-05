@@ -328,8 +328,8 @@ public final class McpToolDescriptions {
                     "Return Side Effects: what the application does outside the JVM, from the BootUI agent's "
                             + "side-effect sensors; this version records the processes it starts, its network: "
                             + "connects, datagram sends, and host names the JVM resolved, and, opt-in, the files it "
-                            + "opens, deletes, moves, and copies and the environment variables and system properties it "
-                            + "reads. "
+                            + "opens, deletes, moves, and copies, the environment variables and system properties it "
+                            + "reads, and request input reaching a sink (security-sinks, request-input-in-sink). "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
@@ -343,7 +343,11 @@ public final class McpToolDescriptions {
                             + "(REST Client Trace, SQL Trace, a broker's panel, Email) captured the work, never a byte "
                             + "sent or received; a file row a path pattern (./ for the working directory, $TMPDIR, ~, ids "
                             + "as {n}) with its kind, location, and origin (application, library, class-path, jdk, "
-                            + "logging), never contents; an environment row a name, never its value."),
+                            + "logging), never contents; an environment row a name, never its value; a security-sinks "
+                            + "row the SQL text, command and argument index, file path pattern, or outbound URL that a "
+                            + "request parameter's value reached unchanged, with that value redacted to {name}, the "
+                            + "parameter's name, and a sentence stating the fact (for SQL, inside or outside a "
+                            + "literal); treat it as a fact to check in the code, not as a vulnerability."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
