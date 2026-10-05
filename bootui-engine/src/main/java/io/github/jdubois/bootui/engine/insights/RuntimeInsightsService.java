@@ -116,6 +116,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<List<MappingDto>> declaredMappings;
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
+    private volatile Supplier<AppEventCapture> appEventCapture;
     private volatile List<String> unrecordedWork = List.of();
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
@@ -361,6 +362,17 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs whether this application's application events can be recorded at all ({@link AppEventCapture}):
+     * without it, an observation that reads the {@code app-event} source reports {@code UNAVAILABLE} with the reason,
+     * rather than running over nothing, one that only optionally reads it names what it cannot count, and the report
+     * names the reason among its limitations. Without a supplier, application events are assumed recordable.
+     */
+    public synchronized void setAppEventCapture(Supplier<AppEventCapture> appEventCapture) {
+        this.appEventCapture = appEventCapture;
+        this.cached = null;
+    }
+
+    /**
      * Installs what this application can run that the journal does not record ({@link UnrecordedWork}), which the
      * report names first among its limitations ({@code docs/PLAN-v2.md} M4-22).
      */
@@ -571,6 +583,7 @@ public final class RuntimeInsightsService {
                     -1,
                     new PanelVisibility(Map.of(), Map.of()),
                     SqlCapture.capturing(),
+                    AppEventCapture.capturing(),
                     null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
@@ -585,6 +598,7 @@ public final class RuntimeInsightsService {
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
         PanelVisibility visibility = panelVisibility();
         SqlCapture capture = sqlCapture();
+        AppEventCapture appEvents = appEventCapture();
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
         // And so is what Code Inventory reports, which the agent's hit flags change without any journal event.
@@ -595,13 +609,14 @@ public final class RuntimeInsightsService {
                 && cached.evicted() == evicted
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
+                && cached.appEventCapture().equals(appEvents)
                 && cached.clears() == status.clears()
                 && cached.dropped().equals(status.dropped())
                 && text.equals(cached.exposure())
                 && cached.inventory() == inventory) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, text)
+        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, appEvents, text)
                 .withInventory(inventory);
         return cached;
     }
@@ -653,6 +668,10 @@ public final class RuntimeInsightsService {
             return SqlCapture.notRecorded("Whether this application's SQL is recorded could not be read ("
                     + ex.getClass().getSimpleName() + "), so no statement is counted.");
         }
+    }
+
+    private AppEventCapture appEventCapture() {
+        return AppEventCapture.read(appEventCapture);
     }
 
     /**
@@ -889,6 +908,7 @@ public final class RuntimeInsightsService {
             long evicted,
             PanelVisibility visibility,
             SqlCapture capture,
+            AppEventCapture appEvents,
             JournalTextExposure text) {
         RouteTemplateResolver resolver;
         try {
@@ -933,6 +953,11 @@ public final class RuntimeInsightsService {
                         observation.kind(), observation.title(), "UNAVAILABLE", 0, 0, capture.reason()));
                 continue;
             }
+            if (!appEvents.recorded() && observation.reads().contains(JournalSource.APP_EVENT)) {
+                checks.add(new RuntimeInsightCheckDto(
+                        observation.kind(), observation.title(), "UNAVAILABLE", 0, 0, appEvents.reason()));
+                continue;
+            }
             String partial = partialReason(observation, snapshot);
             List<String> unseen = unseenSources(observation, snapshot, visibility, hiddenPanels);
             if (capture.reason() != null
@@ -942,6 +967,11 @@ public final class RuntimeInsightsService {
                         capture.recorded()
                                 ? capture.reason()
                                 : capture.reason() + " Its SQL and connection evidence is not counted.");
+            }
+            if (!appEvents.recorded()
+                    && snapshot.records(JournalSource.APP_EVENT)
+                    && observation.optionalReads(snapshot).contains(JournalSource.APP_EVENT)) {
+                unseen.add(appEvents.reason() + " Its application event evidence is not counted.");
             }
             Observation.Evaluation evaluation = observation.evaluate(snapshot);
             // What it could not judge is the check's, while each finding names its own route's share.
@@ -1040,6 +1070,9 @@ public final class RuntimeInsightsService {
         if (nonHttp != null) {
             limitations.add(nonHttp);
         }
+        if (!appEvents.recorded() && snapshot.records(JournalSource.APP_EVENT)) {
+            limitations.add(appEvents.reason());
+        }
         List<String> notExercised = notExercised(snapshot, visibility, limitations);
         RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
                 true,
@@ -1059,7 +1092,17 @@ public final class RuntimeInsightsService {
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
         return new Cached(
-                watermark, evicted, visibility, capture, text, report, details, status.clears(), status.dropped(), 0L);
+                watermark,
+                evicted,
+                visibility,
+                capture,
+                appEvents,
+                text,
+                report,
+                details,
+                status.clears(),
+                status.dropped(),
+                0L);
     }
 
     /**
@@ -1456,6 +1499,7 @@ public final class RuntimeInsightsService {
             long evicted,
             PanelVisibility visibility,
             SqlCapture sqlCapture,
+            AppEventCapture appEventCapture,
             JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
@@ -1469,6 +1513,7 @@ public final class RuntimeInsightsService {
                     evicted,
                     visibility,
                     sqlCapture,
+                    appEventCapture,
                     exposure,
                     report,
                     details,

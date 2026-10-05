@@ -10,7 +10,11 @@ applyTo: "bootui-spring-autoconfigure/**,bootui-spring-boot-starter/**,bootui-sp
 - Four autoconfigurations are registered in `AutoConfiguration.imports`: servlet and reactive BootUI configurations,
   plus their Spring Security companions. They are registered, not component-scanned. A fifth,
   `BootUiShellGuardAutoConfiguration`, is the inverse: it is gated by `BootUiInactiveCondition` and exists only while
-  BootUI is off, to keep the packaged `/bootui` classpath shell a plain 404 on both stacks.
+  BootUI is off, to keep the packaged `/bootui` classpath shell a plain 404 on both stacks. A sixth,
+  `BootUiApplicationEventMulticasterAutoConfiguration`, activates exactly with the servlet or reactive configuration and
+  defines BootUI's `applicationEventMulticaster` last (after Spring Modulith's auto-configuration and at the lowest
+  precedence), backing off from any other definition; never move that bean back into a configuration that sorts
+  earlier, or an application defining the name, as Spring Modulith does, fails to start.
 - Register shared controllers in both `BootUiAutoConfiguration` and `BootUiReactiveAutoConfiguration`. Put genuinely
   stack-specific bindings in the servlet or `...autoconfigure.reactive` package and its matching import list.
 - Activation is fail-closed through the shared `BootUiActivationCondition`: `bootui.enabled=ON|OFF` wins; otherwise an

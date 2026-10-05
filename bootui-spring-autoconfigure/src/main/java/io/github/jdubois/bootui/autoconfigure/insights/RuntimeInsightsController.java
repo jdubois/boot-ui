@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.insights;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentPropagation;
+import io.github.jdubois.bootui.autoconfigure.journal.SpringAppEventCapture;
 import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
@@ -95,6 +96,11 @@ public class RuntimeInsightsController {
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
         this.insights.setSqlCapture(new SpringSqlCapture(context));
+        // Without BootUI's event multicaster, as beside Spring Modulith's, no application event is recorded (M4-8).
+        SpringAppEventCapture appEvents = new SpringAppEventCapture(context);
+        this.insights.setAppEventCapture(appEvents);
+        this.impact.setAppEventCapture(appEvents);
+        this.comparison.setAppEventCapture(appEvents);
         this.insights.setUnrecordedWork(UnrecordedWork.detect(context.getClassLoader()));
         // The live policy, so a runtime change of bootui.expose-values applies to the next read (PLAN-v2 §8).
         BootUiExposure exposure = context.getBeanProvider(BootUiExposure.class).getIfAvailable();

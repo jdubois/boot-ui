@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.insights.AppEventCapture;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -88,6 +89,26 @@ class PreviousRunSelectionTests {
 
             assertThat(comparison.previous().runId()).isEqualTo(newest.id());
             assertThat(comparison.limitations()).noneMatch(limitation -> limitation.contains("served none"));
+        } finally {
+            journal.close();
+        }
+    }
+
+    @Test
+    void aComparisonSaysWhyItComparesNoApplicationEventEdgeWhenNoneIsRecorded() {
+        RunHistory history = new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null);
+        history.record(RunSummary.of(RunIdentity.start(), served(3), 1));
+        RuntimeJournal journal = new RuntimeJournal(SETTINGS, RunIdentity.start());
+        try {
+            RunComparisonService service = new RunComparisonService(journal, new JournalAggregates(), history);
+            service.setAppEventCapture(() -> AppEventCapture.notRecorded(AppEventCapture.CUSTOM_MULTICASTER));
+            assertThat(service.compare(null).limitations())
+                    .anySatisfy(limitation -> assertThat(limitation)
+                            .contains(AppEventCapture.CUSTOM_MULTICASTER, "event edges are not compared"));
+
+            service.setAppEventCapture(AppEventCapture::capturing);
+            assertThat(service.compare(null).limitations())
+                    .noneSatisfy(limitation -> assertThat(limitation).contains(AppEventCapture.CUSTOM_MULTICASTER));
         } finally {
             journal.close();
         }
