@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
+  became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
+  above, and incomplete evidence is shown as unknown with its reason, never as swallowed
+  (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`). ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+
 - **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
   sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
   that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
@@ -643,6 +648,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **The runtime journal records the sample applications' logs.** Its Spring appender skipped every logger under
+  `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
   operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
   ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
