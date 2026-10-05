@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+         child.project.url.inherit.append.path="false">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.julien-dubois.bootui</groupId>
     <artifactId>bootui-parent</artifactId>
-    <version>1.19.0</version>
+    <version>1.20.0</version>
     <packaging>pom</packaging>
 
     <name>BootUI Parent</name>
@@ -29,7 +30,9 @@
         </developer>
     </developers>
 
-    <scm>
+    <scm child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false"
+         child.scm.url.inherit.append.path="false">
         <connection>scm:git:https://github.com/jdubois/boot-ui.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/jdubois/boot-ui.git</developerConnection>
         <url>https://github.com/jdubois/boot-ui</url>
@@ -39,12 +42,9 @@
     <modules>
         <module>bootui-core</module>
         <module>bootui-engine</module>
-        <module>bootui-spring-autoconfigure</module>
         <module>bootui-spring-boot-starter</module>
-        <module>bootui-spring-boot-starter-reactive</module>
         <module>bootui-ui</module>
         <module>bootui-conformance</module>
-        <module>bootui-client</module>
         <module>bootui-cli</module>
         <module>bootui-agent-bridge</module>
         <module>bootui-agent</module>
@@ -79,7 +79,7 @@
         <resilience4j.version>2.4.0</resilience4j.version>
         <spring-retry.version>2.0.13</spring-retry.version>
         <!-- Not managed by the Spring Boot BOM either: test-only in bootui-engine (ArchUnit fixtures) and in
-             bootui-spring-autoconfigure (a Surefire execution of its own), never a dependency of BootUI. -->
+             bootui-spring-boot-starter (a Surefire execution of its own), never a dependency of BootUI. -->
         <spring-modulith.version>2.1.1</spring-modulith.version>
         <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
@@ -88,6 +88,7 @@
         <flyway-verified-h2.version>2.3.232</flyway-verified-h2.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
+        <flatten-maven-plugin.version>1.8.0</flatten-maven-plugin.version>
         <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
         <native-build-tools-plugin.version>1.1.14</native-build-tools-plugin.version>
         <picocli.version>4.7.7</picocli.version>
@@ -101,6 +102,7 @@
         <central.autoPublish>true</central.autoPublish>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
+        <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
@@ -151,17 +153,7 @@
             </dependency>
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-spring-autoconfigure</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-spring-boot-starter</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-spring-boot-starter-reactive</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -229,7 +221,7 @@
                              needs no in-JVM thread-safety from test code, and every test in this reactor
                              that binds a real socket already binds to port 0 (ephemeral) rather than a
                              fixed port (embedded HttpServer fixtures in bootui-engine/
-                             bootui-spring-autoconfigure/bootui-quarkus, @SpringBootTest's
+                             bootui-spring-boot-starter/bootui-quarkus, @SpringBootTest's
                              WebEnvironment.RANDOM_PORT everywhere, and quarkus.http.test-port=0 in every
                              bootui-quarkus-integration-tests/* submodule); the only fixed-port literals
                              elsewhere are inert (ArchUnit bytecode-scan fixtures that are never actually
@@ -238,13 +230,13 @@
                              Deliberately NOT scaled to core count (e.g. 1C): CI (.github/workflows/build.yml)
                              and CONTRIBUTING.md's recommended local command both build with -T 1C, so
                              several sibling modules' own Surefire runs can already be executing concurrently
-                             (e.g. bootui-spring-autoconfigure and bootui-quarkus depend only on
+                             (e.g. bootui-spring-boot-starter and bootui-quarkus depend only on
                              bootui-engine, so they are reactor-parallel with each other). forkCount scaling
                              to the core count in each of those concurrent executions compounds with
                              reactor-level parallelism and oversubscribes CPU enough to trip real timeouts
                              (observed: a WebTestClient read exceeding its default 5s budget under that
                              combined load). A small fixed count still gives every large test module
-                             (bootui-engine, bootui-spring-autoconfigure) real intra-module parallelism
+                             (bootui-engine, bootui-spring-boot-starter) real intra-module parallelism
                              without multiplying out of control. -->
                         <forkCount>2</forkCount>
                         <reuseForks>true</reuseForks>
@@ -314,6 +306,11 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>${maven-enforcer-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-source-plugin</artifactId>
                     <version>${maven-source-plugin.version}</version>
                     <configuration>
@@ -346,6 +343,49 @@
                         <outputName>bootui-sbom</outputName>
                     </configuration>
                 </plugin>
+                <!--
+                    The published modules' consumer POMs. Each published module declares this plugin, which replaces
+                    its POM, for install, signing and the Central bundle, with a flattened one: no <parent>, every
+                    dependency version, scope, optional flag and exclusion resolved from bootui-parent's (or
+                    bootui-quarkus-parent's) dependency management, the metadata Maven Central requires (name,
+                    description, url, licenses, developers, scm) kept, and test dependencies, profiles, build and
+                    dependency management dropped. No consumer ever resolves either parent POM, so neither is
+                    published (see excludeArtifacts below).
+
+                    The flattened POM stays beside pom.xml (.flattened-pom.xml, gitignored), the plugin's default:
+                    Quarkus 3.33 takes the directory of a module's current POM file as its base directory, so a
+                    flattened POM under target/ breaks in-reactor Quarkus builds that consume bootui-quarkus.
+                    check-release-integrity.sh pins this configuration and the list of modules declaring it.
+                -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>flatten-maven-plugin</artifactId>
+                    <version>${flatten-maven-plugin.version}</version>
+                    <configuration>
+                        <flattenMode>ossrh</flattenMode>
+                        <flattenDependencyMode>direct</flattenDependencyMode>
+                        <pomElements>
+                            <profiles>remove</profiles>
+                            <repositories>remove</repositories>
+                        </pomElements>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>flatten</id>
+                            <phase>process-resources</phase>
+                            <goals>
+                                <goal>flatten</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>flatten-clean</id>
+                            <phase>clean</phase>
+                            <goals>
+                                <goal>clean</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
                 <plugin>
                     <groupId>org.sonatype.central</groupId>
                     <artifactId>central-publishing-maven-plugin</artifactId>
@@ -361,6 +401,13 @@
                             supported reactor-level filter.
                         -->
                         <excludeArtifacts>
+                            <!--
+                                The parents build the reactor but are not published: every published module
+                                carries a flattened, parentless POM (flatten-maven-plugin below), so no consumer
+                                ever resolves them.
+                            -->
+                            <excludeArtifact>bootui-parent</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-parent</excludeArtifact>
                             <excludeArtifact>bootui-conformance</excludeArtifact>
                             <excludeArtifact>bootui-agent-bridge</excludeArtifact>
                             <excludeArtifact>bootui-coverage</excludeArtifact>

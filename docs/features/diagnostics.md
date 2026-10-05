@@ -304,7 +304,7 @@ handlers on the same method and path that differ only in their variable patterns
 `{id:[a-z]+}`, therefore share one row: a pattern is never shown. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings, matched under
 `quarkus.http.root-path` and `quarkus.rest.path`; a prefix contributed only by `@ApplicationPath` is not known at
 runtime, so those routes fall back to masked paths. Spring
-WebFlux records the matched handler pattern with the OpenTelemetry integration, which the reactive starter includes;
+WebFlux records the matched handler pattern with the OpenTelemetry integration, which the BootUI starter includes;
 without it, WebFlux routes fall back to masked paths, and the panel says so. Query strings are never part of a route.
 
 With Spring for GraphQL, every operation is posted to one endpoint, so BootUI adds the operation graphql-java parsed to

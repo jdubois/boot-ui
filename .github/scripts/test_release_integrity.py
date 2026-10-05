@@ -10,6 +10,20 @@ SCRIPT = ROOT / ".github/scripts/check-release-integrity.sh"
 WORKFLOW = ROOT / ".github/workflows/release.yml"
 PAGES = ROOT / ".github/workflows/pages.yml"
 DOCKER = ROOT / ".github/workflows/docker-publish.yml"
+SMOKE = ROOT / ".github/scripts/consumer-smoke-tests.sh"
+STAGE = ROOT / ".github/scripts/stage-release-candidate.sh"
+BUNDLE_CHECK = ROOT / ".github/scripts/check-central-bundle.py"
+STARTER_POM = "bootui-spring-boot-starter/pom.xml"
+PUBLISHED = (
+    "bootui-core",
+    "bootui-engine",
+    "bootui-ui",
+    "bootui-spring-boot-starter",
+    "bootui-quarkus",
+    "bootui-quarkus-deployment",
+    "bootui-cli",
+    "bootui-agent",
+)
 
 NEXT_VERSION_CALL = (
     'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"'
@@ -21,7 +35,13 @@ PAGES_UPLOAD_CONDITION = "        if: github.event_name != 'pull_request' && ste
 DOCKER_CONFIG_CONDITION = "    if: ${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}\n"
 NEWEST_MAJOR_CALL = 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"'
 REDEPLOY_CONDITION = "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'"
-PUBLICATION_MODULES = "bootui-client,bootui-cli,bootui-agent-bridge,bootui-agent \\\n"
+PUBLICATION_MODULES = "bootui-cli,bootui-agent-bridge,bootui-agent \\\n"
+STAGED_SMOKE = 'bash .github/scripts/consumer-smoke-tests.sh "$VERSION" "$RUNNER_TEMP/bootui-candidate"'
+CENTRAL_SMOKE = '          bash .github/scripts/consumer-smoke-tests.sh "$VERSION"\n'
+WEBFLUX_REACTIVE = (
+    'run_spring_smoke "Spring WebFlux" "$WEBFLUX_SMOKE_DIR" "$WEBFLUX_PORT" REACTIVE '
+    "org.springframework.boot.reactor.netty.NettyWebServer"
+)
 AGENT_AVAILABILITY = '"bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"\n'
 AGENT_CONSUMER = '-f "$AGENT_SMOKE_DIR/pom.xml"'
 AGENT_ATTACH = 'java -javaagent:"$AGENT_JAR" -version'
@@ -33,22 +53,38 @@ AGENT_DEPENDENCY_FREE = 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.ja
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
-    def check(self, content=None, pages=None, docker=None):
+    def check(self, content=None, pages=None, docker=None, smoke=None, stage=None, bundle=None, root_files=None):
+        """Runs the guard on mutated copies. root_files maps repository paths to replacement contents and
+        runs the guard against a copy of the POMs and the release line it reads from the repository."""
         with tempfile.TemporaryDirectory() as directory:
             paths = []
             for name, text, source in (
                 ("release.yml", content, WORKFLOW),
                 ("pages.yml", pages, PAGES),
                 ("docker-publish.yml", docker, DOCKER),
+                ("consumer-smoke-tests.sh", smoke, SMOKE),
+                ("stage-release-candidate.sh", stage, STAGE),
+                ("check-central-bundle.py", bundle, BUNDLE_CHECK),
             ):
                 path = Path(directory) / name
                 path.write_text(source.read_text(encoding="utf-8") if text is None else text, encoding="utf-8")
                 paths.append(str(path))
+            env = dict(os.environ)
+            if root_files is not None:
+                root = Path(directory) / "repository"
+                for relative in ["pom.xml", ".github/release-line"] + [f"{m}/pom.xml" for m in PUBLISHED]:
+                    target = root / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text((ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+                for relative, text in root_files.items():
+                    (root / relative).write_text(text, encoding="utf-8")
+                env["RELEASE_INTEGRITY_ROOT"] = str(root)
             return subprocess.run(
                 ["bash", str(SCRIPT), *paths],
                 capture_output=True,
                 text=True,
                 check=False,
+                env=env,
             )
 
     def mutate(self, old, new, count=1):
@@ -61,8 +97,11 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assertEqual(content.count(old), count, f"fixture drifted: {old!r}")
         return content.replace(old, new)
 
-    def assert_rejected(self, content, message, pages=None, docker=None):
-        result = self.check(content, pages, docker)
+    def mutate_root(self, relative, old, new, count=1):
+        return {relative: self.mutate_file(ROOT / relative, old, new, count)}
+
+    def assert_rejected(self, content, message, pages=None, docker=None, **files):
+        result = self.check(content, pages, docker, **files)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(message, result.stderr)
 
@@ -146,9 +185,9 @@ class ReleaseIntegrityTests(unittest.TestCase):
 
     def test_java_agent_is_in_the_publication_reactor(self):
         for modules in (
-            "bootui-client,bootui-cli \\\n",
-            "bootui-client,bootui-cli,bootui-agent \\\n",
-            "bootui-client,bootui-cli,bootui-agent-bridge \\\n",
+            "bootui-cli \\\n",
+            "bootui-cli,bootui-agent \\\n",
+            "bootui-cli,bootui-agent-bridge \\\n",
         ):
             with self.subTest(modules=modules):
                 self.assert_rejected(
@@ -176,19 +215,203 @@ class ReleaseIntegrityTests(unittest.TestCase):
             (AGENT_DORMANT, 'AGENT_DORMANT_LINE="attached"', "dormant startup assertion"),
         ):
             with self.subTest(old=old):
-                self.assert_rejected(self.mutate(old, new), message)
+                self.assert_rejected(None, message, smoke=self.mutate_file(SMOKE, old, new))
 
-    def test_java_agent_smoke_test_resolves_from_central(self):
-        content = WORKFLOW.read_text(encoding="utf-8")
-        purge = '          rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"\n'
+    def test_every_consumer_resolves_bootui_after_the_local_artifacts_are_dropped(self):
+        content = SMOKE.read_text(encoding="utf-8")
+        purge = 'rm -rf "$LOCAL_REPO/com/julien-dubois/bootui"\n'
         self.assertEqual(content.count(purge), 1, "fixture drifted: local artifact purge")
         content = content.replace(purge, "")
         content = content.replace(
-            '          echo "Java agent smoke test passed."\n',
-            '          echo "Java agent smoke test passed."\n' + purge,
+            'echo "Java agent smoke test passed."\n', 'echo "Java agent smoke test passed."\n' + purge, 1
+        )
+        self.assert_rejected(None, "after the local BootUI artifacts are dropped", smoke=content)
+
+    def test_resolved_artifacts_must_come_from_the_source_under_test(self):
+        for old, new, message in (
+            ('"$(basename "$file")>${EXPECTED_ORIGIN}="', '"$(basename "$file")>"', "per-file origin check"),
+            ('readonly EXPECTED_ORIGIN="bootui-staged"', 'readonly EXPECTED_ORIGIN=""', "staged-candidate origin"),
+            (
+                'if [[ "$RESOLVED_ARTIFACTS" != "$EXPECTED_ARTIFACTS" ]]; then',
+                "if false; then",
+                "resolved exactly the published coordinates",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(None, message, smoke=self.mutate_file(SMOKE, old, new))
+
+    def test_webflux_consumer_must_stay_reactive_on_netty(self):
+        for old, new, message in (
+            (WEBFLUX_REACTIVE, WEBFLUX_REACTIVE.replace("REACTIVE", "SERVLET"), "REACTIVE on Netty"),
+            ("  jakarta.servlet:jakarta.servlet-api \\\n", "", "Servlet API kept off"),
+            ("  org.apache.tomcat.embed:tomcat-embed-core \\\n", "", "Tomcat kept off"),
+            ("  io.projectreactor.netty:reactor-netty-http \\\n", "", "Reactor Netty kept off"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(None, message, smoke=self.mutate_file(SMOKE, old, new))
+
+    def test_cli_client_consumer_must_get_no_dependency(self):
+        self.assert_rejected(
+            None,
+            "dependency-free CLI client consumer assertion",
+            smoke=self.mutate_file(
+                SMOKE, 'if [[ "$CLI_CLASSPATH" != "com.julien-dubois.bootui:bootui-cli" ]]; then', "if false; then"
+            ),
+        )
+        self.assert_rejected(
+            None,
+            "runnable CLI uber-jar smoke test",
+            smoke=self.mutate_file(
+                SMOKE,
+                'CLI_VERSION_OUTPUT="$(java -jar "$CLI_ALL_JAR" --version)"',
+                'CLI_VERSION_OUTPUT="bootui ${VERSION}"',
+            ),
+        )
+
+    def test_staged_candidate_is_smoke_tested_before_the_tag(self):
+        content = self.mutate(STAGED_SMOKE, "true")
+        self.assert_rejected(content, "pre-tag consumer smoke tests")
+        moved = self.mutate(
+            "            ./mvnw -B -ntp -Prelease clean verify\n",
+            "            ./mvnw -B -ntp -Prelease clean verify\n            git commit -m \"Release $TAG\"\n",
+        )
+        self.assert_rejected(moved, "before the release commit and tag exist")
+
+    def test_staged_candidate_is_smoke_tested_before_publication(self):
+        self.assert_rejected(
+            self.mutate("      - name: Smoke test the staged release candidate\n", "      - name: Smoke test\n"),
+            "pre-publication staged smoke test step",
+        )
+        content = WORKFLOW.read_text(encoding="utf-8")
+        start = content.index("      - name: Smoke test the staged release candidate\n")
+        middle = content.index("      - name: Publish to Maven Central\n")
+        end = content.index("      - name: Wait for Maven Central availability\n")
+        reordered = content[:start] + content[middle:end] + content[start:middle] + content[end:]
+        self.assert_rejected(reordered, "before Maven Central publication")
+
+    def test_pre_publication_smoke_is_skipped_only_after_a_passing_pre_tag_run(self):
+        flag = '            echo "CANDIDATE_SMOKE_PASSED=true" >> "$GITHUB_ENV"\n'
+        self.assert_rejected(
+            self.mutate(flag, flag + '          echo "CANDIDATE_SMOKE_PASSED=true" >> "$GITHUB_ENV"\n'),
+            "may be set only once",
+        )
+        content = self.mutate(flag, "")
+        content = content.replace(
+            "            ./mvnw -B -ntp -Prelease clean verify\n",
+            "            ./mvnw -B -ntp -Prelease clean verify\n" + flag,
             1,
         )
-        self.assert_rejected(content, "must resolve bootui-agent from Maven Central")
+        self.assert_rejected(content, "only a passing pre-tag staged smoke test")
+        self.assert_rejected(
+            self.mutate(
+                "        if: env.RESUME_AFTER_PUBLISH != 'true' && env.CANDIDATE_SMOKE_PASSED != 'true'\n",
+                "        if: false\n",
+            ),
+            "skipped only on a resumed run",
+        )
+
+    def test_published_distributions_are_smoke_tested_from_central(self):
+        self.assert_rejected(self.mutate(CENTRAL_SMOKE, "          true\n"), "Maven Central consumer smoke tests")
+
+    def test_exactly_the_published_coordinates_are_polled(self):
+        cli = '            "bootui-cli/${VERSION}/bootui-cli-${VERSION}.jar"\n'
+        ui = '            "bootui-ui/${VERSION}/bootui-ui-${VERSION}.jar"\n'
+        self.assert_rejected(self.mutate(ui, ""), "poll exactly the published coordinates")
+        for new, message in (
+            (cli + '            "bootui-parent/${VERSION}/bootui-parent-${VERSION}.pom"\n', "neither parent POM"),
+            (cli + '            "bootui-client/${VERSION}/bootui-client-${VERSION}.jar"\n', "poll exactly"),
+        ):
+            with self.subTest(new=new):
+                self.assert_rejected(self.mutate(cli, new), message)
+
+    def test_staging_uses_the_publication_reactor_and_the_bundle_check(self):
+        self.assert_rejected(
+            None, "must stage the publication-only Maven reactor", stage=self.mutate_file(STAGE, "bootui-cli,", "")
+        )
+        self.assert_rejected(
+            None,
+            '-DcentralBaseUrl="$STUB_URL"',
+            stage=self.mutate_file(STAGE, '  -DcentralBaseUrl="$STUB_URL" \\\n', ""),
+        )
+        self.assert_rejected(
+            None,
+            "-Dcentral.autoPublish=false",
+            stage=self.mutate_file(STAGE, "  -Dcentral.autoPublish=false \\\n", ""),
+        )
+
+    def test_every_list_names_the_same_coordinates(self):
+        self.assert_rejected(
+            None,
+            "must expect exactly the published coordinates",
+            smoke=self.mutate_file(SMOKE, "  bootui-agent\n)", "  bootui-agent\n  bootui-client\n)"),
+        )
+        self.assert_rejected(
+            None,
+            "must expect exactly the published coordinates",
+            bundle=self.mutate_file(BUNDLE_CHECK, '    "bootui-agent",\n)', ")"),
+        )
+
+    def test_parents_stay_unpublished(self):
+        for parent in ("bootui-parent", "bootui-quarkus-parent"):
+            with self.subTest(parent=parent):
+                self.assert_rejected(
+                    None,
+                    f"non-distribution artifact '{parent}'",
+                    root_files=self.mutate_root(
+                        "pom.xml", f"<excludeArtifact>{parent}</excludeArtifact>\n", ""
+                    ),
+                )
+
+    def test_published_poms_are_flattened(self):
+        for relative, old, new, message in (
+            ("pom.xml", "<flattenMode>ossrh</flattenMode>", "<flattenMode>minimum</flattenMode>", "ossrh"),
+            (
+                "pom.xml",
+                "<flattenMode>ossrh</flattenMode>",
+                "<flattenMode>ossrh</flattenMode><outputDirectory>target</outputDirectory>",
+                "must stay beside pom.xml",
+            ),
+            (
+                "pom.xml",
+                ' child.project.url.inherit.append.path="false"',
+                "",
+                "keep the root url and scm",
+            ),
+            ("bootui-agent/pom.xml", "<artifactId>flatten-maven-plugin</artifactId>", "", "must declare flatten"),
+        ):
+            with self.subTest(relative=relative, new=new):
+                self.assert_rejected(None, message, root_files=self.mutate_root(relative, old, new))
+
+    def test_merged_modules_cannot_return(self):
+        self.assert_rejected(
+            None,
+            "bootui-client was merged",
+            root_files=self.mutate_root(
+                "pom.xml", "<module>bootui-cli</module>", "<module>bootui-cli</module><module>bootui-client</module>"
+            ),
+        )
+
+    def test_starter_never_brings_a_web_stack(self):
+        web = (
+            "            <artifactId>spring-boot-starter-web</artifactId>\n"
+            "            <scope>provided</scope>\n"
+        )
+        for old, new, message in (
+            (web, "            <artifactId>spring-boot-starter-web</artifactId>\n", "only at provided scope"),
+            (
+                "            <artifactId>spring-boot-starter-webflux</artifactId>\n            <scope>provided</scope>\n",
+                "            <artifactId>spring-boot-starter-webflux</artifactId>\n            <optional>true</optional>\n",
+                "only at provided scope",
+            ),
+            ("<id>no-web-stack</id>", "<id>web-stack</id>", "no-web-stack enforcer rule"),
+            (
+                "<exclude>org.apache.tomcat.embed:*:*:*:runtime</exclude>\n",
+                "",
+                "org.apache.tomcat.embed:*:*:*:runtime",
+            ),
+        ):
+            with self.subTest(old=old, new=new):
+                self.assert_rejected(None, message, root_files=self.mutate_root(STARTER_POM, old, new))
 
     def test_release_line_is_required_for_the_next_version(self):
         self.assert_rejected(
@@ -299,25 +522,12 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assert_rejected(None, "unexpected job 'sneaky'", docker=docker)
 
     def test_release_line_cannot_slip_back_to_1_on_2x_contents(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / ".github").mkdir()
-            (root / "pom.xml").write_text((ROOT / "pom.xml").read_text(encoding="utf-8"), encoding="utf-8")
-            (root / "bootui-agent").mkdir()
-            (root / "bootui-agent/pom.xml").write_text("<project/>", encoding="utf-8")
-            for line, expected in (("2", 0), ("1", 1)):
-                with self.subTest(line=line):
-                    (root / ".github/release-line").write_text(f"# test\n{line}\n", encoding="utf-8")
-                    result = subprocess.run(
-                        ["bash", str(SCRIPT), str(WORKFLOW), str(PAGES), str(DOCKER)],
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        env={**os.environ, "RELEASE_INTEGRITY_ROOT": str(root)},
-                    )
-                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
-                    if expected:
-                        self.assertIn("contains bootui-agent", result.stderr)
+        for line, expected in (("2", 0), ("1", 1)):
+            with self.subTest(line=line):
+                result = self.check(root_files={".github/release-line": f"# test\n{line}\n"})
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                if expected:
+                    self.assertIn("contains bootui-agent", result.stderr)
 
     def test_gate_steps_must_be_whole_lines(self):
         forced = GATE_RUN + "; echo publish=true >> \"$GITHUB_OUTPUT\""

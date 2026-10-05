@@ -3,7 +3,7 @@
 BootUI is a local-only developer console delivered from one codebase through three request stacks: Spring Boot 4 MVC,
 Spring Boot 4 WebFlux, and Quarkus. All three serve the same Vue UI and stable JSON contract through a
 framework-neutral engine. The same diagnostics are reachable without a browser through MCP tools and the published
-`bootui-cli` command-line interface, which builds on the dependency-free `bootui-client`.
+`bootui-cli` command-line interface, which builds on its own dependency-free client package.
 
 ## Authoritative context
 

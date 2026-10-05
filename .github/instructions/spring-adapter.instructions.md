@@ -1,11 +1,20 @@
 ---
-applyTo: "bootui-spring-autoconfigure/**,bootui-spring-boot-starter/**,bootui-spring-boot-starter-reactive/**,bootui-spring-sample-app/**,bootui-spring-webflux-sample-app/**,docs/WEBFLUX-SUPPORT.md"
+applyTo: "bootui-spring-boot-starter/**,bootui-spring-sample-app/**,bootui-spring-webflux-sample-app/**,docs/WEBFLUX-SUPPORT.md"
 ---
 
 # Spring Boot adapter
 
 - Use the `spring-boot.version` property in the root POM as the compatibility source of truth. Spring Boot 3
   compatibility is out of scope.
+- `bootui-spring-boot-starter` is the one Spring artifact: the auto-configuration (packages
+  `io.github.jdubois.bootui.autoconfigure.*`), its dependencies, and the bundled UI, for Spring MVC and Spring WebFlux
+  alike. It never chooses the web stack: `spring-boot-starter-web` and `spring-boot-starter-webflux` stay
+  `provided`, and the `no-web-stack` enforcer execution fails the build if any servlet or reactive web-server artifact
+  reaches its compile or runtime dependencies. A WebFlux application must stay REACTIVE and a Spring MVC application
+  SERVLET; the samples' `*ApplicationTypeIntegrationTest(s)` and the release consumer smoke tests pin both.
+- The starter's tests keep the bundled UI and the OpenTelemetry tracing bridge off their classpath
+  (`classpathDependencyExcludes`), as the auto-configuration tests always ran; the sample apps test the starter as
+  shipped.
 - Keep controllers thin. They inject engine services, translate Spring request types, and return stable core DTOs.
 - Four autoconfigurations are registered in `AutoConfiguration.imports`: servlet and reactive BootUI configurations,
   plus their Spring Security companions. They are registered, not component-scanned. A fifth,
@@ -35,4 +44,4 @@ applyTo: "bootui-spring-autoconfigure/**,bootui-spring-boot-starter/**,bootui-sp
 - Runtime configuration overrides must preserve the persisted `.bootui/application-bootui.properties` flow and restart-caveat message.
 - Do not add `-am` to `spring-boot:run`; it applies the goal to parent and library modules without main classes.
 - For a focused Spring build use:
-  `./mvnw -pl bootui-core,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-spring-sample-app,bootui-spring-webflux-sample-app -am install`.
+  `./mvnw -pl bootui-core,bootui-spring-boot-starter,bootui-spring-sample-app,bootui-spring-webflux-sample-app -am install`.

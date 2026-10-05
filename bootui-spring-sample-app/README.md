@@ -509,7 +509,7 @@ normally activates because `spring-boot-devtools` is on the classpath — but
 devtools is excluded from the native image. Because GraalVM AOT processing
 freezes Spring's bean conditions at build time, the `native` profile enables
 BootUI for the AOT step (`-Dbootui.enabled=ON` on the `process-aot` execution)
-so the panels and BootUI's [`RuntimeHints`](../bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java)
+so the panels and BootUI's [`RuntimeHints`](../bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java)
 are baked into the executable. Those hints register the classpath resources and
 reflective calls that BootUI performs at runtime (Maven `pom.properties`,
 configuration metadata, the BootUI version file, the HotSpot diagnostic MXBean
