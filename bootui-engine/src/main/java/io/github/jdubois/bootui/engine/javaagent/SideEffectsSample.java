@@ -13,8 +13,8 @@ import java.util.Map;
  * @param sightingsFull the operations whose call site was not walked because the generation's table was full, which
  *     changes the origin of a files or environment record
  * @param internOverflow the strings the generation's table could not intern
- * @param internRefused the strings a bounded room of that table refused that the sensor's records refer to: frames,
- *     thread names, and other strings for every sensor, and its own targets' room
+ * @param internRefused the strings a bounded room of that table refused that the sensor's records refer to: frames
+ *     and other strings for every sensor, and its own targets' room
  * @param generation the claim generation the bridge records for, or {@code -1} when it does not say
  */
 public record SideEffectsSample(
@@ -29,8 +29,11 @@ public record SideEffectsSample(
     /** A sensor read when nothing could be: not recording. */
     public static final SideEffectsSample NONE = new SideEffectsSample(false, 0L, 0L, 0L, 0L, 0L, -1L);
 
-    /** The rooms of the bridge's string table every sensor's records refer to. */
-    private static final java.util.List<String> SHARED_ROOMS = java.util.List.of("frames", "threads", "other");
+    /**
+     * The rooms of the bridge's string table every sensor's records refer to. The threads room is not one: a raw thread
+     * name it refuses falls back to the thread's family, which is all a record keeps.
+     */
+    private static final java.util.List<String> SHARED_ROOMS = java.util.List.of("frames", "other");
 
     /** Sensor {@code id}'s sample from the bridge status {@code status}; {@link #NONE} when it says nothing. */
     public static SideEffectsSample read(Map<String, Object> status, String id) {
