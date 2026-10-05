@@ -473,7 +473,8 @@ jobs:
   # every agent run; and, on pushes, manual runs, and pull requests labelled `agent` only, the default sensors against
   # the same agent without network, the network sensor's own share, then the opt-in files sensor's own share (the
   # default sensors plus files against the default sensors, fifteen pairs) and the cumulative overhead with it (nine
-  # pairs against no agent), which decide whether files can be on by default (D37).
+  # pairs against no agent), which decide whether files can be on by default (D37): on with files' own median at most
+  # 3 % and the cumulative median at most 10 %. The first run measured 2.3 % and 10.6 %, so files stays opt-in.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest

@@ -754,9 +754,11 @@ The operation's own time (opening, deleting, moving, or copying) is recorded, no
 `File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
 are not seen.
 
-`files` is opt-in because its overhead is at the edge of the budget (D37): on the agent overhead benchmark's I/O route
-(one outbound connect and one file read per request), the default sensors plus `files` measured 10.0 % and 10.6 % in
-two CI runs of nine pairs, against the 10 % budget. Add `files` to `bootui.agent.sensors` to record it.
+`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget (D37). On the agent overhead
+benchmark's I/O route (one outbound connect and one file read per request), the CI job measured `files`' own share
+against the default sensors at a median of 2.3 % over 15 pairs (pairs from −6.6 to 13.7 %). The default sensors plus
+`files` measured 10.6 % against no agent over 9 pairs (pairs from 6.7 to 23.7 %). Add `files` to
+`bootui.agent.sensors` to record it.
 
 ## The environment sensor
 
