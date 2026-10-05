@@ -683,6 +683,67 @@ class SpringAgentScenarioIT {
         }
     }
 
+    /**
+     * The processes sensor with the agent ({@code docs/PLAN-v2.md} §5.16, M5-5a): the seeded route's {@code java} process
+     * is a row of its route, started from the seed's method, with its exit, and never an argument; the counterexample
+     * route starts none.
+     */
+    @Test
+    void sideEffectsShowTheSeededProcessByItsFileNameOnlyAndNotTheCounterexample() throws Exception {
+        assertThat(probe.get("/api/side-effects/java-version").status()).isEqualTo(200);
+        assertThat(probe.get("/api/side-effects/runtime-version").status()).isEqualTo(200);
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        JsonNode report;
+        JsonNode row = null;
+        do {
+            Thread.sleep(250);
+            report = probe.get("/bootui/api/side-effects/sensor?sensor=processes")
+                    .json();
+            for (JsonNode candidate : report.path("rows")) {
+                if ("GET /api/side-effects/java-version"
+                        .equals(candidate.path("attribution").asText())) {
+                    row = candidate;
+                }
+            }
+        } while ((row == null || row.path("completed").asLong() < 1) && System.nanoTime() < deadline);
+        assertThat(report.path("available").asBoolean()).as(report.toString()).isTrue();
+        assertThat(report.path("sensor").path("state").asText())
+                .as(report.toString())
+                .isEqualTo("recording");
+        assertThat(row).as(report.toString()).isNotNull();
+        assertThat(row.path("scope").asText()).isEqualTo("route");
+        assertThat(row.path("target").asText()).isEqualTo("java");
+        assertThat(row.path("callSite").asText())
+                .isEqualTo("io.github.jdubois.bootui.sample.sideeffects.JavaVersionReporter#version");
+        assertThat(row.path("count").asLong()).isEqualTo(1L);
+        assertThat(row.path("failed").asLong()).isZero();
+        assertThat(row.path("completed").asLong()).isEqualTo(1L);
+        assertThat(row.path("lastExitStatus").asInt()).isZero();
+        assertThat(row.path("exemplarRequestIds").size()).isEqualTo(1);
+        assertThat(report.toString())
+                .as("no argument of the process ever appears")
+                .doesNotContain("never-shown-by-bootui")
+                .doesNotContain("\"-version\"")
+                .as("the counterexample route starts no process")
+                .doesNotContain("runtime-version");
+        List<String> failures = new ArrayList<>();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/side-effects/sensor", BootUiApiContractCatalog.sideEffectsSensor(), report, failures);
+        JsonNode summary = probe.get("/bootui/api/side-effects").json();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/side-effects",
+                BootUiApiContractCatalog.reads().stream()
+                        .filter(contract -> contract.relativePath().equals("/side-effects"))
+                        .findFirst()
+                        .orElseThrow(),
+                summary,
+                failures);
+        assertThat(failures).as("side effects contracts with the agent").isEmpty();
+        assertThat(panelFromManifest("side-effects").path("available").asBoolean())
+                .isTrue();
+    }
+
     /** The conformance catalog's contract of the Code Paths read whose path starts with {@code path}. */
     private static BootUiApiContractCatalog.ReadContract contract(String path) {
         List<BootUiApiContractCatalog.ReadContract> contracts = new ArrayList<>(BootUiApiContractCatalog.reads());

@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSetupDto;
+import io.github.jdubois.bootui.core.dto.SideEffectsHookDto;
+import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,6 +48,9 @@ public final class JavaAgentService {
 
     /** What Code Paths and the request trees need ({@code docs/PLAN-v2.md} §5.14). */
     public static final String CODE_PATHS_REQUIREMENT = "Requires the BootUI agent's code-paths sensor";
+
+    /** What Side Effects needs ({@code docs/PLAN-v2.md} §5.16). */
+    public static final String SIDE_EFFECTS_REQUIREMENT = "Requires the BootUI agent";
 
     /** The state the agent reports for a sensor whose hooks are in place. */
     static final String INSTALLED = "installed";
@@ -211,6 +216,114 @@ public final class JavaAgentService {
                     "the sensor");
         } catch (RuntimeException ex) {
             return CODE_PATHS_REQUIREMENT + ".";
+        }
+    }
+
+    /**
+     * Why Side Effects records nothing for this application, starting with {@value #SIDE_EFFECTS_REQUIREMENT}, or
+     * {@code null} when the agent is attached and armed for it with a bridge carrying the side-effect sensors' entry
+     * points ({@code docs/PLAN-v2.md} §5.16). Each sensor's own coverage is {@link #sideEffectsCoverage}. Reads only the
+     * bridge's status. Never throws.
+     */
+    public String sideEffectsUnavailableReason() {
+        try {
+            if (access.present() && access.compatible() && !access.sideEffectsSupported()) {
+                return SIDE_EFFECTS_REQUIREMENT + ": the attached BootUI agent predates Side Effects; attach the"
+                        + " bootui-agent jar of BootUI " + settings.bootUiVersion() + ".";
+            }
+            Resolution resolution = resolve(access.status(), AgentBridgeAccess.map(access.status(), "claim"));
+            if (!JavaAgentReport.ARMED.equals(resolution.state())) {
+                String reason = resolution.reason() == null
+                        ? "the agent is not armed for this application."
+                        : resolution.reason();
+                if (JavaAgentReport.NOT_ATTACHED.equals(resolution.state())) {
+                    reason += " Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).";
+                }
+                return SIDE_EFFECTS_REQUIREMENT + ": " + reason;
+            }
+            return null;
+        } catch (RuntimeException ex) {
+            return SIDE_EFFECTS_REQUIREMENT + ".";
+        }
+    }
+
+    /**
+     * One Side Effects sensor's coverage for this application: whether it records, and why not, with its hooks as the
+     * agent reports them and the records the bridge dropped for it ({@code docs/PLAN-v2.md} §5.16). Never throws.
+     */
+    public SideEffectsCoverage sideEffectsCoverage(String id) {
+        try {
+            String unavailable = sideEffectsUnavailableReason();
+            if (unavailable != null) {
+                return new SideEffectsCoverage(SideEffectsSensorDto.UNAVAILABLE, unavailable, List.of(), 0L);
+            }
+            Map<String, Object> status = access.status();
+            Map<String, Object> counters = AgentBridgeAccess.map(status, id);
+            Map<String, Object> sensor = sensor(AgentBridgeAccess.map(status, "agent"), id);
+            List<SideEffectsHookDto> hooks = new ArrayList<>();
+            if (sensor != null) {
+                for (JavaAgentHookDto hook : hooks(sensor, counters)) {
+                    hooks.add(new SideEffectsHookDto(
+                            hook.id(), hook.type(), hook.present(), hook.transformed(), hook.selfTest(), hook.fired()));
+                }
+            }
+            long dropped = longValue(counters, "dropped");
+            AgentClaim ours = claim.get();
+            if (ours != null && !ours.sensors().sensors().contains(id)) {
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.NOT_CLAIMED,
+                        "This application's bootui.agent.sensors does not include " + id + ".",
+                        hooks,
+                        dropped);
+            }
+            if (sensor == null) {
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.INSTALLING, "The agent has not started the sensor yet.", hooks, dropped);
+            }
+            String state = AgentBridgeAccess.text(sensor, "state");
+            String disabled = AgentBridgeAccess.text(counters, "disabledReason");
+            if (state != null && state.startsWith("self-test-failed")) {
+                String error = AgentBridgeAccess.text(sensor, "selfTestError");
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.SELF_TEST_FAILED,
+                        "The sensor failed its self-test and the agent removed it"
+                                + (error == null ? "." : ": " + error),
+                        hooks,
+                        dropped);
+            }
+            if (disabled != null || "failed".equals(state) || "release-failed".equals(state)) {
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.DISABLED,
+                        "The agent disabled the sensor: " + (disabled == null ? state : disabled),
+                        hooks,
+                        dropped);
+            }
+            if (!INSTALLED.equals(state) || !AgentBridgeAccess.flag(counters, "active")) {
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.INSTALLING,
+                        "The sensor is " + (state == null ? "not installed yet" : state) + ".",
+                        hooks,
+                        dropped);
+            }
+            return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped);
+        } catch (RuntimeException ex) {
+            return new SideEffectsCoverage(
+                    SideEffectsSensorDto.UNAVAILABLE, SIDE_EFFECTS_REQUIREMENT + ".", List.of(), 0L);
+        }
+    }
+
+    /**
+     * A Side Effects sensor's coverage.
+     *
+     * @param state a {@link SideEffectsSensorDto} state
+     * @param reason why it does not record, or {@code null}
+     * @param hooks its hooks
+     * @param dropped records the bridge dropped for it because its ring was full
+     */
+    public record SideEffectsCoverage(String state, String reason, List<SideEffectsHookDto> hooks, long dropped) {
+
+        public SideEffectsCoverage {
+            hooks = hooks == null ? List.of() : List.copyOf(hooks);
         }
     }
 

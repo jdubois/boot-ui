@@ -178,7 +178,7 @@ public final class CodePaths {
     /** Per method id: set by the engine's adaptive exclusion through {@link #exclude}; read at every entry. */
     public static final byte[] EXCLUDED = new byte[CodeInventory.MAX_METHODS];
 
-    private static final ThreadLocal<Frame> FRAME = new ThreadLocal<Frame>();
+    static final ThreadLocal<Frame> FRAME = new ThreadLocal<Frame>();
     private static final ConcurrentLinkedQueue<Tree> FREE = new ConcurrentLinkedQueue<Tree>();
     private static final AtomicInteger CREATED = new AtomicInteger();
     private static final ConcurrentLinkedQueue<long[]> BLOBS = new ConcurrentLinkedQueue<long[]>();
@@ -305,81 +305,104 @@ public final class CodePaths {
      * earlier {@code begin()} opened, it is nested, as a Vert.x reroute inside the request's routing, and ignored with
      * its {@code end()}: while a call is open in that fragment, or when it captures the same owner. A fragment an
      * earlier {@code begin()} left open at this depth for another owner, its {@code end()} never called, is flushed
-     * first, cut and counted. Never throws.
+     * first, cut and counted. Also fills the side-effect sensors' owner slot ({@link SideEffects#scopeBegin}) with the
+     * owner captured here, if any. Never throws.
      */
     public static void begin() {
+        long[] owner = null;
         try {
-            if (!active) {
-                return;
-            }
-            Frame frame = frame();
-            long[] owner;
-            Tree open = frame.tree;
-            if (open != null) {
-                if (frame.begun < 0 || frame.begun != frame.base) {
-                    return;
+            try {
+                if (active) {
+                    owner = beginFragment();
                 }
-                if (frame.depth != frame.base) {
-                    frame.nested++;
-                    return;
-                }
-                owner = owner();
-                if (owner != null && owner[0] == open.request && owner[1] == open.execution) {
-                    frame.nested++;
-                    return;
-                }
-                ABANDONED.increment();
-                open.flags |= FLAG_CUT;
-                closeTo(open, 0, System.nanoTime());
-                flush(frame);
-                frame.begun = -1;
-                frame.nested = 0;
-            } else {
-                owner = owner();
+            } finally {
+                // The side-effect sensors' owner slot, with the owner captured here if any (PLAN-v2 M5-5 design B1),
+                // pushed even when the fragment failed, so the scopeEnd() of end() stays balanced.
+                SideEffects.scopeBegin(owner);
             }
-            if (owner == null) {
-                return;
-            }
-            Tree tree = borrow();
-            if (tree == null) {
-                return;
-            }
-            tree.open(generation, owner[0], owner[1], (int) owner[2] | FLAG_BEGUN, submitter(frame, owner));
-            frame.tree = tree;
-            frame.base = frame.depth;
-            frame.begun = frame.depth;
         } catch (Throwable ex) {
             failed(ex);
         }
     }
 
+    /** {@link #begin()}'s fragment: the owner it captured, or {@code null} when it captured none. */
+    private static long[] beginFragment() {
+        Frame frame = frame();
+        long[] owner;
+        Tree open = frame.tree;
+        if (open != null) {
+            if (frame.begun < 0 || frame.begun != frame.base) {
+                return null;
+            }
+            if (frame.depth != frame.base) {
+                frame.nested++;
+                return null;
+            }
+            owner = owner();
+            if (owner != null && owner[0] == open.request && owner[1] == open.execution) {
+                frame.nested++;
+                return owner;
+            }
+            ABANDONED.increment();
+            open.flags |= FLAG_CUT;
+            closeTo(open, 0, System.nanoTime());
+            flush(frame);
+            frame.begun = -1;
+            frame.nested = 0;
+        } else {
+            owner = owner();
+        }
+        if (owner == null) {
+            return null;
+        }
+        Tree tree = borrow();
+        if (tree == null) {
+            return owner;
+        }
+        tree.open(generation, owner[0], owner[1], (int) owner[2] | FLAG_BEGUN, submitter(frame, owner));
+        frame.tree = tree;
+        frame.base = frame.depth;
+        frame.begun = frame.depth;
+        return owner;
+    }
+
     /**
      * An adapter closed the request's scope on this thread: the fragment {@link #begin()} opened is flushed, closing any
      * call still open in it, and the thread's phase is forgotten; the end of a nested {@code begin()} does nothing. Runs
-     * even after the claim was disarmed, so the tree returns to the pool. Never throws.
+     * even after the claim was disarmed, so the tree returns to the pool. Also ends the side-effect sensors' scope
+     * ({@link SideEffects#scopeEnd()}). Never throws.
      */
     public static void end() {
         try {
-            Frame frame = FRAME.get();
-            if (frame == null) {
-                return;
-            }
-            if (frame.nested > 0) {
-                frame.nested--;
-                return;
-            }
-            frame.phase = PHASE_UNKNOWN;
-            Tree tree = frame.tree;
-            if (tree != null && frame.begun >= 0 && frame.begun == frame.base) {
-                if (tree.level > 0) {
-                    tree.flags |= FLAG_CUT;
-                    closeTo(tree, 0, System.nanoTime());
-                }
-                flush(frame);
-                frame.begun = -1;
+            try {
+                endFragment();
+            } finally {
+                SideEffects.scopeEnd();
             }
         } catch (Throwable ex) {
             failed(ex);
+        }
+    }
+
+    /** {@link #end()}'s fragment: flushes the one {@link #begin()} opened at this depth. */
+    private static void endFragment() {
+        Frame frame = FRAME.get();
+        if (frame == null) {
+            return;
+        }
+        if (frame.nested > 0) {
+            frame.nested--;
+            return;
+        }
+        frame.phase = PHASE_UNKNOWN;
+        Tree tree = frame.tree;
+        if (tree != null && frame.begun >= 0 && frame.begun == frame.base) {
+            if (tree.level > 0) {
+                tree.flags |= FLAG_CUT;
+                closeTo(tree, 0, System.nanoTime());
+            }
+            flush(frame);
+            frame.begun = -1;
         }
     }
 
@@ -532,7 +555,7 @@ public final class CodePaths {
 
     // ---- recording -------------------------------------------------------------------------------------------------
 
-    private static Frame frame() {
+    static Frame frame() {
         Frame frame = FRAME.get();
         if (frame == null) {
             frame = new Frame();
@@ -568,22 +591,48 @@ public final class CodePaths {
      * is not armed for the sensor, the work is BootUI's own, a capture is already in progress, or nothing owns it.
      */
     private static long[] owner() {
-        if (Reentrancy.bootUiWork() || !Reentrancy.enter()) {
+        if (Reentrancy.bootUiWork()) {
             return null;
         }
-        Object payload;
+        Claim claim = AgentBridge.current();
+        if (claim == null || !claim.armed || claim.generation != generation || !claim.hasSensor(SENSOR)) {
+            return null;
+        }
+        long[] owner = captureOwner(claim);
+        if (owner == null && !Reentrancy.guarded()) {
+            UNOWNED.increment();
+        }
+        return owner;
+    }
+
+    /**
+     * The owner of the work on this thread for {@code claim}, through its {@code capture} under the re-entrancy guard:
+     * {@code {request, execution, executionKind}}, or {@code null} when a capture is already in progress on the thread
+     * or nothing owns the work. Shared with the side-effect sensors ({@link SideEffects}).
+     */
+    static long[] captureOwner(Claim claim) {
+        return parseOwner(capture(claim));
+    }
+
+    /**
+     * The claim's {@code capture} payload on this thread, under the re-entrancy guard, or {@code null} when a capture is
+     * already in progress on the thread. Shared with the side-effect sensors, which parse it themselves.
+     */
+    static Object capture(Claim claim) {
+        if (!Reentrancy.enter()) {
+            return null;
+        }
         try {
-            Claim claim = AgentBridge.current();
-            if (claim == null || !claim.armed || claim.generation != generation || !claim.hasSensor(SENSOR)) {
-                return null;
-            }
             Supplier<Object> capture = claim.capture.get();
-            payload = capture == null ? null : capture.get();
+            return capture == null ? null : capture.get();
         } finally {
             Reentrancy.exit();
         }
+    }
+
+    /** A capture's payload as {@code {request, execution, executionKind}}, or {@code null} when it names no owner. */
+    static long[] parseOwner(Object payload) {
         if (!(payload instanceof Object[])) {
-            UNOWNED.increment();
             return null;
         }
         Object[] values = (Object[]) payload;
@@ -603,7 +652,6 @@ public final class CodePaths {
             }
         }
         if (request == 0L && execution == 0L) {
-            UNOWNED.increment();
             return null;
         }
         return new long[] {request, execution, kind};
@@ -1105,6 +1153,25 @@ public final class CodePaths {
         final long[] previousSubmitters = new long[MAX_HANDOFFS];
 
         Tree tree;
+
+        // ---- the side-effect sensors' owner slots and state (PLAN-v2 M5-5 design B1, B2) -------------------------
+
+        /** The owner slots, a stack, allocated at the first push: each scope or handoff pushes one, its end pops it. */
+        long[] slotGeneration;
+
+        long[] slotRequest;
+        long[] slotExecution;
+        int[] slotKind;
+        int[] slotSource;
+
+        /** The slots pushed, which may exceed the stack's size: those past it name no owner. */
+        int slots;
+
+        /** The side-effect hooks open on the thread: only the outermost records. */
+        int sideEffectDepth;
+
+        /** The thread's side-effect aggregation table, created at its first aggregated record. */
+        SideEffects.Table sideEffects;
     }
 
     /**

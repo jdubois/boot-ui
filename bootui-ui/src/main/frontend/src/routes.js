@@ -55,6 +55,7 @@ const Cli = () => import('./views/Cli.vue')
 const JavaAgent = () => import('./views/JavaAgent.vue')
 const CodeInventory = () => import('./views/CodeInventory.vue')
 const CodePaths = () => import('./views/CodePaths.vue')
+const SideEffects = () => import('./views/SideEffects.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
 const RuntimeInsights = () => import('./views/RuntimeInsights.vue')
 const Email = () => import('./views/Email.vue')
@@ -1042,6 +1043,31 @@ export const routes = [
         'dependencies',
         'unused jars',
         'not loaded',
+        'agent'
+      ]
+    }
+  },
+  {
+    path: '/side-effects',
+    name: 'side-effects',
+    component: SideEffects,
+    meta: {
+      group: groups.agent,
+      requiresAgent: true,
+      icon: 'bi-box-arrow-up-right',
+      title: 'Side Effects',
+      shortcut: 'se',
+      keywords: [
+        'side effects',
+        'processes',
+        'process builder',
+        'runtime exec',
+        'files',
+        'network',
+        'environment',
+        'thread locals',
+        'blocking',
+        'security sinks',
         'agent'
       ]
     }

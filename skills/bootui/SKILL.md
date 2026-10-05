@@ -137,6 +137,7 @@ bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
 bootui code paths --json                        # with the agent: which methods each route spends its time in
+bootui side-effects --json                      # with the agent: which processes routes or background work started
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -210,6 +211,14 @@ window. Run the test or send the request that should reach the method, then `boo
 never argument or return values. No invocation after the code ran is evidence the path never reaches the method. A
 probe `waitingForClass` has not seen this run load its class yet; an `async` method's durations time its result's
 assembly only.
+
+### Find what a route started
+
+With the agent attached, run `bootui side-effects --json` (`get_side_effects`): every sensor's coverage first, then the
+most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
+environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`. Pass
+`--query processes`, a route, target, or call site to narrow it. Non-process sensor groups are listed as not available
+in this version.
 
 ### Read MySQL operational evidence
 

@@ -8,6 +8,7 @@ import io.quarkus.runtime.annotations.Recorder;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.logging.Logger;
 
 /**
  * Claims the BootUI Java agent at static init in dev and test launch modes ({@code docs/PLAN-v2.md} D34), as early as
@@ -17,6 +18,8 @@ import java.util.UUID;
  */
 @Recorder
 public class BootUiAgentRecorder {
+
+    private static final Logger LOG = Logger.getLogger(BootUiAgentRecorder.class.getName());
 
     /** Claims the agent for this start of {@code application}, with the default sensors. */
     public RuntimeValue<QuarkusAgentClaim> claim(String application, String mode, List<String> packages) {
@@ -78,8 +81,18 @@ public class BootUiAgentRecorder {
             return new RuntimeValue<>(QuarkusAgentClaim.none());
         }
         String owner = application + "@" + UUID.randomUUID().toString().substring(0, 8);
-        AgentSensorSettings settings = new AgentSensorSettings(
-                sensors, skipTasks, skipThreads, Duration.ofMillis(maxHandoffMillis), ringCapacity);
+        AgentSensorSettings settings;
+        try {
+            settings = new AgentSensorSettings(
+                    sensors, skipTasks, skipThreads, Duration.ofMillis(maxHandoffMillis), ringCapacity);
+        } catch (IllegalArgumentException ex) {
+            // Only with the agent attached, as on Spring: an id no version of the agent lists fails the start.
+            throw new IllegalStateException(ex.getMessage(), ex);
+        }
+        String notAvailable = settings.notAvailableWarning();
+        if (notAvailable != null) {
+            LOG.warning(notAvailable);
+        }
         return new RuntimeValue<>(new QuarkusAgentClaim(
                 AgentClaim.claim(access, application, owner, mode, packages, settings, beanClasses)));
     }

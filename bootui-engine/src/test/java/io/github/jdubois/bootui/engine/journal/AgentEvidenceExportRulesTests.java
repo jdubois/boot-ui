@@ -15,6 +15,9 @@ import io.github.jdubois.bootui.core.dto.CodePathsReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
 import io.github.jdubois.bootui.core.dto.RuntimeAgentEvidenceDto;
+import io.github.jdubois.bootui.core.dto.SideEffectsAgentReport;
+import io.github.jdubois.bootui.core.dto.SideEffectsReport;
+import io.github.jdubois.bootui.core.dto.SideEffectsSensorReport;
 import io.github.jdubois.bootui.engine.codepaths.HandlerMethods;
 import io.github.jdubois.bootui.engine.codepaths.IssuingMethod;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
@@ -56,7 +59,10 @@ class AgentEvidenceExportRulesTests {
             HandlerMethods.class,
             IssuingMethod.class,
             CodeInventoryService.ChangedCode.class,
-            ClassInvocation.class);
+            ClassInvocation.class,
+            SideEffectsReport.class,
+            SideEffectsSensorReport.class,
+            SideEffectsAgentReport.class);
 
     /** Every field, each reviewed as metadata. */
     private static final Set<String> METADATA = Set.of(
@@ -96,6 +102,58 @@ class AgentEvidenceExportRulesTests {
             "CodePathsProbeHitDto.outcome",
             "CodePathsProbeHitDto.exceptionType",
             "CodePathsProbeHitDto.caller",
+            // Side Effects (M5-5a): a command's file name, never its arguments or environment; code identifiers; route
+            // templates and thread families; request ids; times; counts; exit statuses; sentences BootUI wrote.
+            "SideEffectsAgentReport.available",
+            "SideEffectsAgentReport.limitations",
+            "SideEffectsAgentReport.matched",
+            "SideEffectsAgentReport.omitted",
+            "SideEffectsAgentReport.query",
+            "SideEffectsAgentReport.rows",
+            "SideEffectsAgentReport.sensors",
+            "SideEffectsAgentReport.unavailableReason",
+            "SideEffectsHookDto.id",
+            "SideEffectsHookDto.present",
+            "SideEffectsHookDto.recorded",
+            "SideEffectsHookDto.selfTest",
+            "SideEffectsHookDto.transformed",
+            "SideEffectsHookDto.type",
+            "SideEffectsReport.available",
+            "SideEffectsReport.limitations",
+            "SideEffectsReport.sensors",
+            "SideEffectsReport.unavailableReason",
+            "SideEffectsRowDto.attribution",
+            "SideEffectsRowDto.callSite",
+            "SideEffectsRowDto.completed",
+            "SideEffectsRowDto.count",
+            "SideEffectsRowDto.exemplarRequestIds",
+            "SideEffectsRowDto.failed",
+            "SideEffectsRowDto.firstSeen",
+            "SideEffectsRowDto.insideMethod",
+            "SideEffectsRowDto.kind",
+            "SideEffectsRowDto.lastExitStatus",
+            "SideEffectsRowDto.lastSeen",
+            "SideEffectsRowDto.maxMillis",
+            "SideEffectsRowDto.nonZeroExits",
+            "SideEffectsRowDto.scope",
+            "SideEffectsRowDto.sensor",
+            "SideEffectsRowDto.target",
+            "SideEffectsRowDto.totalMillis",
+            "SideEffectsSensorDto.dropped",
+            "SideEffectsSensorDto.group",
+            "SideEffectsSensorDto.hooks",
+            "SideEffectsSensorDto.id",
+            "SideEffectsSensorDto.label",
+            "SideEffectsSensorDto.occurrences",
+            "SideEffectsSensorDto.reason",
+            "SideEffectsSensorDto.rows",
+            "SideEffectsSensorDto.state",
+            "SideEffectsSensorReport.available",
+            "SideEffectsSensorReport.limitations",
+            "SideEffectsSensorReport.page",
+            "SideEffectsSensorReport.rows",
+            "SideEffectsSensorReport.sensor",
+            "SideEffectsSensorReport.unavailableReason",
             "ChangedClass.className",
             "ChangedClass.methods",
             "ChangedClass.routes",
@@ -363,8 +421,8 @@ class AgentEvidenceExportRulesTests {
     void everyCountTheJournalStatusCanReportIsReviewedMetadata() {
         assertThat(AgentEvidence.COUNTS)
                 .as(
-                        "a count is a number of trees, routes, nodes, calls, loads, probes, or probe hits, or the bytes of an"
-                                + " index")
+                        "a count is a number of trees, routes, nodes, calls, loads, probes, probe hits, or rows, or the bytes"
+                                + " of an index")
                 .containsExactlyInAnyOrder(
                         "requestTrees",
                         "routes",
@@ -374,7 +432,9 @@ class AgentEvidenceExportRulesTests {
                         "firstCallsWithRequest",
                         "firstLoads",
                         "probes",
-                        "probeHits");
+                        "probeHits",
+                        "sideEffectRows",
+                        "sideEffectsWaiting");
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> new AgentEvidence.Usage(0L, 0L, java.util.Map.of("targets", 1L)))
                 .isInstanceOf(IllegalArgumentException.class);

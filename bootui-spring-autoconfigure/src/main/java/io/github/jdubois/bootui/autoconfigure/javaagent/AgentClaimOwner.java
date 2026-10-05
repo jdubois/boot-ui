@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -142,6 +143,12 @@ public final class AgentClaimOwner
                 applicationContext.getBeanProvider(CodePathsService.class).getIfUnique();
         if (codePaths != null) {
             codePaths.start();
+        }
+        // Side Effects' rows from the side-effect sensors (PLAN-v2 §5.16); the bean stops routing at close.
+        SideEffectsService sideEffects =
+                applicationContext.getBeanProvider(SideEffectsService.class).getIfUnique();
+        if (sideEffects != null) {
+            sideEffects.start();
         }
     }
 

@@ -19,6 +19,9 @@ status where they don't.
 The WebFlux adapter serves the large majority of the panel surface — the same 64-panel manifest the servlet adapter
 reports, including the view-only **Java Agent** and **Code Inventory** panels and **Code Paths** with its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays
 unavailable for stack reasons. Every available
+The WebFlux adapter serves the large majority of the panel surface — the same 65-panel manifest the servlet adapter
+reports, including the view-only **Java Agent**, **Code Inventory**, **Code Paths**, and **Side Effects** panels, minus
+the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
 **R2DBC statements are not recorded** (D39). BootUI records SQL through a traced JDBC `DataSource`, so an application
@@ -163,7 +166,7 @@ WebFlux blocking-execution policy, and requests rejected by the preceding safety
 | `Not yet ported` | Deliberately deferred, no reactive implementation wired yet                      |
 | `Not applicable` | No faithful reactive analog exists for this panel's concept                      |
 
-### 6.1 Ported as-is (48 panels)
+### 6.1 Ported as-is (49 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these controllers
 were already framework-neutral in practice, not just in the engine underneath them.
@@ -175,7 +178,7 @@ were already framework-neutral in practice, not just in the engine underneath th
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
 | GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS, Runtime Insights[^runtime-insights-reactive], Java Agent |
-| Code Inventory[^code-inventory-reactive], Code Paths[^code-paths-reactive] |
+| Code Inventory[^code-inventory-reactive], Code Paths[^code-paths-reactive], Side Effects[^side-effects-reactive] |
 
 [^mappings-reactive]: The Actuator-backed provider reads WebFlux's `dispatcherHandlers` descriptions as well as Spring
     MVC's `dispatcherServlets`, each only when its web module is present: annotated controllers by their conditions,
@@ -197,6 +200,13 @@ were already framework-neutral in practice, not just in the engine underneath th
     the handler's methods returned, so it is counted as issued outside every instrumented method, or carries no stamp
     when subscribed on another thread, and shows under no method; Beans at runtime still lists the calls assembly made
     between beans.
+
+[^side-effects-reactive]: The shared `SideEffectsController` and engine service: available while the BootUI agent is
+    armed for the run and the bridge supports Side Effects. The WebFlux adapter records a process attributed through
+    the request's context when it starts on a thread carrying BootUI's context, captured at the start since the
+    request scope's owner slot is not yet filled on the schedulers Reactor restores the context on (pending for the
+    hot sensors of later slices); otherwise the row is attributed under its thread family. M5-5a records only `processes`; the other sensor groups are listed as not available in this
+    version.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
     handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and

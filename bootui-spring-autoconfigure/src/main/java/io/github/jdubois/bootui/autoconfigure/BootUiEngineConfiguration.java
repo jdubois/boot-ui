@@ -117,6 +117,8 @@ import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
+import io.github.jdubois.bootui.engine.sideeffects.JournalExecutions;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
@@ -564,6 +566,45 @@ public class BootUiEngineConfiguration {
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.getIfUnique(), null));
+        return service;
+    }
+
+    /**
+     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a): routes the agent's side-effect records of this run's claim into
+     * bounded rows per sensor, attributed to their request's route through HTTP Exchanges, under the agent evidence
+     * contract (M5-11), which gates its reads by its panel and HTTP Exchanges and clears it with the journal. The {@link AgentClaimOwner}
+     * starts it once the context refreshed; it is closed with the context.
+     */
+    @Bean(destroyMethod = "close")
+    @Lazy
+    @ConditionalOnMissingBean
+    SideEffectsService bootUiSideEffectsService(
+            ObjectProvider<AgentClaimOwner> owner,
+            ObjectProvider<JavaAgentService> javaAgent,
+            ObjectProvider<JournalAggregates> aggregates,
+            ObjectProvider<RuntimeJournal> journal,
+            AgentEvidence evidence) {
+        SideEffectsService service = new SideEffectsService(
+                AgentBridgeAccess.locate(),
+                () -> {
+                    AgentClaimOwner current = owner.getIfUnique();
+                    return current == null ? null : current.claim();
+                },
+                () -> {
+                    JavaAgentService agent = javaAgent.getIfUnique();
+                    return agent == null
+                            ? JavaAgentService.SIDE_EFFECTS_REQUIREMENT + "."
+                            : agent.sideEffectsUnavailableReason();
+                },
+                id -> {
+                    JavaAgentService agent = javaAgent.getIfUnique();
+                    return agent == null ? null : agent.sideEffectsCoverage(id);
+                },
+                evidence);
+        JournalAggregates journalAggregates = aggregates.getIfAvailable();
+        service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        service.setExecutionLabels(JournalExecutions.of(journal.getIfAvailable()));
         return service;
     }
 

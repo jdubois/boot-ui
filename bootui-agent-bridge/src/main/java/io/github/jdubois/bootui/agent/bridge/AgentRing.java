@@ -55,9 +55,6 @@ public final class AgentRing {
     /** Record layout: the first of four payload longs. */
     public static final int PAYLOAD = 4;
 
-    /** Longs per slot: the record, then the position its producer stamped once it wrote it. */
-    static final int STRIDE = RECORD + 1;
-
     /** Sensor ids: records of an unknown sensor are counted under {@code other}. */
     public static final int SENSOR_OTHER = 0;
 
@@ -88,15 +85,16 @@ public final class AgentRing {
     private static final AtomicReference<Interns> INTERNS = new AtomicReference<Interns>();
 
     private static final LongAdder[] DROPPED = adders(SENSOR_NAMES.length);
-    private static final LongAdder LOST = new LongAdder();
-    private static final LongAdder LATE = new LongAdder();
-    private static final LongAdder TORN = new LongAdder();
-    private static final LongAdder NEWER_STOPS = new LongAdder();
+    private static final Counters COUNTERS = new Counters();
+    private static final LongAdder LOST = COUNTERS.lost;
+    private static final LongAdder LATE = COUNTERS.late;
+    private static final LongAdder TORN = COUNTERS.torn;
+    private static final LongAdder NEWER_STOPS = COUNTERS.newerStops;
     private static final LongAdder STALE_DRAINS = new LongAdder();
     private static final LongAdder BUSY_DRAINS = new LongAdder();
-    private static final LongAdder DRAINED = new LongAdder();
-    private static final LongAdder SINK_ERRORS = new LongAdder();
-    private static final LongAdder INTERN_OVERFLOW = new LongAdder();
+    private static final LongAdder DRAINED = COUNTERS.drained;
+    private static final LongAdder SINK_ERRORS = COUNTERS.sinkErrors;
+    private static final LongAdder INTERN_OVERFLOW = COUNTERS.internOverflow;
 
     private AgentRing() {}
 
@@ -108,7 +106,7 @@ public final class AgentRing {
      */
     static void newGeneration(long generation, int requestedCapacity) {
         if (RING.get() == null) {
-            RING.compareAndSet(null, new Ring(capacity(requestedCapacity)));
+            RING.compareAndSet(null, new Ring(capacity(requestedCapacity), RECORD, COUNTERS));
         }
         // Claims racing each other may get here out of order: the table only ever moves to a newer generation.
         while (true) {
@@ -116,7 +114,7 @@ public final class AgentRing {
             if (current != null && current.generation >= generation) {
                 return;
             }
-            if (INTERNS.compareAndSet(current, new Interns(generation, DEFAULT_INTERNS))) {
+            if (INTERNS.compareAndSet(current, new Interns(generation, DEFAULT_INTERNS, INTERN_OVERFLOW))) {
                 return;
             }
         }
@@ -285,15 +283,9 @@ public final class AgentRing {
         for (int i = 0; i < DROPPED.length; i++) {
             DROPPED[i].reset();
         }
-        LOST.reset();
-        LATE.reset();
-        TORN.reset();
-        NEWER_STOPS.reset();
+        COUNTERS.reset();
         STALE_DRAINS.reset();
         BUSY_DRAINS.reset();
-        DRAINED.reset();
-        SINK_ERRORS.reset();
-        INTERN_OVERFLOW.reset();
     }
 
     /** Tests only: the allocated ring, or {@code null}. */
@@ -309,11 +301,45 @@ public final class AgentRing {
         return adders;
     }
 
-    /** The ring itself: {@code capacity} slots of {@value #STRIDE} longs, each with its sequence. */
+    /**
+     * A ring's counters: the transport ring's, or another ring's built on the same queue, as the side-effects sensors'
+     * ({@link SideEffects}).
+     */
+    static final class Counters {
+
+        final LongAdder lost = new LongAdder();
+        final LongAdder late = new LongAdder();
+        final LongAdder torn = new LongAdder();
+        final LongAdder newerStops = new LongAdder();
+        final LongAdder drained = new LongAdder();
+        final LongAdder sinkErrors = new LongAdder();
+        final LongAdder internOverflow = new LongAdder();
+
+        void reset() {
+            lost.reset();
+            late.reset();
+            torn.reset();
+            newerStops.reset();
+            drained.reset();
+            sinkErrors.reset();
+            internOverflow.reset();
+        }
+    }
+
+    /**
+     * The ring itself: {@code capacity} slots of {@code record} longs and a position stamp, each with its sequence. The
+     * claim generation of every record is at {@link #GENERATION}, whatever its width.
+     */
     static final class Ring {
 
         final int capacity;
         final int mask;
+        /** Longs per record. */
+        final int record;
+        /** Longs per slot: the record, then the position its producer stamped once it wrote it. */
+        final int stride;
+
+        final Counters counters;
         final AtomicLongArray records;
         /**
          * Per slot: {@code position} when free for that position, {@code ~position} (negative) while its producer
@@ -333,15 +359,18 @@ public final class AgentRing {
 
         private long stuckSince;
 
-        Ring(int capacity) {
+        Ring(int capacity, int record, Counters counters) {
             this.capacity = capacity;
             this.mask = capacity - 1;
-            this.records = new AtomicLongArray(capacity * STRIDE);
+            this.record = record;
+            this.stride = record + 1;
+            this.counters = counters;
+            this.records = new AtomicLongArray(capacity * stride);
             this.sequences = new AtomicLongArray(capacity);
             for (int i = 0; i < capacity; i++) {
                 sequences.set(i, i);
                 // No position stamps a slot before its first write.
-                records.set(i * STRIDE + RECORD, -1L);
+                records.set(i * stride + record, -1L);
             }
         }
 
@@ -377,10 +406,10 @@ public final class AgentRing {
         boolean write(long position, int sensor, int type, long generation, long time, long a, long b, long c, long d) {
             int slot = (int) (position & mask);
             if (!sequences.compareAndSet(slot, position, ~position)) {
-                LATE.increment();
+                counters.late.increment();
                 return false;
             }
-            int base = slot * STRIDE;
+            int base = slot * stride;
             try {
                 records.set(base + SENSOR, sensor);
                 records.set(base + TYPE, type);
@@ -390,9 +419,28 @@ public final class AgentRing {
                 records.set(base + PAYLOAD + 1, b);
                 records.set(base + PAYLOAD + 2, c);
                 records.set(base + PAYLOAD + 3, d);
-                records.set(base + RECORD, position);
+                records.set(base + record, position);
             } finally {
                 // Published even when the write failed half-way: the consumer finds the stamp missing and drops it.
+                sequences.set(slot, position + 1L);
+            }
+            return true;
+        }
+
+        /** {@link #write(long, int, int, long, long, long, long, long, long)} for a record of any width: a copy. */
+        boolean write(long position, long[] values) {
+            int slot = (int) (position & mask);
+            if (!sequences.compareAndSet(slot, position, ~position)) {
+                counters.late.increment();
+                return false;
+            }
+            int base = slot * stride;
+            try {
+                for (int k = 0; k < record; k++) {
+                    records.set(base + k, k < values.length ? values[k] : 0L);
+                }
+                records.set(base + record, position);
+            } finally {
                 sequences.set(slot, position + 1L);
             }
             return true;
@@ -407,21 +455,21 @@ public final class AgentRing {
          * holding the flag.
          */
         int drain(long generation, Consumer<long[]> sink) {
-            long[] record = new long[RECORD];
+            long[] copy = new long[record];
             long position = head.get();
             int drained = 0;
             for (int i = 0; i < capacity; i++) {
                 int slot = (int) (position & mask);
                 long sequence = sequences.get(slot);
                 if (sequence == position + 1L) {
-                    int base = slot * STRIDE;
-                    for (int k = 0; k < RECORD; k++) {
-                        record[k] = records.get(base + k);
+                    int base = slot * stride;
+                    for (int k = 0; k < record; k++) {
+                        copy[k] = records.get(base + k);
                     }
-                    long stamp = records.get(base + RECORD);
-                    if (stamp == position && record[GENERATION] > generation) {
+                    long stamp = records.get(base + record);
+                    if (stamp == position && copy[GENERATION] > generation) {
                         // A newer claim's record: left for that claim's drainer.
-                        NEWER_STOPS.increment();
+                        counters.newerStops.increment();
                         break;
                     }
                     sequences.set(slot, position + capacity);
@@ -430,16 +478,16 @@ public final class AgentRing {
                     stuckPosition = -1L;
                     if (stamp != position - 1L) {
                         // Published without its stamp: its producer failed half-way through writing it.
-                        TORN.increment();
-                        LOST.increment();
+                        counters.torn.increment();
+                        counters.lost.increment();
                         continue;
                     }
                     drained++;
-                    DRAINED.increment();
+                    counters.drained.increment();
                     try {
-                        sink.accept(record);
+                        sink.accept(copy);
                     } catch (Throwable ex) {
-                        SINK_ERRORS.increment();
+                        counters.sinkErrors.increment();
                         AgentBridge.error(ex);
                     }
                     continue;
@@ -456,7 +504,7 @@ public final class AgentRing {
                     }
                     if (stuckDrains >= STUCK_DRAINS && now - stuckSince >= stuckNanos) {
                         if (sequences.compareAndSet(slot, position, position + capacity)) {
-                            LOST.increment();
+                            counters.lost.increment();
                             position++;
                             head.set(position);
                             stuckPosition = -1L;
@@ -478,7 +526,7 @@ public final class AgentRing {
         void publishTorn(long position) {
             int slot = (int) (position & mask);
             if (sequences.compareAndSet(slot, position, ~position)) {
-                records.set(slot * STRIDE + TYPE, 1L);
+                records.set(slot * stride + TYPE, 1L);
                 sequences.set(slot, position + 1L);
             }
         }
@@ -492,11 +540,24 @@ public final class AgentRing {
         final ConcurrentHashMap<String, Integer> ids = new ConcurrentHashMap<String, Integer>();
         final AtomicReferenceArray<String> strings;
         final AtomicInteger next = new AtomicInteger();
+        final LongAdder overflow;
 
-        Interns(long generation, int max) {
+        /**
+         * Whether an id lost to a racing intern of the same text keeps the text rather than becoming a hole, so a reader
+         * can take every {@code null} for an id not filled yet ({@link SideEffects}).
+         */
+        final boolean keepRaced;
+
+        Interns(long generation, int max, LongAdder overflow) {
+            this(generation, max, overflow, false);
+        }
+
+        Interns(long generation, int max, LongAdder overflow, boolean keepRaced) {
             this.generation = generation;
             this.max = max;
             this.strings = new AtomicReferenceArray<String>(max + 1);
+            this.overflow = overflow;
+            this.keepRaced = keepRaced;
         }
 
         int intern(String text) {
@@ -505,19 +566,21 @@ public final class AgentRing {
                 return known.intValue();
             }
             if (next.get() >= max) {
-                INTERN_OVERFLOW.increment();
+                overflow.increment();
                 return 0;
             }
             int id = next.incrementAndGet();
             if (id > max) {
-                INTERN_OVERFLOW.increment();
+                overflow.increment();
                 return 0;
             }
             strings.set(id, text);
             Integer raced = ids.putIfAbsent(text, Integer.valueOf(id));
             if (raced != null) {
-                // Another thread interned it first: this id stays a hole the reader sees as null.
-                strings.set(id, null);
+                // Another thread interned it first: this id stays a hole the reader sees as null, or its text.
+                if (!keepRaced) {
+                    strings.set(id, null);
+                }
                 return raced.intValue();
             }
             return id;

@@ -13,10 +13,25 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(100);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(100);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(99);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(84);
+        assertThat(McpToolCatalog.entries()).hasSize(101);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(101);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(100);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(85);
+    }
+
+    @Test
+    void sideEffectsIsAReadOnTheExistingQueryLimitSchemaOnEveryStackWithACompactDefault() {
+        McpToolCatalog.Entry sideEffects =
+                McpToolCatalog.byName("get_side_effects").orElseThrow();
+
+        // The published CLI binds options by schema name, so the tool reuses the existing QUERY_LIMIT schema.
+        assertThat(sideEffects.schema()).isEqualTo(McpToolSchema.QUERY_LIMIT);
+        assertThat(sideEffects.action()).isFalse();
+        assertThat(sideEffects.panelId()).isEqualTo(BootUiPanels.SIDE_EFFECTS);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).contains("get_side_effects");
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).contains("get_side_effects");
+        assertThat(McpToolCatalog.defaultLimit("get_side_effects"))
+                .isEqualTo(io.github.jdubois.bootui.core.dto.SideEffectsAgentReport.DEFAULT_LIMIT);
     }
 
     @Test

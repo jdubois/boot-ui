@@ -51,6 +51,7 @@ public final class McpToolGuide {
             Map.entry("get_threads", args("query", "http", "limit", 10)),
             Map.entry("get_code_inventory", args("query", "changed")),
             Map.entry("get_code_paths", args("query", "GET /orders")),
+            Map.entry("get_side_effects", args("query", "processes", "limit", 20)),
             Map.entry("get_request_profile", args("id", "<id>")),
             Map.entry("get_runtime_insight", args("id", "<id>")),
             Map.entry("get_runtime_impact", args("id", "OrderService#total")),

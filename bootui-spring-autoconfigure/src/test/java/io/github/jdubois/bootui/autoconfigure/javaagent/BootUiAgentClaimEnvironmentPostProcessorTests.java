@@ -74,6 +74,34 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
 
     @Test
     @SuppressWarnings("unchecked")
+    void aSideEffectsSensorThisVersionDoesNotShipIsAcceptedAndClaimed() {
+        SpringApplication application = new SpringApplication(SampleApplication.class);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.agent.sensors", "executors,network");
+
+        withBridge.postProcessEnvironment(environment, application);
+
+        assertThat((List<String>) FakeBridge.REQUESTS.get(0).get("sensors")).containsExactly("executors", "network");
+    }
+
+    @Test
+    void anUnknownSensorIdFailsTheStart() {
+        SpringApplication application = new SpringApplication(SampleApplication.class);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.agent.sensors", "executors,proceses");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> withBridge.postProcessEnvironment(environment, application))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("proceses")
+                .hasMessageContaining("processes");
+        assertThat(FakeBridge.REQUESTS).as("nothing was claimed").isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void theClaimAsksForTheConfiguredSensorsAndExecutorsOptions() {
         SpringApplication application = new SpringApplication(SampleApplication.class);
         MockEnvironment environment = new MockEnvironment()
@@ -86,7 +114,7 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
         withBridge.postProcessEnvironment(environment, application);
 
         Map<String, Object> request = FakeBridge.REQUESTS.get(0);
-        assertThat(request).containsEntry("sensors", List.of("executors", "inventory", "code-paths"));
+        assertThat(request).containsEntry("sensors", List.of("executors", "inventory", "code-paths", "processes"));
         assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", List.of("com.acme.Wrapper"))

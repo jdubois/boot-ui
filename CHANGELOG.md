@@ -61,17 +61,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `vulnerabilities_scan` on Spring MVC, Spring WebFlux, and Quarkus, read when answered and only while Code Inventory
   is enabled; it never changes a severity, score, count, or Scorecard penalty. The agent keeps bounded class-name
   evidence per jar for it ([Runtime reach](docs/features/advisors.md#runtime-reach), PLAN-v2 §5.15, M5-9a).
-- **The agent evidence contract (M5-11).** Code Paths' request and route trees and Code Inventory's first calls, which
-  the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on Spring MVC, Spring
-  WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible, so a disabled
-  Code Paths or Code Inventory panel hides its evidence from its reads, MCP tool, CLI command, Beans at runtime, the
-  runtime model, and the Runtime Insights observations that read it, with the reason; **Clear recording** and **Free
-  BootUI memory** clear it with the journal, the records still queued in the agent's ring included, leaving a request
-  that lost a fragment out of Code Paths whole; and Live Activity's journal status reports its estimated bytes as
-  **Agent evidence**, against the new `bootui.runtime-journal.agent-evidence-max-bytes` (about 62 MB by default, which
-  changes no bound; a smaller value shrinks Code Paths' trees in proportion). Code Inventory keeps which methods executed
-  through a clear, and says when the recording was cleared (`recordingClearedAt`). Code Inventory's first calls are kept
-  in primitive slots per method id, bounded by the agent's method limit.
 - **Method probes.** With the BootUI agent attached, **Probe this method** on a method selected in a Code Paths tree,
   or **Probe in Code Paths** on a changed method in Code Inventory, records that one method's next 20 invocations, for
   at most 60 seconds, five probes at once: each invocation's duration, thread kind, request id, outcome or exception
@@ -84,6 +73,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
   Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
   ([Method probes](docs/features/java-agent.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
+- **The agent evidence contract (M5-11).** Code Paths' request and route trees, Code Inventory's first calls, and Side
+  Effects rows, which the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on
+  Spring MVC, Spring WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible,
+  so a disabled Code Paths, Code Inventory, or Side Effects panel hides its evidence from its reads, MCP tool, CLI
+  command, Beans at runtime, the runtime model, and the Runtime Insights observations that read it, with the reason;
+  **Clear recording** and **Free BootUI memory** clear it with the journal, the records still queued in the agent's ring
+  included, leaving a request that lost a fragment out of Code Paths whole and dropping Side Effects records whose first
+  occurrence came before the clear by a watermark; and Live Activity's journal status reports its estimated bytes as
+  **Agent evidence**, against `bootui.runtime-journal.agent-evidence-max-bytes` (about 68 MB by default, including about
+  5.3 MB for Side Effects rows; a smaller value shrinks Code Paths' trees and Side Effects rows and waiting records in
+  proportion). Code Inventory keeps which methods executed through a clear, and says when the recording was cleared
+  (`recordingClearedAt`). Code Inventory's first calls are kept in primitive slots per method id, bounded by the agent's
+  method limit.
+
 - **Code Paths: calls under methods, Beans at runtime, and the issuing method.** With the BootUI agent's `code-paths`
   sensor, the SQL, REST client, cache, and AI recorders stamp each call, on the thread that issued it, with the
   instrumented method innermost there, so Code Paths shows each method's statements and calls per request under it
@@ -124,6 +127,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when the context refreshes and Quarkus at build time. A debugger stepping into a timed method steps over the agent's
   calls, whose bridge carries no line numbers. The Code Paths panel and tools that read the trees follow
   ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
+
+- **Side Effects panel, API, and tools.** With the BootUI agent armed for the run, the new view-only Side Effects panel
+  (Java agent group) lists side-effect sensor coverage and, in M5-5a, the processes application code starts. Rows are
+  attributed to a request route, an execution no request owns (a scheduled run, a consumed message), startup, or a
+  thread family, with normalized targets, call site, optional Code Paths bean-method stamp, counts, failed starts,
+  exits, durations, and exemplar request ids; arguments and environment never appear. The Side Effects panel is an
+  AgentEvidence store: panel visibility gates every read, HTTP Exchanges gates route attribution, Code Paths visibility
+  gates the inside bean method, and Clear recording and Free BootUI memory clear rows. `GET {api}/side-effects`,
+  `/side-effects/sensor`, `get_side_effects`, and `bootui side-effects` are available on Spring MVC, Spring WebFlux, and
+  Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects), PLAN-v2
+  §5.16, M5-5a).
+- **Processes sensor in the BootUI agent.** A new `processes` agent sensor, on by default, hooks the JDK
+  `ProcessBuilder.start` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and
+  `Runtime.exec(...)`. It records only the sanitized command name (a started process's executable file name; for a
+  failed start, the first element cut at whitespace or `=` first), using `?` for characters outside letters, digits,
+  `.`, `_`, `+`, and `-`, plus start failure, exit status, and lifetime; publishes starts at once, attributes exits as
+  their starts were, watches exits on the agent-owned `bootui-agent-process-exits` executor; ignores BootUI and agent
+  work; disables itself on a failed self-test; and drops/counts bounded records instead of blocking application code
+  ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
+  `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
+  that starts a process is no longer reported as doing work after its response.
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -326,6 +350,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
   (PLAN-v2 M5-7a).
+- **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
+  `code-paths`, and `processes`, while `threads` remains opt-in. The Side Effects sensors this version does not ship
+  (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`)
+  are accepted with a warning and reported not available. Any other id now fails the application's start, on Spring and
+  Quarkus alike, while the BootUI agent is attached, with an error naming the accepted ids.
+
 - **Durable Live Activity history is journal-rendered.** With
   `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
   polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**

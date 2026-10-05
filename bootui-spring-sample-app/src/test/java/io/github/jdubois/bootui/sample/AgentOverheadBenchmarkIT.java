@@ -215,13 +215,15 @@ class AgentOverheadBenchmarkIT {
     }
 
     private static String describe(String sensors) {
-        return sensors.isBlank() ? "the default sensors (executors, inventory, code-paths)" : "sensors " + sensors;
+        return sensors.isBlank()
+                ? "the default sensors (executors, inventory, code-paths, processes)"
+                : "sensors " + sensors;
     }
 
     /** The agent run measured what it claims: every sensor it asked for installed and active, code-paths recording. */
     private static void assertSensorsRecorded(JsonNode report, String sensors) {
         List<String> expected = sensors.isBlank()
-                ? List.of("executors", "inventory", "code-paths")
+                ? List.of("executors", "inventory", "code-paths", "processes")
                 : Arrays.stream(sensors.split(",")).map(String::trim).toList();
         List<String> active = new ArrayList<>();
         for (JsonNode sensor : report.path("sensors")) {

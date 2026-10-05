@@ -5,15 +5,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3, M5-4a): which sensors to
+ * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2, M5-3, M5-4a, M5-5a): which sensors to
  * install ({@code bootui.agent.sensors}), for the {@code executors} and {@code threads} sensors which tasks and threads
  * to leave alone because they already propagate their context ({@code bootui.agent.executors.skip-tasks},
  * {@code bootui.agent.executors.skip-threads}) and how long a handoff's work is attributed to its request
  * ({@code bootui.agent.executors.max-handoff}), and the capacity of the agent's transport ring
  * ({@code bootui.agent.ring-capacity}).
  *
- * @param sensors the sensors to install: {@code executors}, {@code inventory}, and {@code code-paths}, and the opt-in
- *     {@code threads}
+ * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, and
+ *     {@code processes}, and the opt-in {@code threads}; the Side Effects sensors this version does not ship are
+ *     accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -44,8 +45,34 @@ public record AgentSensorSettings(
      */
     public static final String CODE_PATHS = "code-paths";
 
+    /**
+     * The Side Effects sensor recording the processes the application starts (M5-5a, §5.16), on by default: one hook
+     * on {@code ProcessBuilder.start}, which costs nothing beside spawning a process.
+     */
+    public static final String PROCESSES = "processes";
+
+    /** The Side Effects sensors this version ships. */
+    public static final List<String> SIDE_EFFECT_SENSORS = List.of(PROCESSES);
+
+    /** Every sensor id this version installs. */
+    public static final List<String> KNOWN_SENSORS = List.of(EXECUTORS, THREADS, INVENTORY, CODE_PATHS, PROCESSES);
+
+    /**
+     * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
+     * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
+     */
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of(
+            "network",
+            "files",
+            "environment",
+            "thread-activity",
+            "thread-locals",
+            "resources",
+            "blocking",
+            "security-sinks");
+
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS);
+    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES);
 
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;
@@ -59,7 +86,7 @@ public record AgentSensorSettings(
     /**
      * The default {@code bootui.agent.executors.skip-tasks}: BootUI's own and Micrometer's context-propagating wrappers,
      * Spring's context-propagating task decorator, and JDK, connection-pool, and cache internals (Caffeine runs its
-     * maintenance on the common pool).
+     * maintenance on the common pool; the JDK reaps a started process on its own pool).
      */
     public static final List<String> DEFAULT_SKIP_TASKS = List.of(
             "io.github.jdubois.bootui.engine.correlation.ManagedTasks",
@@ -67,6 +94,8 @@ public record AgentSensorSettings(
             "org.springframework.core.task.support.ContextPropagatingTaskDecorator",
             "jdk.internal.",
             "sun.",
+            // The JDK's process reaper, which waits for a process a request started: plumbing, not the request's work.
+            "java.lang.ProcessHandleImpl",
             "com.zaxxer.hikari.",
             "com.github.benmanes.caffeine.");
 
@@ -81,6 +110,14 @@ public record AgentSensorSettings(
 
     public AgentSensorSettings {
         sensors = clean(sensors);
+        for (String sensor : sensors) {
+            if (!KNOWN_SENSORS.contains(sensor) && !NOT_AVAILABLE_SENSORS.contains(sensor)) {
+                throw new IllegalArgumentException("bootui.agent.sensors names an unknown sensor '" + sensor
+                        + "': this version installs " + String.join(", ", KNOWN_SENSORS)
+                        + ", and Side Effects also lists " + String.join(", ", NOT_AVAILABLE_SENSORS)
+                        + ", which are not available in this version.");
+            }
+        }
         skipTasks = clean(skipTasks);
         skipThreads = clean(skipThreads);
         maxHandoff = maxHandoff == null || maxHandoff.isNegative() || maxHandoff.isZero()
@@ -133,6 +170,31 @@ public record AgentSensorSettings(
     /** Whether the {@code code-paths} sensor is asked for. */
     public boolean codePaths() {
         return sensors.contains(CODE_PATHS);
+    }
+
+    /** The sensors asked for that this version lists but does not ship: accepted, and to be warned about. */
+    public List<String> notAvailable() {
+        return sensors.stream().filter(NOT_AVAILABLE_SENSORS::contains).toList();
+    }
+
+    /** The warning for {@link #notAvailable()}, or {@code null} when none is asked for. */
+    public String notAvailableWarning() {
+        List<String> asked = notAvailable();
+        return asked.isEmpty()
+                ? null
+                : "bootui.agent.sensors asks for " + String.join(", ", asked)
+                        + ", which this version of the BootUI agent does not ship yet: the Side Effects panel reports"
+                        + (asked.size() == 1 ? " it" : " them") + " not available.";
+    }
+
+    /** Whether the {@code processes} sensor is asked for. */
+    public boolean processes() {
+        return sensors.contains(PROCESSES);
+    }
+
+    /** Whether any Side Effects sensor is asked for. */
+    public boolean sideEffects() {
+        return sensors.stream().anyMatch(SIDE_EFFECT_SENSORS::contains);
     }
 
     /** Whether the {@code executors} sensor is asked for. */
