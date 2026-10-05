@@ -110,48 +110,64 @@ class CaughtExceptionsVerifierIT {
         assertThat(sites).as("handlers instrumented").isGreaterThan(5_000);
 
         // Beneath an advice checking every frame, as the code paths' does: never a verifier failure, and refusals rare.
+        // One transformation per class with the visit; only a class refused with it is transformed without it.
         int refused = 0;
+        int advised = 0;
         List<String> refusals = new ArrayList<>();
-        Map<String, byte[]> advised = new LinkedHashMap<>();
-        Map<String, byte[]> both = new LinkedHashMap<>();
+        // A class the advice refuses by itself stays as it is, so every class its neighbors need is still there.
+        Map<String, byte[]> both = new LinkedHashMap<>(classes);
         ClassFileLocator locator = new ClassFileLocator.Simple(classes);
         ClassFileLocator withJdk = new ClassFileLocator.Compound(
                 locator, ClassFileLocator.ForClassLoader.of(new URLClassLoader(others.toArray(new URL[0]), null)));
         TypePool pool = TypePool.Default.WithLazyResolution.of(withJdk);
-        for (Map.Entry<String, byte[]> entry : classes.entrySet()) {
-            byte[] alone = transform(entry.getKey(), withJdk, pool, false);
-            if (alone == null) {
-                continue;
-            }
-            advised.put(entry.getKey(), alone);
-            byte[] together = transform(entry.getKey(), withJdk, pool, true);
+        for (String name : classes.keySet()) {
+            byte[] together = transform(name, withJdk, pool, true);
             if (together == null) {
+                byte[] alone = transform(name, withJdk, pool, false);
+                if (alone == null) {
+                    // The advice refuses this class by itself.
+                    continue;
+                }
                 refused++;
                 if (refusals.size() < 20) {
-                    refusals.add(entry.getKey());
+                    refusals.add(name);
                 }
                 // The agent transforms such a class again without the visit.
                 together = alone;
             }
-            both.put(entry.getKey(), together);
+            advised++;
+            both.put(name, together);
         }
-        Map<String, String> advisedControl = link(advised, others, Function.identity());
-        Map<String, String> advisedVisited = link(both, others, Function.identity());
+        Map<String, String> beneath = link(both, others, Function.identity());
         List<String> brokenBeneath = new ArrayList<>();
-        for (Map.Entry<String, String> entry : advisedVisited.entrySet()) {
-            if (!advisedControl.containsKey(entry.getKey())) {
-                brokenBeneath.add(entry.getKey() + ": " + entry.getValue());
+        Map<String, byte[]> suspects = new LinkedHashMap<>();
+        for (String name : beneath.keySet()) {
+            if (!control.containsKey(name)) {
+                // Linked without anything: the advice alone decides whether the visit is to blame.
+                byte[] alone = transform(name, withJdk, pool, false);
+                if (alone != null) {
+                    suspects.put(name, alone);
+                }
+            }
+        }
+        Map<String, byte[]> withSuspects = new LinkedHashMap<>(classes);
+        withSuspects.putAll(suspects);
+        Map<String, String> adviceAlone =
+                suspects.isEmpty() ? Map.of() : link(withSuspects, others, Function.identity(), suspects.keySet());
+        for (String name : suspects.keySet()) {
+            if (!adviceAlone.containsKey(name)) {
+                brokenBeneath.add(name + ": " + beneath.get(name));
             }
         }
         System.out.printf(
                 "Beneath an advice: %d classes advised, %d refused only with the visit %s%n",
-                advised.size(), refused, refusals);
+                advised, refused, refusals);
         assertThat(brokenBeneath)
                 .as("advised classes linking without the visit but not with it")
                 .isEmpty();
         assertThat(refused * 1000L)
                 .as("classes refused only with the visit: %s", refusals)
-                .isLessThanOrEqualTo((long) MAX_REFUSED_PER_THOUSAND * advised.size());
+                .isLessThanOrEqualTo((long) MAX_REFUSED_PER_THOUSAND * advised);
     }
 
     /** The class files of {@code jars}, by binary name: no module or package descriptors, no versioned entries. */
@@ -187,11 +203,21 @@ class CaughtExceptionsVerifierIT {
      */
     private static Map<String, String> link(
             Map<String, byte[]> classes, List<URL> others, Function<byte[], byte[]> transformation) throws IOException {
+        return link(classes, others, transformation, classes.keySet());
+    }
+
+    /** {@link #link(Map, List, Function)}, checking only {@code names}, their dependencies defined as needed. */
+    private static Map<String, String> link(
+            Map<String, byte[]> classes,
+            List<URL> others,
+            Function<byte[], byte[]> transformation,
+            java.util.Collection<String> names)
+            throws IOException {
         Map<String, String> failed = new LinkedHashMap<>();
         try (URLClassLoader parent =
                 new URLClassLoader(others.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
             Defining loader = new Defining(classes, transformation, parent);
-            for (String name : classes.keySet()) {
+            for (String name : names) {
                 try {
                     Class<?> type = Class.forName(name, false, loader);
                     type.getDeclaredMethods();
