@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.sideeffects;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Recognizes the client behind a network record ({@code docs/PLAN-v2.md} §5.16, M5-5b) from its frames: the first
@@ -130,7 +132,10 @@ final class NetworkClients {
             rule("io.netty.resolver.dns.", "Netty DNS resolver", INFRASTRUCTURE),
             rule("com.sun.jndi.dns.", "JNDI DNS", INFRASTRUCTURE),
             rule("io.vertx.core.dns.", "Vert.x DNS client", INFRASTRUCTURE),
-            rule("io.opentelemetry.", "OpenTelemetry exporter", INFRASTRUCTURE),
+            // OpenTelemetry's exporters and SDK only: its instrumentation, agent, context, and API sit in the
+            // application's own stacks, around its REST calls and its DataSource.
+            rule("io.opentelemetry.exporter.", "OpenTelemetry exporter", INFRASTRUCTURE),
+            rule("io.opentelemetry.sdk.", "OpenTelemetry exporter", INFRASTRUCTURE),
             rule("zipkin2.", "Zipkin reporter", INFRASTRUCTURE),
             rule("io.micrometer.statsd.", "StatsD registry", INFRASTRUCTURE),
             rule("io.micrometer.registry.", "Micrometer registry", INFRASTRUCTURE),
@@ -150,7 +155,6 @@ final class NetworkClients {
             rule("BatchSpanProcessor", "OpenTelemetry exporter", INFRASTRUCTURE),
             rule("BatchLogRecordProcessor", "OpenTelemetry exporter", INFRASTRUCTURE),
             rule("PeriodicMetricReader", "OpenTelemetry exporter", INFRASTRUCTURE),
-            rule("otlp", "OpenTelemetry exporter", INFRASTRUCTURE),
             rule("zipkin", "Zipkin reporter", INFRASTRUCTURE),
             rule("docker-java-", "docker-java", INFRASTRUCTURE),
             rule("testcontainers", "Testcontainers", INFRASTRUCTURE));
@@ -203,7 +207,16 @@ final class NetworkClients {
      * A datagram to port 53 is a DNS resolver's.
      */
     static Client recognize(String client, String outside, String application, String thread, String target) {
-        // Infrastructure first: its frames, its exporters' threads, then its well-known ports.
+        return recognize(client, outside, application, thread, target, Set.of());
+    }
+
+    /**
+     * {@link #recognize(String, String, String, String, String)}, a connection to one of {@code endpoints}, the
+     * {@code host:port} of an exporter the application configured, being that exporter's.
+     */
+    static Client recognize(
+            String client, String outside, String application, String thread, String target, Set<String> endpoints) {
+        // Infrastructure first: its frames, its exporters' threads, the exporter endpoints configured, and DNS.
         for (String frame : new String[] {client, outside, application}) {
             Client known = byFrame(frame, INFRASTRUCTURE_FRAMES);
             if (known != null) {
@@ -216,21 +229,25 @@ final class NetworkClients {
                     return rule.client();
                 }
             }
-            if (thread.startsWith("OkHttp ") && OTLP_PATH.matcher(thread).find()) {
-                return new Client("OpenTelemetry exporter", INFRASTRUCTURE, null);
-            }
+        }
+        if (target != null && endpoints != null && endpoints.contains(target.toLowerCase(Locale.ROOT))) {
+            return new Client("Configured telemetry exporter", INFRASTRUCTURE, null);
         }
         String port = port(target);
-        if (port != null) {
-            String label = INFRASTRUCTURE_PORTS.get(Integer.valueOf(port));
-            if (label != null) {
-                return new Client(label, INFRASTRUCTURE, null);
-            }
+        if ("53".equals(port)) {
+            return new Client("DNS", INFRASTRUCTURE, null);
         }
         for (String frame : new String[] {client, outside, application}) {
             Client known = byFrame(frame);
             if (known != null) {
                 return known;
+            }
+        }
+        // A well-known infrastructure port only once no frame names a client: an application's own call to it is its.
+        if (port != null) {
+            String label = INFRASTRUCTURE_PORTS.get(Integer.valueOf(port));
+            if (label != null) {
+                return new Client(label, INFRASTRUCTURE, null);
             }
         }
         if (thread != null) {
@@ -249,9 +266,57 @@ final class NetworkClients {
         return null;
     }
 
-    /** An OTLP exporter's path, as OkHttp names its thread after the URL it calls. */
-    private static final java.util.regex.Pattern OTLP_PATH =
-            java.util.regex.Pattern.compile("/v\\{n\\}/(traces|metrics|logs)|/v1/(traces|metrics|logs)");
+    /** The configuration keys that name a telemetry exporter's endpoint, on Spring and Quarkus. */
+    static final List<String> EXPORTER_ENDPOINT_KEYS = List.of(
+            "management.otlp.tracing.endpoint",
+            "management.otlp.metrics.export.url",
+            "management.otlp.logging.endpoint",
+            "management.opentelemetry.tracing.export.otlp.endpoint",
+            "management.opentelemetry.logging.export.otlp.endpoint",
+            "management.zipkin.tracing.endpoint",
+            "otel.exporter.otlp.endpoint",
+            "otel.exporter.otlp.traces.endpoint",
+            "otel.exporter.otlp.metrics.endpoint",
+            "otel.exporter.otlp.logs.endpoint",
+            "otel.exporter.zipkin.endpoint",
+            "quarkus.otel.exporter.otlp.endpoint",
+            "quarkus.otel.exporter.otlp.traces.endpoint",
+            "quarkus.otel.exporter.otlp.metrics.endpoint",
+            "quarkus.otel.exporter.otlp.logs.endpoint");
+
+    /**
+     * The {@code host:port} of every exporter endpoint {@code properties} configures ({@link #EXPORTER_ENDPOINT_KEYS}),
+     * the port from the scheme when the URL names none. An unreadable or malformed value is skipped.
+     */
+    static Set<String> endpoints(java.util.function.Function<String, String> properties) {
+        Set<String> found = new java.util.HashSet<>();
+        if (properties == null) {
+            return Set.of();
+        }
+        for (String key : EXPORTER_ENDPOINT_KEYS) {
+            String value;
+            try {
+                value = properties.apply(key);
+            } catch (RuntimeException ex) {
+                continue;
+            }
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            try {
+                java.net.URI uri = java.net.URI.create(value.trim());
+                String host = uri.getHost();
+                if (host == null) {
+                    continue;
+                }
+                int port = uri.getPort() >= 0 ? uri.getPort() : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+                found.add(host.toLowerCase(Locale.ROOT) + ":" + port);
+            } catch (IllegalArgumentException ex) {
+                // Not a URL: no endpoint.
+            }
+        }
+        return Set.copyOf(found);
+    }
 
     /** The port of a {@code host:port} target, or {@code null}. */
     private static String port(String target) {

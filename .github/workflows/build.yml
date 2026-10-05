@@ -29,6 +29,7 @@ jobs:
       pull-requests: read
     outputs:
       agent: ${{ steps.agent.outputs.agent }}
+      extras: ${{ steps.agent.outputs.extras }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -468,14 +469,15 @@ jobs:
   # runner never fails a build while a clear regression does. The first CI runs measured about 17 % (pairs from 9 to
   # 22 %), above the budget, so a gate any closer to it would fail on noise alone (see CONTRIBUTING.md). Two more
   # measurements run on the I/O route, which adds one outbound connect and one file read per request so the
-  # side-effect sensors that hook them are exercised (M5-5b): every default sensor against no agent, and the default
-  # sensors against the same agent without network, nine pairs each.
+  # side-effect sensors that hook them are exercised (M5-5b): every default sensor against no agent, nine pairs, on
+  # every agent run; and, on pushes, manual runs, and pull requests labelled `agent` only, the default sensors against
+  # the same agent without network, the network sensor's own share.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -512,6 +514,7 @@ jobs:
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Measure the network sensor's share on the I/O route
+        if: needs.changes.outputs.extras == 'true'
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30

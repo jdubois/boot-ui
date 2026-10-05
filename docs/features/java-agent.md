@@ -623,8 +623,9 @@ not known.
 Connects and lookups are rare and published at once, with the first frame outside the socket plumbing (the JDK's
 socket code, Netty, Vert.x's core, and Reactor's transport), or, when the stack holds one, the outermost frame of a
 telemetry exporter, a metrics or log shipper, or container tooling, whose transport is itself an HTTP client; the first
-frame outside the JDK; the first application frame; and the thread's family, digits folded and characters other than
-safe ones replaced, read from a stack walk of at most 128 frames that stops at the thread's `run`. Once a code-paths
+frame outside the JDK; the first application frame; and the thread's family, read from a stack walk of at most 128
+frames that stops at the thread's `run`. A thread's family drops a URL's user information, is cut at its first `?`,
+`#`, or `@`, folds digit runs, replaces characters other than safe ones, and keeps at most 64 characters. Once a code-paths
 stamp names the call site, a connect's and a lookup's frames are remembered per target, call site, and thread family,
 and walked again only for a new one. A connect or a lookup takes its owner from the thread's slot, else captures it,
 except on a Netty or Vert.x event loop, which never captures. Datagram sends are hot: their owner comes from the
@@ -639,11 +640,15 @@ BootUI's own JDK `HttpClient`s, which run on a `bootui-http-N` executor, are nev
 (`sun.nio.ch.PipeImpl`, a pipe or selector wake-up on Windows) is never recorded; loopback connections to databases,
 brokers, and containers are, as they are what a developer runs locally.
 
-The client is recognized in the engine, infrastructure first: by its frames, an OpenTelemetry exporter's thread
-(`BatchSpanProcessor`, `PeriodicMetricReader`, or an OkHttp thread named after an OTLP `/v1/traces`, `/metrics`, or
-`/logs` URL), or a well-known port (4317 and 4318 OTLP, 9411 Zipkin, 14250 and 14268 Jaeger, 3100 Loki, 8125 StatsD,
-12201 GELF, 53 DNS). Then from the frames, then from the thread's family when a Netty event loop's connect carries no
-frame of the library that asked for it: JDBC drivers, R2DBC, and Vert.x SQL clients; Kafka,
+The client is recognized in the engine, infrastructure first: by its frames (OpenTelemetry's exporters and SDK only,
+never its instrumentation, agent, context, or API, which sit in the application's own stacks around its REST calls and
+its DataSource), an OpenTelemetry exporter's thread (`BatchSpanProcessor`, `BatchLogRecordProcessor`,
+`PeriodicMetricReader`), the host and port of an exporter endpoint the application configures
+(`management.otlp.*`, `management.opentelemetry.*`, `management.zipkin.tracing.endpoint`, `otel.exporter.*`,
+`quarkus.otel.exporter.otlp.*`, read once), or port 53 (DNS). Then from the frames; then, only when no frame names a
+client, a well-known port (4317 and 4318 OTLP, 9411 Zipkin, 14250 and 14268 Jaeger, 3100 Loki, 8125 StatsD, 12201
+GELF), so an application's own call to one stays its client's; then from the thread's family when a Netty event
+loop's connect carries no frame of the library that asked for it: JDBC drivers, R2DBC, and Vert.x SQL clients; Kafka,
 RabbitMQ, ActiveMQ, AMQP JMS, and IBM MQ clients; Jakarta Mail; the JDK `HttpClient` and `HttpURLConnection`, Apache
 HttpClient, OkHttp, Jetty, Reactor Netty, Vert.x, Spring's and Quarkus's REST clients; Lettuce, Jedis, Redisson,
 MongoDB, Cassandra, Elasticsearch, gRPC, and the AWS, Azure, and Google Cloud SDKs; and infrastructure clients: DNS

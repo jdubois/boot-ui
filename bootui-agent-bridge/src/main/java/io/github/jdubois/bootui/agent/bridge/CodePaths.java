@@ -328,12 +328,13 @@ public final class CodePaths {
             try {
                 if (active) {
                     owner = beginFragment();
-                } else {
-                    // Without code paths, a side-effect sensor with a hot hook still needs the scope's owner in its
-                    // slot.
-                    owner = SideEffects.scopeOwner();
                 }
             } finally {
+                // Without an owner from code paths, as without the sensor, for a nested begin(), or after an internal
+                // error, a side-effect sensor with a hot hook still needs the scope's owner in its slot.
+                if (owner == null) {
+                    owner = SideEffects.scopeOwner();
+                }
                 // The side-effect sensors' owner slot, with the owner captured here if any (PLAN-v2 M5-5 design B1),
                 // pushed even when the fragment failed, so the scopeEnd() of end() stays balanced.
                 SideEffects.scopeBegin(owner);

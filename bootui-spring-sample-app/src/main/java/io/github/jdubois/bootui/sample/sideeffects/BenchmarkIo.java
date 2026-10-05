@@ -29,9 +29,8 @@ public class BenchmarkIo {
 
     /** Connects to the stub and closes the connection, then reads the file: the bytes it read. */
     public int touch() {
-        String port = environment.getProperty(
-                "sample.benchmark.stub-port",
-                environment.getProperty("local.server.port", environment.getProperty("server.port", "8080")));
+        String port =
+                environment.getProperty("sample.benchmark.stub-port", environment.getProperty("local.server.port"));
         try (Socket socket = new Socket()) {
             // Closed with a reset, so a thousand connections a second never exhaust the ephemeral ports in TIME_WAIT.
             socket.setSoLinger(true, 0);

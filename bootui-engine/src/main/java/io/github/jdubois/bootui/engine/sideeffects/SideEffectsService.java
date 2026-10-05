@@ -117,6 +117,7 @@ public final class SideEffectsService implements AutoCloseable {
     private volatile Function<Set<String>, Map<String, String>> requestRoutes = ids -> Map.of();
     private volatile Function<Set<String>, Map<String, String>> executionLabels = ids -> Map.of();
     private volatile NetworkCapture networkCapture = NetworkCapture.NONE;
+    private volatile Set<String> exporterEndpoints = Set.of();
     private final AgentEvidence evidence;
     private final AgentEvidence.Store store = new Store();
     /** Code Paths' panel, whose evidence a row's bean method is: read for its visibility only, never registered. */
@@ -202,6 +203,15 @@ public final class SideEffectsService implements AutoCloseable {
                 run.store.setCapture(this.networkCapture);
             }
         }
+    }
+
+    /**
+     * Reads, once, the telemetry exporter endpoints the application configures ({@code management.otlp.*},
+     * {@code otel.exporter.*}, {@code quarkus.otel.exporter.*}), whose connections are infrastructure, such as {@code
+     * environment::getProperty} (M5-5b).
+     */
+    public void setExporterEndpoints(Function<String, String> properties) {
+        this.exporterEndpoints = NetworkClients.endpoints(properties);
     }
 
     /** Names waiting keys: request ids through the routes, execution keys through the execution labels. */
@@ -962,7 +972,8 @@ public final class SideEffectsService implements AutoCloseable {
             String client = string(record.clientFrame());
             String thread = normalizer.threadFamily(string(record.threadName()));
             String normalized = target == null ? "(unknown)" : normalizer.networkTarget(target);
-            NetworkClients.Client recognized = NetworkClients.recognize(client, outside, application, thread, target);
+            NetworkClients.Client recognized =
+                    NetworkClients.recognize(client, outside, application, thread, target, exporterEndpoints);
             String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
             String callSite = application != null
                     ? application

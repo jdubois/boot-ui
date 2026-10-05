@@ -74,13 +74,18 @@ class NetworkClientsTests {
     }
 
     @Test
-    void anOpenTelemetryExportersOkHttpConnectIsInfrastructureNotAnHttpClient() {
+    void anOpenTelemetryExportersOkHttpConnectToItsConfiguredEndpointIsInfrastructure() {
+        java.util.Set<String> endpoints = NetworkClients.endpoints(java.util.Map.of(
+                "management.otlp.tracing.endpoint", "http://Otel-Collector:4318/v1/traces",
+                "quarkus.otel.exporter.otlp.endpoint", "https://collector.example.com")::get);
+        // OkHttp names its threads after the redacted URL: "OkHttp " + url.redact().
         NetworkClients.Client okHttp = NetworkClients.recognize(
                 "okhttp3.internal.connection.RealConnection#connectSocket",
                 "okhttp3.internal.connection.RealConnection#connectSocket",
                 null,
-                "OkHttp http://otel-collector:{n}/v{n}/traces",
-                "otel-collector:4318");
+                "OkHttp http://otel-collector:{n}/...",
+                "otel-collector:4318",
+                endpoints);
         NetworkClients.Client byFrame = NetworkClients.recognize(
                 "io.opentelemetry.exporter.sender.okhttp.internal.OkHttpHttpSender#send",
                 "okhttp3.internal.connection.RealConnection#connectSocket",
@@ -88,13 +93,40 @@ class NetworkClientsTests {
                 "worker",
                 "collector:80");
 
+        assertThat(endpoints).containsExactlyInAnyOrder("otel-collector:4318", "collector.example.com:443");
         assertThat(okHttp.category()).isEqualTo(NetworkClients.INFRASTRUCTURE);
         assertThat(byFrame.label()).isEqualTo("OpenTelemetry exporter");
         assertThat(SideEffectsService.captureKey(okHttp)).isEqualTo(SideEffectsStore.CAPTURE_INFRASTRUCTURE);
     }
 
     @Test
-    void theJdkSenderAndTheMicrometerOtlpRegistryAreInfrastructureByThreadOrPort() {
+    void openTelemetryInstrumentationAroundAnApplicationsCallsLeavesThemTheirClients() {
+        NetworkClients.Client rest = NetworkClients.recognize(
+                "sun.net.www.protocol.http.HttpURLConnection#connect",
+                "io.opentelemetry.instrumentation.spring.web.v3_1.RestTemplateInterceptor#intercept",
+                "com.example.OrderService#price",
+                "http-nio-{n}-exec-{n}",
+                "prices.example.com:443");
+        NetworkClients.Client jdbc = NetworkClients.recognize(
+                "org.postgresql.core.PGStream#createSocket",
+                "org.postgresql.core.PGStream#createSocket",
+                "com.example.OrderRepository#find",
+                "http-nio-{n}-exec-{n}",
+                "db:5432");
+        NetworkClients.Client throughDataSource = NetworkClients.recognize(
+                "org.postgresql.core.PGStream#createSocket",
+                "io.opentelemetry.instrumentation.jdbc.datasource.OpenTelemetryDataSource#getConnection",
+                null,
+                "main",
+                "db:5432");
+
+        assertThat(rest.category()).isEqualTo(NetworkClients.HTTP);
+        assertThat(jdbc.category()).isEqualTo(NetworkClients.SQL);
+        assertThat(throughDataSource.category()).isEqualTo(NetworkClients.SQL);
+    }
+
+    @Test
+    void theJdkSenderAndTheMicrometerOtlpRegistryAreInfrastructureByThreadOrFrame() {
         assertThat(NetworkClients.recognize(
                                 "jdk.internal.net.http.PlainHttpConnection#connectAsync",
                                 null,
@@ -104,14 +136,6 @@ class NetworkClientsTests {
                         .category())
                 .isEqualTo(NetworkClients.INFRASTRUCTURE);
         assertThat(NetworkClients.recognize(
-                                "jdk.internal.net.http.PlainHttpConnection#connectAsync",
-                                null,
-                                null,
-                                "HttpClient-{n}-Worker-{n}",
-                                "localhost:4318")
-                        .label())
-                .isEqualTo("OpenTelemetry exporter");
-        assertThat(NetworkClients.recognize(
                                 "io.micrometer.registry.otlp.OtlpMeterRegistry#publish",
                                 null,
                                 null,
@@ -119,6 +143,21 @@ class NetworkClientsTests {
                                 "collector:80")
                         .category())
                 .isEqualTo(NetworkClients.INFRASTRUCTURE);
+    }
+
+    @Test
+    void anApplicationsOwnHttpCallToAWellKnownPortStaysItsHttpClients() {
+        assertThat(NetworkClients.recognize(
+                                "jdk.internal.net.http.PlainHttpConnection#connectAsync",
+                                null,
+                                "com.example.Metrics#push",
+                                "HttpClient-{n}-Worker-{n}",
+                                "localhost:8125")
+                        .category())
+                .isEqualTo(NetworkClients.HTTP);
+        assertThat(NetworkClients.recognize(null, null, null, "worker", "10.0.0.2:53")
+                        .label())
+                .isEqualTo("DNS");
     }
 
     @Test

@@ -570,7 +570,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JavaAgentService> javaAgent,
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
-            AgentEvidence evidence) {
+            AgentEvidence evidence,
+            org.springframework.core.env.Environment environment) {
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -594,6 +595,8 @@ public class BootUiEngineConfiguration {
         service.setExecutionLabels(JournalExecutions.of(journal.getIfAvailable()));
         // Whether a panel shows a network connection's work (M5-5b).
         service.setNetworkCapture(JournalNetworkCapture.of(journal.getIfAvailable()));
+        // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
+        service.setExporterEndpoints(environment::getProperty);
         return service;
     }
 

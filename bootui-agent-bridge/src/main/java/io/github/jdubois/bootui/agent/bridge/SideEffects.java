@@ -844,7 +844,8 @@ public final class SideEffects {
         if (name == null) {
             return null;
         }
-        int length = Math.min(name.length(), MAX_TARGET);
+        name = withoutSecrets(name);
+        int length = Math.min(name.length(), MAX_THREAD_FAMILY);
         StringBuilder family = new StringBuilder(length + 8);
         boolean digits = false;
         for (int i = 0; i < length; i++) {
@@ -864,7 +865,6 @@ public final class SideEffects {
                         || c == ':'
                         || c == '/'
                         || c == ' '
-                        || c == '#'
                         || c == '['
                         || c == ']';
                 family.append(kept ? c : '?');
@@ -872,6 +872,40 @@ public final class SideEffects {
             }
         }
         return family.toString();
+    }
+
+    /** The longest thread family kept, in characters. */
+    static final int MAX_THREAD_FAMILY = 64;
+
+    /**
+     * A thread name without what could be a secret, as OkHttp names its threads after a URL: a URL's user information
+     * is dropped, and the name is cut at its first {@code ?}, {@code #}, or {@code @}.
+     */
+    static String withoutSecrets(String name) {
+        String text = name;
+        int scheme = text.indexOf("://");
+        if (scheme >= 0) {
+            int authority = scheme + 3;
+            int end = authority;
+            while (end < text.length()
+                    && text.charAt(end) != '/'
+                    && text.charAt(end) != '?'
+                    && text.charAt(end) != '#') {
+                end++;
+            }
+            int at = text.lastIndexOf('@', end - 1);
+            if (at >= authority) {
+                text = text.substring(0, authority) + text.substring(at + 1);
+            }
+        }
+        int cut = text.length();
+        for (char stop : new char[] {'?', '#', '@'}) {
+            int index = text.indexOf(stop);
+            if (index >= 0 && index < cut) {
+                cut = index;
+            }
+        }
+        return text.substring(0, cut);
     }
 
     /**
@@ -1084,7 +1118,10 @@ public final class SideEffects {
      * application's: telemetry exporters, metrics and log shippers, and container tooling.
      */
     static boolean infrastructure(String className) {
-        return className.startsWith("io.opentelemetry.")
+        // OpenTelemetry's exporters and SDK only: its instrumentation, agent, context, and API sit in the application's
+        // own stacks, an interceptor around the application's REST call or a DataSource wrapper around its JDBC one.
+        return className.startsWith("io.opentelemetry.exporter.")
+                || className.startsWith("io.opentelemetry.sdk.")
                 || className.startsWith("zipkin2.")
                 || className.startsWith("io.micrometer.registry.")
                 || className.startsWith("io.micrometer.statsd.")
@@ -2149,6 +2186,7 @@ public final class SideEffects {
             packetAddress(new java.net.DatagramPacket(new byte[0], 0));
             hostName("user@warm");
             threadFamily("warm-1");
+            withoutSecrets("http://u@warm/?q");
             plumbing("warm");
             failure(new java.io.IOException("warm"));
             new java.net.UnknownHostException("warm").getClass();

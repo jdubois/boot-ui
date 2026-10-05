@@ -817,8 +817,9 @@ Features:
   (a JVM address-cache miss). It records a host string and port, never resolved, without user information, sanitized,
   at most 128 characters and 1,024 distinct targets a run, or a looked-up name; connect, send, and resolution time; the
   outcome; and the client recognized in the engine, infrastructure first (an exporter's, shipper's, or container
-  tool's frame, exporter thread, or well-known port), then from the first frame outside the socket plumbing, the call
-  site's frames, and the thread family. It never reads a byte sent or received. Connects and lookups are published at once; a
+  tool's frame, never OpenTelemetry's instrumentation; an exporter thread; a configured exporter endpoint; DNS), then
+  from the first frame outside the socket plumbing and the call site's frames, then a well-known infrastructure port,
+  then the thread family. It never reads a byte sent or received. Connects and lookups are published at once; a
   non-blocking connect is pending until its `finishConnect` record, which carries its owner and time; a datagram's
   first send per target and call site is published at once and the next ones counted in the thread's table.
 - A network connection or datagram row is `captured` (with the panel id), `not-captured` (no visible panel shows the

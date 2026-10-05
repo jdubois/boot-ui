@@ -384,7 +384,8 @@ public class BootUiEngineProducer {
             JavaAgentService javaAgent,
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
-            AgentEvidence evidence) {
+            AgentEvidence evidence,
+            Config config) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
@@ -399,6 +400,9 @@ public class BootUiEngineProducer {
         service.setExecutionLabels(JournalExecutions.of(journal.isResolvable() ? journal.get() : null));
         // Whether a panel shows a network connection's work (M5-5b).
         service.setNetworkCapture(JournalNetworkCapture.of(journal.isResolvable() ? journal.get() : null));
+        // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
+        service.setExporterEndpoints(
+                key -> config.getOptionalValue(key, String.class).orElse(null));
         return service;
     }
 

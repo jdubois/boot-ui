@@ -246,15 +246,44 @@ class NetworkSideEffectsTests {
     }
 
     @Test
+    void openTelemetryInstrumentationAroundAnApplicationsCallNeverHidesItsHttpClient() {
+        enabledClaim();
+        Claim claim = AgentBridge.current();
+
+        long[] instrumented = io.opentelemetry.instrumentation.fake.FakeInterceptor.intercept(
+                () -> sun.net.www.fake.FakeHttpClient.connect(() -> SideEffects.networkFrames(claim)));
+        long[] exported = io.opentelemetry.exporter.fake.FakeExporter.export(
+                () -> sun.net.www.fake.FakeHttpClient.connect(() -> SideEffects.networkFrames(claim)));
+
+        assertThat(string(instrumented[1])).startsWith("sun.net.www.fake.FakeHttpClient#connect");
+        assertThat(string(exported[1])).startsWith("io.opentelemetry.exporter.fake.FakeExporter#export");
+    }
+
+    @Test
     void anInfrastructureFrameIsTheClientOfAConnectMadeThroughATransport() {
         assertThat(SideEffects.infrastructure("io.opentelemetry.exporter.sender.okhttp.OkHttpHttpSender"))
                 .isTrue();
+        assertThat(SideEffects.infrastructure("io.opentelemetry.sdk.trace.export.BatchSpanProcessor"))
+                .isTrue();
+        for (String instrumentation : List.of(
+                "io.opentelemetry.instrumentation.spring.web.v3_1.RestTemplateInterceptor",
+                "io.opentelemetry.instrumentation.jdbc.datasource.OpenTelemetryDataSource",
+                "io.opentelemetry.javaagent.instrumentation.okhttp.v3_0.TracingInterceptor",
+                "io.opentelemetry.context.Context",
+                "io.opentelemetry.api.trace.Span")) {
+            assertThat(SideEffects.infrastructure(instrumentation))
+                    .as(instrumentation)
+                    .isFalse();
+        }
         assertThat(SideEffects.infrastructure("org.springframework.boot.docker.compose.lifecycle.X"))
                 .isTrue();
         assertThat(SideEffects.infrastructure("okhttp3.internal.connection.RealConnection"))
                 .isFalse();
-        assertThat(SideEffects.threadFamily("OkHttp http://otel:4318/v1/traces\n"))
-                .isEqualTo("OkHttp http://otel:{n}/v{n}/traces?");
+        assertThat(SideEffects.threadFamily("OkHttp http://otel:4318/...")).isEqualTo("OkHttp http://otel:{n}/...");
+        assertThat(SideEffects.threadFamily("OkHttp https://alice:hunter2@h/?token=abc"))
+                .isEqualTo("OkHttp https://h/");
+        assertThat(SideEffects.threadFamily("worker\n@secret")).isEqualTo("worker?");
+        assertThat(SideEffects.threadFamily("x".repeat(500))).hasSize(SideEffects.MAX_THREAD_FAMILY);
     }
 
     @Test
