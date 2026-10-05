@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import sideeffectsapp.EventLoopWork;
 import sideeffectsapp.Launcher;
 
 /**
@@ -189,7 +190,8 @@ class SideEffectsServiceTests {
                         "blocking",
                         "security-sinks");
         assertThat(report.sensors())
-                .filteredOn(sensor -> !sensor.id().equals("processes"))
+                .filteredOn(sensor ->
+                        !sensor.id().equals("processes") && !sensor.id().equals("blocking"))
                 .allSatisfy(sensor -> {
                     assertThat(sensor.state()).isEqualTo(SideEffectsSensorDto.NOT_AVAILABLE);
                     assertThat(sensor.reason()).isEqualTo(SideEffectsCatalog.NOT_IN_THIS_VERSION);
@@ -293,9 +295,9 @@ class SideEffectsServiceTests {
                 .hasMessageContaining("processes")
                 .hasMessageContaining("not available in this version");
         AgentSensorSettings planned =
-                new AgentSensorSettings(List.of("executors", "network", "blocking"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("network", "blocking");
-        assertThat(planned.notAvailableWarning()).contains("network, blocking").contains("not available");
+                new AgentSensorSettings(List.of("executors", "network", "files"), null, null, null);
+        assertThat(planned.notAvailable()).containsExactly("network", "files");
+        assertThat(planned.notAvailableWarning()).contains("network, files").contains("not available");
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)
                 .as("the catalog's sensors this version does not ship")
@@ -309,6 +311,7 @@ class SideEffectsServiceTests {
                         .map(SideEffectsCatalog.Sensor::id)
                         .toList());
         assertThat(AgentSensorSettings.defaults().processes()).isTrue();
+        assertThat(AgentSensorSettings.defaults().blocking()).isTrue();
         assertThat(AgentSensorSettings.defaults().sideEffects()).isTrue();
     }
 
@@ -397,6 +400,106 @@ class SideEffectsServiceTests {
         evidence.clear();
 
         assertThat(service.status()).containsEntry("folded", 0L).containsEntry("rows", 0);
+    }
+
+    @Test
+    void aSleepAndAWaitOnAnEventLoopAreRowsOfTheirRouteByLoopFamilyOperationAndCallSite() throws Exception {
+        start();
+        SideEffects.enable(SideEffects.MASK_BLOCKING);
+        routes.put(REQUEST, "GET /slow");
+        Object monitor = new Object();
+        onThread("reactor-http-nio-3", () -> {
+            context.set(CorrelationContext.forRequest(REQUEST));
+            EventLoopWork.register();
+            EventLoopWork.sleep(5L);
+            EventLoopWork.sleep(5L);
+            EventLoopWork.waitOn(monitor, 5L);
+            context.set(CorrelationContext.NONE);
+        });
+        // The same sleep off event loops is never a row.
+        onThread("boundedElastic-1", () -> EventLoopWork.sleep(5L));
+
+        SideEffectsSensorReport report = service.sensor("blocking", null, null);
+
+        assertThat(report.sensor().state()).isEqualTo(SideEffectsSensorDto.RECORDING);
+        assertThat(report.rows()).hasSize(2);
+        SideEffectsRowDto sleep = report.rows().get(0);
+        assertThat(sleep.scope()).isEqualTo(SideEffectsRowDto.ROUTE);
+        assertThat(sleep.attribution()).isEqualTo("GET /slow");
+        assertThat(sleep.sensor()).isEqualTo("blocking");
+        assertThat(sleep.kind()).isEqualTo("sleep");
+        assertThat(sleep.target()).isEqualTo("reactor-http-nio-{n}");
+        assertThat(sleep.callSite()).isEqualTo("sideeffectsapp.EventLoopWork#sleep");
+        assertThat(sleep.count()).isEqualTo(2L);
+        assertThat(sleep.completed()).isZero();
+        assertThat(sleep.totalMillis()).isGreaterThanOrEqualTo(10L);
+        assertThat(sleep.maxMillis()).isGreaterThanOrEqualTo(5L);
+        assertThat(sleep.exemplarRequestIds()).containsExactly(REQUEST);
+        SideEffectsRowDto wait = report.rows().get(1);
+        assertThat(wait.kind()).as("a wait, never a process exit").isEqualTo("wait");
+        assertThat(wait.count()).isEqualTo(1L);
+        assertThat(report.limitations()).contains(SideEffectsService.LIMITATION_BLOCKING);
+        assertThat(service.agentReport("blocking", null).rows()).hasSize(2);
+    }
+
+    @Test
+    void blockingIsNotApplicableOnAStackWithoutEventLoopsUntilALoopIsRegistered() throws Exception {
+        start();
+        SideEffects.enable(SideEffects.MASK_BLOCKING);
+        service.setServerEventLoops(false);
+
+        assertThat(blockingSensor().state()).isEqualTo(SideEffectsSensorDto.NOT_APPLICABLE);
+        assertThat(blockingSensor().reason()).isEqualTo(SideEffectsService.BLOCKING_NOT_APPLICABLE);
+        assertThat(service.report().limitations()).doesNotContain(SideEffectsService.LIMITATION_NO_EVENT_LOOP);
+
+        // A WebClient's event loop, once registered, is watched.
+        Thread loop = new Thread(EventLoopWork::register, "reactor-http-nio-1");
+        loop.start();
+        loop.join();
+        assertThat(blockingSensor().state()).isEqualTo(SideEffectsSensorDto.RECORDING);
+        keep = loop;
+    }
+
+    @Test
+    void aStackWithEventLoopsSaysWhenNoneHandledARequestYet() {
+        start();
+        SideEffects.enable(SideEffects.MASK_BLOCKING);
+
+        assertThat(blockingSensor().state()).isEqualTo(SideEffectsSensorDto.RECORDING);
+        assertThat(service.report().limitations()).contains(SideEffectsService.LIMITATION_NO_EVENT_LOOP);
+    }
+
+    /** Holds a registered loop's thread, so its weak entry outlives the test's assertions. */
+    private Thread keep;
+
+    private SideEffectsSensorDto blockingSensor() {
+        return service.report().sensors().stream()
+                .filter(sensor -> sensor.id().equals("blocking"))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    interface Work {
+        void run() throws Exception;
+    }
+
+    private static void onThread(String name, Work work) throws Exception {
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(
+                () -> {
+                    try {
+                        work.run();
+                        SideEffects.flushThread();
+                    } catch (Throwable ex) {
+                        failure.set(ex);
+                    }
+                },
+                name);
+        thread.start();
+        thread.join(10_000L);
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
     }
 
     private void start() {

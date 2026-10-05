@@ -570,7 +570,7 @@ public class BootUiEngineConfiguration {
     }
 
     /**
-     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a): routes the agent's side-effect records of this run's claim into
+     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a, M5-5c): routes the agent's side-effect records of this run's claim into
      * bounded rows per sensor, attributed to their request's route through HTTP Exchanges, under the agent evidence
      * contract (M5-11), which gates its reads by its panel and HTTP Exchanges and clears it with the journal. The {@link AgentClaimOwner}
      * starts it once the context refreshed; it is closed with the context.
@@ -583,7 +583,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JavaAgentService> javaAgent,
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
-            AgentEvidence evidence) {
+            AgentEvidence evidence,
+            org.springframework.context.ApplicationContext applicationContext) {
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -605,6 +606,11 @@ public class BootUiEngineConfiguration {
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         service.setExecutionLabels(JournalExecutions.of(journal.getIfAvailable()));
+        // Only Spring WebFlux on Reactor Netty serves requests on event loops: elsewhere the blocking sensor is not
+        // applicable until a WebClient's Reactor Netty loop is registered (M5-5c).
+        service.setServerEventLoops(applicationContext instanceof ReactiveWebApplicationContext
+                && org.springframework.util.ClassUtils.isPresent(
+                        "reactor.netty.http.server.HttpServer", applicationContext.getClassLoader()));
         return service;
     }
 

@@ -784,9 +784,11 @@ Purpose: answer "Which processes and other side effects did this route or backgr
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. In M5-5a only the `processes` sensor records. The
-  `network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, and `security-sinks`
-  sensors are still listed but report `not-available` with reason `Not available in this version.`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `blocking` (M5-5c)
+  sensors record. The `network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, and
+  `security-sinks` sensors are still listed but report `not-available` with reason `Not available in this version.`
+- The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
+  WebClient, Vert.x's on Quarkus, each from the first request or response it handles there.
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -844,7 +846,17 @@ Acceptance criteria:
 - With the agent and `side-effects-seed.scheduled-every` set, the Quarkus sample's scheduled
   `ScheduledJavaVersion#report` run shows a `java` process row of scope `execution`, named as the runtime journal names
   that scheduled run, with no exemplar request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, and `processes`; `threads` remains opt-in.
+- The `blocking` sensor reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park` started on an
+  adapter-registered event loop, reported, never thrown: advice on every public `LockSupport.park*` method, which
+  returns after one volatile read off event loops until a loop is registered, and on every JDK the `sleep` and `wait`
+  call sites of the application's classes rewritten to the bridge's substitutes, since those methods are native on JDK
+  17. A park shorter than 1 ms is only counted. The **Blocking** tab shows rows by attribution, operation, event loop's
+  thread family, and call site, with calls, interrupted or failed calls, total and longest blocked time, and up to three
+  exemplar request ids. On Spring MVC, without an event loop, the sensor is `not-applicable` until a WebClient's loop is
+  registered. The WebFlux and Quarkus samples' `GET /api/side-effects/event-loop-sleep` shows a `sleep` row on the event
+  loop's family, and their `GET /api/side-effects/worker-sleep` counterexample, the same sleep on a worker, shows none.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `blocking`; `threads`
+  remains opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

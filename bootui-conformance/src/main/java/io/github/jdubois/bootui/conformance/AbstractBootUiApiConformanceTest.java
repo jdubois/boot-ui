@@ -1995,7 +1995,8 @@ public abstract class AbstractBootUiApiConformanceTest {
                         "blocking",
                         "security-sinks");
         report.path("sensors").forEach(sensor -> {
-            if (!"processes".equals(sensor.path("id").asText())) {
+            String id = sensor.path("id").asText();
+            if (!"processes".equals(id) && !"blocking".equals(id)) {
                 assertThat(sensor.path("state").asText()).isEqualTo("not-available");
                 assertThat(sensor.path("reason").asText()).isEqualTo("Not available in this version.");
             }

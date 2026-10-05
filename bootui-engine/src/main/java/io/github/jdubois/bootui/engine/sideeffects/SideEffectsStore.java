@@ -91,7 +91,7 @@ final class SideEffectsStore {
 
         void add(Observation observation, String requestId) {
             SideEffectRecord record = observation.record();
-            if (record.kind() == SideEffectsCatalog.KIND_PROCESS_EXIT) {
+            if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
                 completed += record.count();
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_EXITED) {
                     if (record.exitStatus() != 0) {
@@ -106,6 +106,11 @@ final class SideEffectsStore {
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_IO_ERROR
                         || record.outcome() == SideEffectsCatalog.OUTCOME_ERROR) {
                     failed += record.count();
+                }
+                if (record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
+                    // How long the event loop was blocked, in all and at most.
+                    nanos += record.nanos();
+                    maxNanos = Math.max(maxNanos, record.maxNanos());
                 }
             }
             firstSeen = Math.min(firstSeen, record.firstMillis());

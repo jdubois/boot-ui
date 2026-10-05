@@ -744,6 +744,36 @@ class SpringAgentScenarioIT {
                 .isTrue();
     }
 
+    /**
+     * The blocking sensor on Spring MVC ({@code docs/PLAN-v2.md} §5.16, M5-5c): installed and self-tested, but not
+     * applicable, since a thread-per-request server runs no event loop; its rows stay empty.
+     */
+    @Test
+    void theBlockingSensorIsNotApplicableOnSpringMvc() throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        JsonNode blocking;
+        do {
+            Thread.sleep(250);
+            blocking = null;
+            for (JsonNode sensor : probe.get("/bootui/api/side-effects").json().path("sensors")) {
+                if ("blocking".equals(sensor.path("id").asText())) {
+                    blocking = sensor;
+                }
+            }
+        } while ((blocking == null
+                        || !"not-applicable".equals(blocking.path("state").asText()))
+                && System.nanoTime() < deadline);
+        assertThat(blocking).isNotNull();
+        assertThat(blocking.path("state").asText()).as(blocking.toString()).isEqualTo("not-applicable");
+        assertThat(blocking.path("reason").asText()).contains("Spring MVC");
+        List<String> hooks = new ArrayList<>();
+        blocking.path("hooks").forEach(hook -> hooks.add(hook.path("id").asText()));
+        assertThat(hooks).contains("LockSupport.park", "Thread.sleep call sites", "Object.wait call sites");
+        JsonNode rows =
+                probe.get("/bootui/api/side-effects/sensor?sensor=blocking").json();
+        assertThat(rows.path("rows").size()).as(rows.toString()).isZero();
+    }
+
     /** The conformance catalog's contract of the Code Paths read whose path starts with {@code path}. */
     private static BootUiApiContractCatalog.ReadContract contract(String path) {
         List<BootUiApiContractCatalog.ReadContract> contracts = new ArrayList<>(BootUiApiContractCatalog.reads());

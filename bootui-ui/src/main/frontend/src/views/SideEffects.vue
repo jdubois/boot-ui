@@ -42,7 +42,13 @@ const STATE = {
   disabled: {label: 'Disabled', badge: 'text-bg-secondary'},
   'not-claimed': {label: 'Not claimed', badge: 'text-bg-warning'},
   unavailable: {label: 'Unavailable', badge: 'text-bg-warning'},
-  'not-available': {label: 'Not available', badge: 'text-bg-secondary'}
+  'not-available': {label: 'Not available', badge: 'text-bg-secondary'},
+  'not-applicable': {label: 'Not applicable', badge: 'text-bg-secondary'}
+}
+
+const EMPTY = {
+  processes: 'No process started yet in this run.',
+  blocking: 'No blocking call has started on an event loop yet in this run.'
 }
 
 const SCOPE_LABELS = {
@@ -250,6 +256,14 @@ function formatLifetime(row) {
   return `${formatMillis(row.totalMillis)} / ${formatMillis(row.maxMillis)}`
 }
 
+function isBlocking(sensor) {
+  return sensor?.id === 'blocking'
+}
+
+function emptyMessage(sensor) {
+  return EMPTY[sensor.id] ?? `No ${sensor.label.toLowerCase()} row has been recorded yet.`
+}
+
 function hookStatus(value, label) {
   if (value === true) return `${label} yes`
   if (value === false) return `${label} no`
@@ -300,7 +314,8 @@ function hookStatus(value, label) {
           </h3>
           <p class="text-muted small mb-0">
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
-            executable name; arguments and environment are never recorded.
+            executable name; arguments and environment are never recorded. Blocking rows show calls that blocked an
+            event loop, reported, never refused.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>
@@ -392,11 +407,7 @@ function hookStatus(value, label) {
                 icon="bi-record-circle"
                 class="side-effects-empty"
               >
-                {{
-                  sensor.id === 'processes'
-                    ? 'No process started yet in this run.'
-                    : `No ${sensor.label.toLowerCase()} row has been recorded yet.`
-                }}
+                {{ emptyMessage(sensor) }}
               </UnavailableState>
 
               <template v-else-if="sensorRows(sensorReports[sensor.id]).length">
@@ -408,7 +419,19 @@ function hookStatus(value, label) {
                         sensor.label
                       }}
                     </caption>
-                    <thead>
+                    <thead v-if="isBlocking(sensor)">
+                      <tr>
+                        <th scope="col">Attribution</th>
+                        <th scope="col">Event loop / operation</th>
+                        <th scope="col">Call site</th>
+                        <th scope="col" class="text-end">Calls</th>
+                        <th scope="col" class="text-end">Interrupted or failed</th>
+                        <th scope="col" class="text-end">Blocked (total / max ms)</th>
+                        <th scope="col">Last seen</th>
+                        <th scope="col">Requests</th>
+                      </tr>
+                    </thead>
+                    <thead v-else>
                       <tr>
                         <th scope="col">Attribution</th>
                         <th scope="col">Command / target</th>
@@ -447,7 +470,7 @@ function hookStatus(value, label) {
                         </td>
                         <td class="text-end">{{ formatNumber(row.count) }}</td>
                         <td class="text-end">{{ formatNumber(row.failed) }}</td>
-                        <td class="text-end">
+                        <td v-if="!isBlocking(sensor)" class="text-end">
                           {{ formatNumber(row.completed) }}
                           <div v-if="row.nonZeroExits > 0" class="small">
                             <span class="badge text-bg-warning">{{ formatNumber(row.nonZeroExits) }} non-zero</span>

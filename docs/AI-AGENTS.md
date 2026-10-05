@@ -437,17 +437,19 @@ reactive or asynchronous result, not the work that runs later.
 ### What side effects did the application start?
 
 With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
-side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor.
+side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor and
+the blocking calls started on an event loop from its `blocking` sensor.
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, or part of a route, target, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`), with counts, failures, exits, durations, call site, bean method stamp, and up to three request ids |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes` or `blocking`, or part of a route, target, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`), with counts, failures, exits, durations, call site, bean method stamp, and up to three request ids; blocking rows name the operation (`sleep`, `wait`, `park`) and the event loop's thread family, with how long it blocked in all and at most |
 
 Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
 `(route hidden: HTTP Exchanges is disabled)` and expose no request ids. When Code Paths is disabled, rows lose their
-inside bean method. A disabled Side Effects panel shows no rows. Non-process sensor groups are listed as `not-available`
-with reason `Not available in this version.`
+inside bean method. A disabled Side Effects panel shows no rows. Sensor groups this version does not ship are listed as
+`not-available` with reason `Not available in this version.`, and `blocking` is `not-applicable` on Spring MVC until a
+WebClient's event loop is registered.
 
 ### MySQL operational evidence
 

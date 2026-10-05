@@ -11,18 +11,21 @@ import java.util.List;
  *     {@value #UNATTRIBUTED}, or {@value #OTHER}
  * @param attribution the route ({@code GET /reports}), {@code startup}, the thread family ({@code pool-{n}-thread-{n}}),
  *     or what the scope names otherwise
- * @param sensor the sensor's id, such as {@code processes}
- * @param kind what was done, such as {@code process}
- * @param target the normalized target, such as a command's file name
+ * @param sensor the sensor's id, such as {@code processes} or {@code blocking}
+ * @param kind what was done, such as {@code process}, or for blocking the operation: {@code sleep}, {@code wait}, or
+ *     {@code park}
+ * @param target the normalized target, such as a command's file name, or for blocking the event loop's thread family
+ *     ({@code reactor-http-nio-{n}})
  * @param callSite the first application frame, else the first frame outside the JDK, as {@code Class#method}, or
  *     {@code null} when unknown
  * @param insideMethod the innermost application bean method open when it happened, from Code Paths, or {@code null}
  * @param count how many times it happened: for processes, how many starts were attempted
- * @param failed how many of them failed: for processes, starts that threw
+ * @param failed how many of them failed: for processes, starts that threw; for blocking, calls interrupted or that threw
  * @param completed for processes, how many of the started processes exited
  * @param nonZeroExits for processes, how many exited with a non-zero status
  * @param lastExitStatus for processes, the last exit status seen, or {@code null}
- * @param totalMillis the time they took: for processes, the started processes' lifetime until they exited
+ * @param totalMillis the time they took: for processes, the started processes' lifetime until they exited; for
+ *     blocking, how long they blocked the event loop
  * @param maxMillis the longest of them
  * @param firstSeen when it was first seen, in epoch milliseconds
  * @param lastSeen when it was last seen, in epoch milliseconds

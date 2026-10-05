@@ -102,6 +102,8 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
     @Override
     protected Mono<Void> doFilterInternal(ServerWebExchange exchange, WebFilterChain chain) {
         return Mono.deferContextual(context -> {
+            // Subscribed on the event loop the request arrived on: the agent's blocking sensor watches it (M5-5c).
+            ReactiveThreadKinds.registerIfEventLoop();
             Object existing = context.getOrDefault(CONTEXT_KEY, null);
             if (existing instanceof CorrelationContext correlation) {
                 exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);

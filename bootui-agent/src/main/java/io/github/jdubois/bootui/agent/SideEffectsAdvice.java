@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.agent;
 
+import io.github.jdubois.bootui.agent.bridge.Blocking;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.util.List;
 import net.bytebuddy.asm.Advice;
@@ -35,6 +36,24 @@ final class SideEffectsAdvice {
                 @Advice.Return Process process,
                 @Advice.Thrown Throwable thrown) {
             SideEffects.processStarted(token, command, process, thrown);
+        }
+    }
+
+    /**
+     * {@code LockSupport.park}, {@code parkNanos}, and {@code parkUntil}, with and without a blocker: the bridge returns
+     * at entry off event loops. The exit also runs when the park throws, as BlockHound's callback does from inside it,
+     * so the thread's hook is always closed.
+     */
+    static final class Park {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static long enter() {
+            return Blocking.parking();
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+        static void exit(@Advice.Enter long token, @Advice.Thrown Throwable thrown) {
+            Blocking.parked(token, thrown);
         }
     }
 }

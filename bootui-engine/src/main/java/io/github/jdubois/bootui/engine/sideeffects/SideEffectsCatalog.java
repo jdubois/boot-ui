@@ -11,6 +11,12 @@ public final class SideEffectsCatalog {
     /** The bridge's sensor id of {@code processes} in records. */
     static final int RECORD_PROCESSES = 1;
 
+    /** The bridge's sensor id of {@code blocking} in records ({@code Blocking}, M5-5c). */
+    static final int RECORD_BLOCKING = 2;
+
+    /** The blocking sensor's record kinds, as the bridge's {@code Blocking} numbers them. */
+    static final List<String> BLOCKING_KINDS = List.of("sleep", "wait", "park", "network", "file");
+
     /** The bridge's record kinds. */
     static final int KIND_PROCESS_START = 1;
 
@@ -19,8 +25,12 @@ public final class SideEffectsCatalog {
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
 
+    /** For the blocking sensor, an interrupted call. */
     static final int OUTCOME_IO_ERROR = 2;
+
+    /** For the blocking sensor, a call that threw, as BlockHound's error from inside it. */
     static final int OUTCOME_ERROR = 3;
+
     static final int OUTCOME_EXITED = 4;
 
     public static final String NETWORK = "Network";
@@ -57,7 +67,7 @@ public final class SideEffectsCatalog {
             new Sensor("thread-activity", THREADS_AND_LEAKS, "Threads and executors started per route", false, 0),
             new Sensor("thread-locals", THREADS_AND_LEAKS, "Thread locals left set after a request", false, 0),
             new Sensor("resources", THREADS_AND_LEAKS, "Streams and sockets left open", false, 0),
-            new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", false, 0),
+            new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", true, RECORD_BLOCKING),
             new Sensor("security-sinks", SECURITY_SINKS, "Request input reaching SQL, commands, and paths", false, 0));
 
     private SideEffectsCatalog() {}
@@ -84,6 +94,17 @@ public final class SideEffectsCatalog {
 
     /** What a record of {@code recordId} and {@code kind} did, as rows name it. */
     static String kind(int recordId, int kind) {
-        return recordId == RECORD_PROCESSES ? "process" : "operation";
+        if (recordId == RECORD_PROCESSES) {
+            return "process";
+        }
+        if (recordId == RECORD_BLOCKING && kind >= 1 && kind <= BLOCKING_KINDS.size()) {
+            return BLOCKING_KINDS.get(kind - 1);
+        }
+        return "operation";
+    }
+
+    /** Whether a record of {@code recordId} and {@code kind} is a process's exit, not a new occurrence. */
+    static boolean processExit(int recordId, int kind) {
+        return recordId == RECORD_PROCESSES && kind == KIND_PROCESS_EXIT;
     }
 }

@@ -148,6 +148,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
+- **Blocking sensor in the BootUI agent.** A new `blocking` agent sensor, on by default, reports `Thread.sleep`,
+  `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park` started on an event loop, reported, never thrown, in Side
+  Effects' **Blocking** tab, `get_side_effects`, and `bootui side-effects`: rows by attribution, operation, event loop's
+  thread family, and call site, with interrupted or failed calls, total and longest blocked time, and exemplar request
+  ids. The adapters register the event loops they classify: Reactor Netty's on Spring WebFlux and for a WebClient, and
+  Vert.x's on Quarkus; Spring MVC shows the tab `not-applicable` until a WebClient's loop is registered. Advice on every
+  public `LockSupport.park*` method returns after one volatile read off event loops until a loop is registered, then
+  after one table lookup (about 2.4 ns per park); `Thread.sleep` and `Object.wait`, native on JDK 17, are seen at their
+  call sites in the application's classes, rewritten on every JDK. Parks shorter than 1 ms are only counted. Checked on
+  JDK 17, 21, and 26, beside the OpenTelemetry agent and BlockHound
+  ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), PLAN-v2 §5.16, M5-5c).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -351,8 +362,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
   (PLAN-v2 M5-7a).
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, and `processes`, while `threads` remains opt-in. The Side Effects sensors this version does not ship
-  (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`)
+  `code-paths`, `processes`, and `blocking`, while `threads` remains opt-in. The Side Effects sensors this version does
+  not ship (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`)
   are accepted with a warning and reported not available. Any other id now fails the application's start, on Spring and
   Quarkus alike, while the BootUI agent is attached, with an error naming the accepted ids.
 

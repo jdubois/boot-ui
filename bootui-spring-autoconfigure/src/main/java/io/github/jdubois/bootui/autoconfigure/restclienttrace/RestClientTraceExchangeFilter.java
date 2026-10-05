@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.restclienttrace;
 
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveThreadKinds;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -48,8 +49,11 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
         // correlation and thread kind are captured now (docs/PLAN-v2.md §5.1).
         Caller caller = caller();
         return next.exchange(request)
-                .doOnNext(
-                        response -> recordSafely(request, elapsedNanos(start), statusOf(response), true, null, caller))
+                .doOnNext(response -> {
+                    // The response arrives on the client's event loop: the agent's blocking sensor watches it (M5-5c).
+                    ReactiveThreadKinds.registerIfEventLoop();
+                    recordSafely(request, elapsedNanos(start), statusOf(response), true, null, caller);
+                })
                 .doOnError(ex -> recordSafely(request, elapsedNanos(start), null, false, ex.getMessage(), caller));
     }
 

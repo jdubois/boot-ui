@@ -59,18 +59,41 @@ public final class SideEffects {
     /** The processes sensor's id, as {@code bootui.agent.sensors} names it. */
     public static final String PROCESSES = "processes";
 
+    /** The blocking sensor's id ({@link Blocking}, M5-5c). */
+    public static final String BLOCKING = "blocking";
+
     /** Sensor ids in records and bit positions in the mask: 0 is unused. */
     public static final int SENSOR_PROCESSES = 1;
 
-    static final String[] SENSOR_NAMES = {"other", PROCESSES};
+    public static final int SENSOR_BLOCKING = 2;
+
+    static final String[] SENSOR_NAMES = {"other", PROCESSES, BLOCKING};
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
+
+    public static final int MASK_BLOCKING = 1 << SENSOR_BLOCKING;
+
+    /**
+     * Set with {@link #MASK_BLOCKING} once an adapter registered an event loop for the current claim generation
+     * ({@link Blocking#registerEventLoop()}): the blocking hooks' only read off event loops, so a stack without one pays
+     * one volatile read per hook.
+     */
+    static final int MASK_LOOPS = 1 << 30;
+
+    /** Set while the agent self-tests a side-effect hook, so the blocking hooks count their self-test hits. */
+    static final int MASK_SELF_TEST = 1 << 31;
 
     /** Hooks, by index: their ids, as the agent reports them, and their sensors. */
     public static final int HOOK_PROCESS_START = 0;
 
-    static final String[] HOOKS = {"ProcessBuilder.start"};
-    static final int[] HOOK_SENSORS = {SENSOR_PROCESSES};
+    public static final int HOOK_PARK = 1;
+    public static final int HOOK_SLEEP = 2;
+    public static final int HOOK_WAIT = 3;
+
+    static final String[] HOOKS = {
+        "ProcessBuilder.start", "LockSupport.park", "Thread.sleep call sites", "Object.wait call sites"
+    };
+    static final int[] HOOK_SENSORS = {SENSOR_PROCESSES, SENSOR_BLOCKING, SENSOR_BLOCKING, SENSOR_BLOCKING};
 
     /** Record kinds. */
     public static final int KIND_PROCESS_START = 1;
@@ -165,8 +188,8 @@ public final class SideEffects {
     private static final ExitQueue EXITS = new ExitQueue();
     private static final AtomicBoolean EXIT_WORKER_HANDED_OUT = new AtomicBoolean();
 
-    private static final LongAdder[] RECORDED = adders(HOOKS.length);
-    private static final LongAdder[] SELF_TEST_HITS = adders(HOOKS.length);
+    static final LongAdder[] RECORDED = adders(HOOKS.length);
+    static final LongAdder[] SELF_TEST_HITS = adders(HOOKS.length);
     private static final LongAdder[] DROPPED = adders(SENSOR_NAMES.length);
     private static final LongAdder[] PUBLISHED = adders(SENSOR_NAMES.length);
     private static final LongAdder STALE_DRAINS = new LongAdder();
@@ -181,18 +204,27 @@ public final class SideEffects {
     private static final LongAdder SLOT_MISMATCHES = new LongAdder();
     private static final AtomicInteger PENDING_EXITS = new AtomicInteger();
     private static final AtomicLong ERROR_COUNT = new AtomicLong();
+    /** Counts the writes of {@link #mask}, so a write computed from stale state is redone. */
+    private static final AtomicInteger REFRESHES = new AtomicInteger();
+
     private static final String[] DISABLED_REASONS = new String[SENSOR_NAMES.length];
 
-    /** The sensors recording now, a bit per sensor id: read first by every hook. */
+    /**
+     * The sensors recording now, a bit per sensor id, with {@link #MASK_LOOPS} and {@link #MASK_SELF_TEST}: read first by
+     * every hook, written only by {@link #refresh()}, which redoes a write another one followed.
+     */
     static volatile int mask;
+
+    /** The sensors the armed claim of the current generation asks for, enabled or not yet. */
+    static volatile int claimedBits;
 
     /** The sensors the agent enabled once their hooks passed their self-test. */
     private static volatile int enabled;
 
-    private static volatile long generation = -1L;
+    static volatile long generation = -1L;
     private static volatile boolean off;
     private static volatile String offReason;
-    private static volatile Thread selfTestThread;
+    static volatile Thread selfTestThread;
     private static volatile boolean exitWorkerRunning;
 
     /** Whether a claim ever asked for a side-effect sensor: until then its status is not reported. */
@@ -520,7 +552,7 @@ public final class SideEffects {
     }
 
     /** The record's owner: the slot's, or, for a rare hook with an empty slot, captured. */
-    private static Owner owner(CodePaths.Frame frame, Claim claim) {
+    static Owner owner(CodePaths.Frame frame, Claim claim) {
         Owner owner = new Owner();
         Thread thread = Thread.currentThread();
         owner.threadKind = ThreadPropagation.isVirtual(thread) ? THREAD_VIRTUAL : THREAD_PLATFORM;
@@ -1121,10 +1153,25 @@ public final class SideEffects {
     /** Recomputes which sensors record, after any transition of the claim or a sensor. Never throws. */
     static void refresh() {
         try {
-            Claim claim = AgentBridge.current();
-            mask = claim != null && claim.armed && claim.generation == generation && !off
-                    ? claimedMask(claim) & enabled
-                    : 0;
+            while (true) {
+                // No monitor in the bridge: a write computed from stale state is redone once another write followed.
+                int sequence = REFRESHES.get();
+                Claim claim = AgentBridge.current();
+                int claimed =
+                        claim != null && claim.armed && claim.generation == generation && !off ? claimedMask(claim) : 0;
+                int bits = claimed & enabled;
+                if ((bits & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation) {
+                    bits |= MASK_LOOPS;
+                }
+                if (!off && (selfTestThread != null || Blocking.callSiteTestThread != null)) {
+                    bits |= MASK_SELF_TEST;
+                }
+                claimedBits = claimed;
+                mask = bits;
+                if (REFRESHES.compareAndSet(sequence, sequence + 1)) {
+                    return;
+                }
+            }
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -1184,6 +1231,7 @@ public final class SideEffects {
             new AgentRing.Interns(-1L, 1, new LongAdder()).intern("warm");
             CompletableFuture.completedFuture(null).getClass();
             status(PROCESSES);
+            Blocking.warm();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -1192,14 +1240,18 @@ public final class SideEffects {
     /** Starts the self-test on the calling thread: hooks it runs are counted per hook, and record nothing. */
     public static void beginSelfTest() {
         for (int i = 0; i < SELF_TEST_HITS.length; i++) {
-            SELF_TEST_HITS[i].reset();
+            if (i != HOOK_SLEEP && i != HOOK_WAIT) {
+                SELF_TEST_HITS[i].reset();
+            }
         }
         selfTestThread = Thread.currentThread();
+        refresh();
     }
 
     /** Ends the self-test: the hooks it ran, by hook id, with how often each fired. */
     public static Map<String, Object> endSelfTest() {
         selfTestThread = null;
+        refresh();
         Map<String, Object> hits = new LinkedHashMap<String, Object>();
         for (int i = 0; i < HOOKS.length; i++) {
             hits.put(HOOKS[i], Long.valueOf(SELF_TEST_HITS[i].sum()));
@@ -1209,7 +1261,7 @@ public final class SideEffects {
 
     // ---- errors and status ---------------------------------------------------------------------------------------
 
-    private static void failed(Throwable ex) {
+    static void failed(Throwable ex) {
         try {
             if (ex instanceof VirtualMachineError) {
                 APPLICATION_ERRORS.increment();
@@ -1221,6 +1273,7 @@ public final class SideEffects {
                 off = true;
                 offReason = "switched off after " + MAX_ERRORS + " internal errors, the last: " + ex;
                 mask = 0;
+                refresh();
                 AgentBridge.message("the side-effect sensors were " + offReason);
             }
         } catch (Throwable ignored) {
@@ -1259,6 +1312,9 @@ public final class SideEffects {
                 map.put("exitsDropped", Long.valueOf(EXITS_DROPPED.sum()));
                 map.put("exitsPending", Integer.valueOf(Math.max(0, PENDING_EXITS.get())));
                 map.put("exitWorkerRunning", Boolean.valueOf(exitWorkerRunning));
+            }
+            if (sensor == SENSOR_BLOCKING) {
+                Blocking.putStatus(map, generation);
             }
             AgentRing.Ring ring = RING.get();
             map.put("ringCapacity", Integer.valueOf(ring == null ? 0 : ring.capacity));
@@ -1314,8 +1370,10 @@ public final class SideEffects {
             DISABLED_REASONS[i] = null;
         }
         mask = 0;
+        claimedBits = 0;
         enabled = 0;
         generation = -1L;
+        Blocking.reset();
         off = false;
         offReason = null;
         selfTestThread = null;

@@ -217,8 +217,10 @@ assembly only.
 With the agent attached, run `bootui side-effects --json` (`get_side_effects`): every sensor's coverage first, then the
 most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
 environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`. Pass
-`--query processes`, a route, target, or call site to narrow it. Non-process sensor groups are listed as not available
-in this version.
+`--query processes`, a route, target, or call site to narrow it. `blocking` records `Thread.sleep`, `Object.wait`, and
+`LockSupport.park` started on an event loop (Spring WebFlux, Quarkus), by operation, loop family, and call site, with
+how long it blocked; on Spring MVC it is not applicable. The other sensor groups are listed as not available in this
+version.
 
 ### Read MySQL operational evidence
 
