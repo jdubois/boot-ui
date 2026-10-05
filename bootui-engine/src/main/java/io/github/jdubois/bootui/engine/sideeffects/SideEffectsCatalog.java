@@ -8,11 +8,20 @@ import java.util.List;
  */
 public final class SideEffectsCatalog {
 
-    /** The bridge's sensor id of {@code processes} in records. */
+    /** The sensors' ids, as {@code bootui.agent.sensors} names them. */
+    public static final String PROCESSES_ID = "processes";
+
+    public static final String FILES_ID = "files";
+    public static final String ENVIRONMENT_ID = "environment";
+
+    /** The bridge's sensor ids in records. */
     static final int RECORD_PROCESSES = 1;
 
     /** The bridge's sensor id of {@code network} in records (M5-5b). */
     static final int RECORD_NETWORK = 2;
+
+    static final int RECORD_FILES = 3;
+    static final int RECORD_ENVIRONMENT = 4;
 
     /** The bridge's record kinds. */
     static final int KIND_PROCESS_START = 1;
@@ -22,6 +31,15 @@ public final class SideEffectsCatalog {
     static final int KIND_CONNECT_FINISH = 4;
     static final int KIND_DATAGRAM = 5;
     static final int KIND_LOOKUP = 6;
+    static final int KIND_FILE_READ = 7;
+    static final int KIND_FILE_WRITE = 8;
+    static final int KIND_FILE_DELETE = 9;
+    static final int KIND_FILE_MOVE_FROM = 10;
+    static final int KIND_FILE_MOVE_TO = 11;
+    static final int KIND_FILE_COPY_FROM = 12;
+    static final int KIND_FILE_COPY_TO = 13;
+    static final int KIND_ENVIRONMENT_VARIABLE = 14;
+    static final int KIND_SYSTEM_PROPERTY = 15;
 
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
@@ -43,6 +61,22 @@ public final class SideEffectsCatalog {
 
     static final String DATAGRAM = "datagram";
     static final String LOOKUP = "lookup";
+    static final int OUTCOME_DONE = 10;
+
+    /** What a file row did, as rows name it. */
+    public static final String READ = "read";
+
+    public static final String WRITE = "write";
+    public static final String DELETE = "delete";
+    public static final String MOVE_FROM = "move from";
+    public static final String MOVE_TO = "move to";
+    public static final String COPY_FROM = "copy from";
+    public static final String COPY_TO = "copy to";
+
+    /** What an environment row read. */
+    public static final String ENVIRONMENT_VARIABLE = "environment variable";
+
+    public static final String SYSTEM_PROPERTY = "system property";
 
     public static final String NETWORK = "Network";
     public static final String FILES_AND_PROCESSES = "Files and processes";
@@ -72,9 +106,14 @@ public final class SideEffectsCatalog {
     /** Every sensor, in tab order. */
     public static final List<Sensor> SENSORS = List.of(
             new Sensor("network", NETWORK, "Hosts the application connects to", true, RECORD_NETWORK),
-            new Sensor("files", FILES_AND_PROCESSES, "Files the application reads and writes", false, 0),
+            new Sensor("files", FILES_AND_PROCESSES, "Files the application reads and writes", true, RECORD_FILES),
             new Sensor("processes", FILES_AND_PROCESSES, "Processes the application starts", true, RECORD_PROCESSES),
-            new Sensor("environment", ENVIRONMENT, "Environment variables and system properties read", false, 0),
+            new Sensor(
+                    "environment",
+                    ENVIRONMENT,
+                    "Environment variables and system properties read",
+                    true,
+                    RECORD_ENVIRONMENT),
             new Sensor("thread-activity", THREADS_AND_LEAKS, "Threads and executors started per route", false, 0),
             new Sensor("thread-locals", THREADS_AND_LEAKS, "Thread locals left set after a request", false, 0),
             new Sensor("resources", THREADS_AND_LEAKS, "Streams and sockets left open", false, 0),
@@ -116,7 +155,23 @@ public final class SideEffectsCatalog {
                 default -> "operation";
             };
         }
-        return "operation";
+        return switch (kind) {
+            case KIND_FILE_READ -> READ;
+            case KIND_FILE_WRITE -> WRITE;
+            case KIND_FILE_DELETE -> DELETE;
+            case KIND_FILE_MOVE_FROM -> MOVE_FROM;
+            case KIND_FILE_MOVE_TO -> MOVE_TO;
+            case KIND_FILE_COPY_FROM -> COPY_FROM;
+            case KIND_FILE_COPY_TO -> COPY_TO;
+            case KIND_ENVIRONMENT_VARIABLE -> ENVIRONMENT_VARIABLE;
+            case KIND_SYSTEM_PROPERTY -> SYSTEM_PROPERTY;
+            default -> "operation";
+        };
+    }
+
+    /** Whether a file row's kind writes: anything but a read or the source of a copy. */
+    public static boolean writes(String kind) {
+        return kind != null && !READ.equals(kind) && !COPY_FROM.equals(kind);
     }
 
     /** Whether an outcome is a failure. */

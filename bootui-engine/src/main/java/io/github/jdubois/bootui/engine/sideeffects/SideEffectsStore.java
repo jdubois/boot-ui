@@ -102,7 +102,65 @@ final class SideEffectsStore {
             String client,
             String captureKey,
             String host,
-            int port) {
+            int port,
+            String origin,
+            String location) {
+
+        /** A network observation: no origin or location. */
+        Observation(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily,
+                String client,
+                String captureKey,
+                String host,
+                int port) {
+            this(
+                    record,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    threadFamily,
+                    client,
+                    captureKey,
+                    host,
+                    port,
+                    null,
+                    null);
+        }
+
+        /** A files or environment observation, with its origin and, for a file, its location. */
+        Observation(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily,
+                String origin,
+                String location) {
+            this(
+                    record,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    threadFamily,
+                    null,
+                    null,
+                    null,
+                    -1,
+                    origin,
+                    location);
+        }
 
         /** An observation of a sensor that is not captured by a panel. */
         Observation(
@@ -113,12 +171,24 @@ final class SideEffectsStore {
                 String callSite,
                 String insideMethod,
                 String threadFamily) {
-            this(record, sensor, kind, target, callSite, insideMethod, threadFamily, null, null, null, -1);
+            this(record, sensor, kind, target, callSite, insideMethod, threadFamily, null, null, null, -1, null, null);
         }
 
         Observation withCapture(String decided) {
             return new Observation(
-                    record, sensor, kind, target, callSite, insideMethod, threadFamily, client, decided, host, port);
+                    record,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    threadFamily,
+                    client,
+                    decided,
+                    host,
+                    port,
+                    origin,
+                    location);
         }
 
         boolean waiting() {
@@ -135,7 +205,9 @@ final class SideEffectsStore {
             String callSite,
             String insideMethod,
             String client,
-            String captureKey) {}
+            String captureKey,
+            String origin,
+            String location) {}
 
     private static final class Row {
         final Key key;
@@ -173,6 +245,11 @@ final class SideEffectsStore {
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_IO_ERROR
                         || record.outcome() == SideEffectsCatalog.OUTCOME_ERROR) {
                     failed += record.count();
+                }
+                if (record.sensor() == SideEffectsCatalog.RECORD_FILES) {
+                    // A file operation's own time: opening, deleting, moving, or copying, never reading what it opened.
+                    nanos += record.nanos();
+                    maxNanos = Math.max(maxNanos, record.maxNanos());
                 }
             }
             firstSeen = Math.min(firstSeen, record.firstMillis());
@@ -233,6 +310,8 @@ final class SideEffectsStore {
                     key.target(),
                     key.callSite(),
                     key.insideMethod(),
+                    key.origin(),
+                    key.location(),
                     count,
                     failed,
                     completed,
@@ -583,13 +662,25 @@ final class SideEffectsStore {
                 observation.callSite(),
                 observation.insideMethod(),
                 observation.client(),
-                observation.captureKey());
+                observation.captureKey(),
+                observation.origin(),
+                observation.location());
         Row row = rows.get(key);
         if (row == null) {
             int perSensor = rowsPerSensor.getOrDefault(sensor, 0);
             if (perSensor >= maxRowsPerSensor || rows.size() >= maxRows) {
                 Key other = new Key(
-                        SideEffectsRowDto.OTHER, OTHER, sensor, observation.kind(), OTHER, null, null, null, null);
+                        SideEffectsRowDto.OTHER,
+                        OTHER,
+                        sensor,
+                        observation.kind(),
+                        OTHER,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null);
                 row = rows.get(other);
                 if (row == null) {
                     if (rows.size() >= maxRows + SideEffectsCatalog.SENSORS.size()) {
@@ -645,7 +736,9 @@ final class SideEffectsStore {
                     row.key.callSite(),
                     hideMethod ? null : row.key.insideMethod(),
                     row.key.client(),
-                    row.key.captureKey());
+                    row.key.captureKey(),
+                    row.key.origin(),
+                    row.key.location());
             // Always a copy: a read never changes the store's own rows.
             Row target = merged.get(shown);
             if (target == null) {

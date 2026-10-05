@@ -1177,7 +1177,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts and its network: connects, datagram sends, and host names the JVM resolved.",
+      "summary": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the files it opens, deletes, moves, and copies, and, opt-in, the environment variables and system properties it reads.",
       "example": "bootui side-effects --query processes --limit 20"
     },
     {

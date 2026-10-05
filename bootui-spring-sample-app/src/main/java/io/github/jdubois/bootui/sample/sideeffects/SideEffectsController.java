@@ -19,6 +19,9 @@ import org.springframework.web.client.RestClient;
  * /api/side-effects/sdk-call} connects to this application through an SDK's own socket ({@link LicenseSdkClient}), a
  * Network row <b>not captured by any panel</b>; the counterexample {@code GET /api/side-effects/rest-call} calls the
  * same endpoint through a recorded {@link RestClient}, whose connection REST Client Trace captures.
+ * M5-5d: {@code GET /api/side-effects/report} writes a report in the working directory, outside the temporary directory,
+ * and reads a system property ({@link ReportWriter}); its counterexamples {@code /scratch} and {@code /log} write a
+ * temporary file and a JDK logging handler's file.
  */
 @RestController
 @RequestMapping("/api/side-effects")
@@ -28,6 +31,7 @@ public class SideEffectsController {
     private final LicenseSdkClient licenses;
     private final RestClient.Builder restClients;
     private final Environment environment;
+    private final ReportWriter reports;
     private final SampleCatalog catalog;
     private final BenchmarkIo benchmarkIo;
 
@@ -36,14 +40,34 @@ public class SideEffectsController {
             LicenseSdkClient licenses,
             RestClient.Builder restClients,
             Environment environment,
+            ReportWriter reports,
             SampleCatalog catalog,
             BenchmarkIo benchmarkIo) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.restClients = restClients;
         this.environment = environment;
+        this.reports = reports;
         this.catalog = catalog;
         this.benchmarkIo = benchmarkIo;
+    }
+
+    /** Writes a report outside the temporary directory and reads a system property (M5-5d's seed). */
+    @GetMapping("/report")
+    public Map<String, String> report() {
+        return Map.of("report", reports.writeReport());
+    }
+
+    /** The counterexample: a temporary file, written and deleted. */
+    @GetMapping("/scratch")
+    public Map<String, String> scratch() {
+        return Map.of("scratch", reports.scratch());
+    }
+
+    /** The counterexample: a JDK logging handler's file, grouped apart as logging. */
+    @GetMapping("/log")
+    public Map<String, String> log() {
+        return Map.of("log", reports.log());
     }
 
     /**

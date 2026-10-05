@@ -110,6 +110,56 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     expect(
       rows.filter((candidate) => candidate.attribution === restCall && candidate.capture === 'not-captured')
     ).toEqual([])
+    const GET = (path) => request.get(`${baseURL}${path}`)
+    // The files and environment seeds (M5-5d): a report written outside the temporary directory and a property read
+    // during the request, with a temporary file, a logging handler's file, and class loading as counterexamples.
+    for (const path of ['report', 'scratch', 'log']) {
+      expect((await GET(`/api/side-effects/${path}`)).ok()).toBeTruthy()
+    }
+    const reportRoute = 'GET /api/side-effects/report'
+    const reportRow = (rows) =>
+      rows?.find(
+        (candidate) =>
+          candidate.attribution === reportRoute &&
+          candidate.target.endsWith('/bootui-side-effects/report-{n}-{n}-{n}.csv')
+      )
+    await expect
+      .poll(
+        async () =>
+          reportRow((await (await GET('/bootui/api/side-effects/sensor?sensor=files&limit=500')).json()).rows)?.kind,
+        {
+          timeout: 30_000
+        }
+      )
+      .toBe('write')
+    await expect
+      .poll(
+        async () =>
+          (await (await GET('/bootui/api/side-effects/sensor?sensor=environment&limit=500')).json()).rows?.find(
+            (candidate) => candidate.attribution === reportRoute && candidate.target === 'sample.report.title'
+          )?.kind,
+        {timeout: 30_000}
+      )
+      .toBe('system property')
+    const files = await (await GET('/bootui/api/side-effects/sensor?sensor=files&limit=500')).json()
+    const environment = await (await GET('/bootui/api/side-effects/sensor?sensor=environment&limit=500')).json()
+    const written = reportRow(files.rows)
+    expect(written.origin).toBe('application')
+    expect(written.location).not.toBe('temporary-directory')
+    expect(written.callSite).toMatch(/ReportWriter#writeReport$/)
+    const scratch = files.rows.filter((candidate) => candidate.target.includes('bootui-scratch-'))
+    expect(scratch.length).toBeGreaterThan(0)
+    for (const candidate of scratch) {
+      expect(candidate.target.startsWith('$TMPDIR/')).toBe(true)
+      expect(candidate.location).toBe('temporary-directory')
+    }
+    const logged = files.rows.filter((candidate) => candidate.target.includes('bootui-sample-'))
+    expect(logged.length).toBeGreaterThan(0)
+    for (const candidate of logged) expect(candidate.origin).toBe('logging')
+    expect(files.rows.some((candidate) => /\.(class|jar)$/.test(candidate.target))).toBe(false)
+    expect(JSON.stringify(files) + JSON.stringify(environment)).not.toContain(
+      'sample-side-effects-contents-never-shown'
+    )
 
     await page.goto('/bootui/#/side-effects')
     await expect(page.locator('main h2').filter({hasText: /^Side Effects/})).toBeVisible()

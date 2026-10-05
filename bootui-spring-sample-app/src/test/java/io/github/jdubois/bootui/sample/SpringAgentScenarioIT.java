@@ -54,6 +54,8 @@ class SpringAgentScenarioIT {
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                 "-javaagent:" + agent,
                 "-Dspring.devtools.restart.enabled=false",
+                // The seeded report's title: a value Side Effects must never show (M5-5d).
+                "-Dsample.report.title=bootui-title-never-shown",
                 "-cp",
                 System.getProperty("java.class.path"),
                 AgentScenarioApplication.class.getName(),
@@ -63,6 +65,8 @@ class SpringAgentScenarioIT {
                 "--bootui.show-banner=false",
                 "--bootui.overrides-file=" + directory.resolve("overrides.properties"),
                 "--bootui.activity.feed-source=journal",
+                // The default sensors and the opt-in environment sensor, for the Side Effects seeds (M5-5d).
+                "--bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment",
                 "--management.tracing.export.enabled=false"));
         process = new ProcessBuilder(command)
                 .redirectErrorStream(true)
@@ -742,6 +746,87 @@ class SpringAgentScenarioIT {
         assertThat(failures).as("side effects contracts with the agent").isEmpty();
         assertThat(panelFromManifest("side-effects").path("available").asBoolean())
                 .isTrue();
+    }
+
+    /**
+     * The files and environment sensors with the agent ({@code docs/PLAN-v2.md} §5.16, M5-5d): the seeded route's report,
+     * written in the working directory, outside the temporary directory, is an application write of its route by path
+     * pattern, and its property read a read of its route by name; the counterexamples' temporary file is under
+     * {@code $TMPDIR}, their logging handler's file grouped apart as logging, and class loading only counted; no file
+     * contents or property value ever appears.
+     */
+    @Test
+    void sideEffectsShowTheSeededReportAndPropertyReadAndGroupTheCounterexamplesApart() throws Exception {
+        assertThat(probe.get("/api/side-effects/report").status()).isEqualTo(200);
+        assertThat(probe.get("/api/side-effects/scratch").status()).isEqualTo(200);
+        assertThat(probe.get("/api/side-effects/log").status()).isEqualTo(200);
+        String route = "GET /api/side-effects/report";
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        JsonNode files;
+        JsonNode environment;
+        JsonNode report = null;
+        JsonNode property = null;
+        do {
+            Thread.sleep(250);
+            files = probe.get("/bootui/api/side-effects/sensor?sensor=files&limit=500")
+                    .json();
+            environment = probe.get("/bootui/api/side-effects/sensor?sensor=environment&limit=500")
+                    .json();
+            for (JsonNode candidate : files.path("rows")) {
+                if (route.equals(candidate.path("attribution").asText())
+                        && candidate.path("target").asText().endsWith("/bootui-side-effects/report-{n}-{n}-{n}.csv")) {
+                    report = candidate;
+                }
+            }
+            for (JsonNode candidate : environment.path("rows")) {
+                if (route.equals(candidate.path("attribution").asText())
+                        && "sample.report.title".equals(candidate.path("target").asText())) {
+                    property = candidate;
+                }
+            }
+        } while ((report == null || property == null) && System.nanoTime() < deadline);
+        assertThat(files.path("sensor").path("state").asText())
+                .as(files.toString())
+                .isEqualTo("recording");
+        assertThat(report).as(files.toString()).isNotNull();
+        assertThat(report.path("kind").asText()).isEqualTo("write");
+        assertThat(report.path("origin").asText()).isEqualTo("application");
+        assertThat(report.path("location").asText()).isNotEqualTo("temporary-directory");
+        assertThat(report.path("callSite").asText())
+                .isEqualTo("io.github.jdubois.bootui.sample.sideeffects.ReportWriter#writeReport");
+        assertThat(property).as(environment.toString()).isNotNull();
+        assertThat(property.path("kind").asText()).isEqualTo("system property");
+        assertThat(property.path("origin").asText()).isEqualTo("application");
+
+        List<JsonNode> rows = new ArrayList<>();
+        files.path("rows").forEach(rows::add);
+        assertThat(rows)
+                .as("the scratch file is under the temporary directory, never an application write elsewhere")
+                .filteredOn(row -> row.path("target").asText().contains("bootui-scratch-"))
+                .isNotEmpty()
+                .allSatisfy(row -> {
+                    assertThat(row.path("target").asText()).startsWith("$TMPDIR/");
+                    assertThat(row.path("location").asText()).isEqualTo("temporary-directory");
+                });
+        assertThat(rows)
+                .as("the logging handler's file is logging, grouped apart")
+                .filteredOn(row -> row.path("target").asText().contains("bootui-sample-"))
+                .isNotEmpty()
+                .allSatisfy(row -> assertThat(row.path("origin").asText()).isEqualTo("logging"));
+        assertThat(rows)
+                .as("class loading is never an application row")
+                .filteredOn(row -> row.path("target").asText().endsWith(".class")
+                        || row.path("target").asText().endsWith(".jar"))
+                .isEmpty();
+        assertThat(files.toString() + environment)
+                .as("no file contents or property value ever appears")
+                .doesNotContain("sample-side-effects-contents-never-shown")
+                .doesNotContain("bootui-title-never-shown");
+        List<String> failures = new ArrayList<>();
+        AbstractBootUiApiConformanceTest.assertJsonContract(
+                "/side-effects/sensor", BootUiApiContractCatalog.sideEffectsSensor(), files, failures);
+        assertThat(failures).as("side effects contracts with the agent").isEmpty();
     }
 
     /** The conformance catalog's contract of the Code Paths read whose path starts with {@code path}. */

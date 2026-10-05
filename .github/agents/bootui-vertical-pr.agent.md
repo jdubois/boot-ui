@@ -36,7 +36,9 @@ You are the BootUI vertical-PR owner. Deliver one coherent change from investiga
      change; both gate every build.
 
    Add a `CHANGELOG.md` entry under `[Unreleased]` for every user-visible change, in the existing Keep a Changelog style
-   with the issue link.
+   with the issue link. Keep it to a bold lead phrase and one short sentence of user-visible effect, at most two
+   wrapped lines; details belong in the docs and the pull request, following the release notes rules in
+   `.github/agents/bootui-release.agent.md`.
 7. Run the smallest targeted tests first, then reproduce the CI gates that the change actually touches:
    - Formatting: `./mvnw -B -ntp spotless:check`, plus `npm run format:check` in `bootui-ui/src/main/frontend`,
      `bootui-spring-sample-app/e2e`, and `bootui-quarkus-sample-app/e2e`.

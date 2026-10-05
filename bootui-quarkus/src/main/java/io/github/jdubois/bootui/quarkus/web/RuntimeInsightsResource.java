@@ -135,6 +135,10 @@ public class RuntimeInsightsResource {
         models.setHostOpens(
                 () -> sideEffects.isResolvable() ? sideEffects.get().hostOpens() : List.of(),
                 () -> sideEffects.isResolvable() ? sideEffects.get().hostOpensFingerprint() : 0L);
+        // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
+        models.setSideEffects(
+                () -> sideEffects.isResolvable() ? sideEffects.get().modelAccesses() : List.of(),
+                () -> sideEffects.isResolvable() ? sideEffects.get().modelFingerprint() : 0L);
         // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
         this.impact.setCodePaths(
                 wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);

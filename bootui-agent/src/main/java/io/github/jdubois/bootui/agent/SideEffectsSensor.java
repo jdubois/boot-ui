@@ -2,7 +2,15 @@ package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.lang.instrument.Instrumentation;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -13,7 +21,14 @@ import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.CopyOption;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileAttribute;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -35,14 +50,19 @@ import net.bytebuddy.matcher.ElementMatchers;
  * in the bridge saying which sensors record ({@link SideEffects#enable}). {@value SideEffects#PROCESSES} hooks {@code
  * ProcessBuilder.start(Redirect[])}; {@value SideEffects#NETWORK} (M5-5b) hooks {@code Socket.connect}, {@code
  * SocketChannelImpl.connect}, {@code blockingConnect}, and {@code finishConnect}, {@code DatagramChannelImpl.send},
- * {@code DatagramSocket.send}, and {@code InetAddress.getAddressesFromNameService}.
+ * {@code DatagramSocket.send}, and {@code InetAddress.getAddressesFromNameService}; {@value SideEffects#FILES} (M5-5d)
+ * hooks the private {@code open} methods of {@code FileInputStream} and {@code FileOutputStream}, its core hooks, and of
+ * {@code RandomAccessFile}, the {@code Files} methods that open, delete, move, and copy, and {@code FileChannel.open};
+ * the opt-in {@value SideEffects#ENVIRONMENT} (M5-5d) hooks {@code System.getenv(String)}, {@code System.getenv()}, and
+ * {@code System.getProperty}, all core.
  *
  * <p>A self-test per hook runs it on the sensor's worker thread, which the bridge counts and never records, without
  * starting a process or sending a byte: a command holding a NUL character, which {@code ProcessBuilder} refuses before
  * spawning; connects and sends to an unresolved address, or to a Unix-domain address on a TCP channel, which the JDK
  * refuses before any I/O, on a socket without a proxy, so no proxy selector is asked; a finish with no connect pending; a send on a closed socket; and, on a helper
  * thread with a bounded wait, a lookup of a spelling of {@code localhost} the JVM's case-sensitive cache does not hold,
- * which the hosts file answers.
+ * which the hosts file answers; files opened, deleted, moved, and copied under a directory that does not exist; and a
+ * variable and a property no one sets.
  *
  * <p>Failures are isolated. A hook that fails its self-test is left out of the transformer for the JVM's life; when it
  * is one of its sensor's core hooks, the sensor is disabled for the JVM's life instead, and the transformer reinstalled
@@ -57,6 +77,12 @@ final class SideEffectsSensor {
     static final String DATAGRAM_CHANNEL = "sun.nio.ch.DatagramChannelImpl";
     static final String DATAGRAM_SOCKET = "java.net.DatagramSocket";
     static final String INET_ADDRESS = "java.net.InetAddress";
+    static final String FILE_INPUT_STREAM = "java.io.FileInputStream";
+    static final String FILE_OUTPUT_STREAM = "java.io.FileOutputStream";
+    static final String RANDOM_ACCESS_FILE = "java.io.RandomAccessFile";
+    static final String FILES = "java.nio.file.Files";
+    static final String FILE_CHANNEL = "java.nio.channels.FileChannel";
+    static final String SYSTEM = "java.lang.System";
 
     static final String CORE = "core";
     static final String OPTIONAL = "optional";
@@ -70,11 +96,32 @@ final class SideEffectsSensor {
         {"SocketChannel.finishConnect", SOCKET_CHANNEL, "record", SideEffects.NETWORK, OPTIONAL},
         {"DatagramChannel.send", DATAGRAM_CHANNEL, "record", SideEffects.NETWORK, OPTIONAL},
         {"DatagramSocket.send", DATAGRAM_SOCKET, "record", SideEffects.NETWORK, OPTIONAL},
-        {"InetAddress.lookup", INET_ADDRESS, "record", SideEffects.NETWORK, OPTIONAL}
+        {"InetAddress.lookup", INET_ADDRESS, "record", SideEffects.NETWORK, OPTIONAL},
+        {"FileInputStream.open", FILE_INPUT_STREAM, "record", SideEffects.FILES, CORE},
+        {"FileOutputStream.open", FILE_OUTPUT_STREAM, "record", SideEffects.FILES, CORE},
+        {"RandomAccessFile.open", RANDOM_ACCESS_FILE, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.newByteChannel", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.newInputStream", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.newOutputStream", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.delete", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.deleteIfExists", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.move", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"Files.copy", FILES, "record", SideEffects.FILES, OPTIONAL},
+        {"FileChannel.open", FILE_CHANNEL, "record", SideEffects.FILES, OPTIONAL},
+        {"System.getenv", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
+        {"System.getenvAll", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
+        {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE}
     };
 
     /** The side-effect sensors, in status order. */
-    static final String[] SENSORS = {SideEffects.PROCESSES, SideEffects.NETWORK};
+    static final String[] SENSORS = {
+        SideEffects.PROCESSES, SideEffects.NETWORK, SideEffects.FILES, SideEffects.ENVIRONMENT
+    };
+
+    /** The variable and property the environment self-test reads, which no one sets. */
+    static final String SELF_TEST_NAME = "BOOTUI_AGENT_SELF_TEST_UNSET";
+
+    static final String SELF_TEST_PROPERTY = "bootui.agent.self-test.unset";
 
     /** The command the processes self-test starts: {@code ProcessBuilder} refuses a NUL before spawning. */
     static final String SELF_TEST_COMMAND = "bootui-agent-self-test\u0000";
@@ -377,6 +424,104 @@ final class SideEffectsSensor {
                                             .and(ElementMatchers.isStatic())
                                             .and(ElementMatchers.takesArgument(0, String.class)))));
         }
+        if ((mask & SideEffects.MASK_FILES) != 0) {
+            types.add(FILE_INPUT_STREAM);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "FileInputStream.open",
+                            Advice.to(SideEffectsAdvice.FileInputStreamOpen.class)
+                                    .on(ElementMatchers.named("open")
+                                            .and(ElementMatchers.isPrivate())
+                                            .and(ElementMatchers.takesArguments(String.class)))));
+            types.add(FILE_OUTPUT_STREAM);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "FileOutputStream.open",
+                            Advice.to(SideEffectsAdvice.FileOutputStreamOpen.class)
+                                    .on(ElementMatchers.named("open")
+                                            .and(ElementMatchers.isPrivate())
+                                            .and(ElementMatchers.takesArguments(String.class, boolean.class)))));
+            types.add(RANDOM_ACCESS_FILE);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "RandomAccessFile.open",
+                            Advice.to(SideEffectsAdvice.RandomAccessFileOpen.class)
+                                    .on(ElementMatchers.named("open")
+                                            .and(ElementMatchers.isPrivate())
+                                            .and(ElementMatchers.takesArguments(String.class, int.class)))));
+            types.add(FILES);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "Files.newByteChannel",
+                            Advice.to(SideEffectsAdvice.NewByteChannel.class)
+                                    .on(ElementMatchers.named("newByteChannel")
+                                            .and(ElementMatchers.takesArguments(
+                                                    Path.class, Set.class, FileAttribute[].class))))
+                    .and(
+                            "Files.newInputStream",
+                            Advice.to(SideEffectsAdvice.NewInputStream.class)
+                                    .on(ElementMatchers.named("newInputStream")
+                                            .and(ElementMatchers.takesArguments(Path.class, OpenOption[].class))))
+                    .and(
+                            "Files.newOutputStream",
+                            Advice.to(SideEffectsAdvice.NewOutputStream.class)
+                                    .on(ElementMatchers.named("newOutputStream")
+                                            .and(ElementMatchers.takesArguments(Path.class, OpenOption[].class))))
+                    .and(
+                            "Files.delete",
+                            Advice.to(SideEffectsAdvice.Delete.class)
+                                    .on(ElementMatchers.named("delete")
+                                            .and(ElementMatchers.takesArguments(Path.class))))
+                    .and(
+                            "Files.deleteIfExists",
+                            Advice.to(SideEffectsAdvice.DeleteIfExists.class)
+                                    .on(ElementMatchers.named("deleteIfExists")
+                                            .and(ElementMatchers.takesArguments(Path.class))))
+                    .and(
+                            "Files.move",
+                            Advice.to(SideEffectsAdvice.Move.class)
+                                    .on(ElementMatchers.named("move")
+                                            .and(ElementMatchers.takesArguments(
+                                                    Path.class, Path.class, CopyOption[].class))))
+                    .and(
+                            "Files.copy",
+                            Advice.to(SideEffectsAdvice.Copy.class)
+                                    .on(ElementMatchers.named("copy")
+                                            .and(ElementMatchers.isPublic())
+                                            .and(ElementMatchers.takesArguments(
+                                                            Path.class, Path.class, CopyOption[].class)
+                                                    .or(ElementMatchers.takesArguments(
+                                                            InputStream.class, Path.class, CopyOption[].class))
+                                                    .or(ElementMatchers.takesArguments(
+                                                            Path.class, OutputStream.class))))));
+            types.add(FILE_CHANNEL);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "FileChannel.open",
+                            Advice.to(SideEffectsAdvice.FileChannelOpen.class)
+                                    .on(ElementMatchers.named("open")
+                                            .and(ElementMatchers.takesArguments(
+                                                    Path.class, Set.class, FileAttribute[].class)))));
+        }
+        if ((mask & SideEffects.MASK_ENVIRONMENT) != 0) {
+            types.add(SYSTEM);
+            visits.add(new ExecutorSensor.Visit(left)
+                    .and(
+                            "System.getenv",
+                            Advice.to(SideEffectsAdvice.GetenvName.class)
+                                    .on(ElementMatchers.named("getenv")
+                                            .and(ElementMatchers.takesArguments(String.class))))
+                    .and(
+                            "System.getenvAll",
+                            Advice.to(SideEffectsAdvice.GetenvAll.class)
+                                    .on(ElementMatchers.named("getenv").and(ElementMatchers.takesArguments(0))))
+                    .and(
+                            "System.getProperty",
+                            Advice.to(SideEffectsAdvice.GetProperty.class)
+                                    .on(ElementMatchers.named("getProperty")
+                                            .and(ElementMatchers.takesArguments(String.class)
+                                                    .or(ElementMatchers.takesArguments(String.class, String.class))))));
+        }
         AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
@@ -402,6 +547,12 @@ final class SideEffectsSensor {
             }
             if ((mask & SideEffects.MASK_NETWORK) != 0) {
                 networkSteps(steps, privileged);
+            }
+            if ((mask & SideEffects.MASK_FILES) != 0) {
+                steps.put(SideEffects.FILES, filesStep());
+            }
+            if ((mask & SideEffects.MASK_ENVIRONMENT) != 0) {
+                environmentSteps(steps);
             }
         } finally {
             hits = SideEffects.endSelfTest();
@@ -600,6 +751,125 @@ final class SideEffectsSensor {
             spelled.append((bits & (1 << i)) != 0 ? Character.toUpperCase(c) : c);
         }
         return spelled.toString();
+    }
+
+    /**
+     * Opens, deletes, moves, and copies paths under a directory that does not exist, in the temporary directory: each
+     * files hook runs and fails before anything is created.
+     */
+    static String filesStep() {
+        String temporary = System.getProperty("java.io.tmpdir");
+        return withoutTemporaryDirectory(filesStep(temporary), temporary);
+    }
+
+    private static String filesStep(String temporary) {
+        File missing = new File(temporary, "bootui-agent-self-test-missing-" + System.nanoTime());
+        if (missing.exists()) {
+            return "error: " + missing + " exists";
+        }
+        Path file = missing.toPath().resolve("file");
+        Path other = missing.toPath().resolve("other");
+        String name = file.toString();
+        List<String> unexpected = new ArrayList<String>();
+        expectFailure(unexpected, "FileInputStream", () -> new FileInputStream(name).close());
+        expectFailure(unexpected, "FileOutputStream", () -> new FileOutputStream(name).close());
+        expectFailure(unexpected, "RandomAccessFile", () -> new RandomAccessFile(name, "r").close());
+        expectFailure(
+                unexpected, "newByteChannel", () -> Files.newByteChannel(file).close());
+        expectFailure(
+                unexpected, "newInputStream", () -> Files.newInputStream(file).close());
+        expectFailure(
+                unexpected, "newOutputStream", () -> Files.newOutputStream(file).close());
+        expectFailure(unexpected, "delete", () -> Files.delete(file));
+        expectFailure(unexpected, "move", () -> Files.move(file, other));
+        expectFailure(unexpected, "copy", () -> Files.copy(file, other));
+        expectFailure(unexpected, "copy from a stream", () -> Files.copy(new ByteArrayInputStream(new byte[0]), file));
+        expectFailure(unexpected, "copy to a stream", () -> Files.copy(file, new ByteArrayOutputStream()));
+        expectFailure(
+                unexpected,
+                "FileChannel.open",
+                () -> FileChannel.open(file, StandardOpenOption.READ).close());
+        try {
+            if (Files.deleteIfExists(file)) {
+                unexpected.add("deleteIfExists deleted " + file);
+            }
+        } catch (IOException ex) {
+            unexpected.add("deleteIfExists: " + ex);
+        }
+        if (missing.exists()) {
+            unexpected.add(missing + " was created");
+        }
+        return unexpected.isEmpty() ? "ok" : "error: " + unexpected;
+    }
+
+    /**
+     * {@code text}, a self-test result reported by the Java Agent panel, MCP, and the log, with the temporary
+     * directory, which holds a user name on Windows and macOS, as {@code $TMPDIR}, in every form a path or an
+     * exception message may name it.
+     */
+    static String withoutTemporaryDirectory(String text, String temporary) {
+        if (text == null || temporary == null || temporary.isEmpty()) {
+            return text;
+        }
+        List<String> forms = new ArrayList<String>();
+        forms.add(temporary);
+        try {
+            forms.add(new File(temporary).getCanonicalPath());
+            forms.add(new File(temporary).getAbsolutePath());
+        } catch (IOException | RuntimeException ex) {
+            // The literal form only.
+        }
+        String result = text;
+        for (String form : new ArrayList<String>(forms)) {
+            forms.add(form.replace('\\', '/'));
+            forms.add(form.replace('/', '\\'));
+        }
+        // The longest first, so /private/var/... is replaced whole before /var/....
+        forms.sort((a, b) -> b.length() - a.length());
+        for (String form : forms) {
+            String trimmed = form;
+            while (trimmed.length() > 1 && (trimmed.endsWith("/") || trimmed.endsWith("\\"))) {
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+            if (trimmed.length() > 1) {
+                result = result.replace(trimmed, "$TMPDIR");
+            }
+        }
+        return result;
+    }
+
+    interface FileStep {
+        void run() throws IOException;
+    }
+
+    private static void expectFailure(List<String> unexpected, String step, FileStep action) {
+        try {
+            action.run();
+            unexpected.add(step + " succeeded");
+        } catch (IOException expected) {
+            // Nothing exists there: the hook ran, then the JDK refused.
+        } catch (Throwable ex) {
+            unexpected.add(step + ": " + ex);
+        }
+    }
+
+    /** Reads a variable and a property no one sets, with and without a default, and every variable: a step per hook. */
+    static void environmentSteps(Map<String, String> steps) {
+        steps.put("System.getenv", environmentStep(() -> System.getenv(SELF_TEST_NAME)));
+        steps.put("System.getenvAll", environmentStep(() -> System.getenv().size()));
+        steps.put("System.getProperty", environmentStep(() -> {
+            System.getProperty(SELF_TEST_PROPERTY);
+            System.getProperty(SELF_TEST_PROPERTY, "unset");
+        }));
+    }
+
+    private static String environmentStep(Runnable step) {
+        try {
+            step.run();
+            return "ok";
+        } catch (Throwable ex) {
+            return "error: " + ex;
+        }
     }
 
     static Map<String, String> evaluate(int mask, Map<String, Object> hits, Map<String, String> steps) {

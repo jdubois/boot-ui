@@ -668,7 +668,9 @@ released contents. The selected branch must allow
 
 Before dispatching, cut `CHANGELOG.md`'s `[Unreleased]` heading to
 `## [VERSION] - YYYY-MM-DD`, complete the notes, and land them on the source branch
-as their own commit. Use the intended release date and recheck it if publication
+as their own commit. Keep the notes short: a one- or two-sentence summary, then
+one- or two-line bullets for the main changes, with related small items merged
+and details left to the linked docs and pull requests. Use the intended release date and recheck it if publication
 is delayed. The exact source SHA must be green on `build.yml`; avoid merging other
 changes during the release run. For preparation-only work, stop before dispatch:
 leave Maven/npm versions and install coordinates for the workflow, and do not
