@@ -400,6 +400,67 @@ describe('Side Effects panel', () => {
     expect(wrapper.find('.side-effects-load-more').exists()).toBe(false)
   })
 
+  it('keeps the rows on screen while an auto-refresh reloads them, with every row already loaded', async () => {
+    const first = row({target: 'java', exemplarRequestIds: []})
+    const second = row({target: 'node', count: 2, exemplarRequestIds: []})
+    const responses = {
+      'api/side-effects/sensor?sensor=processes&offset=1&limit=50': sensorReport('processes', [second], {
+        page: {total: 2, matched: 2, offset: 1, limit: 50, returned: 1, hasMore: false}
+      }),
+      'api/side-effects/sensor?sensor=processes&offset=0&limit=50': sensorReport('processes', [first], {
+        page: {total: 2, matched: 2, offset: 0, limit: 50, returned: 1, hasMore: true}
+      }),
+      'api/side-effects': summary({sensors: {processes: {state: 'recording'}}})
+    }
+    let release
+    const pending = new Promise((resolve) => {
+      release = resolve
+    })
+    const fetch = vi.fn((url) => {
+      const path = decodeURIComponent(String(url))
+      if (path.includes('api/side-effects/sensor?sensor=processes&offset=0&limit=50') && fetch.refreshing) {
+        return pending.then(() =>
+          jsonResponse(
+            sensorReport('processes', [first, second, row({target: 'python', exemplarRequestIds: []})], {
+              page: {total: 3, matched: 3, offset: 0, limit: 50, returned: 3, hasMore: false}
+            })
+          )
+        )
+      }
+      const key = Object.keys(responses)
+        .sort((a, b) => b.length - a.length)
+        .find((prefix) => path.includes(prefix))
+      if (!key) throw new Error(`Unexpected fetch: ${path}`)
+      return Promise.resolve(jsonResponse(responses[key]))
+    })
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(SideEffects, {global: {stubs: {RouterLink: RouterLinkStub}}})
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Files and processes')
+      .trigger('click')
+    await flushPromises()
+    await wrapper.get('.side-effects-load-more').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.side-effects-table tbody tr')).toHaveLength(2)
+
+    fetch.refreshing = true
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(fetch.mock.calls.map(([url]) => decodeURIComponent(String(url)))).toContain(
+      'api/side-effects/sensor?sensor=processes&offset=0&limit=50'
+    )
+    expect(wrapper.text()).not.toContain('Loading…')
+    expect(wrapper.findAll('.side-effects-table tbody tr')).toHaveLength(2)
+
+    release()
+    await flushPromises()
+    expect(wrapper.findAll('.side-effects-table tbody tr')).toHaveLength(3)
+    expect(wrapper.text()).toContain('python')
+  })
+
   it('shows file rows by pattern, location, and origin, with class path, JDK, and logging grouped apart', async () => {
     const report = row({
       sensor: 'files',

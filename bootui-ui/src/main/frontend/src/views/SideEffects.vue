@@ -159,9 +159,11 @@ async function fetchSummary() {
   try {
     summary.value = await getJson('api/side-effects')
     lastFetched.value = Date.now()
-    sensorReports.value = {}
-    sensorErrors.value = {}
-    sensorLoading.value = {}
+    // Keep the active tab's rows on screen while they refresh, so an auto-refresh updates them in place rather than
+    // blanking every table to "Loading…"; other tabs' rows are dropped and fetched again when their tab is opened.
+    const active = new Set(sensorsForGroup(activeTab.value).map((sensor) => sensor.id))
+    sensorReports.value = Object.fromEntries(Object.entries(sensorReports.value).filter(([id]) => active.has(id)))
+    sensorErrors.value = Object.fromEntries(Object.entries(sensorErrors.value).filter(([id]) => active.has(id)))
     if (summary.value?.available) {
       await loadGroupSensors(activeTab.value, {force: true})
     }
@@ -186,13 +188,16 @@ async function loadGroupSensors(groupId, {force = false} = {}) {
 
 async function loadSensor(sensor, {append = false} = {}) {
   const existing = sensorReports.value[sensor.id]
-  const offset = append ? existing?.rows?.length || 0 : 0
+  const shown = existing?.rows?.length || 0
+  const offset = append ? shown : 0
+  // A refresh asks for as many rows as are already shown, so rows loaded with "Load more" stay on screen.
+  const limit = append ? PAGE : Math.max(PAGE, shown)
   sensorLoading.value = {...sensorLoading.value, [sensor.id]: true}
-  sensorErrors.value = {...sensorErrors.value, [sensor.id]: null}
   try {
     const report = await getJson(
-      `api/side-effects/sensor?sensor=${encodeURIComponent(sensor.id)}&offset=${offset}&limit=${PAGE}`
+      `api/side-effects/sensor?sensor=${encodeURIComponent(sensor.id)}&offset=${offset}&limit=${limit}`
     )
+    sensorErrors.value = {...sensorErrors.value, [sensor.id]: null}
     sensorReports.value = {
       ...sensorReports.value,
       [sensor.id]: {
