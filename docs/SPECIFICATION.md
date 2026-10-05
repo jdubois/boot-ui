@@ -780,13 +780,15 @@ Acceptance criteria:
 
 ### 5.7.5 Side Effects
 
-Purpose: answer "Which processes and other side effects did this route or background work start?"
+Purpose: answer "Which processes, hosts, and other side effects did this route or background work start or reach?"
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. In M5-5a only the `processes` sensor records. The
-  `network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, and `security-sinks`
-  sensors are still listed but report `not-available` with reason `Not available in this version.`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
+  sensors record. The `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, and
+  `security-sinks` sensors are still listed but report `not-available` with reason `Not available in this version.`
+- The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
+  whether a panel captured a network connection's work.
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -810,19 +812,39 @@ Features:
   or environment, and also records start failure, exit status, and lifetime when watched. Starts are published at once;
   exits are attributed as their starts were and carry the start time. Exits are watched on the agent-owned
   `bootui-agent-process-exits` executor, with at most 1,024 watched at once.
-- BootUI's own process starts, agent threads, BootUI threads, reentrant inner hooks, and starts during class
-  transformation are not recorded. A failed self-test disables the sensor and removes its transformer. After 100
-  internal side-effect-sensor errors, the sensors switch off for the JVM's life. The side-effect ring holds 1,024
-  records; the per-thread aggregation table is for hotter sensors in later slices.
+- The `network` sensor hooks `Socket.connect(SocketAddress, int)`, `SocketChannelImpl.connect`, `blockingConnect`, and
+  `finishConnect`, `DatagramChannelImpl.send`, `DatagramSocket.send`, and `InetAddress.getAddressesFromNameService`
+  (a JVM address-cache miss). It records a host string and port, never resolved, without user information, sanitized,
+  at most 128 characters and 1,024 distinct targets a run, or a looked-up name; connect, send, and resolution time; the
+  outcome; and the client recognized in the engine, infrastructure first (an exporter's, shipper's, or container
+  tool's frame, never OpenTelemetry's instrumentation; an exporter thread; a configured exporter endpoint; DNS), then
+  from the first frame outside the socket plumbing and the call site's frames, then a well-known infrastructure port,
+  then the thread family. It never reads a byte sent or received. Connects and lookups are published at once; a
+  non-blocking connect is pending until its `finishConnect` record, which carries its owner and time; a datagram's
+  first send per target and call site is published at once and the next ones counted in the thread's table.
+- A network connection or datagram row is `captured` (with the panel id), `not-captured` (no visible panel shows the
+  work), or `infrastructure` (DNS resolvers, telemetry exporters, metrics and log shippers, container tooling). A
+  JDBC, messaging, or mail client's is captured while SQL Trace, the broker's panel, or Email is available and enabled,
+  decided on read. Any other is captured when a REST client call of the same request or execution, or, unowned,
+  at the same time with a second of slack, names its host and port, or a configured proxy; it waits for that until its
+  request was named plus 2 seconds (or the connect, when later), an execution's 60 seconds, unowned 10 seconds, 60 for a
+  recognized HTTP client; a finish record is decided as its connect was. A datagram's owner comes from the thread's
+  slot only, which a request scope fills even without code paths; an event loop never captures an owner. The runtime model gains observed `OPENS` edges from routes,
+  scheduled jobs, and beans to `HOST` nodes keyed `host:port`, hidden with the panel; change impact never walks them.
+- BootUI's own process starts and connections (its JDK `HttpClient`s run on a `bootui-http-N` executor), agent
+  threads, BootUI threads, reentrant inner hooks, and work during class transformation are not recorded, nor is the
+  JDK's own loopback pair. A hook that fails its self-test is left out and its sensor keeps recording; a failing core
+  hook disables only its sensor, and the transformer is reinstalled with the others. After 100 internal
+  side-effect-sensor errors, the sensors switch off for the JVM's life. The side-effect ring holds 1,024 records.
 - Rows are keyed by attribution, sensor, kind, normalized target, call site, and bean method stamp when available.
   Attribution prefers request route, then the execution no request owns as its journal event names it (a scheduled
   run, a consumed message, a WebSocket message; `work no request owns` when never named), startup, thread family with
   digits collapsed, and finally unattributed. A request whose route is still unknown after 30 seconds counts under `(unknown route)`. Inline
   work owned by another request remains attributed to that other request through a small per-thread owner stack. Targets
   normalize the home directory to `~`, UUIDs to `{uuid}`, long hex runs with a digit to `{hex}`, and digit runs to
-  `{n}`. The call site is the first frame in the application's packages, else the first frame outside the JDK.
+  `{n}`, except network targets, which keep their digits. The call site is the first frame in the application's packages, else the first frame outside the JDK.
 - Each row reports count, failed, completed, non-zero exits, last exit status, total and longest lifetime, first and
-  last seen, and up to three exemplar request ids. Rows are capped at 500 per sensor and 2,000 per run, with the rest
+  last seen, and up to three exemplar request ids; a network row also its client, `capture`, and `capturedBy`. Rows are capped at 500 per sensor and 2,000 per run, with the rest
   counted in that sensor's Other row. Up to 10,000 observations wait for a route. Side Effects is an AgentEvidence store:
   Clear recording and Free BootUI memory clear its rows, records still in the agent with a first occurrence before the
   clear are dropped by a watermark, the panel says `The recording was cleared`, and journal status reports
@@ -834,7 +856,7 @@ Features:
   hooks, and limitations. `GET /bootui/api/side-effects/sensor?sensor=<id>&offset=&limit=` returns one sensor's rows,
   most frequent first, with a default limit of 100 and maximum of 500; an unknown sensor id is `400` with `{error}`.
   `get_side_effects` and `bootui side-effects` take `query` and `limit` (20 by default) and return every sensor's
-  coverage followed by matching rows, most frequent first.
+  coverage followed by matching rows, most frequent first; `query` `not captured` lists the hidden outbound calls.
 
 Acceptance criteria:
 
@@ -844,7 +866,11 @@ Acceptance criteria:
 - With the agent and `side-effects-seed.scheduled-every` set, the Quarkus sample's scheduled
   `ScheduledJavaVersion#report` run shows a `java` process row of scope `execution`, named as the runtime journal names
   that scheduled run, with no exemplar request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, and `processes`; `threads` remains opt-in.
+- With the agent, the three samples' `GET /api/side-effects/sdk-call` shows a `connect` row to `localhost:<port>` from
+  `LicenseSdkClient#check` that is `not-captured`, and its request header never appears; the counterexample
+  `GET /api/side-effects/rest-call`, through the recorded REST client, shows no `not-captured` row.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `network`; `threads`
+  remains opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

@@ -11,10 +11,17 @@ public final class SideEffectsCatalog {
     /** The bridge's sensor id of {@code processes} in records. */
     static final int RECORD_PROCESSES = 1;
 
+    /** The bridge's sensor id of {@code network} in records (M5-5b). */
+    static final int RECORD_NETWORK = 2;
+
     /** The bridge's record kinds. */
     static final int KIND_PROCESS_START = 1;
 
     static final int KIND_PROCESS_EXIT = 2;
+    static final int KIND_CONNECT = 3;
+    static final int KIND_CONNECT_FINISH = 4;
+    static final int KIND_DATAGRAM = 5;
+    static final int KIND_LOOKUP = 6;
 
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
@@ -22,6 +29,20 @@ public final class SideEffectsCatalog {
     static final int OUTCOME_IO_ERROR = 2;
     static final int OUTCOME_ERROR = 3;
     static final int OUTCOME_EXITED = 4;
+    static final int OUTCOME_CONNECTED = 5;
+    static final int OUTCOME_PENDING = 6;
+    static final int OUTCOME_SENT = 7;
+    static final int OUTCOME_RESOLVED = 8;
+    static final int OUTCOME_UNKNOWN_HOST = 9;
+
+    /** The network sensor's id. */
+    static final String NETWORK_ID = "network";
+
+    /** What a network row's kind says. */
+    static final String CONNECT = "connect";
+
+    static final String DATAGRAM = "datagram";
+    static final String LOOKUP = "lookup";
 
     public static final String NETWORK = "Network";
     public static final String FILES_AND_PROCESSES = "Files and processes";
@@ -50,7 +71,7 @@ public final class SideEffectsCatalog {
 
     /** Every sensor, in tab order. */
     public static final List<Sensor> SENSORS = List.of(
-            new Sensor("network", NETWORK, "Hosts the application connects to", false, 0),
+            new Sensor("network", NETWORK, "Hosts the application connects to", true, RECORD_NETWORK),
             new Sensor("files", FILES_AND_PROCESSES, "Files the application reads and writes", false, 0),
             new Sensor("processes", FILES_AND_PROCESSES, "Processes the application starts", true, RECORD_PROCESSES),
             new Sensor("environment", ENVIRONMENT, "Environment variables and system properties read", false, 0),
@@ -84,6 +105,22 @@ public final class SideEffectsCatalog {
 
     /** What a record of {@code recordId} and {@code kind} did, as rows name it. */
     static String kind(int recordId, int kind) {
-        return recordId == RECORD_PROCESSES ? "process" : "operation";
+        if (recordId == RECORD_PROCESSES) {
+            return "process";
+        }
+        if (recordId == RECORD_NETWORK) {
+            return switch (kind) {
+                case KIND_CONNECT, KIND_CONNECT_FINISH -> CONNECT;
+                case KIND_DATAGRAM -> DATAGRAM;
+                case KIND_LOOKUP -> LOOKUP;
+                default -> "operation";
+            };
+        }
+        return "operation";
+    }
+
+    /** Whether an outcome is a failure. */
+    static boolean failed(int outcome) {
+        return outcome == OUTCOME_IO_ERROR || outcome == OUTCOME_ERROR || outcome == OUTCOME_UNKNOWN_HOST;
     }
 }

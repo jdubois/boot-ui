@@ -23,5 +23,10 @@ public enum EdgeType {
      * ({@code docs/PLAN-v2.md} §5.14, M5-4c). Not part of change impact's code closure: a call observed in one run is
      * evidence of that run's paths, not of what a change can reach.
      */
-    INVOKES
+    INVOKES,
+    /**
+     * A route, a scheduled job, or a bean opened connections to, or sent datagrams to, a host, as the BootUI agent's
+     * {@code network} sensor observed it ({@code docs/PLAN-v2.md} §5.16, M5-5b). Not part of change impact's closure.
+     */
+    OPENS
 }
