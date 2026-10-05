@@ -1,0 +1,175 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "lazy-sql-after-handler:99568a33e9",
+    "kind": "lazy-sql-after-handler",
+    "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 920 times in 184 of 184 requests, outside a transaction, while the view was rendered.",
+    "eligible": 184,
+    "affected": 184,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+      "If every request reads the same reference data, such as the options of a select, cache it."
+    ],
+    "exemplarRequestIds": [
+      "c0ee1d440cd77266",
+      "6d6a5e65744a9c86",
+      "14cfdc9e97fbd18b"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Executions",
+    "Call site"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "c0ee1d440cd77266",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "6d6a5e65744a9c86",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "14cfdc9e97fbd18b",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "02944908b19b73c8",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "2a23fc2bd41afd59",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "ff9424d8529e0b7c",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "16591151fe2173b7",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "f45357f7128c44da",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "02075f47f8047bc7",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "4b28cf3f98f3774d",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "80ae4383ba06b03f",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "77b9aa3b6f461d24",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "694bf722cc0a5c8f",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "69407003172e540c",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "3d6f5aacfeb49b35",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "069e1b4261e21e66",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "6255b227d1bdaadb",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "cde3b5115b57255a",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "6f1255dd687e3fed",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    },
+    {
+      "cells": [
+        "1e502f5295ebbf77",
+        "5",
+        "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)"
+      ]
+    }
+  ],
+  "truncated": 164
+}

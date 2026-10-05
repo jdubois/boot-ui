@@ -29,8 +29,8 @@ a branch preparing a later major, such as `v3`, declares that major.
 | Installers (`install.sh`, `install.ps1`) and the CLI's update check | Maven Central's `maven-metadata.xml` | 1.x | 1.x | 2.x |
 
 `release-line-gate.sh` reads the branch's release line, the tags on origin, and Maven Central. A branch may publish
-only when one tag of its line has its parent POM and Spring starter on Maven Central, and no tag of a newer major does.
-Requiring any tag, not the newest, keeps one failed or still-propagating patch from blocking every later deploy, and
+only when one tag of its line has its `bootui-core` and Spring starter jars on Maven Central (2.0 no longer
+publishes the parent POM), and no tag of a newer major does. Requiring any tag, not the newest, keeps one failed or still-propagating patch from blocking every later deploy, and
 counting a newer major only once it is on Maven Central keeps a stray or failed tag from retiring the released line. An
 unreadable answer, from origin or from Maven Central, fails the run instead of deciding.
 

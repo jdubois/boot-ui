@@ -1,0 +1,70 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:18d54435ef",
+    "kind": "route-time-breakdown",
+    "subject": "GET /login",
+    "status": "OBSERVED",
+    "sentence": "`GET /login`: warm median 5.0 ms over 40 requests; Response write 90 %, Other filters 5 %, Handler, other work 3 %. First request 641 ms (cold).",
+    "eligible": 40,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "bb5e5bddc558a372",
+      "6bb184129f5668e5",
+      "09f4803a79f7b81a"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "3.1",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "11",
+        "5 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "7.5",
+        "3 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "197",
+        "90 %",
+        "4.5"
+      ]
+    }
+  ],
+  "truncated": 0
+}

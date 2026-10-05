@@ -1,0 +1,1335 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "runId": "6704138f",
+    "firstEventAt": 1791186026104,
+    "lastEventAt": 1791186081814,
+    "retainedEvents": 4210,
+    "requests": 573,
+    "evictedEvents": 0,
+    "droppedEvents": 0
+  },
+  "coverage": [
+    {
+      "source": "http",
+      "events": 573,
+      "byRequestId": 573,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 687,
+      "byRequestId": 630,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 57,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 416,
+      "byRequestId": 416,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "connection",
+      "events": 517,
+      "byRequestId": 509,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 8,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 156,
+      "byRequestId": 156,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "security",
+      "events": 507,
+      "byRequestId": 507,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "authorization",
+      "events": 651,
+      "byRequestId": 651,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "cache",
+      "events": 105,
+      "byRequestId": 105,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 105,
+      "byRequestId": 104,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "mail",
+      "events": 26,
+      "byRequestId": 26,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 10,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 10,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 456,
+      "byRequestId": 456,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checks": [
+    {
+      "kind": "route-time-breakdown",
+      "title": "Route time breakdown",
+      "status": "EVALUATED",
+      "eligibleRequests": 484,
+      "findings": 28,
+      "reason": null
+    },
+    {
+      "kind": "exception-hotspots",
+      "title": "Exception hotspots",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 13,
+      "reason": null
+    },
+    {
+      "kind": "errors-behind-2xx",
+      "title": "Errors behind 2xx responses",
+      "status": "EVALUATED",
+      "eligibleRequests": 391,
+      "findings": 2,
+      "reason": null
+    },
+    {
+      "kind": "repeated-selects",
+      "title": "Repeated SELECTs",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "connections-per-request",
+      "title": "Connections held together",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "safe-method-dml",
+      "title": "Writes in GET requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 300,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "proxy-bypass",
+      "title": "Proxy bypass",
+      "status": "EVALUATED",
+      "eligibleRequests": 278,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "anonymous-data-reach",
+      "title": "Anonymous writes",
+      "status": "EVALUATED",
+      "eligibleRequests": 66,
+      "findings": 1,
+      "reason": null
+    },
+    {
+      "kind": "anonymous-success-on-restricted-route",
+      "title": "Anonymous success on a restricted route",
+      "status": "EVALUATED",
+      "eligibleRequests": 144,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "split-transaction-writes",
+      "title": "Writes split across transactions",
+      "status": "EVALUATED",
+      "eligibleRequests": 170,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "transactional-listener-skipped",
+      "title": "Transactional listeners skipped",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "after-commit-writes",
+      "title": "Writes after commit",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "orm-auto-flush",
+      "title": "Hibernate auto-flushes",
+      "status": "EVALUATED",
+      "eligibleRequests": 378,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "large-persistence-context",
+      "title": "Large persistence contexts",
+      "status": "EVALUATED",
+      "eligibleRequests": 365,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "transaction-across-remote-call",
+      "title": "Transactions open across remote calls",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "lazy-sql-after-handler",
+      "title": "SQL after the handler returned",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "event-loop-blocking",
+      "title": "Blocking on event loops",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "Spring MVC serves requests on worker threads, not on event loops."
+    },
+    {
+      "kind": "gc-inflated-latency",
+      "title": "Pauses during slow requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 545,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "heap-growth-after-gc",
+      "title": "Heap growth after GC",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "ai-usage-by-route",
+      "title": "AI usage by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "framework-warnings-by-route",
+      "title": "Framework warnings by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 573,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "work-after-response",
+      "title": "Work after the response",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    },
+    {
+      "kind": "changed-code-not-executed",
+      "title": "Changed code not executed",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    }
+  ],
+  "observations": [
+    {
+      "id": "route-time-breakdown:5cf2c95c76",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/authenticate",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/authenticate`: warm median 87 ms over 38 requests; Handler, other work 96 %, Response write 3 %, Other filters 1 %. Median CPU 84 ms and 283 KB allocated per request. First request 833 ms (cold).",
+      "eligible": 38,
+      "affected": 38,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "ea3e939455ad78c4",
+        "7d2538569ab9e431",
+        "59cf503137f9ab7c"
+      ],
+      "evidenceRows": 7,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:2e45922436",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/bank-accounts",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/bank-accounts`: warm median 6.5 ms over 26 requests; Handler, other work 54 %, Other filters 18 %, Response write 13 %. Median CPU 6.1 ms and 269 KB allocated per request. First request 3.9 ms (cold).",
+      "eligible": 26,
+      "affected": 26,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "2d047b8d146250f8",
+        "18c83ac2b70d9e92",
+        "85f7e9866f367a11"
+      ],
+      "evidenceRows": 8,
+      "limitations": [
+        "12 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:061fc4c54d",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/authenticate",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/authenticate`: warm median 2.9 ms over 25 requests; Other filters 39 %, Response write 24 %, Handler, other work 19 %. Median CPU 2.7 ms and 148 KB allocated per request. First request 4.6 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in filters before the handler: check what they do per request."
+      ],
+      "exemplarRequestIds": [
+        "83a35c913cf949a6",
+        "f6a6a72c405f11b2",
+        "a89264a9f34d4492"
+      ],
+      "evidenceRows": 5,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:0b7afe569c",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/admin/users/{login}`: warm median 7.0 ms over 25 requests; Handler, other work 55 %, Other filters 18 %, Response write 15 %. Median CPU 6.9 ms and 579 KB allocated per request. First request 19 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "be6aa9cba01969fe",
+        "a6b526040760da53",
+        "9f73d999cd2f8365"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:291ed86f12",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/account/reset-password/init`: warm median 6.6 ms over 25 requests; Handler, other work 50 %, Hibernate flushes 29 %, Other filters 10 %. Median CPU 7.2 ms and 624 KB allocated per request. First request 28 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "e632b4d0bee48337",
+        "7a0ff155315667cb",
+        "05c8656564bb4279"
+      ],
+      "evidenceRows": 7,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:4cd2ae3a3d",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/operations",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/operations`: warm median 8.8 ms over 25 requests; Handler, other work 63 %, Response write 12 %, Other filters 12 %. Median CPU 8.6 ms and 388 KB allocated per request. First request 32 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "874a9c225e32c312",
+        "e03cf414dffb53cc",
+        "4f44aa00eeb2fe04"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:50f64fb6ed",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/labels/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/labels/{id}`: warm median 5.5 ms over 25 requests; Handler, other work 45 %, Other filters 24 %, Response write 17 %. Median CPU 5.3 ms and 476 KB allocated per request. First request 7.5 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "7ec4e9a540cd9098",
+        "32a28ce32b05f414",
+        "1d7597caf5e5f181"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:8551e98278",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/operations/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/operations/{id}`: warm median 6.4 ms over 25 requests; Handler, other work 55 %, Other filters 18 %, Response write 14 %. Median CPU 6.4 ms and 482 KB allocated per request. First request 13 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "e0e1e87f748d0304",
+        "db24abc22bb184a1",
+        "9bcb9ebb5a28cfa2"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:94a8f734ef",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/bank-accounts/{id}`: warm median 5.9 ms over 25 requests; Handler, other work 55 %, Other filters 19 %, Response write 14 %. Median CPU 5.9 ms and 485 KB allocated per request. First request 13 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "8bc38ec08a404a8b",
+        "a66196c878086ffb",
+        "9032044882b1dd05"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:be149ef93a",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/bank-accounts",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/bank-accounts`: warm median 5.5 ms over 25 requests; Handler, other work 37 %, Other filters 23 %, Response write 19 %. Median CPU 4.8 ms and 218 KB allocated per request. First request 17 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "f66f4e48af3d20d3",
+        "dff361a9c23a6ea7",
+        "954f5a252f058e05"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:d0b57f07ea",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/operations",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/operations`: warm median 4.8 ms over 25 requests; Handler, other work 37 %, Other filters 20 %, Response write 17 %. Median CPU 4.7 ms and 243 KB allocated per request. First request 15 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "785b1771914e8306",
+        "0c4a72cb53aaf71b",
+        "e3e354d049452396"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:d5199598ce",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/labels",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/labels`: warm median 5.2 ms over 25 requests; Handler, other work 37 %, Other filters 23 %, Response write 21 %. Median CPU 5.1 ms and 206 KB allocated per request. First request 23 ms (cold).",
+      "eligible": 25,
+      "affected": 25,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "73f631253ccfdb76",
+        "b8308cb6524ac060",
+        "66121a51c4b81412"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "anonymous-data-reach:50353f241f",
+      "kind": "anonymous-data-reach",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/account/reset-password/init` wrote table `jhi_user` in 13 of 13 successful anonymous requests.",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "If `jhi_user` should only change for signed-in callers, check the rule that let these requests through.",
+        "Do not add authorization from this row alone: a public route or write, such as a catalog, a sign-up, or a contact form, is often intended."
+      ],
+      "exemplarRequestIds": [
+        "e632b4d0bee48337",
+        "7a0ff155315667cb",
+        "05c8656564bb4279"
+      ],
+      "evidenceRows": 13,
+      "limitations": [
+        "Tables are read from the statement text, so a write through a view, a procedure, or a trigger names what it called, not what it changed.",
+        "Only the target of each captured INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO statement text is counted, not affected rows or prepared-batch executions.",
+        "Statement batch previews retain at most five statements, each at most 256 characters before a truncation marker; omitted or truncated text can hide other write targets. Prepared batches retain one SQL text, not one per parameter set.",
+        "Only requests an authorization decision proved anonymous are counted; a request no rule checked is not."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "errors-behind-2xx:26d546b877",
+      "kind": "errors-behind-2xx",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/admin/users` answered 2xx in 13 of 13 successful requests: 13 requests whose own task failed.",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Verify the response contract: should the caller learn that part of this request failed?",
+        "A task this request handed to another thread failed: verify its failure is handled, retried or alerted, or that the response does not promise what the task was to do."
+      ],
+      "exemplarRequestIds": [
+        "fb93ad98a3a4644c",
+        "a03766b0f8e07508",
+        "ea418d4a15886be2"
+      ],
+      "evidenceRows": 13,
+      "limitations": [
+        "Only work that carries the request's id is counted: its own thread's, and its tasks' on executors BootUI decorates or the BootUI agent follows; work handed to another thread without BootUI's correlation is not.",
+        "Recovery matches at most one earlier exception of the reported failure class on the same thread per failed attempt, and requires a terminal success for the same policy, type, and target, or a successful fallback. It is not causal proof.",
+        "Logs, downstream failures, and root rollbacks are never inferred recovered. Providers that report no terminal success or fallback cannot establish recovery.",
+        "A task's exception is counted whatever level it was logged at, since a recorded exception does not keep its log level."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "errors-behind-2xx:cc7aaad3ad",
+      "kind": "errors-behind-2xx",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/account/reset-password/init` answered 2xx in 13 of 13 successful requests: 13 requests whose own task failed.",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Verify the response contract: should the caller learn that part of this request failed?",
+        "A task this request handed to another thread failed: verify its failure is handled, retried or alerted, or that the response does not promise what the task was to do."
+      ],
+      "exemplarRequestIds": [
+        "e632b4d0bee48337",
+        "7a0ff155315667cb",
+        "05c8656564bb4279"
+      ],
+      "evidenceRows": 13,
+      "limitations": [
+        "Only work that carries the request's id is counted: its own thread's, and its tasks' on executors BootUI decorates or the BootUI agent follows; work handed to another thread without BootUI's correlation is not.",
+        "Recovery matches at most one earlier exception of the reported failure class on the same thread per failed attempt, and requires a terminal success for the same policy, type, and target, or a successful fallback. It is not causal proof.",
+        "Logs, downstream failures, and root rollbacks are never inferred recovered. Providers that report no terminal success or fallback cannot establish recovery.",
+        "A task's exception is counted whatever level it was logged at, since a recorded exception does not keep its log level."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "exception-hotspots:2b1f7d77f0",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/labels",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/labels` recorded `MethodArgumentNotValidException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "73f631253ccfdb76",
+        "e2c7f90c1781e354",
+        "58066ffeb351b986"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:2c56b900a3",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/authenticate",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/authenticate` recorded `BadCredentialsException` in 13 of 39 requests (13 occurrences).",
+      "eligible": 39,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "59cf503137f9ab7c",
+        "ea3e939455ad78c4",
+        "e1fdd95ff43ef6ae"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:591c823305",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/bank-accounts",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/bank-accounts` recorded `MethodArgumentNotValidException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "595f12eec77939d7",
+        "e68e02c7fb155da8",
+        "8414e7bc757997b3"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:64c65e2a49",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/bank-accounts/{id}` recorded `ResponseStatusException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "9032044882b1dd05",
+        "566c3d65c5a4d3d3",
+        "0034a6c3082e2f05"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:74fea331dc",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/account/reset-password/init` recorded `MailSendException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "e632b4d0bee48337",
+        "7a0ff155315667cb",
+        "05c8656564bb4279"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 2xx and 4xx responses: Errors behind 2xx responses reports the 2xx ones."
+    },
+    {
+      "id": "exception-hotspots:80c2f91fd8",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/admin/users` recorded `MailSendException` in 13 of 13 requests (13 occurrences).",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "fb93ad98a3a4644c",
+        "a03766b0f8e07508",
+        "ea418d4a15886be2"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 2xx and 4xx responses: Errors behind 2xx responses reports the 2xx ones."
+    },
+    {
+      "id": "exception-hotspots:9e7d73f73b",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/admin/users/{login}` recorded `ResponseStatusException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "be6aa9cba01969fe",
+        "a6b526040760da53",
+        "8552acf930435d32"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:b5ee61c72e",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/operations/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/operations/{id}` recorded `ResponseStatusException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "9bcb9ebb5a28cfa2",
+        "51f32b1cc517bd41",
+        "ce917a455bc9036f"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:b8c5dcbaee",
+      "kind": "exception-hotspots",
+      "subject": "GET /api/labels/{id}",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/labels/{id}` recorded `ResponseStatusException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "32a28ce32b05f414",
+        "25d1e57c6eca99c2",
+        "e981f7244daa3e9e"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:bbb1577bf3",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/account/reset-password/init",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/account/reset-password/init` recorded `ConstraintViolationException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "d20dd8f8d1b2ccd6",
+        "077d83fcef555336",
+        "61521bdf5b652cc0"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:dbd321beb1",
+      "kind": "exception-hotspots",
+      "subject": "POST /api/operations",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/operations` recorded `MethodArgumentNotValidException` in 13 of 26 requests (13 occurrences).",
+      "eligible": 26,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "a33dc66d30175ee5",
+        "f976332233547486",
+        "bbdc12cba663eddb"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:e348dfbc45",
+      "kind": "exception-hotspots",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "sentence": "`GET /**` recorded `NoResourceFoundException` in 13 of 13 requests (13 occurrences).",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "227ecb4b8e1b0d83",
+        "4b0500ca4f4a08f1",
+        "47caa18a371ee695"
+      ],
+      "evidenceRows": 13,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "route-time-breakdown:2bf7e477d0",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/admin/users",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/admin/users`: warm median 7.6 ms over 13 requests; Handler, other work 64 %, Other filters 12 %, Response write 10 %. Median CPU 7.3 ms and 329 KB allocated per request. First request 5.0 ms (cold).",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "6851bdd6a6f429d4",
+        "5a1ba71bcf7a1eea",
+        "ad13c0a1cdcdcc07"
+      ],
+      "evidenceRows": 8,
+      "limitations": [
+        "12 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:acd55ae4fa",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/account",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/account`: warm median 7.8 ms over 13 requests; Handler, other work 64 %, Other filters 15 %, Response write 12 %. Median CPU 7.3 ms and 278 KB allocated per request. First request 17 ms (cold).",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "ad2c84984c368cb1",
+        "e86dbb7417862c4b",
+        "fdd9f0313a26b930"
+      ],
+      "evidenceRows": 8,
+      "limitations": [
+        "12 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:19666a6c7a",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/operations/{id}",
+      "status": "OBSERVED",
+      "sentence": "`PATCH /api/operations/{id}`: warm median 8.0 ms over 12 requests; Handler, other work 50 %, Response write 15 %, Other filters 15 %. Median CPU 7.9 ms and 263 KB allocated per request. First request 18 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "034f8f7f09b36083",
+        "b6846bab6f8b5b50",
+        "ff330ba50cfeeab1"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:55b3d6053f",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/account",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/account`: warm median 11 ms over 12 requests; Handler, other work 75 %, Other filters 10 %, Response write 6 %. Median CPU 11 ms and 367 KB allocated per request. First request 62 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "d0ac98be3a88a4d0",
+        "6d3ff457de65444e",
+        "fa5ee488484c21ba"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:55e0f2ca42",
+      "kind": "route-time-breakdown",
+      "subject": "GET /api/labels",
+      "status": "OBSERVED",
+      "sentence": "`GET /api/labels`: warm median 5.9 ms over 12 requests; Handler, other work 55 %, Other filters 16 %, Response write 14 %. Median CPU 5.7 ms and 244 KB allocated per request. First request 13 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "4c7f5f06be26bbd5",
+        "3a36bc3cc44d3816",
+        "1becc29bb580c26f"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:5656673718",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/operations/{id}",
+      "status": "OBSERVED",
+      "sentence": "`DELETE /api/operations/{id}`: warm median 5.9 ms over 12 requests; Handler, other work 40 %, Other filters 19 %, Hibernate flushes 16 %. Median CPU 5.7 ms and 226 KB allocated per request. First request 31 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "abb60f3c5fed3498",
+        "f241df3a03bb86aa",
+        "61a66565efc1f8e3"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:5d03df99f6",
+      "kind": "route-time-breakdown",
+      "subject": "GET /**",
+      "status": "OBSERVED",
+      "sentence": "`GET /**`: warm median 4.1 ms over 12 requests; Handler, other work 37 %, Other filters 29 %, Response write 22 %. Median CPU 4.0 ms and 1004 KB allocated per request. First request 7.8 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "47caa18a371ee695",
+        "4b0500ca4f4a08f1",
+        "ae92bcdc9c28ab60"
+      ],
+      "evidenceRows": 5,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:67b3d00d88",
+      "kind": "route-time-breakdown",
+      "subject": "POST /api/admin/users",
+      "status": "OBSERVED",
+      "sentence": "`POST /api/admin/users`: warm median 98 ms over 12 requests; Handler, other work 94 %, Hibernate flushes 2 %, Response write 1 %. Median CPU 92 ms and 570 KB allocated per request. First request 255 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "a03766b0f8e07508",
+        "49c30fd5520a9656",
+        "54003fe48c4fe64f"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:74fd955490",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/labels/{id}",
+      "status": "OBSERVED",
+      "sentence": "`PATCH /api/labels/{id}`: warm median 7.5 ms over 12 requests; Handler, other work 51 %, Other filters 15 %, Response write 13 %. Median CPU 7.4 ms and 248 KB allocated per request. First request 34 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "d25112cc115494d2",
+        "90a65a346b048b37",
+        "efdcab4f6c74909a"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:8d880b8bae",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "sentence": "`DELETE /api/bank-accounts/{id}`: warm median 5.8 ms over 12 requests; Handler, other work 39 %, Other filters 27 %, Hibernate flushes 11 %. Median CPU 5.4 ms and 196 KB allocated per request. First request 11 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "a8f3a51cfaaaf350",
+        "b47a6c678e1b73d2",
+        "aa619b60bb95977e"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:93db0e965b",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "sentence": "`DELETE /api/admin/users/{login}`: warm median 7.9 ms over 12 requests; Handler, other work 54 %, Other filters 15 %, Response write 8 %. Median CPU 7.3 ms and 315 KB allocated per request. First request 14 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "c9e44ce61331da7d",
+        "d6d44cbce7f47b16",
+        "cdf53afbd8a1249c"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:c86619d1a5",
+      "kind": "route-time-breakdown",
+      "subject": "PUT /api/admin/users/{login}",
+      "status": "OBSERVED",
+      "sentence": "`PUT /api/admin/users/{login}`: warm median 14 ms over 12 requests; Handler, other work 66 %, Hibernate flushes 10 %, Other filters 8 %. Median CPU 14 ms and 511 KB allocated per request. First request 30 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "48b1c7dbf009411a",
+        "9eee01d6e5647837",
+        "9b1ad14a5977b294"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:cfeb39ac43",
+      "kind": "route-time-breakdown",
+      "subject": "DELETE /api/labels/{id}",
+      "status": "OBSERVED",
+      "sentence": "`DELETE /api/labels/{id}`: warm median 5.4 ms over 12 requests; Handler, other work 37 %, Other filters 25 %, Response write 11 %. Median CPU 5.3 ms and 194 KB allocated per request. First request 7.2 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "8edd1a86708a77bd",
+        "186e096e7c334703",
+        "60f3f033c59b4897"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:f455176ec1",
+      "kind": "route-time-breakdown",
+      "subject": "PATCH /api/bank-accounts/{id}",
+      "status": "OBSERVED",
+      "sentence": "`PATCH /api/bank-accounts/{id}`: warm median 7.6 ms over 12 requests; Handler, other work 52 %, Other filters 14 %, Response write 12 %. Median CPU 7.6 ms and 275 KB allocated per request. First request 18 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "2b3684bb1b22d99a",
+        "e41002c8c4b67263",
+        "4bd487b1c4089498"
+      ],
+      "evidenceRows": 8,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "subject": "Behind 4xx responses",
+      "status": "OBSERVED",
+      "sentence": "10 exception groups on 10 routes were recorded only behind 4xx responses: 130 occurrences in 130 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "59cf503137f9ab7c",
+        "d20dd8f8d1b2ccd6",
+        "be6aa9cba01969fe"
+      ],
+      "evidenceRows": 10,
+      "limitations": [
+        "A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed in the previous run, is not counted here."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:6b66b25b23",
+      "kind": "route-time-breakdown",
+      "subject": "GET /management/health",
+      "status": "INSUFFICIENT",
+      "sentence": "`GET /management/health`: warm median 2.9 ms over 13 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. Recorded calls: Connection wait 1 %. First request 436 ms (cold).",
+      "eligible": 13,
+      "affected": 13,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+      ],
+      "exemplarRequestIds": [
+        "2b37fa4b887f85ee",
+        "864e35ac9ea39b59",
+        "5091e3d57c6c9132"
+      ],
+      "evidenceRows": 2,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+    },
+    {
+      "id": "route-time-breakdown:110c0f6477",
+      "kind": "route-time-breakdown",
+      "subject": "GET /management/info",
+      "status": "INSUFFICIENT",
+      "sentence": "`GET /management/info`: warm median 2.4 ms over 12 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. First request 14 ms (cold).",
+      "eligible": 12,
+      "affected": 12,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+      ],
+      "exemplarRequestIds": [
+        "ae27c5a4878a8c90",
+        "cbe77cb57ca31d58",
+        "fadeed73881209b7"
+      ],
+      "evidenceRows": 1,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+    }
+  ],
+  "limitations": [
+    "The application's declared routes could not be read, so the routes no request reached are not listed: that does not mean every route was exercised."
+  ],
+  "notExercised": [],
+  "notExercisedOmitted": 0
+}

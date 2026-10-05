@@ -1,0 +1,80 @@
+{
+  "status": "COMPARED",
+  "currentRunId": "b737c9b3",
+  "previousRunId": "b4ec0b9a",
+  "runs": [
+    {
+      "endedAt": 1791187155169,
+      "ordinal": 1,
+      "requests": 398,
+      "runId": "b4ec0b9a",
+      "source": "MEMORY",
+      "startedAt": 1791187122626
+    }
+  ],
+  "codeChanges": {
+    "available": true,
+    "counts": {
+      "added": 0,
+      "changed": 3,
+      "executed": 1,
+      "notExecuted": 2,
+      "partial": false,
+      "previousRun": true,
+      "removed": 0,
+      "scanStatus": "COMPLETE"
+    },
+    "limitations": [
+      "Code changes are since this application's previous run in this JVM, compared from its class files without git; a method's routes are those whose requests' own call trees executed it, or the route of the first request that ran it."
+    ],
+    "methods": [
+      {
+        "change": "CHANGED",
+        "className": "io.quarkus.sample.superheroes.villain.rest.VillainResource",
+        "descriptor": "()Ljakarta/ws/rs/core/Response;",
+        "key": "io.quarkus.sample.superheroes.villain.rest.VillainResource#deleteAllVillains()Ljakarta/ws/rs/core/Response;",
+        "name": "deleteAllVillains",
+        "routesTotal": 0,
+        "status": "NEVER_EXECUTED"
+      },
+      {
+        "change": "CHANGED",
+        "className": "io.quarkus.sample.superheroes.villain.service.VillainService",
+        "descriptor": "()V",
+        "key": "io.quarkus.sample.superheroes.villain.service.VillainService#deleteAllVillains()V",
+        "name": "deleteAllVillains",
+        "routesTotal": 0,
+        "status": "NEVER_EXECUTED"
+      },
+      {
+        "change": "CHANGED",
+        "className": "io.quarkus.sample.superheroes.villain.service.VillainService",
+        "descriptor": "(Ljava/lang/String;)Ljava/util/List;",
+        "key": "io.quarkus.sample.superheroes.villain.service.VillainService#findAllVillainsHavingName(Ljava/lang/String;)Ljava/util/List;",
+        "name": "findAllVillainsHavingName",
+        "routes": [
+          "GET /api/villains",
+          "GET /"
+        ],
+        "routesTotal": 2,
+        "status": "EXECUTED"
+      }
+    ],
+    "methodsTotal": 3
+  },
+  "behaviorOmitted": 0,
+  "edgesOmitted": 0,
+  "limitations": [
+    "3 route or executions recorded fewer than 3 samples in one of the runs, so per-sample changes on them are not compared; statement removal needs at least 3 current samples."
+  ],
+  "next": [
+    {
+      "arguments": {
+        "id": "io.quarkus.sample.superheroes.villain.rest.VillainResource#deleteAllVillains()Ljakarta/ws/rs/core/Response;"
+      },
+      "command": "bootui insights impact 'io.quarkus.sample.superheroes.villain.rest.VillainResource#deleteAllVillains()Ljakarta/ws/rs/core/Response;'",
+      "tool": "get_runtime_impact",
+      "why": "the routes that reach this changed method, which the tests must still run"
+    }
+  ]
+}

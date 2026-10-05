@@ -1995,7 +1995,13 @@ public abstract class AbstractBootUiApiConformanceTest {
                         "blocking",
                         "security-sinks");
         report.path("sensors").forEach(sensor -> {
-            if (!"processes".equals(sensor.path("id").asText())) {
+            if (java.util.Set.of("processes", "network", "files", "environment")
+                    .contains(sensor.path("id").asText())) {
+                // Shipped sensors (M5-5a, M5-5b, M5-5d): unavailable with the Java Agent panel's reason without the
+                // agent.
+                assertThat(sensor.path("state").asText()).isEqualTo("unavailable");
+                assertThat(sensor.path("reason").asText()).startsWith("Requires the BootUI agent");
+            } else {
                 assertThat(sensor.path("state").asText()).isEqualTo("not-available");
                 assertThat(sensor.path("reason").asText()).isEqualTo("Not available in this version.");
             }
@@ -2853,8 +2859,12 @@ public abstract class AbstractBootUiApiConformanceTest {
         probe().get(routeProbePath());
 
         // Spring WebFlux records an exchange once the response has completed, so it can land a moment after
-        // the client has read the response; poll briefly rather than race the recorder.
+        // the client has read the response, and the route template can be attached a moment after that: until
+        // then the exchange shows its masked path while the rankings already group it under the template. Poll
+        // both reads together until they agree, rather than race the recorder.
         JsonNode exchange = MissingNode.getInstance();
+        String routeId = null;
+        JsonNode row = null;
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (true) {
             Response list = probe().get(api("/http-exchanges?q=" + marker));
@@ -2863,7 +2873,22 @@ public abstract class AbstractBootUiApiConformanceTest {
                     isNull(list.json().path("unavailableReason")),
                     "HTTP exchanges are not recorded in this environment");
             exchange = list.json().path("exchanges").path(0);
-            if (exchange.isObject() || System.nanoTime() > deadline) {
+            if (exchange.isObject()) {
+                routeId = exchange.path("method").asText() + " "
+                        + exchange.path("route").asText("");
+                Response rankings = probe().get(api(
+                        "/http-exchanges/routes?limit=1&route=" + URLEncoder.encode(routeId, StandardCharsets.UTF_8)));
+                assertThat(rankings.status())
+                        .as("GET /http-exchanges/routes?route= status")
+                        .isEqualTo(200);
+                row = null;
+                for (JsonNode candidate : rankings.json().path("routes")) {
+                    if (routeId.equals(candidate.path("id").asText())) {
+                        row = candidate;
+                    }
+                }
+            }
+            if (row != null || System.nanoTime() > deadline) {
                 break;
             }
             try {
@@ -2881,19 +2906,7 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .doesNotContain("4711")
                 .doesNotContain("?");
         assertThat(exchange.path("routeSource").asText()).isIn("FRAMEWORK_TEMPLATE", "DECLARED_MAPPING", "MASKED_PATH");
-        String routeId = exchange.path("method").asText() + " " + route;
         String encodedRouteId = URLEncoder.encode(routeId, StandardCharsets.UTF_8);
-
-        Response rankings = probe().get(api("/http-exchanges/routes?limit=1&route=" + encodedRouteId));
-        assertThat(rankings.status())
-                .as("GET /http-exchanges/routes?route= status")
-                .isEqualTo(200);
-        JsonNode row = null;
-        for (JsonNode candidate : rankings.json().path("routes")) {
-            if (routeId.equals(candidate.path("id").asText())) {
-                row = candidate;
-            }
-        }
         assertThat(row).as("the pinned row for %s", routeId).isNotNull();
         assertThat(row.path("requests").asLong()).isPositive();
 

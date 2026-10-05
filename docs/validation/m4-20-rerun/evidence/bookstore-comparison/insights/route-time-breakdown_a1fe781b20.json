@@ -1,0 +1,93 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:a1fe781b20",
+    "kind": "route-time-breakdown",
+    "subject": "POST /admin/catalog/products/{code}/restore",
+    "status": "OBSERVED",
+    "sentence": "`POST /admin/catalog/products/{code}/restore`: warm median 6.3 ms over 39 requests; Handler, other work 48 %, SQL 36 %, Other filters 5 %. First request 9.0 ms (cold).",
+    "eligible": 39,
+    "affected": 39,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "d85d9cb62a10b261",
+      "fd38852a84ab4cd7",
+      "a69d89520e90e622"
+    ],
+    "evidenceRows": 7,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "4.0",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "13",
+        "5 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "90",
+        "36 %",
+        "2.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "13",
+        "5 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "121",
+        "48 %",
+        "2.9"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "10",
+        "4 %",
+        "0.2"
+      ]
+    }
+  ],
+  "truncated": 0
+}

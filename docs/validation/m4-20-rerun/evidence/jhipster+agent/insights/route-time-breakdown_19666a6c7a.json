@@ -1,0 +1,117 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:19666a6c7a",
+    "kind": "route-time-breakdown",
+    "subject": "PATCH /api/operations/{id}",
+    "status": "OBSERVED",
+    "sentence": "`PATCH /api/operations/{id}`: warm median 6.1 ms over 12 requests; Handler: OperationResource.partialUpdateOperation 29 %, Other handler time 20 %, Other filters 14 %. Median CPU 6.1 ms and 272 KB allocated per request. First request 15 ms (cold).",
+    "eligible": 12,
+    "affected": 12,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in OperationResource.partialUpdateOperation: open Code Paths for this route to see what it calls and who calls it."
+    ],
+    "exemplarRequestIds": [
+      "c12273ad4fa877db",
+      "d9daf0b837a4d4a5",
+      "3583a3e393e37128"
+    ],
+    "evidenceRows": 10,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 12 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "3.2",
+        "4 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "1.1",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "10",
+        "14 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "2.8",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "7.5",
+        "10 %",
+        "0.6"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: OperationResource.partialUpdateOperation",
+        "21",
+        "29 %",
+        "1.8"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "2.8",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "15",
+        "20 %",
+        "1.3"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "10",
+        "14 %",
+        "0.8"
+      ]
+    }
+  ],
+  "truncated": 0
+}

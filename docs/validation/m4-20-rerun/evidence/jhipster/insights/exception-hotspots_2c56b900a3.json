@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:2c56b900a3",
+    "kind": "exception-hotspots",
+    "subject": "POST /api/authenticate",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/authenticate` recorded `BadCredentialsException` in 13 of 39 requests (13 occurrences).",
+    "eligible": 39,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "59cf503137f9ab7c",
+      "ea3e939455ad78c4",
+      "e1fdd95ff43ef6ae"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "59cf503137f9ab7c",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "ea3e939455ad78c4",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "e1fdd95ff43ef6ae",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "2a9170462ade9f0d",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "f076e7a1d514132c",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "e97a576a50e9d793",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "80cb63e2098e9363",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "3e276509f1230a92",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "838f4ccc4b4832fd",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "594e40792b3eae96",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "0ac4341bad04ffe4",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "b650915eeb8c4335",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    },
+    {
+      "cells": [
+        "09e752429d7b1db8",
+        "401",
+        "1",
+        "188e8a31d83e5e00"
+      ]
+    }
+  ],
+  "truncated": 0
+}

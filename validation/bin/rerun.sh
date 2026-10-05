@@ -6,8 +6,10 @@
 #   --agent        attach the bootui-agent jar (the agent-attached runs: JHipster and the bookstore, and Super Heroes
 #                  and PetClinic with --change)
 #   --change       start the application in dev mode (Quarkus dev mode, or Spring Boot DevTools), send the traffic,
-#                  apply its change.patch while it runs, wait for the restart in the same JVM (a new journal run, which
-#                  changed-code-not-executed compares with), send the traffic again, then collect
+#                  apply its change.patch while it runs, wait for exactly one restart in the same JVM (a new journal
+#                  run, which changed-code-not-executed compares with, stable and ready for protocol.json's
+#                  changeRestart.stableSeconds; a second new run fails the run), send the traffic again, check the run
+#                  is still the same, then collect
 #   --compare      run twice with a shared baseline file and no code change, and collect the second run with its
 #                  comparison under <app>-comparison (the only run that sets a BootUI property)
 #   --reason why   required when the run's evidence already exists: the previous attempt is kept as
@@ -151,14 +153,16 @@ else
     log "applying change.patch while $app runs (journal run $before)"
     git -C "$(app_src "$app")" apply --whitespace=nowarn "$home/change.patch"
     "$VALIDATION_HOME/bin/run-app.sh" "$app" reload --run main
-    waited=0
-    until [ -n "$(journal_run)" ] && [ "$(journal_run)" != "$before" ]; do
-      [ "$waited" -lt 300 ] || die "$app did not restart into a new run within 300 s after the change"
-      sleep 3
-      waited=$((waited + 3))
-    done
-    log "restarted into journal run $(journal_run)"
+    stable="$(node -e 'console.log(require(process.argv[1]).changeRestart.stableSeconds)' "$VALIDATION_HOME/protocol.json")"
+    timeout="$(node -e 'console.log(require(process.argv[1]).changeRestart.timeoutSeconds)' "$VALIDATION_HOME/protocol.json")"
+    after="$(node "$VALIDATION_HOME/bin/await-restart.mjs" \
+      --journal-url "http://localhost:$PORT/bootui/api/activity/journal" \
+      --ready-url "http://localhost:$PORT${APP_READY_PATH:-/}" \
+      --before "$before" --stable-seconds "$stable" --timeout-seconds "$timeout")" ||
+      die "$app did not restart exactly once into a stable run after the change; nothing was collected"
+    log "restarted once into journal run $after, stable for ${stable}s"
     traffic after-change
+    [ "$(journal_run)" = "$after" ] || die "$app restarted again during the after-change traffic; nothing was collected"
   fi
 fi
 sleep 10

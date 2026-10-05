@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.resources.ResourceSettings;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
@@ -69,6 +70,7 @@ public class RuntimeInsightsResource {
             Instance<JavaAgentService> javaAgent,
             Instance<CodeInventoryService> codeInventory,
             Instance<CodePathsService> codePaths,
+            Instance<SideEffectsService> sideEffects,
             Instance<SqlTraceRecorder> sqlTraceRecorder,
             QuarkusExposurePolicy exposure,
             Config config) {
@@ -129,6 +131,14 @@ public class RuntimeInsightsResource {
         models.setInvocations(
                 () -> codePaths.isResolvable() ? codePaths.get().invocations() : List.of(),
                 () -> codePaths.isResolvable() ? codePaths.get().routeTreesFingerprint() : 0L);
+        // The hosts Side Effects' network sensor saw routes, jobs, and beans open (docs/PLAN-v2.md §5.16, M5-5b).
+        models.setHostOpens(
+                () -> sideEffects.isResolvable() ? sideEffects.get().hostOpens() : List.of(),
+                () -> sideEffects.isResolvable() ? sideEffects.get().hostOpensFingerprint() : 0L);
+        // The files and environment variables executions access, from the agent's Side Effects (docs/PLAN-v2.md §5.16).
+        models.setSideEffects(
+                () -> sideEffects.isResolvable() ? sideEffects.get().modelAccesses() : List.of(),
+                () -> sideEffects.isResolvable() ? sideEffects.get().modelFingerprint() : 0L);
         // Change impact by method and the comparison's code changes, from the route trees and Code Inventory (M5-7a).
         this.impact.setCodePaths(
                 wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);

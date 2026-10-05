@@ -1,0 +1,26 @@
+{
+  "status": "COMPARED",
+  "reason": null,
+  "currentRunId": "1e0289c2",
+  "previousRunId": "2ddb5db4",
+  "runs": [
+    {
+      "runId": "2ddb5db4",
+      "ordinal": 1,
+      "startedAt": 1791188586056,
+      "endedAt": 1791188647825,
+      "requests": 1683,
+      "source": "BASELINE_FILE"
+    }
+  ],
+  "notComparableReasons": [],
+  "codeChanges": null,
+  "behavior": [],
+  "behaviorOmitted": 0,
+  "edges": [],
+  "edgesOmitted": 0,
+  "limitations": [
+    "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events. Its application event edges are not compared."
+  ],
+  "next": []
+}

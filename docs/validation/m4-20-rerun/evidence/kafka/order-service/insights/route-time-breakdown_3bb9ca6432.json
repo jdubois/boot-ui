@@ -1,0 +1,63 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:3bb9ca6432",
+    "kind": "route-time-breakdown",
+    "subject": "POST /orders",
+    "status": "OBSERVED",
+    "sentence": "`POST /orders`: warm median 1.2 ms over 199 requests; Handler, other work 60 %, Response write 21 %, Other filters 19 %. Median CPU 1.1 ms and 33 KB allocated per request. First request 44 ms (cold).",
+    "eligible": 199,
+    "affected": 199,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "d79a7bcae4076573",
+      "49dfc3274acacaa1",
+      "62b24a915109cdb8"
+    ],
+    "evidenceRows": 3,
+    "limitations": [
+      "199 requests sent Kafka messages: a Kafka send is timed until the broker acknowledges it asynchronously, which the handler does not wait for, so its time is not counted as Message sends.",
+      "This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use. Its SQL and connection evidence is not counted."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "48",
+        "19 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "149",
+        "60 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "52",
+        "21 %",
+        "0.2"
+      ]
+    }
+  ],
+  "truncated": 0
+}

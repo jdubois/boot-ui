@@ -18,6 +18,8 @@ nb-configuration.xml
 
 # Java / Maven
 target/
+# Consumer POMs written by flatten-maven-plugin beside each published module's pom.xml.
+.flattened-pom.xml
 # Per-worktree local Maven repository used by the GitHub Copilot app scripts.
 .m2/
 *.class

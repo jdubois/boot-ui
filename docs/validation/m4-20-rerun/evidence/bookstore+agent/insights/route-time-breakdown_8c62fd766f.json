@@ -1,0 +1,118 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:8c62fd766f",
+    "kind": "route-time-breakdown",
+    "subject": "POST /admin/catalog/products",
+    "status": "OBSERVED",
+    "sentence": "`POST /admin/catalog/products`: warm median 7.3 ms over 79 requests; Response write 43 %, Other handler time 19 %, SQL 19 %. First request 14 ms (cold).",
+    "eligible": 79,
+    "affected": 79,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization."
+    ],
+    "exemplarRequestIds": [
+      "b022c5cb3c6d7ce7",
+      "102b38425b1659f5",
+      "c923e57790226ade"
+    ],
+    "evidenceRows": 10,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 39 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "9.5",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "27",
+        "4 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.4",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "117",
+        "19 %",
+        "1.4"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "13",
+        "2 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ProductService.createProduct",
+        "70",
+        "11 %",
+        "1.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ProductMapper.mapToEntity",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ProductMapper.mapToDto",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "120",
+        "19 %",
+        "1.6"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "272",
+        "43 %",
+        "0.5"
+      ]
+    }
+  ],
+  "truncated": 0
+}

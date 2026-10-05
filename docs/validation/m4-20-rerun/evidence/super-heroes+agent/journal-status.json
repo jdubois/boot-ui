@@ -1,0 +1,91 @@
+{
+  "agentEvidence": {
+    "maxBytes": 70912128,
+    "retainedBytes": 260666,
+    "stores": [
+      {
+        "counts": {
+          "firstCalls": 124,
+          "firstCallsWithRequest": 124,
+          "indexBytes": 26964,
+          "firstLoads": 7
+        },
+        "maxBytes": 9699328,
+        "panel": "code-inventory",
+        "retainedBytes": 24610,
+        "store": "code-inventory",
+        "visible": true
+      },
+      {
+        "counts": {
+          "routes": 8,
+          "indexBytes": 1500,
+          "routeNodes": 29,
+          "requestTrees": 256
+        },
+        "maxBytes": 55444736,
+        "panel": "code-paths",
+        "retainedBytes": 236056,
+        "store": "code-paths",
+        "visible": true
+      },
+      {
+        "counts": {
+          "probeHits": 0,
+          "probes": 0
+        },
+        "maxBytes": 172800,
+        "panel": "code-paths",
+        "retainedBytes": 0,
+        "store": "method-probes",
+        "visible": true
+      },
+      {
+        "counts": {
+          "indexBytes": 0,
+          "sideEffectsWaiting": 0,
+          "sideEffectRows": 0
+        },
+        "maxBytes": 5595264,
+        "panel": "side-effects",
+        "retainedBytes": 0,
+        "store": "side-effects",
+        "visible": true
+      }
+    ]
+  },
+  "droppedEvents": 0,
+  "enabled": true,
+  "evictedEvents": 0,
+  "maxBytes": 33554432,
+  "maxEvents": 50000,
+  "oldestRetainedAt": 1791187156864,
+  "previousRuns": [
+    {
+      "endedAt": 1791187155169,
+      "events": 1215,
+      "failedRequests": 0,
+      "omittedEntries": 0,
+      "ordinal": 1,
+      "requests": 398,
+      "runId": "b4ec0b9a",
+      "startedAt": 1791187122626,
+      "summaryBytes": 4942
+    }
+  ],
+  "queueCapacity": 10000,
+  "queueDepth": 0,
+  "recorded": {
+    "http": 411,
+    "sql": 439,
+    "exception": 42,
+    "lifecycle": 1,
+    "gc": 4,
+    "orm": 354
+  },
+  "reservedCapacity": 5000,
+  "reservedEvents": 42,
+  "retainedBytes": 555319,
+  "retainedEvents": 1251,
+  "runId": "b737c9b3"
+}

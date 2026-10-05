@@ -1,0 +1,86 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:3bae7b5cc0",
+    "kind": "route-time-breakdown",
+    "subject": "POST /owners/new",
+    "status": "OBSERVED",
+    "sentence": "`POST /owners/new`: warm median 2.1 ms over 366 requests; Response write 51 %, Handler, other work 34 %, Other filters 10 %. Median CPU 2.0 ms and 170 KB allocated per request.",
+    "eligible": 366,
+    "affected": 366,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "1f5c7c4fad8d105b",
+      "75ad1d5511a2fb5e",
+      "fe15a01a784e1895"
+    ],
+    "evidenceRows": 6,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "82",
+        "10 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "1.0",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "16",
+        "2 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "14",
+        "2 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "269",
+        "34 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "403",
+        "51 %",
+        "0.5"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -34,6 +34,8 @@ These override any instinct carried over from ordinary pull-request work, where 
    - `CHANGELOG.md` has its `[Unreleased]` heading cut to `## [VERSION] - YYYY-MM-DD`, landed on the source branch as
      its own commit before dispatch. The workflow never touches `CHANGELOG.md`, so a release run against an uncut
      changelog ships without notes and cannot be corrected under the tag.
+   - The release notes are short, following the release notes rules below. Condense `[Unreleased]` in the cut commit
+     when feature pull requests left long entries; do not add detail of your own.
    - Nothing else is expected to land on the source branch during the run. The workflow aborts if the branch advances
      between preparation and tagging, and that abort is correct behavior, not a flake.
 3. Dispatch the **Release** workflow from the source branch with the target version. Leave `auto_publish` enabled
@@ -63,6 +65,24 @@ These override any instinct carried over from ordinary pull-request work, where 
    reads the catalog from the default branch, so an older-major patch released from a maintenance branch leaves both
    on the newest major.
 
+## Release notes
+
+A release section is skimmed, not studied: a reader should learn the main changes in under a minute and follow links
+for detail.
+
+- Open with a one- or two-sentence summary naming the headline changes only.
+- Use each Keep a Changelog heading (Added, Changed, Deprecated, Removed, Fixed, Security) at most once. Aim for at most
+  about eight bullets per heading and about 40 lines for the whole section; a small release stays small.
+- Write each bullet as a bold lead phrase plus one short sentence of user-visible effect, at most two wrapped lines,
+  followed by at most one docs link and its pull request references.
+- Merge related small items into one bullet, such as new advisor rules across catalogs, advisor accuracy fixes, or
+  notable dependency upgrades.
+- Leave out implementation details, class, DTO, and field names, rule-by-rule descriptions, per-adapter caveats,
+  configuration properties a user need not set, CI, test, and refactoring work, and how a change was validated. Name
+  stacks only when a feature does not cover Spring MVC, Spring WebFlux, and Quarkus.
+- Never drop a breaking change, a removal, a security fix, or a default-behavior change; shorten it instead.
+- Never invent facts while condensing. When a missing entry is needed, write it to the same short shape.
+
 ## Changing release machinery
 
 7. Treat `release.yml` and `.github/scripts/check-release-integrity.sh` as one unit. The guard pins literal strings and
@@ -74,9 +94,10 @@ These override any instinct carried over from ordinary pull-request work, where 
    build, so change both in the same commit and run the guard locally before pushing. For the `v2` merge, the `1.x`
    maintenance branch, and the 2.0.0 release day, follow `docs/V2-RELEASE.md` and run
    `.github/scripts/rehearse_v2_merge.py --release-day --live` first.
-8. Keep publication scope exact when modules are added or renamed. Published artifacts are the parent POM, core,
-   engine, UI, Spring autoconfigure, both Spring starters, the Quarkus parent, runtime, and deployment, `bootui-client`,
-   `bootui-cli`, and `bootui-agent` (smoke-tested as a dormant `-javaagent` with an agent-only runtime classpath).
+8. Keep publication scope exact when modules are added or renamed. Exactly eight coordinates are published: core,
+   engine, UI, the one Spring starter, the Quarkus runtime and deployment, `bootui-cli` (with its client package and
+   the `all` classifier), and `bootui-agent` (smoke-tested as a dormant `-javaagent` with an agent-only runtime
+   classpath). Both parent POMs build the reactor but are excluded; published POMs are flattened and parentless.
    Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list, which the guard
    count-checks, and stays out of the publication reactor and the smoke-test step, with one exception:
    `bootui-agent-bridge`, shaded into the agent, is built in the publication reactor but excluded from Central and never
@@ -84,7 +105,7 @@ These override any instinct carried over from ordinary pull-request work, where 
 9. Keep the coupled release surfaces aligned: the availability poll list matches the publication reactor, the
    `jbang-catalog.json` alias tracks the CLI shade execution and its `:all` classifier, every published jar module
    attaches an empty placeholder `javadoc.jar` during `package` before signing at `verify` (the release profile's
-   `attach-empty-javadocs` execution, which the source-less `bootui-ui` and both Spring starters override by id with
+   `attach-empty-javadocs` execution, which the source-less `bootui-ui` overrides by id with
    `skipIfEmpty=false`), and `quarkus.platform.version` stays independent of the BootUI project version.
 10. Releases stay on the Java 17 baseline. Broader JDK coverage belongs to `jdk-compatibility.yml`.
 

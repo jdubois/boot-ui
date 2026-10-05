@@ -201,7 +201,7 @@ class FakeCentral:
     def publish(self, version):
         root = Path(self.directory.name) / GROUP
         for artifact, name in (
-            ("bootui-parent", f"bootui-parent-{version}.pom"),
+            ("bootui-core", f"bootui-core-{version}.jar"),
             ("bootui-spring-boot-starter", f"bootui-spring-boot-starter-{version}.jar"),
         ):
             path = root / artifact / version / name

@@ -138,6 +138,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/side-effects/sensor`, `get_side_effects`, and `bootui side-effects` are available on Spring MVC, Spring WebFlux, and
   Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects), PLAN-v2
   §5.16, M5-5a).
+- **Network sensor in the BootUI agent.** A new `network` agent sensor, on by default, records the hosts and ports the
+  application connects to (`Socket.connect`, `SocketChannel` connects, a non-blocking connect's finish with its time),
+  the datagrams it sends, and the host names the JVM resolves on an address-cache miss, with the client recognized from
+  the calling frames (JDBC drivers, messaging and mail clients, the JDK `HttpClient`, Lettuce, MongoDB, cloud SDKs,
+  ...), never a byte sent or received. The Side Effects panel's Network tab marks a connection **Not captured by any
+  panel** when neither a REST Client Trace call of the same request or time nor, for a JDBC, messaging, or mail client,
+  an enabled SQL Trace, broker panel, or Email shows its work; `get_side_effects --query "not captured"` lists these hidden outbound calls. The runtime model gains observed
+  `OPENS` edges from routes, jobs, and beans to hosts. Each hook passes a JDK 17, 21, and 26 retransformation check
+  and an I/O-free self-test; a failing optional hook is left out and a failing sensor no longer takes the other
+  side-effect sensors down. BootUI's own JDK `HttpClient`s run on a `bootui-http-N` executor so they are never recorded
+  ([The network sensor](docs/features/java-agent.md#the-network-sensor), PLAN-v2 §5.16, M5-5b).
 - **Processes sensor in the BootUI agent.** A new `processes` agent sensor, on by default, hooks the JDK
   `ProcessBuilder.start` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and
   `Runtime.exec(...)`. It records only the sanitized command name (a started process's executable file name; for a
@@ -148,6 +159,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
+- **Files and environment sensors in the BootUI agent.** The opt-in `files` and `environment` agent sensors record
+  the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
+  and the environment variables and system properties it reads, by name; never contents or values, with class loading,
+  the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor), M5-5d).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -303,8 +318,36 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
   downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
   readable; the full `docker` profile is unchanged.
+- **All-in-one Spring sample launcher.** `run-local-all.sh` runs the Spring MVC sample with the BootUI Java agent, the
+  full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
+  Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
+  compared with the previous one after a full restart.
 
 ### Changed
+
+- **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
+  2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
+  `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:
+  - **Spring WebFlux:** replace `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`.
+  - **Spring MVC:** nothing changes, as long as the application declares its own `spring-boot-starter-web` (or
+    `spring-boot-starter-webmvc`), as Spring MVC applications do. The starter no longer brings a web stack; an
+    application that had none of its own starts no web server, and BootUI stays off.
+  - **WebFlux applications that relied on BootUI's servlet starter for Tomcat:** these now start as REACTIVE on Netty,
+    which is what `spring-boot-starter-webflux` alone gives them.
+  - **A direct `bootui-spring-autoconfigure` dependency:** depend on `bootui-spring-boot-starter`. The auto-configuration
+    moved into it, keeping its `io.github.jdubois.bootui.autoconfigure` packages.
+  - **A direct `bootui-client` dependency:** depend on `bootui-cli`. The client keeps its
+    `io.github.jdubois.bootui.client` package and stays dependency-free: picocli is an optional dependency of
+    `bootui-cli`. The runnable CLI is still the shaded `bootui-cli-<version>-all.jar`, which is what JBang and the
+    installers use.
+  - **`bootui-parent` and `bootui-quarkus-parent`:** no longer published, and nothing to change. Every published POM
+    is now flattened: no parent, every dependency version resolved.
+
+  The starter's build now fails if a servlet or reactive web-server artifact reaches its dependencies. The release
+  stages its Central bundle as a local repository and runs the consumer smoke tests against it before the release tag
+  is created, and again before upload. The smoke tests cover Spring MVC on Tomcat, WebFlux on Netty with no Servlet API
+  on the classpath, the CLI and its client without picocli, Quarkus, and the agent ([Setup](docs/SETUP.md),
+  [Spring WebFlux](docs/setup/webflux.md), [Command line](docs/CLI.md#building-on-it)).
 
 - **Runtime Insights lists less noise by default.** The panel, `get_runtime_insights`, and `bootui insights list` now
   show a default list, and every observation carries `listed` and, when left out, `unlistedReason`. A route's time
@@ -587,6 +630,17 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
+  operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
+  ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
+- **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
+  default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
+- **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through
+  timed methods could overflow the stack a second time while the agent bridge was resetting the thread after the first
+  overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop
+  every later request on it from recording, or leave an abandoned fragment collecting its calls. The next timed method
+  to return on the thread now resets it again, and the dropped fragment is counted under `abandonedFragments`
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
 - **One framework warning per message, not per failed request.** Runtime Insights' `framework-warnings-by-route`
   grouped events by their exact message, so a framework that writes the request path and a per-request id into the
   message, as Quarkus's error handler does (`HTTP Request to /api/records failed, error id: …`), listed each failed
@@ -1243,831 +1297,283 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   ([Log message exposure](docs/features/diagnostics.md#log-message-exposure), follows
   [#1150](https://github.com/jdubois/boot-ui/pull/1150)).
 
-## [1.19.0] - 2026-09-25
+## [1.20.0] - 2026-10-05
 
-Maintenance release focused on accurate diagnostics. JVM Tuning and Live Memory now mask secrets passed as JVM
-arguments, SQL Trace records durations in microseconds, and Hibernate Advisor PARTIAL scans explain which evidence was
-missing. Hibernate, database schema, Spring performance, and architecture checks report fewer false unknowns and false
-positives, and vulnerability coverage recognizes the application's own module JARs.
+BootUI 1.20.0 makes request evidence easier to hand to agents and easier to trust in the UI. It adds richer request
+profiles, route rankings, code locations, broader database support, advisor audits, stronger vulnerability reporting,
+and stricter value exposure.
+
+### Added
+
+- **Agent-ready request profiles and Copy for AI.** MCP, CLI, REST, Live Activity, and Exceptions now export the same
+  masked profile, with Copy for AI and REST client/cache evidence included
+  ([#1192](https://github.com/jdubois/boot-ui/pull/1192), [#1148](https://github.com/jdubois/boot-ui/pull/1148)).
+- **Route rankings and finding locations.** HTTP Exchanges ranks retained routes by traffic, latency, and errors, while
+  advisor findings show copyable source locations ([#1152](https://github.com/jdubois/boot-ui/pull/1152),
+  [#1149](https://github.com/jdubois/boot-ui/pull/1149)).
+- **Failure-preserving retention.** HTTP Exchanges, SQL Trace, REST Client, and durable Live Activity persistence now
+  reserve capacity for failed and slow records by default ([#1153](https://github.com/jdubois/boot-ui/pull/1153),
+  [#1154](https://github.com/jdubois/boot-ui/pull/1154)).
+- **MySQL and MariaDB reach.** The MySQL panel now reads every Oracle MySQL version and best-effort MariaDB behind MySQL
+  Connector/J ([#1191](https://github.com/jdubois/boot-ui/pull/1191),
+  [#1194](https://github.com/jdubois/boot-ui/pull/1194)).
+- **New REST API, Architecture, and Database rules.** Runtime-breaking handlers, ignored injection/lifecycle
+  annotations, and schema or Hibernate mapping risks gained checks
+  ([#1168](https://github.com/jdubois/boot-ui/pull/1168), [#1165](https://github.com/jdubois/boot-ui/pull/1165),
+  [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 
 ### Changed
 
-- **HIB-QUERY-007 and SEC-CORS-006 declare the severity they actually emit.** HIB-QUERY-007 is declared `MEDIUM`
-  instead of `HIGH`, and SEC-CORS-006 is declared `LOW` instead of `MEDIUM`, matching its reactive twin
-  SEC-RXF-CORS-003. Only the rule catalogue and PASS/SKIPPED results change; emitted finding severities and advisor
-  scores are unchanged ([#1098](https://github.com/jdubois/boot-ui/pull/1098),
-  [#1100](https://github.com/jdubois/boot-ui/issues/1100)).
+- **Advisor catalog audits.** Spring, CRaC, Hibernate, GraalVM, Security, Quarkus, Memory, and Pentesting audits added
+  checks, retired noisy rules with IDs preserved, and recalibrated severities
+  ([#1164](https://github.com/jdubois/boot-ui/pull/1164), [#1170](https://github.com/jdubois/boot-ui/pull/1170),
+  [#1172](https://github.com/jdubois/boot-ui/pull/1172), [#1171](https://github.com/jdubois/boot-ui/pull/1171),
+  [#1173](https://github.com/jdubois/boot-ui/pull/1173), [#1167](https://github.com/jdubois/boot-ui/pull/1167),
+  [#1162](https://github.com/jdubois/boot-ui/pull/1162), [#1166](https://github.com/jdubois/boot-ui/pull/1166)).
+- **Vulnerabilities severity.** CVSS v4.0 now drives severity when present, and OpenSSF malicious-package advisories are
+  CRITICAL with removal guidance ([#1163](https://github.com/jdubois/boot-ui/pull/1163)).
+- **Shared request defaults.** WebFlux and Quarkus now honor the 1,000 ms slow threshold, `0` disables slow everywhere,
+  and Spring stops recording BootUI's own requests while self-exclusion is on
+  ([#1153](https://github.com/jdubois/boot-ui/pull/1153)).
+- **Consistent profile and route evidence.** All adapters use the shared profile assembler, one slowest-request KPI, and
+  consistent route labels ([#1148](https://github.com/jdubois/boot-ui/pull/1148),
+  [#1152](https://github.com/jdubois/boot-ui/pull/1152)).
+- **Release artifacts and dependencies.** Maven Central releases publish placeholder Javadoc jars, Quarkus moves to
+  3.33.3.3, and notable frontend/build dependencies were refreshed
+  ([#1190](https://github.com/jdubois/boot-ui/pull/1190), [#1135](https://github.com/jdubois/boot-ui/pull/1135)).
 
 ### Fixed
 
-- **JVM Tuning and Live Memory no longer expose secrets passed as JVM arguments.** JVM input arguments now pass
-  through `SecretMasker` and the `bootui.expose-values` / `bootui.mask-secrets` policy before serialization on Spring
-  MVC, Spring WebFlux, and Quarkus, so a secret-named or secret-looking value such as
-  `-Dspring.datasource.password=…` is shown as `******` with its key kept visible in the panels, REST API, MCP tools,
-  and CLI. `-XX:OnError`/`-XX:OnOutOfMemoryError` commands are always masked, and `METADATA_ONLY` also masks every
-  `-D` value, agent option string, and free-text JVM option value. ([#1113](https://github.com/jdubois/boot-ui/issues/1113))
-- **ARCH-CODE-002 no longer reports OpenAPI Generator's `ApiUtil` in packaged applications.** When an application runs
-  from a jar or an extracted image layout with no local source tree, classes read from the archive whose bytecode
-  exactly matches the OpenAPI Generator Spring servlet `ApiUtil` template are excluded from the coding-practice rules.
-  This covers the Java class compiled by javac and the Kotlin `object` compiled by kotlinc 1.3, 1.5, 1.6 through 1.9, or
-  2.0 through 2.4, with `jakarta` or `javax` servlet. The complete `setExampleResponse` instruction stream is compared,
-  and the scan message reports how many classes were excluded. Any deviation from the template, output from any other
-  compiler, and any class outside an archive is still evaluated
-  ([#1085](https://github.com/jdubois/boot-ui/issues/1085)).
+- **Quarkus runtime safety.** HTTP and exception capture can no longer fail requests after response end, and
+  OpenTelemetry logs with Dev Services start again ([#1203](https://github.com/jdubois/boot-ui/pull/1203),
+  [#1204](https://github.com/jdubois/boot-ui/pull/1204)).
+- **Advisor and vulnerability accuracy.** Fixes reduce false positives, ignore test-only SBOM libraries, and avoid
+  overclaiming damaged Quarkus dependency models ([#1178](https://github.com/jdubois/boot-ui/pull/1178),
+  [#1179](https://github.com/jdubois/boot-ui/pull/1179), [#1180](https://github.com/jdubois/boot-ui/pull/1180),
+  [#1181](https://github.com/jdubois/boot-ui/pull/1181), [#1163](https://github.com/jdubois/boot-ui/pull/1163),
+  [#1164](https://github.com/jdubois/boot-ui/pull/1164), [#1168](https://github.com/jdubois/boot-ui/pull/1168),
+  [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
+- **Persistence and diagnostics reliability.** Live Activity persistence works on MySQL and Oracle, sample-app call
+  sites appear, and Log Tail streams release resources correctly ([#1144](https://github.com/jdubois/boot-ui/pull/1144),
+  [#1143](https://github.com/jdubois/boot-ui/pull/1143), [#1120](https://github.com/jdubois/boot-ui/pull/1120),
+  [#1150](https://github.com/jdubois/boot-ui/pull/1150)).
 
-- **Hibernate Advisor PARTIAL scans are now explainable.** The report gains a `diagnostics` array
-  (`source`, `unit`, `level`, `message`) naming each rule evaluation that failed or lacked required evidence and each
-  discovery gap, with controlled phrases for the missing evidence and up to three sanitized examples such as
-  `OrderRepository#findRecent`. Findings from a partly evaluated rule carry a `coverageNote`, advisor limits by design
-  are reported at `INFO`, and the list is capped at 200 entries without dropping any affected rule. `scan.message` no
-  longer truncates rules with "+N more". The Hibernate and Database Advisor panels share an accessible
-  **Scan diagnostics** card, and the new members are returned unchanged by REST, MCP, and the CLI
+### Security
+
+- **Value-exposure policy.** AI chat details, traces, request profiles, Log Tail, and Dev Services logs now apply the
+  live exposure policy instead of exposing raw captured values ([#1210](https://github.com/jdubois/boot-ui/pull/1210),
+  [#1205](https://github.com/jdubois/boot-ui/pull/1205), [#1150](https://github.com/jdubois/boot-ui/pull/1150)).
+- **Authorization masking.** Log, exception, and container-log masking now hides credentials after Authorization-like
+  schemes while preserving harmless scheme names ([#1150](https://github.com/jdubois/boot-ui/pull/1150)).
+
+## [1.19.0] - 2026-09-25
+
+Maintenance release focused on safer, more accurate diagnostics: JVM values are masked consistently, SQL timings gain
+microsecond precision, advisor partial scans explain missing evidence, and several false positives are reduced.
+
+### Changed
+
+- **Advisor severity declarations match emitted results.** HIB-QUERY-007 and SEC-CORS-006 now declare the severities
+  they already emitted, so catalog metadata aligns with findings and scores stay unchanged
+  ([#1098](https://github.com/jdubois/boot-ui/pull/1098), [#1100](https://github.com/jdubois/boot-ui/issues/1100)).
+
+### Fixed
+
+- **JVM argument secrets are masked.** JVM Tuning and Live Memory now apply the exposure policy across Spring MVC,
+  WebFlux, Quarkus, REST, MCP, and CLI output, including OnError commands and METADATA_ONLY JVM options
+  ([#1113](https://github.com/jdubois/boot-ui/issues/1113)).
+- **Hibernate Advisor partial scans are explainable.** Reports now include bounded diagnostics and coverage notes, and
+  the Hibernate and Database panels show missing evidence without hiding affected rules
   ([#1086](https://github.com/jdubois/boot-ui/issues/1086)).
-
-- **SPRING-PERF-002 names the pool it reports and ignores Spring's own executors.** Each finding now names the
-  `ThreadPoolTaskExecutor` bean and the class declaring its factory method, or its bean type when that declaration
-  cannot be resolved. Pools declared by Spring's own configuration, such as the STOMP channel executors
-  `@EnableWebSocketMessageBroker` registers, are no longer reported as the application's pooling choice; application
-  overrides of them still are ([#1083](https://github.com/jdubois/boot-ui/issues/1083)).
-
-- **SQL Trace no longer truncates statement durations to whole milliseconds.** Executions are timed and recorded in
-  microseconds (`durationMicros` on each entry; `durationMillis` remains as a rounded compatibility field), and every
-  aggregate — buffer stats, statement rankings, p50/p95/p99, shares, database time by request route, and the request
-  profile's SQL time — is summed from them and reported in fractional milliseconds. Against a local database, where an
-  ordinary primary-key read finishes in a few hundred microseconds, nearly every execution previously recorded `0 ms`,
-  so rankings had no non-zero total to rank by and route attribution reported no database time. The
-  `bootui.sql-trace.slow-query-threshold-millis` property keeps its millisecond semantics
-  ([#1093](https://github.com/jdubois/boot-ui/issues/1093)).
-
-- **DB-HIB-004 compares `@Enumerated(EnumType.STRING)` lengths.** Explicit STRING enum mappings without
-  `@EnumeratedValue` are now compared with bounded character columns instead of being reported as an unknown JDBC
-  representation, which made the Database Advisor scan PARTIAL. Native MySQL/MariaDB `ENUM`/`SET` columns are not
-  compared, and other ambiguous mappings on non-character columns are now skipped quietly
-  ([#1090](https://github.com/jdubois/boot-ui/issues/1090)).
-
-- **DB-HIB-005 concludes on PostgreSQL.** The PostgreSQL catalog reader passed each index key's `indcollation` OID
-  (`0` for no collation, `100` for the database default) as an explicit collation, so every unique index looked like
-  it had non-plain comparison semantics. As a result, DB-HIB-005 reported every `@Column(unique = true)` and
-  `@Table(uniqueConstraints = ...)` as unknown and the scan was PARTIAL. Collation no longer blocks the check, because
-  it cannot weaken enforcement. A key part with a non-default operator class, which may redefine equality, is now
-  what stays unknown. A genuinely missing unique key is now reported rather than hidden as unknown. Before, the
-  primary key or any unrelated uncertain index on the same table was enough to hide it
-  ([#1087](https://github.com/jdubois/boot-ui/issues/1087)).
-
-- **DB-HIB-007 assesses `@JoinColumn`s that omit `referencedColumnName`.** An ordinary `@ManyToOne`/`@OneToOne`
-  single join column is now paired with the Jakarta Persistence default, the target entity's `@Id` column, when that
-  column is also the target table's observed single-column primary key. Previously these mappings were reported as
-  unknown, which left the rule with no applicable targets. Composite joins with an omitted referenced column, `@Id`
-  columns that cannot be established without guessing a naming strategy, and constraints that reference a
-  non-primary-key column remain unknown ([#1088](https://github.com/jdubois/boot-ui/issues/1088)).
-
-- **Vulnerabilities coverage recognizes the application's own module JARs and `spring-boot-jarmode-tools`.** On
-  Spring applications, an archive left unidentified by the SBOM, Maven descriptors, and file names is inspected once
-  more, reading only its manifest and entry names. An archive whose every class lives in the application's base
-  packages is reported as first-party (`archivesFirstParty`, at most 200 `firstPartyArchives` plus
-  `firstPartyArchivesTruncated`) and no longer keeps coverage `INCOMPLETE`. `spring-boot-jarmode-tools` is identified
-  from its manifest when file name, title, version, and contents agree, and is then scanned. Exploded layouts honor
-  `BOOT-INF/layers.idx` and `WEB-INF/layers.idx` ([#1084](https://github.com/jdubois/boot-ui/issues/1084)).
-
-- **DB-SCHEMA-003 no longer degrades a whole table to unknown for one hash or GIN index.** The unknown is raised only
-  for a non-comparable index that shares its access method and key columns with another index on the same table, and
-  names that index. PostgreSQL applications using Spring Modulith no longer get a PARTIAL scan from the
-  `event_publication` tables ([#1092](https://github.com/jdubois/boot-ui/issues/1092)).
-
-- **DB-SCHEMA-004 compares `uuid` and identically declared foreign key columns.** These pairs are now treated as fully
-  compared instead of reported as unknown ([#1089](https://github.com/jdubois/boot-ui/issues/1089)).
-
-- **DB-SCHEMA-005 names the index it could not assess.** Partial, expression, prefix, special-type, partitioned, and
-  invalid unique indexes are skipped as intentional exclusions, and each remaining unknown names its datasource,
-  table, and index instead of collapsing into one anonymous line
-  ([#1091](https://github.com/jdubois/boot-ui/issues/1091)).
+- **SQL Trace keeps sub-millisecond work visible.** Statement durations and aggregates now use microseconds, while the
+  slow-query threshold keeps its millisecond semantics ([#1093](https://github.com/jdubois/boot-ui/issues/1093)).
+- **Generated-code and Spring-executor checks are quieter.** OpenAPI `ApiUtil` and Spring-owned executors no longer
+  produce misleading findings ([#1085](https://github.com/jdubois/boot-ui/issues/1085),
+  [#1083](https://github.com/jdubois/boot-ui/issues/1083)).
+- **Hibernate and database advisor unknowns are reduced.** STRING enums, default joins, PostgreSQL unique indexes,
+  duplicate/special indexes, UUID foreign keys, and named index unknowns are assessed more accurately
+  ([#1090](https://github.com/jdubois/boot-ui/issues/1090), [#1087](https://github.com/jdubois/boot-ui/issues/1087),
+  [#1088](https://github.com/jdubois/boot-ui/issues/1088), [#1092](https://github.com/jdubois/boot-ui/issues/1092),
+  [#1089](https://github.com/jdubois/boot-ui/issues/1089), [#1091](https://github.com/jdubois/boot-ui/issues/1091)).
+- **Vulnerability coverage recognizes first-party Spring archives.** Application module JARs, exploded layer indexes,
+  and `spring-boot-jarmode-tools` no longer make coverage look incomplete when identifiable locally
+  ([#1084](https://github.com/jdubois/boot-ui/issues/1084)).
 
 ## [1.18.0] - 2026-09-21
 
-Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,
-with matching REST, MCP, and CLI access. Advisors now retain bounded, paginated violation details beyond their compact
-previews, and Pentesting honors persisted dismissals. More precise architecture, Hibernate, and database checks reduce
-false positives, while vulnerability coverage improves for extracted Spring Boot applications.
+Feature release adding PostgreSQL and MySQL operational diagnostics, retained advisor violation pages, and a Claude Code
+plugin, with more accurate advisor checks, Pentesting dismissals, and Spring Boot archive coverage.
 
 ### Added
 
-- **PostgreSQL operational diagnostics.** A dedicated panel reads vital signs, live sessions and blocking, normalized
-  statement rankings, index usage, table size and access, autovacuum, replication/WAL, and curated settings from existing
-  JDBC datasources on Spring MVC, WebFlux, and Quarkus. Collection is explicit, bounded, and read-only; opening the panel
-  or reading its cached REST/MCP/CLI report does not query the database. Partial reads retain available evidence and
-  explain missing permissions, extensions, and failed sections. In-memory comparisons show changes between reads.
-  This is a view of PostgreSQL's own statistics, not a scored advisor, an administration tool, or JVM-local SQL Trace
-  ([#1026](https://github.com/jdubois/boot-ui/pull/1026)).
-
-- **MySQL operational diagnostics.** A PostgreSQL sibling covering vital signs, sessions/blocking, normalized
-  statements, indexes, tables, InnoDB, basic replication, and curated settings through existing JDBC datasources on
-  Spring MVC, WebFlux, and Quarkus. The contract includes explicit read-only collection, cached REST/MCP/CLI reports,
-  configurable row caps, exact large counters, and honest partial evidence without grades or tuning recommendations.
-  Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6; MariaDB and R2DBC/reactive-client-only
-  access remain outside this scope ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
-
-- **Paginated advisor violation details.** Architecture, Hibernate, Spring/Quarkus application, REST API, Memory,
-  Security, and Database advisors expose **View violations**, per-rule REST pages, seven MCP read tools, and matching
-  CLI commands. Details come from the latest completed scan without rerunning checks. A required scan ID prevents
-  mixing snapshots; `bootui.advisors.max-retained-violations` defaults to 10,000 retained details per advisor, and pages
-  default to 100 with a maximum of 1,000. Existing counts, previews, scores, and dismissals are preserved. Retention
-  truncation is explicit and separate from evidence coverage; GraalVM/CRaC, Pentesting, and Vulnerabilities retain
-  their distinct result models ([#1037](https://github.com/jdubois/boot-ui/pull/1037)).
-
-- **Claude Code plugin.** `/plugin marketplace add jdubois/boot-ui` followed by `/plugin install bootui@bootui`
-  installs the BootUI skill and registers the local MCP server in one step, pointing at
-  `http://127.0.0.1:8080/bootui/api/mcp` unless `BOOTUI_MCP_URL` overrides it. The shipped skill is a byte-for-byte
-  copy of the canonical `skills/bootui/SKILL.md`, enforced by a build test, and the plugin is versioned by commit SHA
-  rather than by the BootUI release ([#1068](https://github.com/jdubois/boot-ui/pull/1068)).
-
-- **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead of
-  PostgreSQL for JPA, Flyway, and Liquibase, with diagnostic grants and statement instrumentation ready for the MySQL
-  panel. The dedicated `run-local-mysql.sh` launcher starts only MySQL and Redis, without Kafka, Ollama, or AI model
-  downloads; `run-local.sh` retains the Docker-free default
-  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+- **PostgreSQL and MySQL operational diagnostics.** Read-only panels and REST/MCP/CLI reports cover vital signs,
+  sessions, statements, indexes, tables, replication, settings, partial evidence, comparisons, and a MySQL sample
+  profile ([#1026](https://github.com/jdubois/boot-ui/pull/1026),
+  [#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+- **Paginated advisor violation details.** Advisors expose retained per-rule details in the UI, REST, MCP, and CLI;
+  retained details default to 10,000 per advisor, pages default to 100, and truncation is explicit
+  ([#1037](https://github.com/jdubois/boot-ui/pull/1037)).
+- **Claude Code plugin.** `/plugin install bootui@bootui` installs the BootUI skill and local MCP server registration,
+  with `BOOTUI_MCP_URL` available to override the default endpoint
+  ([#1068](https://github.com/jdubois/boot-ui/pull/1068)).
 
 ### Changed
 
-- **Architecture coding checks exclude positively identified generated classes.** All 18 `ARCH-CODE` rules share
-  conservative, bounded Java/Kotlin source-ownership detection for supported Maven and Gradle layouts. Handwritten
-  findings remain visible, and other architecture checks retain the full class graph. Ambiguous ownership or missing
-  source provenance does not silently exempt code; lookup failures remain explicit
-  ([#1042](https://github.com/jdubois/boot-ui/pull/1042)).
-
-- **PostgreSQL row limits are configurable and easier to interpret.** Seven `bootui.postgresql.max-*` properties
-  default to 100 sessions, 100 statements, 500 indexes, 200 tables, 200 autovacuum rows, 10 replicas, and 40 settings.
-  A statement-ranking cap alone produces one section-level informational note rather than page-wide warnings.
-  Other row caps show **Limited results** with retained counts; permission failures, timeouts, and other incomplete
-  reads remain prominent. REST/MCP/CLI `PARTIAL`, `truncated`, and limitation semantics are unchanged
-  ([#1044](https://github.com/jdubois/boot-ui/pull/1044), [#1046](https://github.com/jdubois/boot-ui/pull/1046)).
-
-- **MySQL row-cap-only results use neutral labels and section-local explanations rather than warning banners.**
-  Permission failures, timeouts, and other incomplete reads remain prominent; the API coverage contract is unchanged
-  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
-
-- **The engine reuses ArchUnit's embedded ASM reader instead of shipping a duplicate copy.** This removes roughly
-  125 KB of library code while retaining isolation from host-framework ASM versions and the existing ThreadFactory
-  analysis ([#1061](https://github.com/jdubois/boot-ui/pull/1061)).
+- **Generated classes and database row caps are handled more clearly.** ARCH-CODE rules skip only positively identified
+  generated sources, PostgreSQL limits have documented defaults, and PostgreSQL/MySQL cap-only results use local labels
+  ([#1042](https://github.com/jdubois/boot-ui/pull/1042), [#1044](https://github.com/jdubois/boot-ui/pull/1044),
+  [#1046](https://github.com/jdubois/boot-ui/pull/1046), [#1059](https://github.com/jdubois/boot-ui/pull/1059)).
 
 ### Fixed
 
-- **Pentesting honors persisted rule dismissals across the UI, REST, MCP, and CLI on all three adapters.** Dismissed
-  findings retain their evidence but no longer contribute to active totals, severity bars, or panel/Overview penalties.
-  The panel adds Dismiss and Restore controls, cached-report refresh, and visible persistence failures.
-  `findingsFound` and `scan.findingsFound` count active findings; the `findings` array still includes dismissed entries.
-  Dismissal decisions survive restart, while findings reappear after the first explicit post-restart scan. Shared advisor
-  actions also wait for the initial cached report so a late response cannot overwrite a completed scan
+- **Pentesting honors persisted dismissals.** Dismissed findings no longer affect active totals, severity bars, or
+  Overview penalties across UI, REST, MCP, and CLI, and dismissal state survives restart
   ([#1040](https://github.com/jdubois/boot-ui/pull/1040), [#1041](https://github.com/jdubois/boot-ui/pull/1041)).
-
-- **Architecture checks recognize supported repository transactions, date conversions, and thread factories.**
-  `ARCH-SPRING-009` exempts recognized Spring Data repositories and their inherited fragment interfaces without
-  exempting ordinary interfaces. `ARCH-CODE-008` accepts exact standard `java.time` bridge calls and method references
-  while retaining other legacy-date findings. `ARCH-CODE-017` accepts verified Java/Kotlin `ThreadFactory` lambda
-  bodies without hiding unrelated thread construction
+- **Advisor false positives are reduced.** Architecture, Hibernate, and Database checks better recognize repository
+  transactions, date conversions, thread factories, bulk-update version maintenance, and view metadata
   ([#1039](https://github.com/jdubois/boot-ui/pull/1039), [#1038](https://github.com/jdubois/boot-ui/pull/1038),
-  [#1043](https://github.com/jdubois/boot-ui/pull/1043)).
-
-- **Hibernate bulk-update checks recognize timestamp and parameter-based version maintenance.** `HIB-QUERY-008`
-  accepts `CURRENT_TIMESTAMP`, direct named/positional version parameters, and parameterized increments. Self-assignment,
-  constant resets, and arbitrary expressions remain outside the recognized forms; recognizing an assignment does not
-  guarantee its runtime value advances the version ([#1023](https://github.com/jdubois/boot-ui/pull/1023)).
-
-- **Database nullability checks no longer mistake view metadata for missing physical constraints.** `DB-HIB-003`
-  excludes JDBC-reported views and materialized views, including secondary views, while retaining genuine table
-  mismatches and the existing relation-name and column-name checks
-  ([#1035](https://github.com/jdubois/boot-ui/pull/1035)).
-
-- **Vulnerability archive coverage recognizes extracted Spring Boot applications.** Spring MVC/WebFlux discovery
-  supplements `java.class.path` with local JAR URLs from the application classloader hierarchy, including
-  `jarmode=tools extract --layers --launcher` layouts. Duplicate paths and classes directories are excluded; no remote
-  lookups or recursive directory search are added. Archive counts remain distinct from SBOM totals and OSV query
-  completion ([#1036](https://github.com/jdubois/boot-ui/pull/1036)).
-
-- **WebFlux filter rejections close their Reactor Netty HTTP/1.x connection after responding**, preventing a queued
-  keep-alive rejection from stranding the next request. HTTP/2 and successful request behavior are unchanged
-  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
-
-- **MySQL diagnostics qualify disabled or unreadable instrumentation rather than implying zero activity.**
-  Table/object and metadata-lock coverage is explicit, replication-coordinator errors are included, and status-counter
-  comparison intervals remain independent of later collector latency. Required-metadata deadline expiry reports an
-  explicit timeout rather than an incidental indexing error
-  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
-
-- **Datasource discovery keeps unresolved/lazy pool candidates visible without resolving dynamic AOP targets.**
-  It honors Quarkus's real `jdbc=false` switch, resolves named beans only once, and no longer mistakes a non-MySQL
-  database named `mysql` for the MySQL protocol ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
-
-- **Shared loading buttons expose only their action text to assistive technology.** Decorative icons no longer
-  pollute accessible names, preserving exact button identification and keyboard activation without changing appearance
-  ([#1062](https://github.com/jdubois/boot-ui/pull/1062)).
-
-- **Release publication exclusions include the WebSockets integration-test module.** The integrity guard pins this
-  exclusion, and the Release workflow runs the guard before importing signing credentials or preparing a version.
+  [#1043](https://github.com/jdubois/boot-ui/pull/1043), [#1023](https://github.com/jdubois/boot-ui/pull/1023),
+  [#1035](https://github.com/jdubois/boot-ui/pull/1035)).
+- **Runtime diagnostics report more honest state.** Vulnerability coverage for extracted Spring Boot archives, MySQL
+  instrumentation and datasource discovery, and WebFlux HTTP/1.x rejections avoid incomplete coverage or stranded
+  requests ([#1036](https://github.com/jdubois/boot-ui/pull/1036),
+  [#1059](https://github.com/jdubois/boot-ui/pull/1059)).
 
 ## [1.17.0] - 2026-09-10
 
-Feature release focused on evidence-led diagnostics and agent-guided application assessment. A new MCP prompt and
-expanded BootUI skill turn runtime evidence into a prioritized plan that awaits approval before changes. Advisor
-audits reduce misleading findings, while known-findings scores distinguish usable evidence from incomplete coverage.
-The release also improves Kotlin and Spring Modulith handling, wrapped datasource discovery, MCP client setup,
-configuration search, and recovery after backend rebuilds, and adds a Hibernate check for bulk updates that leave
-optimistic-locking versions unchanged.
+Feature release focused on evidence-led diagnostics and agent-guided assessment. It adds an application-assessment MCP
+prompt, safer MCP client setup, a Hibernate bulk-update check, and broad advisor accuracy and evidence-quality fixes.
 
 ### Added
 
-- **The Hibernate advisor detects bulk updates that leave optimistic-locking versions unchanged.** New MEDIUM rule
-  `HIB-QUERY-008` reviews observed Spring Data `@Modifying` JPQL/HQL updates targeting versioned entities, including
-  inherited and property-access `@Version` attributes. It recognizes Hibernate's `UPDATE VERSIONED` syntax and explicit
-  version maintenance in the `SET` clause; clearing the persistence context alone does not advance the database version.
-  Native SQL and unverified or rewritten queries are outside this check's scope. The shared catalog now has 71 active
-  rules; this repository-query check is inapplicable without the required Spring Data metadata, including on Quarkus
+- **Hibernate detects bulk updates that skip optimistic-locking versions.** The new check reviews observed Spring Data
+  JPQL/HQL updates on versioned entities and stays inapplicable when repository metadata is unavailable
   ([#1019](https://github.com/jdubois/boot-ui/pull/1019)).
-
-- **An application-assessment workflow that proposes a plan before changing the application.** The BootUI skill and
-  new `assess_application` MCP prompt guide a coding agent through capability discovery, bounded collection, and cached
-  runtime evidence on Spring MVC, WebFlux, and Quarkus. Fresh scans require an explicitly approved scope; the plan
-  identifies prioritized actions, supporting evidence, dependencies, risks, and acceptance criteria, then stops for
-  approval of selected actions. Changed application context requires reassessment, and approved fixes are compared
-  against the retained baseline. This is guidance for an external agent, whose permissions govern execution, not an
-  embedded LLM, server-side assessment job, new scan tool, or `bootui assess` command. The MCP Server panel now explains
-  the prompt and skill, provides a ready-to-use assessment request, and links to the assessment and approval guide
+- **Agents can request an application assessment before changing code.** The BootUI skill, MCP prompt, panel copy and
+  guide collect bounded evidence, propose prioritized actions, and stop for approval before fixes
   ([#981](https://github.com/jdubois/boot-ui/pull/981), [#990](https://github.com/jdubois/boot-ui/pull/990)).
-
-- **The MCP Server panel now shows a configuration snippet per client, and says out loud that a non-loopback agent
-  needs the bearer header.** The card carried a single VS Code `servers` block, which is not the shape Claude Code or
-  Cursor read: both use `mcpServers`, and Claude Code's normal entry point is `claude mcp add --transport http`. There
-  are now four tabs — VS Code, Claude Code, Cursor, and other clients — each with the shape that client actually
-  accepts. The header requirement was worse than undocumented: the panel decided "remote" from the browser's own
-  hostname, which is exactly wrong for an app in a container reached through a published port, where the page loads from
-  `localhost` while the agent's calls arrive from the Docker gateway and answer `401`. That silent guess is replaced by
-  an **Agent connects from another host or container** switch — still pre-set from the hostname, but now correctable
-  in one click — which adds `Authorization: Bearer …` to every snippet, next to a note explaining that the token
-  regenerates at each start and is logged once unless `bootui.authentication.token` is set. The panel never renders the
-  token itself. `docs/AI-AGENTS.md`, the MCP Server feature page, and the `bootui` agent skill carry the same
-  four shapes and the same header rule ([#928](https://github.com/jdubois/boot-ui/issues/928)).
+- **MCP setup now matches common clients.** The MCP Server panel and docs show VS Code, Claude Code, Cursor and generic
+  snippets, plus an explicit bearer-header switch for agents outside loopback
+  ([#928](https://github.com/jdubois/boot-ui/issues/928)).
 
 ### Changed
 
-- **Advisors now score usable partial evidence without treating unknown checks as passes.** All nine severity-scored
-  advisors expose `evidence.usable`, `coverageComplete`, and bounded sanitized `limitations`. Genuine findings,
-  including INFO/NONE, remain evidence after dismissal; missing-evidence notices and UNKNOWN-only vulnerability data
-  cannot establish usability. Dependency query/detail completion distinguishes genuine no-match results from missing
-  evidence. Penalties are unchanged, with no missing-check penalty or inferred coverage percentage.
-  Panels show neutral **Known-findings scores**, **Results available**, and accessible, initially collapsed **Scan notes**.
-  Unscored reasons and failures remain prominent. Confirmed empty Architecture/REST API scopes read **Not applicable**
-  and count as assessed without inventing a score. Overview retains its circular Overall score gauge and rounded mean
-  of eligible visible scores, with a contributing count, per-score deductions, and green/amber/red individual scores
-  at the historical 80/50 thresholds, with saturated light-theme colors and a stronger ring. Overview badges read
-  **Scan complete** and **Connected**. GitHub contributes its
-  10-points-per-alert score only when authenticated, connected, and all three security counts are available and valid.
-  Missing reports never supply fake zeros or hundreds. Pentesting now shows **Findings by severity** instead of the
-  separate OWASP Top 10 coverage panel. Cached GET-only refresh and explicit scan controls remain unchanged;
-  dismissal changes penalties, not application safety
+- **Advisor scores now reflect usable known findings instead of assumed coverage.** Partial evidence, scan notes,
+  not-applicable scopes, GitHub security counts and overview badges now avoid fake passes or fake zeros
   ([#954](https://github.com/jdubois/boot-ui/issues/954), [#989](https://github.com/jdubois/boot-ui/issues/989)).
-
-- **Database advisor findings now distinguish incomplete evidence from absence.** Qualified JDBC metadata,
-  index/constraint semantics, vendor generator bounds and database-side mapping comparisons are reviewed more
-  conservatively. Four unsupported rules are retired without reusing their IDs, and SQL text variation is a
-  descriptive review rather than an injection or concatenation claim. Discovery failures remain visible alongside
-  readable datasources. The dedicated catalog documents evidence, version gates and limitations
-  ([#977](https://github.com/jdubois/boot-ui/issues/977)).
-
-- **Quarkus application checks now distinguish evidence from assumptions.** Retired six unsupported
-  absence/correlation findings and corrected the remaining 13 rules, including create-only schema semantics,
-  legacy-property precedence, resolved CDI scopes/injection, runtime virtual-thread evidence, in-memory storage,
-  per-client timeout resolution and shutdown advice. Bounded scans preserve findings with explicit incomplete
-  coverage rather than guessing unknown values are clean. Retained rule IDs, dismissals and the shared `/spring`
-  report contract remain unchanged ([#959](https://github.com/jdubois/boot-ui/issues/959)).
-
-- **GraalVM readiness findings now distinguish classpath discovery from scanner configuration and cached results,
-  recognize quoted SpEL bean names and factory references, and give more accurate Spring AOT and native-image
-  remediation.** Nested dependency inspection stops before opening libraries beyond its 500-JAR budget, and generated
-  metadata/Docker scaffolds explain first-use hint conditions and remaining native-library requirements
-  ([#958](https://github.com/jdubois/boot-ui/issues/958)).
-
-- **The documentation now says how to keep console state across container image rebuilds.** An application rebuilt from
-  source many times a day lost its dismissed advisor findings on every rebuild, because `.bootui/` lives in the image's
-  working directory. The answer already existed — `bootui.overrides-file` locates the runtime overrides file *and* the
-  dismissed-findings file BootUI resolves next to it, on all three stacks — but it was only findable as a one-line note
-  in a properties table, so it read as if it covered the Configuration panel alone. The Docker section of the
-  non-standard-runtimes page gains **Persisting console state across image rebuilds**: which two files exist and what
-  each holds, a compose snippet mounting them on a volume, the reason the key must come from the environment rather than
-  from `application.properties` (it is read before configuration files are loaded), and how to commit a baseline of
-  accepted findings into the image, including the read-only caveat and the `<vulnerability id>::<group:artifact>` key
-  shape. The advisors and activation pages link to it, and the property tables in `docs/PROPERTIES.md` and
-  `docs/SPECIFICATION.md` now state the key's dual role. The behavior is unchanged, and is now pinned by a test on each
-  adapter ([#930](https://github.com/jdubois/boot-ui/discussions/930)).
-
-- **`get_config` now tells an agent how its search actually matches, and what an empty result means.** Making the
-  search relaxed-binding aware ([#939](https://github.com/jdubois/boot-ui/issues/939)) fixed the behavior but left the
-  agent-facing description asserting it was "relaxed-binding aware" without saying what that does, and an agent reads
-  the tool description, not the documentation. It now states the rule — case is ignored and `_` and `-` are treated as
-  `.`, so the dotted, kebab-case, and `UPPER_SNAKE_CASE` spellings of one property all find it — along with the two
-  things the rule does *not* cover: values are still matched literally, and each row still reports the exact name and
-  source its property source published. The same description now separates the paging counts, which was the other half
-  of the original confusion: `total` counts every property *before* filtering while `matched` counts the query hits, so
-  a large `total` beside `matched: 0` means the query found nothing rather than the property being unset. That envelope
-  is shared by every bounded read, so `docs/AI-AGENTS.md` gains a **Reading a bounded result** table defining `total`,
-  `matched`, `offset`, `limit`, `returned`, and `hasMore` once, `docs/CLI.md` gives `--json` consumers the same reading,
-  and the Configuration feature page notes that a page reports the full and matched counts separately. `bootui config
-  --help` shows the regenerated one-line summary, which no longer says "case-insensitive" now that the full rule is
-  stated where an agent reads it ([#940](https://github.com/jdubois/boot-ui/issues/940)).
+- **Advisor audits separate evidence gaps from clean results.** Database, Quarkus, GraalVM, Vulnerabilities, Pentesting
+  and Security checks were corrected, with unsupported or low-signal rules retired where noted
+  ([#977](https://github.com/jdubois/boot-ui/issues/977), [#959](https://github.com/jdubois/boot-ui/issues/959),
+  [#958](https://github.com/jdubois/boot-ui/issues/958), [#978](https://github.com/jdubois/boot-ui/issues/978),
+  [#961](https://github.com/jdubois/boot-ui/issues/961), [#965](https://github.com/jdubois/boot-ui/issues/965)).
+- **More advisor catalogs preserve uncertainty instead of guessing.** Hibernate, Spring, REST API, Memory and JVM Tuning
+  fixes keep contracts stable while retiring or skipping unsupported checks where the audit did
+  ([#964](https://github.com/jdubois/boot-ui/issues/964), [#969](https://github.com/jdubois/boot-ui/issues/969),
+  [#962](https://github.com/jdubois/boot-ui/issues/962), [#956](https://github.com/jdubois/boot-ui/issues/956),
+  [#955](https://github.com/jdubois/boot-ui/issues/955)).
+- **Configuration search and override suggestions understand relaxed property names.** Dotted, kebab-case and
+  environment spellings match consistently, while the picker suggests bindable dotted keys
+  ([#940](https://github.com/jdubois/boot-ui/issues/940), [#939](https://github.com/jdubois/boot-ui/issues/939),
+  [#945](https://github.com/jdubois/boot-ui/issues/945)).
+- **Console state persistence is documented for image rebuilds.** The Docker guidance explains how overrides and
+  dismissed findings can survive rebuilds through `bootui.overrides-file`
+  ([#930](https://github.com/jdubois/boot-ui/discussions/930)).
 
 ### Fixed
 
-- **CI accepts SHA-pinned actions generated by GitHub Agentic Workflows.** Allowlisted actions may use either their
-  major-version tag or a full commit SHA, and SHA pins accept explanatory text after the required inline release
-  version. Non-allowlisted actions still require a full SHA and release comment
-  ([#1018](https://github.com/jdubois/boot-ui/pull/1018)).
-
-- **Spring Advisor no longer treats native scheduling observability, BootUI-wrapped caches or confirmed OSIV absence
-  as missing evidence.** Scheduler inspection recognizes Boot's observation-only configurer and actual native task
-  registration/selection without excluding application tasks in a BootUI-like package. Cache classification safely
-  unwraps only BootUI's own decorator. Servlet OSIV distinguishes observed presence, confirmed native-registration
-  absence and unknown custom coverage. Specific bounded limitation reasons distinguish missing evidence from evaluation
-  failures; existing findings, severities and score penalties are unchanged
+- **Overview and browser coverage handle incomplete scans honestly.** Cached reports from panels and agents are found
+  without rescanning, stale `NOT_SCANNED` data is cleared, and partial reports keep findings visible
+  ([#986](https://github.com/jdubois/boot-ui/issues/986), [#983](https://github.com/jdubois/boot-ui/issues/983)).
+- **Panel navigation recovers after backend rebuilds.** Missing lazy assets now offer an explicit reload that preserves
+  route intent and warns before discarding unsaved input ([#985](https://github.com/jdubois/boot-ui/issues/985)).
+- **Spring evidence handling is less noisy.** Native scheduling observability, BootUI-wrapped caches, OSIV absence and
+  not-applicable vendor checks no longer count as missing applicable evidence
   ([#989](https://github.com/jdubois/boot-ui/issues/989)).
-
-- **Advisor incompleteness now distinguishes missing applicable evidence from not-applicable checks.** MySQL/Oracle
-  checks on PostgreSQL remain neutral skips without completion credit; unavailable catalogs on an applicable vendor
-  retain missing coverage. Security scan statuses follow rule-owned coverage across MVC, WebFlux, and Quarkus.
-  The MVC passive reader supports embedded Tomcat's native init-parameter map, and unrelated custom filters/CSRF
-  matching no longer invalidate independent observations. The real sample retains usable evidence while honestly
-  reporting its remaining custom-filter, authorization, management-operation, and credential-provenance limitations
-  ([#989](https://github.com/jdubois/boot-ui/issues/989)).
-
-- **Overview now discovers cached advisor reports from panel and agent scans.** Initial and return navigation read
-  supported, enabled advisors without starting scans or external queries. Incomplete findings remain visible without
-  invented scores, explicit `NOT_SCANNED` responses clear old scan display after a restart, and dismissal/restore
-  refreshes retain the existing in-flight scan protections ([#986](https://github.com/jdubois/boot-ui/issues/986)).
-
-- **Panel navigation now recovers from stale UI assets after a backend rebuild.** Missing lazy-loaded JavaScript or
-  stylesheets show an explicit **Reload BootUI** action instead of silently leaving navigation stuck or blank.
-  Recovery preserves the intended route and custom mount, warns before discarding unsaved input, and never refreshes
-  automatically or masks ordinary API/application errors ([#985](https://github.com/jdubois/boot-ui/issues/985)).
-
-- **Advisor browser coverage now distinguishes incomplete reports from numeric scores.** Live Spring and Quarkus
-  scenarios retain findings and dismissal/restore assertions without requiring a score for `PARTIAL` results.
-  Shared complete-report scenarios continue to verify exact dismissal and restore score changes across runtimes
-  and custom mounts. Metrics filter assertions also wait for the filtered response instead of iterating stale
-  row counts ([#983](https://github.com/jdubois/boot-ui/issues/983)).
-
-- **Architecture checks accept supported logger, scheduling and thread-factory patterns, and distinguish failed
-  scans from successful analysis.** Private final instance loggers and Quarkus `@LoggerName` injection are recognized;
-  scheduled signatures include repeatable/composed annotations and precise reactive types without flagging valid
-  suspend results; actual `ThreadFactory.newThread(Runnable)` implementations may allocate threads. Known discovery,
-  import and rule failures use `ERROR`/`PARTIAL` scan status while preserving valid findings
-  ([#957](https://github.com/jdubois/boot-ui/issues/957)).
-
-- **CRaC readiness now distinguishes evidence from verified lifecycle coverage.** Runtime checks remain useful when
-  application bytecode is unavailable, managed Spring clients and ambiguous Hikari/resource ownership are assessed
-  honestly, and precise file, scheduling, thread and time predicates reduce missed or misleading findings. Runtime
-  guidance no longer calls exit-on-refresh a safe cleanup dry run, and generated/sample checkpoint entrypoints preserve
-  incomplete data instead of deleting it automatically. The CRaC Compose sample disables automatic retries against
-  preserved failed checkpoints and documents explicit recovery. Stable rule IDs and Spring-only availability are unchanged
-  ([#960](https://github.com/jdubois/boot-ui/issues/960)).
-
-- **Vulnerabilities interprets OSV evidence for the installed Maven version rather than unrelated affected branches.**
-  Applicable severity and verified newer fix candidates share a neutral interpreter, CVSS v3 vectors receive strict
-  Base-only validation, and later OSV pagination failures retain earlier results with accurate completed-query counts.
-  Optional EPSS enrichment preserves partial data and selects the highest available per-CVE signal without changing
-  OSV status. The new [checks catalogue](docs/VULNERABILITIES-CHECKS.md) records sources and every audit disposition;
-  remaining inventory limitations and CVSS v4 support are documented as deferred. Vulnerabilities uses the shared
-  usable-evidence scoring policy described above, retaining findings and scan notes when coverage is incomplete
-  ([#978](https://github.com/jdubois/boot-ui/issues/978)).
-
-- **The Pentesting advisor now distinguishes observed evidence from unverified exposure.** The exhaustive 80-check
-  audit updates 61 checks, retains 18, and retires the ordinary error-path metadata check `PT-A05-045`, leaving 79 active
-  stable IDs. Corrections cover complete-field handling, document/API applicability, CORS/CSP/cookie/header semantics,
-  Spring runtime/default-user provenance and Boot 4.1 endpoint guidance, and Quarkus effective CORS/main-listener TLS
-  selection. Property-only and missing-framework signals no longer imply active authentication failures or writes;
-  mapped sensitive endpoints retain their impact ratings with explicit authorization limits. The catalog records every
-  disposition and its primary sources. Scans still make at most one local GET and one OPTIONS request, with no new
-  targets, credentials, payloads, or administrative operations ([#961](https://github.com/jdubois/boot-ui/issues/961)).
-
-- **Security advisor findings distinguish observed configuration from unknown application behavior across all three
-  stacks.** The MVC, WebFlux and Quarkus catalogs were audited against Boot 4.1.1 / Spring Security 7.1.1 and Quarkus
-  3.33.3.1. Collection no longer evaluates application policy merely to infer metadata; framework defaults, ordered
-  authorization scope, browser credentials, Actuator access, CORS and OAuth/OIDC settings receive more precise
-  interpretation. Sixteen duplicate or low-signal rules are retired, one INFO reactive chain-ordering rule is added,
-  and static verification-key advice is consistently informational. Unknown evidence remains incomplete rather than
-  creating false missing-control findings. Existing active rule IDs and dismissal keys are preserved
-  ([#965](https://github.com/jdubois/boot-ui/issues/965)).
-
-- **The Hibernate advisor now distinguishes evidence gaps from clean scans and reviews each persistence unit's own
-  settings.** Verified JPA repository metadata, effective factory observations and explicit incomplete-scan handling
-  replace cross-unit/default guesses. The complete 75-rule audit retires five unsupported or duplicated checks and
-  corrects batching, pagination, identifiers, mapping, caching and platform-specific advice without changing surviving
-  IDs or the JSON report shape. The catalog records remaining mapping/query evidence limits and version-specific primary
-  research ([#964](https://github.com/jdubois/boot-ui/issues/964)).
-
-- **The Spring application advisor now qualifies optimization advice and distinguishes configuration from runtime
-  evidence on MVC and WebFlux.** The Boot 4.1.1 audit corrects Actuator defaults, bean candidate selection, executor,
-  client, persistence and codec guidance; bounds non-eager collection; and reports missing evidence without raw URLs
-  or exception details. Useful INFO opportunities remain, four unsupported rule IDs are retired without losing
-  dismissals, and a new rule reviews explicitly unlimited codec aggregation. The complete catalogue and primary
-  sources are documented in Spring checks ([#969](https://github.com/jdubois/boot-ui/issues/969)).
-
-- **The REST API advisor now distinguishes declaration evidence from runtime behavior.** Corrected response wrappers,
-  path bindings, exception declarations, and versioning hints reduce false positives across MVC, WebFlux, and Quarkus.
-  Four unsupported heuristics now return `SKIPPED` without changing their rule or dismissal IDs; all 56 definitions
-  remain, with 52 potentially emitting rules and calibrated severities. Observed analysis failures report `PARTIAL`
-  while retaining reliable findings. The REST checks reference includes the complete audit dispositions and limits
-  ([#962](https://github.com/jdubois/boot-ui/issues/962)).
-
-- **Memory advisor findings now preserve measurement uncertainty.** Unknown buffer readings and discontinuous GC
-  counters no longer become healthy zeros, and missing observations break consecutive-growth evidence. Histogram
-  success is no longer treated as proof of a completed full GC, net growth is not called missing releases, and
-  snapshots or system swap do not imply a safe heap reduction or JVM residency. Supplier failures retain unrelated
-  findings through the existing partial-report contract. All 36 rule IDs and dismissal/public DTO contracts remain
-  unchanged; the complete source-backed audit and collector/version caveats are documented in `MEMORY-CHECKS.md`
-  ([#956](https://github.com/jdubois/boot-ui/issues/956)).
-
-- **JVM Tuning no longer approves known-invalid tiny heap requests or wraps large memory observations to zero.**
-  The shared calculator checks both fixed and three-decimal percentage requests against HotSpot's generic 2 MiB
-  maximum-heap lower bound, without increasing an exhausted budget. Default footprint arithmetic and MiB formatting
-  avoid overflow, detected budgets round down to whole MiB consistently with generated Kubernetes limits, and limit
-  and usage reuse one cgroup sample. Sizing notes distinguish requested settings from effective heap alignment and
-  JVM-visible percentage denominators; model validity is not a startup or production-sizing guarantee. The full
-  source-backed audit records retained policies and deferred metaspace/probe work
-  ([#955](https://github.com/jdubois/boot-ui/issues/955)).
-
-- **`ARCH-SPRING-019` no longer reports every Spring Modulith event listener.** `@ApplicationModuleListener` composes
-  `@Async`, `@Transactional(propagation = REQUIRES_NEW)` and `@TransactionalEventListener`, so a Modulith application
-  collected one MEDIUM finding per cross-module listener — telling it that the caller's transaction does not propagate,
-  which is precisely the shape's purpose: the listener runs after the publisher committed, so there is no transaction
-  left to join. The rule now reads the listener's transaction phase rather than the two annotations in isolation. A
-  post-commit listener — `AFTER_COMMIT`, `AFTER_ROLLBACK` or `AFTER_COMPLETION` — is silent, recognised on the method
-  itself, through any composed annotation (a project's own meta-annotation is exempt too), and by name for
-  `@ApplicationModuleListener` in both its current `org.springframework.modulith.events` package and the Spring
-  Modulith 1.x one, so the exemption holds even where that annotation type cannot be resolved. What is not silenced is
-  the case that is genuinely broken: `@TransactionalEventListener(phase = BEFORE_COMMIT)` with `@Async` still reports,
-  now naming the phase, because there the publishing transaction is still open while the listener runs on another
-  thread. Plain `@Async` plus `@Transactional` is reported exactly as before. BootUI gains no Spring Modulith
-  dependency: the annotations are matched by name.
-  ([#926](https://github.com/jdubois/boot-ui/issues/926))
-- **The Configuration panel's override name picker now suggests a property typed the way a container spells it.** The
-  free-text search above it was made relaxed-binding aware in
-  [#939](https://github.com/jdubois/boot-ui/issues/939), so `bootui.mcp.enabled` finds a value supplied as
-  `BOOTUI_MCP_ENABLED` — but the name box for a new override still matched its datalist literally against the metadata
-  catalog, which only ever publishes canonical dotted names. Typing `BOOTUI_MCP`, the spelling you read off the
-  environment and the spelling the search on the same panel had just started accepting, offered nothing. The picker now
-  canonicalizes both sides of the match exactly as the engine does — case ignored, `_` and `-` treated as `.` — so the
-  environment spelling narrows to the dotted property. That is more than a convenience: a name saved as
-  `BOOTUI_MCP_ENABLED` is written verbatim to `.bootui/application-bootui.properties`, where relaxed binding does not
-  rescue it, because a key from a file — unlike one from the environment — is adapted by dropping its separators and so
-  never reaches `bootui.mcp.enabled`. Suggesting the canonical name is what steers the override to a spelling that
-  binds, and accepting a suggestion writes that name. The mapping is length preserving, so the existing
-  prefix-before-contains ranking and suggestion cap are untouched and nothing that matched before stops matching. The
-  hint under the input still requires an exact name, since describing a property the file will not bind would assert
-  the opposite of what happens ([#945](https://github.com/jdubois/boot-ui/issues/945)).
-- **Three advisor rules no longer report a Kotlin application for shapes its compiler produced.** Each read bytecode as
-  if `javac` had written it, and each turned an ordinary Kotlin idiom into a finding nobody could act on.
-  `ARCH-SPRING-004` reported a self-invocation for every call that omits a default argument: Kotlin routes such a call
-  through a generated `$default` bridge, which then calls the real function, so one call in the source became a proxy
-  bypass in the report. The rule now judges both ends of a call — a bridge calling the function it exists to reach is
-  the compiler's own call and is skipped, while a call *into* a bridge is followed through to the function it
-  dispatches to, so a genuine self-invocation is still reported and named after the function you can change rather than
-  vanishing as soon as a proxied function gains a default parameter value. Only dispatch bridges are skipped, never
-  every synthetic method: a self-invocation written inside a lambda lives in a synthetic method too, and that
-  transaction really is lost. `HIB-ENTITY-005` reported every `lateinit var` as a public persistent field, though
-  Kotlin has no public fields — the compiler must leave the backing field public so the initialisation check can run,
-  while all access goes through the generated accessor pair, and the language offers no way to change it. It is now
-  exempt, recognised by that accessor pair, so a `@JvmField var` — which generates no accessors and is a real
-  encapsulation break — stays reported. `ARCH-CODE-010` asked every nested variant of an exception hierarchy to be
-  renamed, which is how a Kotlin `sealed class` hierarchy has to be written; a nested exception is now exempt when an
-  enclosing class carries the suffix, since `ClaimException.AlreadyAssigned` already says what it is at every call
-  site. That last fix is language-neutral and applies to nested Java exceptions as well.
-  ([#925](https://github.com/jdubois/boot-ui/issues/925))
-- **Configuration search now finds a property whatever spelling it was supplied in.** `get_config` with
-  `{"query": "bootui.mcp.enabled"}` answered `matched: 0` on a value that was set, effective, and visibly working,
-  because it came from the environment variable `BOOTUI_MCP_ENABLED`: relaxed binding applies when a name is looked up,
-  never when a property source is enumerated, so the inventory carries the raw `UPPER_SNAKE_CASE` key and a literal
-  substring search could not reach it. The engine now compares canonicalized names — case-insensitive, with `_` and `-`
-  treated as `.` — so the dotted, kebab-case, and environment-variable spellings of one property all find it, in the
-  Configuration panel's search box as well as over MCP and the CLI. Values, descriptions, and defaults keep matching
-  literally, so a relaxed query never widens the search into unrelated values, and each row still reports the exact name
-  and source its property source gave. Fixed once in `bootui-engine`, so Spring MVC, WebFlux, and Quarkus behave
-  identically ([#939](https://github.com/jdubois/boot-ui/issues/939)).
-
-- **The Security Advisor no longer infers Actuator protection from a filter chain's description.** `SEC-ACT-003`
-  reviews exact observed, selected operations beyond health/info and reports a supported unconditional grant in the
-  first matching chain, accounting for operation HTTP methods. A single `anyRequest` chain is not labeled unprotected
-  merely because its description omits `/actuator`, and a protected base path cannot stand in for every operation.
-  Inspection is passive: it does not execute application authorization managers, custom matchers, or endpoint
-  operations. Unsupported earlier chains or mappings, custom authorization, missing matching chains, and separate
-  management contexts remain unknown rather than being treated as anonymous access or confirmed protection
-  ([#922](https://github.com/jdubois/boot-ui/issues/922), [#965](https://github.com/jdubois/boot-ui/issues/965)).
-- **The Spring advisor and the pentest panel no longer report BootUI's own actuator default as a host
-  misconfiguration.** BootUI contributes `management.endpoint.health.show-details=always` as a lowest-priority default
-  so its Health panel works, and `SPRING-MGMT-003` (MEDIUM) and `PT-A05-050` (LOW) then reported that value against the
-  application — a "security finding" BootUI had created itself, in an application whose configuration never mentions
-  the property. `SPRING-MGMT-003` now reads the property the same host-aware way `SEC-ACT-004` already did, and the
-  pentest collector's host lookup no longer misses the filter: it skips Spring Boot's attached
-  `configurationProperties` property source, which sits in front of every other source and resolves through them, so
-  BootUI's contribution was returned under the wrong source name and slipped past the check the panel documented. All
-  four call sites now share one implementation, so the two cannot drift apart again. What BootUI injects, and its
-  lowest-priority precedence, are unchanged (#923).
-- **The Database Advisor and SQL Trace no longer go blind when the pool is wrapped in a `DataSource` proxy.** Spring
-  Boot 4.1's `spring.datasource.connection-fetch: lazy` replaces the `dataSource` bean with a
-  `LazyConnectionDataSourceProxy`, so the Hikari pool inside it is not a bean at all. BootUI skipped every Spring
-  wrapper on the assumption that it forwards to another `DataSource` bean that is discovered on its own — true for a
-  hand-declared wrapper, false here. The Database Advisor answered `DISABLED, "No DataSource beans were found to
-  inspect."` while the Connection Pools panel, which unwraps, showed the very same pool; SQL Trace silently recorded
-  nothing for the same reason. Wrappers are now *resolved* instead of ignored. The advisor skips one only when the pool
-  behind it is a bean of its own, introspects the wrapper itself when it is not, expands a routing datasource into its
-  resolved targets as `beanName[lookupKey]`, and reports a wrapper that will not describe its target as an unreadable
-  datasource rather than dropping it — so `"No DataSource beans were found"` now means exactly that. SQL Trace traces
-  the pool *inside* such a wrapper in place, leaving the bean and its concrete type untouched so by-type injection and
-  Spring Boot's own pool lookups keep resolving, and still skips a target that was already traced so nothing is
-  double-counted. ([#924](https://github.com/jdubois/boot-ui/issues/924))
+- **Architecture, CRaC, Kotlin and Modulith checks avoid framework-language false positives.** Valid logger, scheduling,
+  lifecycle, default-argument, `lateinit`, nested-exception and post-commit listener shapes are recognized
+  ([#957](https://github.com/jdubois/boot-ui/issues/957), [#960](https://github.com/jdubois/boot-ui/issues/960),
+  [#925](https://github.com/jdubois/boot-ui/issues/925), [#926](https://github.com/jdubois/boot-ui/issues/926)).
+- **Security and pentest findings stop blaming unverified or BootUI-owned defaults.** Actuator protection is not
+  inferred from filter descriptions, and BootUI's health-details default is ignored as host configuration
+  ([#922](https://github.com/jdubois/boot-ui/issues/922), [#965](https://github.com/jdubois/boot-ui/issues/965), #923).
+- **Wrapped datasources are discovered consistently.** Database Advisor and SQL Trace inspect pools behind Spring
+  datasource proxies and report unreadable wrappers instead of going blind
+  ([#924](https://github.com/jdubois/boot-ui/issues/924)).
 
 ## [1.16.0] - 2026-09-03
 
-Feature release that takes BootUI's diagnostics out of the browser and the agent: a `bootui` command-line interface with
-one command per diagnostic, the plain-REST endpoint it talks to on Spring MVC, Spring WebFlux, and Quarkus, a
-dependency-free client library, and a Command Line panel that reports what a running instance would answer. It also
-renames the DevTools panel to Spring DevTools, reports a refused MCP tool call in-band instead of as an internal error,
-and closes a path-matching gap that let an encoded URL spelling bypass BootUI's safety filters on both Spring stacks.
+Feature release that takes BootUI diagnostics to terminals and CI through a new CLI, dependency-free client, and plain
+REST command endpoint. It also fixes MCP error reporting, Spring DevTools status, and a Spring path-filter bypass.
 
 ### Added
 
-- **A `bootui` command-line interface, with one command per BootUI diagnostic.** `bootui beans --query dataSource`,
-  `bootui hibernate scan --json | jq …`, `bootui http exchanges --limit 20` — 78 commands covering every tool the MCP
-  server exposes, asked of a running application from a terminal or a CI job with no MCP client, no agent, and no
-  hand-written request. It is published to Maven Central as a runnable uber-jar and reachable through JBang
-  (`jbang bootui@jdubois/boot-ui`). Output is the application's exact JSON when piped or with `--json`, and a rendered
-  table or tree on a terminal. The exit code is what makes it scriptable: `0` answered, `1` usage or transport error,
-  and `2` when BootUI declined because a panel is disabled or read-only — a statement about the target's configuration
-  rather than a failed request, and one CI should not have to detect by parsing stderr. `--url`, `--api-path`,
-  `--token`, and `--timeout` work before or after the command and fall back to `BOOTUI_URL`, `BOOTUI_API_PATH`, and
-  `BOOTUI_TOKEN`. `bootui tools` reports what a *specific* instance advertises, honouring its stack and live panel
-  toggles, and `bootui mcp status|enable|disable` drives the MCP Server panel through its own policy. The command tree
-  is generated from the engine's tool catalog and checked in, with tests that fail when the two drift and that run
-  every command to confirm it reaches the tool it names — so the CLI cannot offer a diagnostic the MCP server lacks, or
-  lack one it has.
-- **`bootui-client`, a dependency-free client library for the command-line endpoint.** URL, token, invocation, and
-  outcome mapping in one small artifact that depends on nothing — not `bootui-core`, not Jackson, not an HTTP library
-  beyond the JDK's — and treats payloads as opaque JSON. That is deliberate: a client built at one BootUI version has
-  to keep working against an application running another. It is published so that build plugins and third-party
-  tooling can reuse the same transport the CLI does.
-- **A command-line endpoint that projects BootUI's diagnostic tools onto plain REST, on Spring MVC, Spring WebFlux, and
-  Quarkus.** `GET /bootui/api/cli` describes the tools a running instance advertises — name, description, backing panel,
-  argument schema, and live panel enable/read-only state — and `POST /bootui/api/cli/tools/{name}` invokes one and
-  returns its payload directly, with the outcome in the HTTP status (`400` invalid argument, `403` disabled or read-only
-  panel, `404` unknown tool, `409` action already running, `429` at capacity, `504` timeout) so a shell or CI job can
-  branch on it. Until now those diagnostics were reachable only from the browser console or an MCP client, which ruled
-  out scripting them. The endpoint is a transport, not a second capability: it builds the same `tools/call` request the
-  MCP transport does and runs it through the same dispatcher, so panel policy, argument validation, result caps,
-  concurrency, and timeouts are inherited rather than reimplemented. It is enabled by default (`bootui.cli.enabled`,
-  with `max-results`, `max-concurrent-calls`, and `execution-timeout` alongside it) and never requires
-  `bootui.mcp.enabled`; it keeps its own counters so command-line traffic is not reported as agent activity in the MCP
-  Server panel; and it stays behind the same loopback, `Host` allow-list, cross-site-write, and authentication-token
-  protections as every other BootUI route. A shared conformance suite pins all three stacks to one contract.
-- **A declarative MCP tool catalog in the engine.** The canonical list of every tool's name, argument schema, backing
-  panel, action flag, and supporting stacks moves out of a test file and into `McpToolCatalog` in `bootui-engine`, and
-  the Spring MVC, Spring WebFlux, and Quarkus registries are each pinned to it by test. This is what keeps the
-  command-line surface a true projection of the MCP one — a tool cannot be added, renamed, or given a different schema
-  on one stack without the build noticing.
-- **A Command Line panel, next to MCP Server under Developer tools.** The console now shows what the command-line
-  endpoint is doing: whether it answers, the JBang install line and an example command ready to copy, how many calls it
-  has served with their mean latency, how many were refused at capacity or timed out, and the full command catalog with
-  the commands this instance's panel settings would currently refuse marked as such. Each row is the command to type,
-  not the MCP tool name, which is possible because the command table moved into the engine and is now served by
-  `GET /bootui/api/cli` — so the panel, and any client, learns the current spelling from the running application rather
-  than from whatever version it was built against. The counters were already being kept by the endpoint's own dispatcher
-  and simply had nowhere to surface; the same response now reports them. The
-  panel is deliberately read-only — `bootui.cli.enabled` governs the endpoint from configuration, because a CI job's
-  access to a build should not be revocable from a browser tab — and it registers no API prefix of its own, so turning
-  the panel off hides the view without silently breaking a running script.
+- **A `bootui` CLI now exposes every diagnostic as a command.** The Maven Central/JBang tool renders tables or JSON,
+  supports URL/token/timeout options and exits distinctly for transport, usage, disabled and read-only outcomes.
+- **A command endpoint enabled by default projects MCP tools onto REST.** All three stacks expose live discovery and
+  invocation behind existing local, host, CSRF, token, panel-policy, concurrency and timeout guards; `bootui-client`
+  reuses it.
+- **The engine catalog now drives the CLI and Command Line panel.** Users can see install commands, live endpoint
+  metrics, refused commands and the current command catalog while the panel remains read-only.
 
 ### Changed
 
-- **The `DevTools` panel is now called `Spring DevTools`.** The old name sat inside the *Developer tools* navigation
-  group and read like a generic developer-tooling panel or the browser's own DevTools, while it has always been
-  specifically about Spring Boot DevTools — classpath presence, the LiveReload server, and the restart bridge (it is
-  reported *not applicable* on Quarkus). Only the display title changes: the `devtools` panel id, the `/devtools`
-  route, the `bootui.panels.devtools.*` properties, and the `/bootui/api/devtools` contract are untouched.
+- **The DevTools panel is now Spring DevTools.** Only the display name changes; the panel id, route, properties and API
+  contract stay the same, and Quarkus remains not applicable.
 
 ### Fixed
 
-- **An MCP tool that refuses a request now reports the status it asked for instead of `Internal error`.** MCP tools
-  delegate to the same handlers the REST API uses, and those handlers signal a client error by throwing their
-  framework's own exception — `ResponseStatusException` on Spring, `WebApplicationException` on Quarkus. The
-  framework-free `McpDispatcher` had no case for either, so they fell into its catch-all: asking for an unknown
-  exception group with `get_exception_detail` answered the agent with the detail-free JSON-RPC `-32603 Internal error`
-  and logged an internal-failure line, while the same lookup over REST correctly returned `404`. This affected every
-  tool wired to a handler that signals 4xx, on all three stacks, not just the one that surfaced it. Each adapter now
-  translates a 4xx failure into the new framework-neutral `McpToolClientException` at its tool-registration boundary,
-  and the dispatcher reports it in-band (`isError: true`) with the same reason REST returns, without reporting it as a
-  server fault. The outcome also carries the canonical status so non-MCP consumers of the same dispatch result can map
-  it. 5xx and every other failure keep their original throwable and remain a detail-free `-32603`. Covered by
-  dispatcher, per-adapter translator, and codec tests plus an MCP conformance case that pins Spring MVC, Spring WebFlux,
-  and Quarkus to identical behaviour.
-
-- **Spring DevTools status no longer fails when the `Restarter` is present but uninitialised.** The bridge caught
-  `IllegalStateException`, while Spring Boot wraps every `Restarter` failure in `DevToolsException`, so the recovery path
-  was dead code: an application with `spring-boot-devtools` on the classpath but no initialised restarter made the panel's
-  status read and its restart action throw instead of reporting `restartAvailable=false` with a reason. The bridge now
-  catches the wrapping exception and reports a generic reason when the wrapped failure carries no message, so the status
-  read always degrades instead of erroring, and never returns a blank reason.
+- **MCP and Spring DevTools failures degrade cleanly.** Refused MCP tool 4xx calls now report in-band client errors, and
+  uninitialised Restarter status reads report restart unavailability instead of failing.
 
 ### Security
 
-- **BootUI's safety filters can no longer be bypassed by a percent-encoded or matrix-parameter spelling of a BootUI URL
-  on Spring MVC or Spring WebFlux.** Each guard decided whether it applied by matching the *raw* request path
-  (`getRequestURI()` on the servlet stack, `pathWithinApplication().value()` on the reactive one) against `bootui.path` /
-  `bootui.api-path`, while the controller behind it was selected by `PathPattern` on the *decoded* path. The two
-  disagreed, so `/%62ootui/api/**` and `/bootui;x=1/api/**` still reached the BootUI handler with the loopback check,
-  Host allow-list and DNS-rebinding defence, cross-site-write protection, bearer-token requirement, per-panel
-  enabled/read-only policy, and security headers all silently disarmed — letting a malicious page in the developer's
-  browser drive state-changing endpoints, and letting a non-loopback caller in an `allow-non-localhost` deployment reach
-  the whole API with no token. All the Spring guards now resolve the path exactly the way the handler mapping does
-  (`UrlPathHelper` on the servlet stack, a new shared `BootUiReactivePaths` built on `PathSegment#valueToMatch()` on the
-  reactive one), which is what the `#856` shell guards already did; the reactive shell guard now shares that one
-  implementation instead of keeping its own copy. Quarkus was never affected — its filters already matched on Vert.x's
-  `normalizedPath()` — so this closes a cross-adapter parity gap. Regression tests cover both encoded and
-  matrix-parameter spellings against the localhost, authentication, and panel-access filters on both Spring stacks.
+- **Spring safety filters match encoded and matrix-parameter BootUI paths.** Spring MVC and WebFlux now resolve paths
+  like their handlers, so loopback, host, DNS-rebinding, CSRF, token, panel and security-header guards cannot be
+  bypassed.
 
 ## [1.15.0] - 2026-08-27
 
-Feature release that adds two panels — Fault Tolerance and WebSockets — on Spring MVC, Spring WebFlux, and Quarkus,
-explains where every meter comes from in the Metrics panel, ranks retained SQL and attributes it to request routes,
-catalogues the application's declared error contract in the REST API panel, discloses cache tiers and native hit
-ratios, and gives the console a theme picker with five opt-in skins. It also closes several masking, activation, and
-input-bounding gaps found by review, and rebuilds the documentation site around what readers actually came for.
+Feature release adding Fault Tolerance and WebSockets panels, richer Metrics, SQL Trace, REST API, Cache, and theme
+experiences, plus important masking, activation, Host-header, and input-bounding fixes.
 
 ### Added
 
-- **Fault Tolerance panel.** A new `fault-tolerance` panel and stable `GET /bootui/api/fault-tolerance` contract report
-  the fault tolerance policies an application declares and the bounded, metadata-only events those policies produce
-  (retries, rejections, timeouts, short circuits, and circuit breaker state transitions), which also join Live Activity
-  as a new `FAULT_TOLERANCE` entry type. Spring reads Resilience4j registries (circuit breaker, retry, rate limiter,
-  bulkhead, thread-pool bulkhead, time limiter) and Spring Retry `@Retryable` metadata through an additive
-  `RetryListener`; Quarkus scans SmallRye Fault Tolerance declarations from the Jandex index at build time, resolves the
-  MicroProfile enabled switches so a policy turned off in configuration is reported as such, and captures live named
-  circuit-breaker state transitions. Every fault tolerance import is class-presence or capability gated, so an
-  application without those libraries is unaffected. Capture is observation only: BootUI never opens, closes, resets or
-  otherwise mutates a policy, and never records arguments, return values, payloads or raw exception messages.
-  Configurable under `bootui.fault-tolerance.*`.
-- **WebSockets panel.** A new `websockets` panel and stable `/bootui/api/websockets/**` contract report the WebSocket
-  endpoints an application declares, the connections currently open against them, STOMP subscriptions, and a bounded log
-  of recent frame **metadata** — direction, frame type, destination, and payload size. Message payloads are never read,
-  decoded, or stored on any stack, and provider session ids are replaced by a short one-way hash. Frame capture is
-  installed only through Spring MVC's public `WebSocketMessageBrokerConfigurer` seams; Spring WebFlux and Quarkus report
-  endpoints and live connections with `frameCaptureSupported=false` and a concrete reason rather than pretending. The
-  panel refreshes over Server-Sent Events and exposes local-only Pause/Resume and Clear actions, both gated by
-  `bootui.panels.websockets.read-only`. Configurable under `bootui.websockets.*`.
-- **Meter provenance and explanation in the Metrics panel.** Meters are grouped by the integration family that
-  registered them (JVM, process, system, HTTP server and client, datasources, caches, messaging, resilience, gRPC,
-  framework internals, and application/unclassified), each group naming the contributing library, its registry
-  documentation coverage, the curated families that matched, and the tag keys its meters share. A meter's explanation
-  comes from its own registry description first (`NATIVE`), then from a curated, versioned BootUI catalogue of
-  well-known meter families (`CURATED`), and is reported as `UNKNOWN` rather than guessed when neither exists.
-  Classification uses meter names only — never tag values — so application meters are never absorbed into a curated
-  family. `GET /bootui/api/metrics` gained `group`, `provenance`, and `explanation` filters plus `groups` and
-  `catalogueVersion` in its response, identically on Spring MVC, Spring WebFlux, and Quarkus.
-- **Copy as cURL in HTTP Exchanges on Spring MVC, Spring WebFlux, and Quarkus.** Request details now offer a
-  client-side action that turns the retained exchange metadata into a runnable cURL *template*: query-parameter names
-  survive but every value becomes a placeholder, only a short allowlist of unmasked request headers is copied
-  (authorization, cookies, proxy credentials, API keys, forwarding headers, tracing headers and unknown headers are
-  omitted under every exposure mode), and every argument is POSIX-quoted so captured metacharacters cannot escape.
-  Copying sends no request and changes no state, the command is shown in full before you copy it, the action explains
-  the omitted body, values and headers, and exchanges without a usable URL or method announce a clear reason instead of
-  a misleading command.
-- **SQL Trace statement rankings and request-route attribution on Spring MVC, Spring WebFlux, and Quarkus.** A new safe
-  read, `GET /bootui/api/sql-trace/insights`, ranks the retained capture window by normalized statement (cumulative,
-  maximum, average duration, execution count, error count, p50/p95/p99, and share of retained database time) and
-  attributes those executions back to the inbound request routes that issued them. Normalization collapses literals and
-  bind markers to `?`, so equivalent parameterized executions aggregate without exposing a bound value, and routes group
-  by the framework's own route template where the adapter has one, otherwise by matching the captured path against the
-  application's own declared route mappings, falling back to a masked path — never a raw query string or path-parameter
-  value. Correlation is trace-id first, then serving thread only where thread affinity is
-  reliable, then time window, with every tier requiring a unique candidate; work that cannot be placed stays in explicit
-  unattributed and ambiguous buckets. Rankings are bounded diagnostic evidence over the stated retention window, not
-  lifetime metrics, and both tables deep-link into the filtered execution list.
-- **New Database advisor rule `DB-RUNTIME-001`.** Reports statement shapes whose raw text changes between executions
-  while the normalized form stays the same and a changing literal sits in a filtering position — the signature of values
-  concatenated into SQL instead of bound. Evidence is counts and literal-free statement shapes only, with explicit
-  confidence and limitations; it is deliberately not a SQL-injection finding.
-- **The REST API panel now shows the application's declared error contract.** Spring `@ControllerAdvice`,
-  `@RestControllerAdvice` and `@ExceptionHandler` methods (MVC and WebFlux) and Quarkus Jakarta REST `@Provider`
-  `ExceptionMapper` implementations and `@ServerExceptionMapper` methods are catalogued in one framework-neutral,
-  pageable view: handled exception type, declaring component and method, scope, resolved precedence, declared
-  status, response-body category (including RFC 9457 `ProblemDetail`), and declared media types. The catalogue is a
-  pure declaration read — no handler is instantiated or invoked, no request is synthesized, and no exception is
-  thrown — so anything the declarations cannot prove is reported as unresolved instead of guessed. Only the
-  application's own declarations are catalogued, so an application that declares none shows an empty catalogue
-  rather than the framework's built-in handlers.
-- **The Exceptions panel links a retained failure to the handler that declares its response** when the exception
-  type and the retained request evidence identify exactly one declared handler, and the link opens the REST API
-  catalogue already filtered to that declaration. Ambiguous and unmatched failures stay unlinked rather than
-  inventing a relationship.
-- **Three evidence-based REST API advisor rules**: `RAPI-ERR-009` (declared exceptions with no handler),
-  `RAPI-ERR-010` (inconsistent error contracts across handlers for the same exception), and `RAPI-ERR-011`
-  (exception handlers that read stack traces into their response). The catalogue now ships 56 rules.
-- **Cache tiering and native hit ratios in the Cache panel on Spring MVC, Spring WebFlux, and Quarkus.** Each cache row
-  now discloses the backing tiers the cache implementation describes through its own public API and the effectiveness
-  counters that implementation records natively. Ratios are derived only from counters an adapter declared comparable
-  (same family, scope and window) and only when their sum is positive, so nothing is fabricated: an implementation that
-  describes no storage reports no tier, and Quarkus reports statistics as unavailable because the public `CaffeineCache`
-  API exposes none. The report is bounded (100 managers, 500 caches, 20 tiers) and states truncation in its warnings.
-- **A theme picker and five opt-in skins.** The light/dark toggle is replaced by a `menuitemradio` picker with roving
-  arrow/Home/End focus, Esc to close, and focus returned to its trigger, because a cycling button stops working as soon
-  as there is more than one alternative to cycle to. Alongside light and dark it offers Graphite (near-black with a
-  blue-steel accent), Minimal (paper and ink, no gradients, glass, or shadows), Cyberpunk (square geometry, HUD corner
-  brackets, chromatic aberration on display titles, and a CRT overlay), France (the French state design system's Bleu
-  France and Rouge Marianne), and Windows 95 (silver chrome, VGA palette, two-tone bevels). Each skin is a separate
-  stylesheet keyed on `html[data-bootui-theme='<id>']`, is only ever an explicit choice — `prefers-color-scheme` still
-  resolves to light or dark only — and stops its atmospheric motion under `prefers-reduced-motion`. Accessibility is
-  held constant across all seven themes: every skin declares opaque surface, field, and hovered-nav-row colors, every
-  text token must clear WCAG 2.1 AA against all three, and both a per-skin unit gate over the CSS source and the
-  Playwright contrast suite over real rendered surfaces enforce it. A skin may change how BootUI looks; it may never
-  change how much of it you can read (#878).
+- **Fault Tolerance and WebSockets panels.** All three stacks report declared fault-tolerance policies, bounded metadata
+  events, WebSocket endpoints, live connections, STOMP subscriptions, and recent frame metadata without payload capture.
+- **Metrics and Cache explain their sources.** Metrics gain provenance, grouped explanations, and filters, while Cache
+  rows disclose implementation-described tiers and comparable native hit ratios without fabricating unavailable data.
+- **HTTP and SQL diagnostics are easier to act on.** HTTP Exchanges can copy a safe cURL template, SQL Trace ranks
+  retained statements by route, and DB-RUNTIME-001 flags changing SQL shapes as bounded evidence.
+- **REST API error contracts are catalogued.** Declared handlers and Quarkus mappers appear in a pageable view, retained
+  exceptions can link to exact handlers, and three evidence-based error-contract advisor rules were added.
+- **Theme picker adds five opt-in skins.** Graphite, Minimal, Cyberpunk, France, and Windows 95 join light and dark,
+  with explicit choice only, reduced-motion handling, and contrast gates (#878).
 
 ### Changed
 
-- **Panel presentation and frontend loading.** Shared panel surfaces were refined and panel-specific accessibility,
-  filtering, contrast, and responsive presentation issues resolved across the console. The confirmation dialog and the
-  Bootstrap collapse code are now deferred until the surfaces that need them are used, with deferred dialog state
-  synchronized on mount so no confirmation is missed while the chunk loads.
-- **The documentation site is organized around what readers came for.** Local, service-free search now indexes the whole
-  site including advisor rule ids such as `SEC-AUTH-001`; the single 27k-word features page is split into one page per
-  console menu group under `/features`, with the group index still at the unchanged `/features` route; the twelve
-  diagnostic check catalogues gained an id/title/category search with a severity filter that collapses the page body to
-  match; the setup guide is four steps again, with WebFlux, Quarkus, Docker, command-line, activation-policy, and
-  troubleshooting material moved to focused pages under `/setup`; and the sidebar is regrouped into Get started,
-  Features, Reference, Diagnostic checks, Framework support, and Contributing. Markdown remains the single source of
-  truth — the check catalogues are still parsed from it at build time — and the feature, route, and conformance tests
-  that read the docs structurally were updated with it (#875).
-- **The documentation site measures traffic only after you agree.** Google Analytics is injected only once a reader
-  accepts; declining or ignoring the banner issues no third-party request at all, the decision is stored in
-  `localStorage` rather than a cookie, and withdrawing consent mutes an already-loaded tag and deletes its cookies.
-  Client-side route changes send an explicit `page_view`, and a new privacy page states what is collected (#876).
+- **Panel presentation, frontend loading, and docs were refined.** Shared surfaces, deferred chunks, site search,
+  focused feature/setup pages, searchable catalogues, rebuilt navigation, and consent-only analytics were added (#875,
+  #876).
 
 ### Fixed
 
-- **The theme menu is opaque in every theme.** The light and dark shells drew the menu on the translucent
-  `--bootui-surface` token with no backdrop filter, so page content read straight through the options; they now use
-  `--bootui-surface-solid`, and a regression test asserts an opaque picker in all seven themes.
-- **A failed load of the REST API panel's declared error contract shows the reason instead of `[object Object]`.** The
-  panel passed the paged-list error descriptor straight into a string prop, so the failure rendered as the object's
-  default string form behind a Vue prop warning; it now uses the same error-formatting convention as every other panel.
-
-- **HTTP Probe input is explicitly bounded on Spring MVC, Spring WebFlux, and Quarkus.** The probe capped only the
-  response body, so an oversized request body, path or header collection was bound by the adapter and forwarded to the
-  local target. Method (32 bytes), path (2 KiB), request body (64 KiB), header count (50), header name (256 bytes),
-  header value (8 KiB) and total header size (32 KiB) are now checked in UTF-8 bytes — so multi-byte input cannot
-  smuggle several times the budget past a character count — before any request is sent. Over-limit input is rejected
-  with the canonical `400` and `{"error": ...}` body on every adapter, and the panel shows that message; a probe that
-  runs and fails is still reported as a probe outcome (#860).
-- **BootUI's own Quarkus traffic stays out of HTTP Exchanges, Live Activity, and Exceptions under a non-default
-  `quarkus.http.root-path` or a custom `bootui.path` mount.** The HTTP-exchange, exception, pre-mapping exception, and
-  log-based capture points now recognize BootUI's surface through one shared matcher that strips the configured root
-  path and honors the configured UI/API mounts, instead of matching the literal `/bootui` prefix each on its own. A
-  request logged by Quarkus' own error handler while serving the console is excluded too. Application paths that merely
-  resemble the console, such as `/bootui-other`, stay captured (#857).
-- **Core DTO collections are defensively copied, so a published report cannot change underneath a reader.** Every
-  collection component in `io.github.jdubois.bootui.core.dto` is now copied in its record's compact constructor,
-  including the loosely typed `Object` components that carry framework-supplied JSON payloads (OTLP span attribute
-  values, health details, configuration values and defaults, and nested Dev Services connection details). The copies
-  preserve iteration order and tolerate null elements, so serialized bytes stay identical across Jackson 3 and
-  Jackson 2 — in particular the two map components that previously used hash-ordered `Map.copyOf` and emitted unstable
-  JSON key order. A reflective contract test now fails the build for any future DTO that forgets the copy (#855).
+- **Theme, REST API, and Quarkus diagnostics render correctly.** Theme menus are opaque, REST API load failures show the
+  real reason, and custom Quarkus BootUI mounts stay out of HTTP Exchanges, Live Activity, and Exceptions (#857).
+- **HTTP Probe input is bounded before forwarding.** Method, path, body, header count, names, values, and total header
+  size are checked in UTF-8 bytes on all three adapters, with canonical 400 errors for over-limit input (#860).
+- **Core DTO collections are defensively copied.** Published reports stay stable for readers and keep deterministic
+  Jackson 3/Jackson 2 JSON ordering (#855).
 
 ### Security
 
-- **The packaged BootUI console is no longer reachable on Spring MVC and Spring WebFlux when BootUI is deactivated.**
-  Deactivation unwired every BootUI route, but the compiled Vue bundle ships under `META-INF/resources/bootui/`, which
-  is a default static-resource location on both stacks, so a production deployment still answered `GET
-  /bootui/index.html` and every asset under it with `200`. A shell guard, gated on the exact negation of the activation
-  condition and on the packaged shell being present, now answers `404` for the reserved `/bootui` namespace — matching
-  the Quarkus adapter. Both filters match the decoded application path, so encoded and matrix-parameter spellings such
-  as `/%62ootui/index.html` cannot resolve to the bundle, and they cover the prefixes derived from relocatable static
-  handling (`spring.mvc.servlet.path`, `spring.mvc.static-path-pattern`, `spring.webflux.static-path-pattern`) (#856).
-- **URI credentials are masked and REST-client transport errors are sanitized.** HTTP Exchanges and REST Client Trace
-  masked query-parameter values but copied the URI authority verbatim, so a `user:secret@host` credential reached the
-  browser, URL-encoded sensitive parameter names such as `%70assword` evaded the keyword check, fragments were never
-  masked, and a REST-client error message — which routinely quotes the whole request URL — was serialized raw. Inbound
-  and outbound URIs now share one engine decision for "is this name sensitive?" (matched as captured *and*
-  percent-decoded, leniently per escape so one malformed escape cannot hide the rest) and one masking helper: authority
-  user-info is removed unconditionally, even under `FULL`, while query, matrix (`;`), and fragment parameters follow the
-  live exposure policy, and `METADATA_ONLY` always masks. A value carrying a nested credential-bearing URL is masked on
-  the unconditional footing, with bounded nesting depth, in free-text error messages as well (#858).
-- **Malformed `Host` headers are rejected instead of being treated as absent.** `LocalhostGuard` now parses the
-  request authority strictly on Spring MVC, Spring WebFlux, and Quarkus: an empty host (`:`), trailing junk after an
-  IPv6 literal (`[::1]junk`), an unterminated bracket, a non-numeric port, a scheme or path smuggled into the header
-  (`http://localhost:8080`, `localhost:8080/@evil.example.com`), or any character that cannot appear in a hostname
-  fails the DNS-rebinding allow-list with the canonical `Host` 403 rather than falling through the intentional
-  missing-`Host` allowance. Only a genuinely absent or blank `Host` keeps that allowance, and an unparsable `Origin`
-  still fails closed on state-changing requests (#859).
-- **The serialized opaque `Origin` is treated as "no origin" rather than as a host named `null`.** `null` parses as a
-  perfectly valid registered name, so an opaque origin looked like a concrete host and could have compared equal on a
-  deployment that allow-listed that name. It is now matched case-insensitively before parsing, and an opaque `Origin`
-  on a state-changing request is rejected as cross-site.
-- **The HTTP Probe byte budget fails closed on malformed input.** An unpaired surrogate is now charged the worst-case
-  UTF-8 replacement size (3 bytes) instead of the single byte `String.getBytes(UTF_8)` happens to emit today, so
-  malformed input can never encode to more bytes than it was charged for under any replacement policy.
+- **Deactivated Spring MVC and WebFlux apps no longer serve the packaged console.** The reserved BootUI namespace now
+  returns 404 for static assets just like Quarkus, including encoded and relocatable-path variants (#856).
+- **URI credentials and REST-client transport errors are sanitized.** User-info is always removed, sensitive query,
+  matrix, and fragment values follow policy, and nested credential URLs are masked in free-text errors (#858).
+- **Malformed Host headers and opaque Origins fail closed.** Strict authority parsing rejects smuggled or invalid Host
+  values, and serialized `Origin: null` is treated as no concrete host on state-changing requests (#859).
+- **Malformed HTTP Probe input cannot exceed its byte budget.** Unpaired surrogates are charged at the worst-case UTF-8
+  replacement size so invalid input cannot bypass the configured limits.
 
 ## [1.14.1] - 2026-08-20
 
@@ -2102,92 +1608,43 @@ and strengthens release verification against the artifacts consumers actually do
 
 ## [1.14.0] - 2026-08-18
 
-Feature release headlined by three new database diagnostics — the **Database advisor**, **Transactions**, and
-**Hibernate Statistics** panels — plus Live Activity's animated **Live flow** service map and complete MCP access to
-BootUI's safely exposable features.
+Feature release headlined by Database advisor, Transactions, Hibernate Statistics, Live Activity's Live flow map, and
+complete MCP access to BootUI's safely exposable features.
 
 ### Added
 
-- **Database advisor on Spring MVC, Spring WebFlux, and Quarkus.** A bounded, metadata-only scan inspects every
-  application datasource for schema, key, index, type, and portability risks, with PostgreSQL, MySQL/MariaDB, Oracle
-  Database 19c+, and Hibernate cross-reference checks. Its 27 bounded rules include Oracle invalid-constraint,
-  unusable-index, and sequence-exhaustion diagnostics alongside cross-database checks for duplicate foreign keys,
-  composite-key nullability, generated-key width, nullable composite uniqueness, sequence allocation mismatches, and
-  PostgreSQL replica identity. Per-datasource diagnostics make truncation, timeouts, unsupported metadata, and partial
-  reads explicit instead of reporting a clean result (#760, #795, #807).
-- **Transactions panel for Spring MVC and WebFlux.** BootUI now records bounded `@Transactional` boundaries with
-  propagation, isolation, commit/rollback outcome, duration, parent/child nesting, and correlated SQL/connection counts,
-  together with pause, resume, clear, filtering, and SSE updates. R2DBC-only WebFlux applications and Quarkus report the
-  capability honestly unavailable because their transaction APIs expose no equivalent listener hook (#759, #781).
-- **Hibernate Statistics panel on all three runtimes.** The new Database-group view exposes live session, transaction,
-  query, entity, collection, and second-level/query-cache statistics, can explicitly enable collection at runtime, and
-  never resets existing counters. Single-persistence-unit scope and cache availability are reported clearly (#761).
-- **Animated Live flow service map inside Live Activity.** The map assembles existing bounded HTTP, JDBC, REST client,
-  cache, Kafka, and RabbitMQ evidence into configured and observed dependencies, retained failures, deep links, and
-  causally sequenced activity without adding probes, network calls, or new instrumentation. It is responsive,
-  keyboard-accessible, reduced-motion aware, and available on Spring MVC, WebFlux, and Quarkus (#777, #784).
-- **Complete capability-aware MCP feature access.** The local MCP server now exposes every safely passive panel read,
-  cached advisor reports, bounded diagnostic controls, strict tool schemas, execution/response budgets, runtime
-  counters, and full Spring MVC, WebFlux, and Quarkus conformance. Destructive, unbounded, database-mutating,
-  arbitrary-probe, and agent-execution operations remain deliberately excluded (#776, #791).
-- **CycloneDX 1.6 aggregate SBOM generation in CI.** Every build publishes a downloadable `bootui-sbom` workflow
-  artifact without attaching extra artifacts to Maven Central releases (#773).
+- **Database diagnostics expanded.** Database advisor, Transactions, and Hibernate Statistics add bounded database,
+  transaction, and ORM visibility with honest unavailable states (#760, #761, #781, #795, #807).
+- **Animated Live flow map.** Live Activity turns existing HTTP, JDBC, REST client, cache, Kafka, and RabbitMQ evidence
+  into an accessible dependency map without new probes (#777, #784).
+- **Complete capability-aware MCP reads.** MCP exposes every safely passive panel read, cached advisor report, bounded
+  diagnostic control, strict schema, and runtime counter (#776, #791).
 
 ### Changed
 
-- **Advisor accuracy was audited across Architecture, Spring, Quarkus, Hibernate, Security, REST API, JVM Tuning,
-  Memory, Vulnerabilities, GraalVM, CRaC, Pentesting, and Database.** Rules now model current framework behavior more
-  precisely, use stronger evidence, skip honestly when evidence is unavailable, and keep their check documentation
-  synchronized. The Hibernate advisor now includes 75 rules, adding checks for `@Fetch(SUBSELECT)`, generated SQL
-  comments, ineffective JDBC batch size, and Oracle fetch sizing, while database metadata handling more accurately
-  covers identifiers, composite foreign keys, Hibernate cross-references, PostgreSQL indexes and sequences, and
-  MySQL/MariaDB charset and auto-increment behavior (#743–#755, #775, #782, #795, #806, #807).
-- **Advisor scores now penalize every concrete finding, not only each violated rule once.** Panels and Overview therefore
-  apply the documented severity weights consistently when one rule reports multiple affected items (#803).
-- **SSE health and auto-refresh are one control.** Live Activity, Exceptions, SQL Trace, Security Logs, REST Client, and
-  Transactions share quiet healthy/paused states plus accessible reconnecting, unavailable, and retry feedback (#757,
-  #783).
-- **Panel documentation is now contract-checked.** Conformance tests keep backend manifests, feature headings, access
-  properties, read endpoints, MCP tool lists, screenshot files, and screenshot embeds aligned with authoritative code
-  catalogs (#797–#804).
-- **The complete console now follows one Calm Control Room visual system.** All 54 panel routes, the application shell,
-  and the new Hibernate Statistics surface have clearer hierarchy, responsive headers and tables, consistent loading and
-  empty states, accessible focus and heading treatment, reduced-motion support, and deliberate machine-output styling
-  without changing routes, APIs, availability, or safety boundaries (#812, #813, #816).
-- **Build and release integrity is stricter.** CI adds focused coverage gates and deterministic OSV checks, runs Spring
-  browser suites in parallel with the Java reactor, and removes warning-shaped build noise, while the release workflow
-  validates version transitions and immutable release commits/tags, publishes only the intended Maven Central modules,
-  and preserves resumable post-publication verification (#723, #731, #739, #741, #778, #811, #814).
+- **Advisor accuracy was audited broadly.** Architecture, Spring, Quarkus, Hibernate, Security, REST API, JVM Tuning,
+  Memory, Vulnerabilities, GraalVM, CRaC, Pentesting, and Database use stronger evidence (#743–#755, #775, #782, #795,
+  #806, #807).
+- **Advisor scores count every finding.** Panels and Overview apply severity weights per concrete finding, not only once
+  per violated rule (#803).
+- **SSE health and auto-refresh share one model.** Live Activity, Exceptions, SQL Trace, Security Logs, REST Client, and
+  Transactions show calm paused, retrying, and unavailable states (#757, #783).
+- **The console uses one Calm Control Room system.** All panel routes, the shell, and Hibernate Statistics received
+  consistent hierarchy, responsive states, focus treatment, and reduced-motion support (#812, #813, #816).
 
 ### Fixed
 
-- **Quarkus Security advisor rules now match Quarkus 3.33 LTS effective behavior.** The 49-rule catalogue
-  recognizes implicit Basic auth and `client-auth=request`, the mTLS-driven insecure-request default, only the TLS
-  registry bucket selected by the HTTP server, disabled permission policies, Quarkus authorization annotations,
-  default JAX-RS roles, unset CORS method/header wildcards, and custom-root non-application endpoint collapse. Literal
-  secret checks now use raw config/source metadata so environment/system properties, expressions, dev/test values, and
-  non-secret `token.*` settings do not become CRITICAL findings. Added checks for plain-text embedded passwords and
-  disabled TLS hostname verification; retired `QS-AUTH-006` because MicroProfile JWT already pins the absent algorithm
-  property to RS256 (#755).
-- **SQL Trace no longer breaks applications that inject vendor-specific datasource interfaces.** JVM proxies preserve
-  interfaces such as Oracle UCP's `PoolDataSource`, while native images retain the fixed pre-registered proxy shape
-  (#779).
-- **WebFlux request handling no longer performs blocking BootUI work on event-loop threads.** Applicable handlers are
-  offloaded without changing the shared API contract (#726).
-- **Bounded runtime data stays bounded under edge cases.** Metrics responses, SQL batch previews, captured email bodies,
-  telemetry snapshots, and scanner concurrency now enforce their configured limits without leaking stale or partial
-  state (#720, #727, #732, #771).
-- **Vulnerability severity summaries reject malformed or contradictory data** instead of producing misleading Overview
-  scores (#742, #780).
-- **Shared UI state is more resilient.** Data panels avoid stale-request races, platform-aware navigation recovers after
-  manifest changes, keyboard behavior and chart contrast are improved, and responsive/reduced-motion layouts no longer
-  hide or over-animate controls (#721, #722, #730, #735, #737).
-- **Expanded navigation stays inside the sidebar.** Sections remain in one vertically scrollable column instead of
-  wrapping into off-screen columns when the available height is exhausted (#815).
-- **Non-Linux hosts no longer log an expected cgroup discovery stack trace.** Missing procfs cgroup files are treated as
-  unavailable optional container-memory data (#817).
-- **Dev Services classification is consistent across Spring and Quarkus**, including datasource and messaging service
-  type inference (#772).
+- **Quarkus Security advisor matches Quarkus 3.33 LTS.** Effective auth, TLS, CORS, roles, management, literal-secret,
+  password, and hostname-verification behavior is modeled more accurately; the obsolete unsigned-JWT rule was retired
+  (#755).
+- **WebFlux avoids event-loop blocking.** BootUI work in applicable WebFlux handlers is offloaded without changing the
+  shared API contract (#726).
+- **Bounded data stays bounded.** Metrics, SQL previews, email bodies, telemetry snapshots, scanner concurrency, and
+  vulnerability severity parsing no longer leak stale, partial, or misleading state (#720, #727, #732, #742, #771,
+  #780).
+- **Shared UI resilience improved.** Data panels, navigation, keyboard behavior, responsive layouts, sidebar scrolling,
+  cgroup discovery, and Dev Services classification handle edge cases correctly (#721, #722, #730, #735, #737, #772,
+  #815, #817).
 
 ## [1.13.1] - 2026-08-07
 
@@ -2206,86 +1663,44 @@ warnings during application augmentation.
 
 ## [1.13.0] - 2026-08-06
 
-Feature release headlined by a **dependency graph mode for the Beans panel** on both Spring and Quarkus, alongside the
-Spring WebFlux security/REST Client/messaging work, configurable BootUI mounts, and another accessibility hardening pass.
+Feature release headlined by Beans dependency graph mode, reactive security and REST Client coverage, messaging
+diagnostics, configurable mounts, and another accessibility hardening pass.
 
 ### Added
 
-- **Beans panel dependency graph.** The panel now opens on an interactive SVG neighbourhood graph — bounded, cycle-safe
-  breadth-first traversal (depth 3, 60 nodes) with role-colour-coded nodes, keyboard navigation, zoom controls, and
-  classification filters — defaulting to the application bean with the most direct dependencies/dependents. A header
-  toggle switches to the existing server-paged list, which now links back into the graph. Ships on both Spring and
-  Quarkus, with Quarkus reporting reduced-fidelity dependency data (#656).
-- **RabbitMQ and JMS messaging diagnostics.** RabbitMQ publish/consume metadata now appears in a dedicated panel and Live
-  Activity on Spring MVC, Spring WebFlux, and Quarkus, without retaining message payloads or arbitrary headers. A matching
-  JMS panel and Live Activity source cover Spring-managed producers and listeners on Spring MVC and WebFlux; JMS remains
-  unavailable on Quarkus and in GraalVM native images (#655, #660).
-- **Spring WebFlux security coverage.** A dedicated 25-rule reactive Security advisor now evaluates
-  `SecurityWebFilterChain` configuration across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT,
-  configuration, and session policy. The raw Spring Security panel also maps reactive chains, filters, endpoint
-  authorization, and best-effort request explanations; both panels exclude BootUI's own permit-all chain (#654, #657).
-- **REST Client diagnostics on Spring WebFlux and Quarkus.** The standalone panel now streams calls captured from
-  instrumented WebFlux `WebClient` builders, while Quarkus captures metadata-only calls from `@RegisterRestClient`
-  REST Client Reactive proxies. Both feed the shared panel and Live Activity, fail open if capture itself fails, and
-  preserve the existing clear/recording controls; Quarkus intentionally never captures payloads or arbitrary headers
-  (#658, #663).
+- **Beans dependency graph.** The panel adds a bounded, keyboard-accessible graph with list fallback and Quarkus
+  fidelity notes (#656).
+- **RabbitMQ and JMS diagnostics.** RabbitMQ covers all runtimes; JMS covers Spring MVC/WebFlux without payload or
+  arbitrary-header retention (#655, #660).
+- **Reactive security and REST Client coverage.** WebFlux security plus WebFlux/Quarkus REST Client metadata feed shared
+  panels and Live Activity (#654, #657, #658, #663).
 
 ### Changed
 
-- **Custom UI and API mounts now work end to end on Spring MVC, Spring WebFlux, and Quarkus.** `bootui.path` moves the
-  shell, assets, APIs, streams, downloads, authentication cookies, and access guards together, while `bootui.api-path`
-  can override the derived `<bootui.path>/api` mount. Both compose once with the host framework's application root,
-  invalid or reserved paths fail startup clearly, and the legacy `/bootui` surface is not left exposed after a move
-  (#662).
-- **SSE-backed panels now report connection health and recover more predictably.** Live Activity, Exceptions, SQL Trace,
-  Security Logs, and REST Client show calm reconnecting/unavailable states with an explicit retry action, avoid duplicate
-  `EventSource` instances and refresh storms, and reconnect correctly after visibility or network changes (#661).
-- **State-changing UI actions now consistently require confirmation.** Thread-dump downloads, unsafe HTTP Probe methods,
-  and configuration override creates, updates, and deletes use the branded confirmation flow, default focus to Cancel,
-  and block duplicate submissions while a decision is pending (#692).
-- Renamed the AI Usage panel to AI Framework and placed it directly after REST Client in the Services group. The existing
-  `ai` route, `/bootui/api/ai/**` contract, and `bootui.ai.*` / `bootui.panels.ai.*` property keys remain stable (#691).
-- **All Quarkus modules now align on Quarkus 3.33.3.1 LTS** through the shared, published
-  `bootui-quarkus-parent`, preventing runtime/deployment/sample-app BOM drift and keeping the Quarkus LangChain4j BOM on
-  its compatible platform line (#701).
-- **Dependencies and build tooling updated**, including Vue 3.5.40, Vite 8.2.0, the Quarkus LangChain4j BOM 1.12.1,
-  GraalVM Native Build Tools 1.1.6, and frontend-maven-plugin 2.0.2.
-- **Copilot app Maven scripts now isolate parallel worktrees** by preserving existing `MAVEN_OPTS` while setting
-  `maven.repo.local=.m2` for setup and subsequent Maven-backed server invocations, preventing same-version local artifacts
-  from colliding through the shared `~/.m2` repository (#702).
+- **Custom UI and API mounts work end to end.** `bootui.path` and `bootui.api-path` move the full surface together, fail
+  invalid paths clearly, and do not leave legacy `/bootui` exposed (#662).
+- **SSE-backed panels recover predictably.** Live Activity, Exceptions, SQL Trace, Security Logs, and REST Client show
+  calm reconnect states, avoid duplicate streams, and retry cleanly (#661).
+- **State-changing UI actions require confirmation.** Thread dumps, unsafe HTTP Probe methods, and configuration writes
+  use the branded confirm flow with duplicate-submit protection (#692).
+- **Panel naming and Quarkus baselines were updated.** AI Usage became AI Framework, and Quarkus modules align on
+  Quarkus 3.33.3.1 LTS through the shared parent (#691, #701).
 
 ### Fixed
 
-- **Accessibility defects across the shared UI** are corrected: native form controls now have programmatic labels; the
-  mobile navigation and command palette contain and restore focus with complete dialog/combobox semantics; pointer-driven
-  rows, cards, and sort controls are keyboard-operable; and muted/placeholder text meets WCAG 2.1 AA contrast in both
-  themes (#694–#698).
-- **Rapid filtering, refreshes, pagination, and navigation no longer let stale frontend requests overwrite newer data.**
-  Paged views now cancel superseded work, guard against fetch implementations that ignore abort signals, and keep loading
-  ownership with the current request (#659).
-- **A slow or disconnected Log Tail browser can no longer block Spring MVC application logging threads.** SSE delivery
-  now uses ordered, bounded per-subscriber queues and capped daemon workers; overload disconnects only the affected
-  subscriber (#693).
-- **Custom mounts now link back to the real host application root** instead of always navigating to `/`, including when
-  Spring context paths, WebFlux base paths, or Quarkus root paths are configured (#699).
-- **The UI no longer fails when browser storage is unavailable or denied.** Theme, sidebar, expanded navigation groups,
-  recent panels, and Live Activity filters use a safe adapter with an in-memory fallback and recover from malformed stored
-  values (#700).
-- **Native and container sample builds are reliable again.** GraalVM native-image builds work with Maven 3.9.16, and the
-  standalone Quarkus sample image starts without requiring the Docker-backed Observability Dev Service while retaining
-  BootUI's in-process trace capture (#641, #688).
-- **Documentation heading links remain visible below the fixed navbar** instead of scrolling their target underneath it
-  (#690).
+- **Accessibility and stale-request defects were corrected.** Labels, navigation, command palette semantics, keyboard
+  operation, contrast, filtering, refreshes, pagination, and route changes now behave consistently (#659, #694–#698).
+- **Slow Log Tail subscribers cannot block Spring MVC logging.** SSE delivery uses bounded per-subscriber queues and
+  disconnects only the overloaded browser (#693).
+- **Custom mounts and browser storage fail safely.** Application-root links respect configured roots, and UI preferences
+  fall back to safe in-memory state when storage is unavailable (#699, #700).
 
 ### Security
 
-- **MCP tool-call failures no longer leak internal exception details.** An unexpected server-side error during a
-  `tools/call` now returns the standard, detail-free JSON-RPC internal error to the caller, while the original
-  exception and stack trace are still logged server-side for diagnostics (#705).
-- **Patched vulnerable documentation and frontend build/test dependencies** by updating `immutable` to 5.1.9,
-  `linkify-it` to 5.0.2, `fast-uri` to 3.1.5, and every affected `brace-expansion` line: the documentation toolchain to
-  1.1.18 and the frontend line through the 2.1.4 backport to its final 5.0.9 release. These packages are not part of
-  BootUI's shipped Java or browser runtime (#625–#627, #676, #678–#679, 4c895203).
+- **MCP tool-call failures no longer leak internals.** Unexpected `tools/call` errors return the standard detail-free
+  JSON-RPC error while logging details server-side (#705).
+- **Vulnerable docs and frontend dependencies were patched.** `immutable`, `linkify-it`, `fast-uri`, and affected
+  `brace-expansion` lines were updated outside BootUI's shipped runtime (#625–#627, #676, #678–#679, 4c895203).
 
 ## [1.12.0] - 2026-07-12
 
@@ -2380,381 +1795,108 @@ Feature release headlined by three new dev-loop panels — **Email**, **REST Cli
 
 ## [1.10.0] - 2026-07-07
 
-Feature release headlined by **Spring WebFlux support**, a third first-class BootUI adapter alongside Spring MVC and
-Quarkus, and **OpenTelemetry span enrichment** that keeps cross-service traces readable when the Traces panel
-aggregates spans from multiple BootUI-instrumented instances. The rest of the release is a second, deeper round of
-the multi-model advisor audit that started in 1.9.0 — this pass covers the remaining eight rule sets (on top of the
-Security and Hibernate audits below), fixing real bugs and growing most of them. Also corrects a stale claim about
-loopback enforcement on the Quarkus adapter.
+Feature release headlined by Spring WebFlux support as BootUI's third first-class adapter, OpenTelemetry span
+enrichment, and the next advisor audit pass. It also corrects Quarkus loopback-enforcement reporting.
 
 ### Added
 
-- **Spring WebFlux (reactive) support** — BootUI now runs on Netty/`DispatcherHandler` Spring Boot 4 applications, not
-  just servlet ones. A new drop-in `bootui-spring-boot-starter-reactive` starter and `BootUiReactiveAutoConfiguration`
-  serve the same shared engine, the same Vue UI, and the same `/bootui/api/**` contract as the servlet adapter, gated
-  by the same activation rule plus `@ConditionalOnWebApplication(REACTIVE)`. The same framework-neutral
-  `LocalhostGuard`/`BootUiPanels` safety floor is ported to a `WebFilter` binding (`ReactiveLocalhostOnlyFilter`,
-  `ReactivePanelAccessFilter`), and Live Activity and HTTP Exchanges get dedicated reactive capture layers reusing the
-  unchanged engine stores underneath, with trace-id correlation stamped at every capture point (HTTP exchange, SQL,
-  exception, security) from the active OpenTelemetry span — requiring `spring.reactor.context-propagation=auto` (now
-  a BootUI-contributed overridable default, since Reactor does not otherwise restore that span across WebFlux's
-  scheduler hops) — matching the Quarkus adapter's correlation fidelity. 43 of the 47 panels are available today, and
-  **every action-capable panel that is available behaves identically to the servlet adapter**. Only HTTP Sessions (no
-  reactive analog), the Security advisor and the raw Spring Security panel (a
-  `ServerHttpSecurity`/`SecurityWebFilterChain` ruleset is planned as follow-up), and MCP Server stay unavailable,
-  each with a clear reason surfaced through the panel manifest. Ships with a new reference
-  `bootui-spring-webflux-sample-app` (port 8081) and a matching `Dockerfile-webflux` image. See
-  [docs/WEBFLUX-SUPPORT.md](docs/WEBFLUX-SUPPORT.md) (#523, #526, #536).
-- **OpenTelemetry span enrichment**, so cross-service traces stay readable once BootUI aggregates spans from more
-  than one instance (for example a Spring app calling a Quarkus app). A new `BootUiIdentitySpanProcessor` stamps
-  `bootui.service`/`bootui.instance` identity attributes on every span at start, and an `OtelSpanEnricher` adds
-  `bootui.sql.queries`/`bootui.exception` depth attributes to the active span from the existing SQL Trace and
-  Exceptions capture hooks — both behind a framework-neutral `SpanEnricher` engine seam (a no-op default) and a new
-  `bootui.telemetry.enrich` toggle, wired on both Spring and Quarkus. The Traces panel's request drawer now surfaces
-  the enrichment with an indicator, and the Spring sample app gained a demo button that calls the Quarkus sample app
-  so the resulting merged, cross-service trace can be seen live. See [docs/SPECIFICATION.md](docs/SPECIFICATION.md)
-  §5.14.3 (#525).
-- **Two new Spring Security advisor rules**, from the same follow-up audit described under Changed below:
-  `SEC-AUTH-009` (Spring Boot's auto-generated default user/password must not be relied on in production — the
-  fully-default case where no `UserDetailsService`/`AuthenticationProvider` bean and no `spring.security.user.*`
-  property exist at all, distinct from `SEC-AUTH-004`'s explicitly-configured static user, HIGH) and
-  `SEC-SESSION-009` (a custom `server.servlet.session.cookie.name` should use the `__Host-`/`__Secure-` cookie-name
-  prefix so the browser enforces Secure/no-Domain/Path=/, hardening against cookie-tossing from a sibling or
-  subdomain — the unmodified default `JSESSIONID` is not flagged, LOW). The Security advisor now has 59 rules, up
-  from 57 (#522).
-
-- **Three new Hibernate advisor rules**, from a second, deeper audit pass dedicated to the Hibernate advisor alone:
-  `HIB-ID-007` (composite identifier classes — `@EmbeddedId`/`@IdClass` — must be `Serializable`, expose a public no-arg
-  constructor, and override both `equals` and `hashCode`, HIGH), `HIB-CONFIG-018` (bind-parameter logging should not be
-  left on in production — `org.hibernate.orm.jdbc.bind`/the legacy SQL binder logger at `TRACE`, or
-  `quarkus.hibernate-orm.log.bind-parameters=true`, HIGH), and `HIB-ENTITY-009` (a unique business-key column with no
-  `@NaturalId`-annotated attribute is a missed lookup-performance opportunity, INFO). The Hibernate advisor now has 69
-  rules, up from 66 (#511).
+- **Spring WebFlux support.** A new reactive starter serves the shared engine, Vue UI, and API contract on Netty with
+  the same safety floor as Spring MVC; unsupported panels report clear reasons (#523, #526, #536).
+- **Reactive trace correlation.** WebFlux HTTP, SQL, exception, and security capture stamps active OpenTelemetry trace
+  ids, with BootUI contributing an overridable Reactor context-propagation default (#523, #526, #536).
+- **OpenTelemetry span enrichment.** BootUI can stamp service identity plus SQL and exception depth attributes on spans,
+  and the Traces drawer surfaces those enriched cross-service traces (#525).
+- **Advisor coverage grew.** Spring Security added default-user and cookie-prefix checks, and Hibernate added
+  composite-id, bind-logging, and natural-id checks (#511, #522).
 
 ### Changed
 
-- **Extended the multi-model advisor audit** (5 independent AI models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro,
-  GPT-5.3-Codex, Claude Sonnet 5 — each re-verified against primary sources before implementation) to the remaining
-  eight rule sets, fixing real bugs and adding coverage:
-  - **Architecture** (38 → 39 rules): removed a rule that double-counted violations two other rules already caught,
-    fixed CDI/`@Inject` logger and `System.exit` false positives, extended the test-framework allowlist to Quarkus,
-    and added checks for unmanaged `new Thread(...)` construction and message-less assertions (#509).
-  - **Memory** (32 → 35 rules): corrected stale G1/thread-stack/Serial-GC rationale and thresholds against current
-    OpenJDK ergonomics and cgroup documentation, and added 3 new leak-detection checks — a GC pause latency outlier,
-    buffer-pool growth-without-release, and old-generation trending-upward rule (#510).
-  - **REST API** (47 → 51 rules): recognizes Mutiny `Uni`/`Multi` and JAX-RS `ExceptionMapper`s at parity with
-    Spring's reactive/exception handling, fixes several PATCH/catch-all/pagination false positives, and adds
-    `Idempotency-Key`, `@Deprecated`+OpenAPI, and `Retry-After` checks (#512).
-  - **Pentesting** (70 → 78 rules): fixed a false positive where BootUI's own Actuator convenience defaults were
-    flagged as a misconfiguration, stopped a false "PASS" on Quarkus for checks that can only ever run against Spring
-    metadata (now correctly reported `NOT_APPLICABLE`), and added 6 new header/cookie hardening checks (#513).
-  - **Vulnerabilities** (no static rule catalogue): corrected OSV package-level severity precedence, added full
-    `next_page_token` pagination (previously silently truncated), added FIRST.org EPSS exploit-probability
-    enrichment, and an explicit `fixAvailable` signal (#514).
-  - **Spring Application advisor** (37 rules, unchanged): corrected a stale `RemovedOrRenamedPropertyRule` claim,
-    expanded its legacy-property table from 5 to 41 verified entries, and fixed an async-executor rule that almost
-    never fired against Spring Boot's real default configuration (#515).
-  - **GraalVM** (21 → 23 rules): fixed 11 stale documentation links and a fat-jar/uber-jar blind spot in the
-    dependency scanner, and added checks for `Unsafe.allocateInstance` and dynamic/model MBeans (#516).
-  - **CRaC** (11 → 14 rules, Spring-only): fixed a self-defeating gap where a resource's own
-    `beforeCheckpoint`/`afterRestore` callbacks re-triggered the very leak they were meant to fix, broadened the
-    random/secret scans to instance fields (not just static ones), and added scheduling, HTTP-client, and
-    CRaC-runtime-inventory checks (#518).
-  - **Spring Security** (52 → 57 rules, before the follow-up pass below): removed a rule for a class deleted in
-    Spring Security 6, fixed four Actuator-exposure rules to honor `.exclude`, a CSP wildcard/omission bug, and
-    Spring Security 7's `PathPatternRequestMatcher` format change, and added 6 new rules including matcher-shadowing
-    detection (#519).
-- **Collapsed duplicate self-traffic classification logic** on both adapters: capture (span export, OTLP receiver)
-  and transform (Traces, Metrics, Cache, and other monitoring panels) each built their own
-  `SelfTelemetryClassifier`, and capture always hardcoded the default `/bootui` path while transform correctly read
-  the operator-configured `bootui.path` — so customizing that property made the two silently disagree on what counts
-  as BootUI's own traffic. Both now share one instance per adapter (#508).
-- **Each sample app, and its Docker image, now runs on its own dedicated port** — 8080 for the classic Spring Boot
-  app (servlet, AOT, native, CRaC), 8081 for WebFlux, 8082 for Quarkus — so all three can run side by side, locally
-  or in Docker, without a port clash.
-- **Sample-app integration tests now run Docker-free on H2** instead of requiring a PostgreSQL Testcontainer (#506).
-- **Bumped dependencies:** Quarkus platform to 3.37.1 (#530), the PostgreSQL JDBC driver to 42.7.13 (#533), and the
-  frontend toolchain — Vite to 8.1.3, Vitest to 4.1.10, vue-tsc to 3.3.6, and Prettier to 3.9.4 (#528, #529, #531,
-  #532).
-- **Follow-up Spring Security advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8,
-  GPT-5.5, Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) re-auditing the ruleset shortly after #519, catching two
-  remaining false-positive/stale-doc gaps that audit had not covered: `SEC-OAUTH-001` fired a false HIGH violation
-  on legitimate opaque-token resource servers (`.oauth2ResourceServer(oauth2 -> oauth2.opaqueToken(...))`) because
-  `BearerTokenAuthenticationFilter` is installed identically for both JWT and opaque-token resource servers, but the
-  rule only ever checked JWT-specific config — it now also accepts
-  `spring.security.oauth2.resourceserver.opaquetoken.introspection-uri` or a custom `OpaqueTokenIntrospector` bean
-  as valid proof the resource server validates tokens; and `SEC-ACT-004`'s description/recommendation claimed
-  Spring Boot's `management.endpoint.health.show-details` default is `when-authorized`, which was true before
-  Spring Boot 3.0 but the real current default is `never` — corrected the text and also added detection for
-  `management.endpoint.health.show-components=always`, which leaks the same infrastructure/component names as
-  `show-details=always` but was previously unchecked (#522).
-
-- **Second Hibernate advisor audit pass**, cross-validated by 5 independent AI models (Claude Opus 4.8, GPT-5.5,
-  Gemini 3.1 Pro, GPT-5.3-Codex, Claude Sonnet 5) auditing the ruleset against official Hibernate ORM/Quarkus/Spring
-  Data docs and Hibernate's own GitHub source: expanded the Quarkus adapter's `QuarkusHibernatePropertyLookup` with 7
-  more confirmed Hibernate-property aliases that were previously unreadable on Quarkus and so guaranteed false
-  positives for operators who had actually configured them correctly — `default_batch_fetch_size`, `jdbc.time_zone`,
-  `generate_statistics`, `query.fail_on_pagination_over_collection_fetch`, `query.in_clause_parameter_padding`,
-  `cache.use_query_cache`, and `cache.use_second_level_cache` (the last two both map to Quarkus' single unified
-  `second-level-caching-enabled` toggle) — plus a generic `quarkus.hibernate-orm.unsupported-properties."..."` fallback
-  for keys with no first-class Quarkus option (e.g. `hibernate.order_inserts`/`order_updates`), confirmed end-to-end by
-  a live-boot test asserting Hibernate's own `SessionFactoryOptions` picks the values up. Also fixed: `HIB-ID-004`
-  double-reported every UUID-typed identifier alongside `HIB-ID-005` and asserted an AUTO-strategy rationale that's
-  wrong for UUID ids (now correctly deferred to `HIB-ID-005`); `HIB-ID-005`'s UUID remediation recommended
-  `@UuidGenerator(style = TIME)` as "index-friendly," but `TIME` is an RFC 4122 v1 style with the same index
-  fragmentation problem as random UUIDs — the truly index-friendly `VERSION_6`/`VERSION_7` styles only exist on
-  Hibernate 7.0+, so the remediation is now version-gated to the running Hibernate version; `HIB-ENTITY-005` false
-  positived on every property-access (getter-mapped) entity because its field-vs-method heuristic only worked for the
-  reflection-based scan path, not the real `EntityManagerFactory`-metamodel path — it now keys off an explicit
-  field-access flag; `HIB-MAP-010` incorrectly treated `@OrderBy` as an equally valid alternative to `@OrderColumn` for
-  avoiding delete-and-reinsert list updates, when only `@OrderColumn` actually persists an index (this was already
-  inconsistent with the sibling `HIB-MAP-004` rule's own bag-detection logic); and `HIB-FETCH-004` was downgraded from
-  MEDIUM to INFO after review showed it fired on any entity merely declaring 2+ lazy bag collections, a common and safe
-  pattern — the actual failure mode (`MultipleBagFetchException`) is already covered by `HIB-QUERY-007`, which fires
-  only when bags are actually join-fetched together (#511).
-- **Fixed a completely non-functional Quarkus application advisor rule (`QA-SCH-001`) and corrected five other
-  rules' severity or rationale**, following a second, independent 5-model research audit, re-verified against live
-  Quarkus 3.33 source before implementation. `QA-SCH-001` (scheduled tasks without a clustered scheduler) never
-  fired in practice because the build-time processor never emitted the `bootui.internal.app.scheduled` config key
-  its own provider reads — fixed by wiring the existing `@Scheduled` Jandex scan into the same build step. Also
-  fixed: `QA-WEB-003`'s rationale incorrectly claimed Quarkus REST clients have no default timeout (they default
-  to a 15s connect-timeout / 30s read-timeout, per `RestClientsConfig`) — the rule now only fires when a timeout
-  is explicitly disabled (`0`) or excessive (over 5 minutes), rather than merely absent; `QA-RX-001` (a reactive
-  endpoint blocking the event loop on JDBC) raised from INFO to HIGH to reflect how severe and common this
-  footgun is in production, and now treats `@Transactional` as a guard alongside `@Blocking` (Quarkus REST
-  dispatches both to a worker thread) and recognizes `CompletionStage`/`CompletableFuture`/`Publisher` return
-  types in addition to `Uni`/`Multi`; `QA-PROD-001` (a Dev Services override in `%prod`) lowered from HIGH to LOW
-  after confirming Dev Services never runs in a packaged `LaunchMode.NORMAL` build regardless of this property's
-  value; `QA-PROD-002` (a destructive Hibernate schema strategy in `%prod`) now also flags `update` (previously
-  only `drop-and-create`/`create`/`drop`), with severity split CRITICAL for the outright-destructive strategies
-  (matching the sibling Hibernate advisor's `HIB-CONFIG-002`) vs. HIGH for `update`; `QA-CDI-002` (a public
-  mutable field on a JAX-RS resource) no longer false-positives on `@RequestScoped` resources, which get a fresh
-  instance per request and carry no shared-state risk; `QA-PERF-001`/`QA-PERF-002` (virtual-thread
-  adoption/pinning) now also count class-level `@RunOnVirtualThread`, not just method-level; and `QA-PROF-001` is
-  rebased on the absence of `%prod.` override keys instead of active-profile emptiness, which rarely fires on a
-  running app. Grew the advisor from 16 to 20 rules with four new checks: `QA-CDI-003` (shared mutable state on a
-  `@Singleton` bean — the same risk `QA-CDI-001` already flags for `@ApplicationScoped`), `QA-CFG-004` (the
-  deprecated `quarkus.hibernate-orm.database.generation` property, in favour of
-  `quarkus.hibernate-orm.schema-management.strategy`), `QA-WEB-004` (graceful shutdown timeout never configured
-  at all, distinct from `QA-WEB-002`'s "explicitly zeroed" case), and `QA-DB-001` (a JDBC datasource with no
-  explicit `quarkus.datasource.jdbc.max-size`, silently relying on Agroal's default pool size of 50). See
-  [docs/QUARKUS-ADVISOR-CHECKS.md](docs/QUARKUS-ADVISOR-CHECKS.md) (#520).
+- **The advisor audit reached the remaining rule sets.** Architecture, Memory, REST API, Pentesting, Vulnerabilities,
+  Spring, GraalVM, CRaC, Security, Hibernate, and Quarkus gained fixes and targeted checks (#509–#520, #522).
+- **Obsolete or duplicate advisor logic was removed.** The audit retired duplicate Architecture checks, stale Spring
+  Security claims, and dead Quarkus Security rules while documenting replacements (#509, #519, #520, #522).
+- **BootUI self-traffic classification is shared.** Capture and transform paths agree on configured `bootui.path`
+  instead of hardcoding `/bootui` in capture (#508).
+- **Sample apps have dedicated ports.** Spring MVC, WebFlux, and Quarkus samples now run on 8080, 8081, and 8082 so they
+  can run side by side.
+- **Sample-app integration tests run Docker-free on H2.** The tests no longer require a PostgreSQL Testcontainer (#506).
+- **Dependencies were refreshed.** Quarkus, PostgreSQL JDBC, Vite, Vitest, vue-tsc, and Prettier moved to current lines
+  (#528–#533).
 
 ### Fixed
 
-- **Corrected a stale, overly pessimistic claim in the Quarkus adapter's `GET /bootui/api/overview` endpoint.**
-  `activation.localhostOnly` was hardcoded to `false`, with a warning claiming loopback-source trust was "not yet
-  fully enforced" on Quarkus reads. This was inaccurate: `BootUiQuarkusSafetyFilter` has enforced the full shared
-  `LocalhostGuard` policy — loopback-source trust, the `Host` allow-list, and cross-site-write rejection — over the
-  *whole* `/bootui` surface, including plain reads, since Quarkus support first shipped; only writes ever needed the
-  extra CSRF-style check. The field now mirrors the Spring adapter's semantics (`true` unless
-  `bootui.allow-non-localhost=true`) and the misleading warning was removed.
-- **Quarkus Security advisor: removed two dead-property rules, repurposed a third, and fixed several logic bugs**,
-  found via a 5-model research synthesis independently re-verified against live Quarkus/SmallRye 3.33 source (grew from
-  43 to 45 rules). `QS-AUTH-011` (JDBC bcrypt work-factor) and `QS-CORS-004` (unanchored CORS regex) were retired
-  outright: both checked config properties/behaviors that don't exist in current Quarkus (`BcryptPasswordKeyMapperConfig`
-  has no work-factor field at all, and the CORS regex full-match bypass from quarkus/quarkus#34718 was fixed in Quarkus
-  3.3.0). `QS-AUTH-006` was repurposed from a dead `allow-unsigned-tokens` check (that property never existed) into a
-  real finding for an unpinned JWT signature algorithm on a remote JWKS. `QS-GRAPHQL-001` was fixed to check the real
-  `quarkus.smallrye-graphql.field-visibility=no-introspection` mechanism instead of a non-existent
-  `introspection-enabled` property. `QS-CORS-001`/`002` no longer treat unset origins as equivalent to a wildcard
-  (Quarkus's `CORSFilter` actually restricts unset origins to same-origin-only, the opposite of the old wording) — the
-  unset case now gets its own correctly-worded `QS-CORS-005` (INFO). `QS-CORS-003`'s credentials-default modeling now
-  mirrors Quarkus's real `.orElse(originMatches)` behavior instead of assuming credentials are off when unset.
-  `QS-CFG-001` no longer blanket-excludes the entire `quarkus.*` namespace from secret scanning (it could never flag
-  `quarkus.datasource.password`, `quarkus.oidc.credentials.secret`, etc.). `QS-TLS-002`/`003` now also scan named TLS
-  registry buckets (`quarkus.tls.<name>.*`), not just the default bucket. `QS-MGMT-001` switched from resolved-value to
-  raw-key inspection for `quarkus.management.host`, since BootUI's Quarkus advisor only ever runs under dev/test
-  `LaunchMode`, where the resolved value could never observe Quarkus's real non-loopback prod default. `QS-AUTHZ-002`/
-  `004` now factor in HTTP-method-scoped permission policies (`quarkus.http.auth.permission.*.methods`) instead of
-  treating every policy as applying to all methods. `QS-MSG-001` now evaluates each messaging channel independently so
-  one channel's secure protocol can't mask another's insecure one. `QS-SESSION-003`'s wording now matches its `>= 8h`
-  trigger. Three new rules were added: `QS-OIDC-003` (public OIDC client without PKCE), `QS-DEV-003` (SmallRye Health UI
-  always-include), and `QS-MGMT-003` (management interface with no explicit prod-scoped host binding, complementing
-  `QS-MGMT-001`). See [docs/QUARKUS-CHECKS.md](docs/QUARKUS-CHECKS.md) for full details on every rule.
+- **Quarkus overview now reports loopback enforcement accurately.** `activation.localhostOnly` mirrors Spring semantics
+  and no longer warns that Quarkus reads lack the shared `LocalhostGuard` policy.
+- **Quarkus Security advisor matches current Quarkus behavior.** Dead checks were removed, JWT algorithm, GraphQL, CORS,
+  secret, TLS, management, authz, messaging, and session logic were corrected, and new checks were added (#520).
+- **Quarkus application advisor rules now fire and rank correctly.** Scheduling, REST-client timeout, reactive JDBC, Dev
+  Services, schema generation, CDI, virtual threads, profiles, and new checks were corrected (#520).
 
 ## [1.9.0] - 2026-07-03
 
-Feature release headlined by **optional durable JDBC persistence for Live Activity** on both adapters — the feed can
-now survive an application restart instead of living only in a bounded in-memory buffer — alongside a **Sentry-style
-triage workflow** for the Exceptions panel, **SQL call-site capture with a list-level N+1 badge** in Live Activity, and
-a comprehensive audit pass across all nine advisor rule sets that fixed real bugs and grew four of them. Also fixes a
-CodeQL-flagged XSS vulnerability in the Quarkus adapter and closes the per-panel access-gating parity gap called out as
-Spring-only in 1.8.0.
+Feature release headlined by optional durable JDBC persistence for Live Activity, Exceptions triage, SQL call-site
+capture, Quarkus parity work, and a full advisor audit. It also fixes a Quarkus XSS vulnerability.
 
 ### Added
 
-- **Optional durable JDBC persistence for Live Activity, on both adapters.** Live Activity has always kept its feed in
-  a bounded in-memory ring buffer that's lost on restart; it can now optionally persist to a JDBC datasource instead. A
-  new `ActivityStore` abstraction backs the feed — `InMemoryActivityStore` (the unchanged default), `JdbcActivityStore`,
-  and a `BufferedActivityStore` write-behind decorator that batches writes without blocking request handling — with
-  rows namespaced per application instance (`instance_id`) so a shared database can safely serve multiple app
-  instances, and a choice of a `shared` (host-provided) or `dedicated` datasource. A runtime "Use the existing
-  datasource" button lets an operator hot-switch from in-memory to persistent capture with no restart, a
-  graceful-shutdown hook flushes the last buffered batch, and every row is masked at capture time (`SecretMasker`) so
-  persisted history is immutable and never needs re-masking on read. A new `BootUiJdbcCaptureGuard` prevents BootUI's
-  own persistence JDBC calls from being captured back into its own Live Activity feed. See
-  [docs/FEATURES.md](docs/FEATURES.md), [docs/QUARKUS-SUPPORT.md](docs/QUARKUS-SUPPORT.md), and
-  [docs/PROPERTIES.md](docs/PROPERTIES.md) for the new `bootui.activity.persistence.*` properties (#504).
-- **A Sentry-style triage workflow for the Exceptions panel.** Every exception group can now be marked **Open**,
-  **Acknowledged**, or **Resolved** via a new `POST /bootui/api/exceptions/{id}/status` endpoint (identical on both
-  adapters); a **Resolved** group that sees a new occurrence automatically reopens to **Open** and increments a
-  lifetime `regressionCount`, surfaced in the UI as a "Reopened ×N" badge — **Acknowledged** groups deliberately don't
-  auto-transition, since the developer already knows about the failure. A status filter narrows the list alongside the
-  existing text/source filters (#499).
-- **SQL call-site capture and a list-level N+1 badge in Live Activity.** `SqlTraceRecorder` now walks the capturing
-  thread's stack to resolve the first application-code frame that issued a query, surfaced as `callSite` per execution
-  and `callSites` per statement group in both the SQL Trace panel and the Live Activity per-request drawer (new
-  `bootui.sql-trace.capture-call-site` property, default `true`). Live Activity's main table now also flags a request
-  suspected of an N+1 pattern with a badge directly in the row, instead of requiring the drawer to be opened, using the
-  same shared `SqlTraceGrouping` logic and threshold the drawer already used (#500).
-- **A dismiss/restore workflow for the Vulnerabilities panel**, bringing it in line with the Architecture panel's
-  existing precedent: a vulnerability can be dismissed — keyed by `<vulnerability id>::<package name>` so the
-  dismissal survives a patch-version bump of the still-vulnerable dependency — and is then excluded from the
-  vulnerable-dependency count and severity rollups while staying visible in the UI, dimmed, with a Restore button
-  (#485).
-- **Quarkus parity features**, closing gaps against the Spring adapter: security events now correlate into Live
-  Activity the same way Spring's do (#489); Live Activity gained a reduced, trace-id-only per-request profile
-  drill-down — SQL correlation always shows "exact" and security events are badged "principal" rather than the fuller
-  thread-exact match Spring's profiler can show (#496); exceptions resolved by an application's own JAX-RS
-  `ExceptionMapper` are now captured (#501); and per-panel `bootui.panels.*` enable/read-only gating is now enforced on
-  the Quarkus adapter via a new `QuarkusPanelAccessFilter`, at full behavioral parity with Spring's `PanelAccessFilter`
-  — the one gap called out as Spring-only in 1.8.0 (#491).
-- **Two new MCP tools**, `get_live_activity` and `get_exception_detail`, extending the MCP Server panel's tool
-  catalogue (#502).
+- **Live Activity can persist to JDBC.** The default remains the in-memory ring buffer, but operators can switch to
+  masked, instance-namespaced JDBC persistence with buffered writes and self-capture protection (#504).
+- **Exceptions gained triage state.** Exception groups can be Open, Acknowledged, or Resolved; resolved regressions
+  reopen automatically with a badge, while acknowledged groups stay acknowledged (#499).
+- **SQL call sites are visible.** SQL Trace and Live Activity show application call sites, and rows surface suspected
+  N+1 patterns without opening the drawer (#500).
+- **Vulnerabilities can be dismissed and restored.** Dismissals survive patch-version bumps for the same vulnerable
+  package and are excluded from rollups while remaining visible (#485).
+- **Quarkus parity improved.** Security events, profile drill-down, JAX-RS exception mapping, and access gating now
+  align with the Spring adapter's shared model (#489, #491, #496, #501).
 
 ### Changed
 
-- **Audited all nine advisor rule sets against primary sources** (framework reference docs, specs, and library
-  source), fixing bugs and growing coverage where real gaps were found: the **Architecture** advisor grew from 37 to
-  38 rules, fixing a Spring-only field-injection rule that false-positived on idiomatic CDI code (adding the
-  framework-neutral `ARCH-CODE-016` counterpart) plus fixes to proxy-visibility and reactive-return-type detection
-  (#486); the **Spring** application advisor grew from 35 to 37 rules, fixing a graceful-shutdown detection gap and a
-  severity-escalation gap, and adding an in-memory-database-in-production check and a public-mutable-field check
-  (#483); the **Security** advisor grew from 48 to 52 rules, adding HTTP-Basic-without-TLS, weak-HSTS, weak-CSP, and
-  hardcoded-credential-property-name checks, and cross-checked the Quarkus Security advisor's 43 rules with no changes
-  needed (#484); the **Pentesting** advisor grew from 69 to 70 rules, fixing a severity bug and (across two follow-up
-  passes) an evidence-truncation bug, and adding a DevTools remote-secret-exposure check (#479, #480); the
-  **Hibernate** advisor's 66 rules got five bug fixes, including a wrong AUTO-strategy claim, a `@Transient`-field
-  false positive, and Panache-specific false positives now correctly suppressed under Quarkus (#487); the **REST API**
-  advisor's 47 rules got JAX-RS void-handler status-detection fixes that were causing both false positives and false
-  negatives on Quarkus (#482); the **Memory** advisor's 32 rules got JVM-tuning calculator fixes for stale JDK-version
-  gates (`-XX:+ZGenerational`, `-XX:+UseStringDeduplication`) (#481); and the **Vulnerabilities** advisor kept its rule
-  count (it has no static rule catalogue) but fixed a CVSS v3 severity-parsing bug that had silently misclassified
-  every real OSV advisory, and added partial-scan-failure resilience and withdrawn-advisory filtering (#485).
-- **Expanded Playwright e2e coverage**: deep interaction specs for Quarkus's action-capable panels (#490), coverage for
-  the new Quarkus per-panel access gating (#494), and dedicated specs for 17 more Quarkus panels — bringing the
-  Quarkus e2e suite to the same interaction-level depth as Spring's (#498).
-- **Reduced BootUI's Maven Central publishing footprint** ahead of Sonatype's new monthly publishing quota: stopped
-  publishing the demo/test modules, largely the sample app's fat jar, which accounted for roughly 750MB and 92% of the
-  previously-published footprint (#477); and trimmed checksum fanout to only the md5/sha1 files Sonatype actually
-  mandates, cutting published files per release from 174 to 116 (#493).
+- **All nine advisor rule sets were audited.** Architecture, Spring, Security, Pentesting, Hibernate, REST API, Memory,
+  Vulnerabilities, and Quarkus Security received bug fixes, false-positive reductions, and new checks (#479–#487).
+- **Maven Central publishing was trimmed.** Demo/test modules and unnecessary checksum fanout were removed from releases
+  to reduce the publishing footprint (#477, #493).
 
 ### Fixed
 
-- **Fixed a high-severity CodeQL-flagged XSS vulnerability (`java/xss`)** in `QuarkusIndexResource`, where the injected
-  `<base href>` was built from attacker-influenced request-URI data; it's now derived from the static
-  `quarkus.http.root-path` config instead, matching the Spring adapter's existing pattern. No caller-visible behavior
-  change for legitimate requests (#503).
-- **The compiled BootUI shell was still reachable in Quarkus production builds**, even though the data-bearing
-  `/bootui/api/**` surface was already dark — Quarkus wires its static-resource handler for `META-INF/resources/**`
-  unconditionally, independent of this extension's launch-mode gating. A new always-on Vert.x route filter
-  (`BootUiProdShellGuardFilter`) now answers 404 for the entire `/bootui` surface whenever `LaunchMode.NORMAL` is
-  active (#497).
-- **Quarkus Exceptions and Live Activity entries always had a null `method`, `path`, and `handler`.** The HTTP-context-
-  free log-based capture path always won a dedup race against the richer HTTP-filter capture path. Fixed by resolving
-  the current request's method/path from the CDI-current `CurrentVertxRequest` (#492) and the current resource
-  class/method from RESTEasy Reactive's `CurrentRequestManager` (#495).
-- **Three bugs found while building deeper Quarkus e2e coverage** (#498): the Beans panel hid any bean whose
-  fully-qualified name merely *started with* BootUI's own package prefix, not just BootUI's own beans; the Mappings
-  panel had the identical bug hiding real JAX-RS resources; and Security Logs badges always rendered the generic color
-  on Quarkus, because the color-matching logic checked only Spring's ALL-CAPS audit-event names against Quarkus's
-  PascalCase CDI security event class names.
-- **Corrected stale Quarkus panel-availability claims in `docs/QUARKUS-SUPPORT.md`** that still listed Database
-  Connection Pools, Security Logs, and Log Tail as not-yet-implemented after they had already shipped (#488).
-- **Fixed broken javadoc `@link` references** that were causing CI build warnings (#476).
-- **Fixed a stale Quarkus version reference in the docs and permanently guarded the release workflow** to fail the
-  release if any stale version reference remains anywhere in the repo or any `pom.xml` wasn't bumped (#478).
+- **Quarkus XSS vulnerability fixed.** The shell `<base href>` now comes from static root-path configuration rather than
+  attacker-influenced request URI data (#503).
+- **Quarkus production builds no longer expose the shell.** The entire `/bootui` surface returns 404 in
+  `LaunchMode.NORMAL`, matching the already-dark API behavior (#497).
+- **Quarkus Exceptions and Live Activity keep HTTP context.** Method, path, handler, and richer request details now win
+  the capture race (#492, #495).
+- **Quarkus panel filtering and badges are accurate.** Beans and Mappings no longer hide similarly-prefixed application
+  classes, and Security Logs use Quarkus event names for badge colors (#498).
+- **Quarkus docs and release guards were corrected.** Panel availability claims, javadocs, and stale Quarkus version
+  references were fixed, with release checks preventing future stale versions (#476, #478, #488).
 
 ## [1.8.0] - 2026-07-01
 
-Feature release headlined by **Quarkus support** — BootUI is now a dual-framework developer console that runs the same
-Vue UI and `/bootui/api/**` contract on Spring Boot 4 or Quarkus — alongside a hardening pass on the two new Quarkus
-advisors and the breaking renames that came with the Quarkus port (the `cache` panel id, the `bootui-spring-*` module
-names, and the `bootui-engine`/`bootui-spi` merge).
+Feature release headlined by Quarkus support, Quarkus-native advisors, shared conformance, and the breaking renames
+needed for the Quarkus port.
 
 ### Added
 
-- **Quarkus support: BootUI is now a dual-framework developer console.** A new `bootui-quarkus` /
-  `bootui-quarkus-deployment` extension serves the same Vue UI, the same `/bootui/api/**` DTO contract, and the same
-  framework-neutral engine the Spring Boot adapter has always used — add the extension to a Quarkus 3.33 LTS application
-  and the console activates automatically in `quarkus:dev` / `@QuarkusTest`, staying dark (no wired endpoints or beans) in
-  `LaunchMode.NORMAL`. The large majority of the panel surface is live at launch: **always available** — Overview,
-  Architecture, the framework-application advisor (labelled "Quarkus"), Pentesting, Vulnerabilities, Memory, Threads, Heap
-  Dump, Live Memory, JVM Tuning, Metrics, Loggers, Log Tail, Health, HTTP Probe, Beans, Mappings, Configuration
-  (read-only), Traces, AI Usage, HTTP Exchanges, Live Activity, Exceptions, MCP Server, and GitHub; **available when their
-  capability is detected** — Hibernate, Scheduled Tasks, Cache, Flyway, Liquibase, Database Connection Pools, Dev
-  Services, Security Logs, SQL Trace, REST API, and Profile Diff. Every action-capable panel (advisor scans, Heap Dump,
-  Threads download, Loggers, HTTP Probe, Cache clear, Flyway migrate/clean, Liquibase update, Traces clear, MCP Server
-  toggle) is guarded by the same shared engine `LocalhostGuard` write floor Spring uses, so both adapters reject
-  non-local/cross-site requests identically. Only GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data,
-  Spring Security, and DevTools stay unavailable on Quarkus, each with a panel-specific "not applicable" reason. See
-  [docs/QUARKUS-SUPPORT.md](docs/QUARKUS-SUPPORT.md) and [docs/FEATURES.md](docs/FEATURES.md) for the full per-panel
-  breakdown (#467).
-- **A new Quarkus-native Security advisor** (kept under the shared panel id `spring`, labelled "Quarkus Security" on the
-  Quarkus adapter) reviews Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS, CORS, and
-  `@RolesAllowed` usage in place of the Spring-Security-coupled advisor, which has no Quarkus equivalent. See
-  [docs/QUARKUS-CHECKS.md](docs/QUARKUS-CHECKS.md) for the full rule catalogue (#467, #472).
-- **A framework-neutral HTTP conformance harness (`bootui-conformance`)** pins the shared `/bootui/api/**` contract with
-  one abstract test suite that both adapters run against a booted sample app: the panels manifest must match a golden
-  fixture, every panel reported `available:true` must answer its primary `GET` with JSON, and a cross-site state-changing
-  request must be rejected with 403 — so lighting up a panel on either backend automatically gets black-box coverage
-  (#467).
-- **A reference `bootui-quarkus-sample-app`** and Docker-free `@QuarkusTest` integration/conformance suites
-  (`bootui-quarkus-integration-tests`) demonstrate and gate the Quarkus adapter, mirroring the existing Spring sample app
-  and Playwright e2e coverage (#467).
+- **Quarkus support.** The new `bootui-quarkus` extension serves the same Vue UI, API contract, and shared engine as
+  Spring Boot, activates only in dev/test, and reports unsupported panels clearly (#467).
+- **Quarkus-native Security advisor.** The shared security panel reviews Elytron/OIDC auth, Quarkus HTTP permissions,
+  TLS, CORS, and role annotations on Quarkus (#467, #472).
+- **Shared HTTP conformance.** `bootui-conformance` pins the manifest, available-panel JSON reads, and cross-site write
+  rejection across Spring and Quarkus (#467).
+- **Quarkus sample and tests.** A reference sample app plus Docker-free Quarkus integration and conformance suites
+  demonstrate and gate the adapter (#467).
 
 ### Changed
 
-- **Hardened the Quarkus application and Quarkus Security advisors toward Spring parity**, following a first advisor
-  audit. Fixed three bugs: dead CSRF detection in `QS-AUTH-003`, `@DenyAll`-secured endpoints not counted as secured in
-  `QS-AUTHZ-003`/`QS-AUTHZ-004`, and a blocking-JDBC check (`QA-RX-001`) comparing against the global endpoint count
-  instead of the per-endpoint reactive/blocking split. Grew the Quarkus application advisor from 10 to 16 rules (verbose
-  log level in prod, compression/graceful-shutdown/REST-client-timeout hygiene, virtual-thread adoption/pinning) and the
-  Quarkus Security advisor from 25 to 43 rules (JWT hardening, JDBC identity-store checks, CORS regex anchoring,
-  fine-grained security headers, form-auth session hardening, a management-endpoint merge-risk check), including five
-  rules with no Spring equivalent: virtual-thread pinning (JEP 491), `quarkus.http.non-application-root-path` merging
-  health/metrics into the app namespace, gRPC server reflection left on in production, GraphQL schema introspection, and
-  messaging SASL credentials configured without TLS. Since the whole Quarkus advisor surface was still unreleased, rule
-  IDs were renumbered rather than leaving permanent gaps (#472).
-- **Bumped dependencies:** the Vue dependency group (#469), Spotless Maven plugin to latest (#468), the PostgreSQL JDBC
-  driver to 42.7.12 (#470), and Prettier to 3.9.3 in the frontend (#471).
-- **Renamed the "Spring Cache" panel to "Cache".** The panel, route, and API are now framework-neutral so
-  the same UI covers Spring Cache and `quarkus-cache`: route `/cache`, API `GET`/`POST /bootui/api/cache[/clear]`,
-  and panel id `cache` (config keys `bootui.panels.cache.enabled` / `.read-only`). The advisor sidebar label now
-  follows the running framework (shows "Quarkus" on Quarkus), matching the panel header. **This is a breaking
-  change for existing integrations:** the browser route `/spring-cache` still redirects to `/cache`, but the old
-  API path `GET /bootui/api/spring-cache` has been removed with no server-side alias (use `/bootui/api/cache`),
-  and the old `bootui.panels.spring-cache.*` config keys are no longer read (rename them to
-  `bootui.panels.cache.*`).
-- **Renamed the Spring adapter modules to carry a `spring` token**, matching the Quarkus adapter's naming
-  (`bootui-quarkus*`): the auto-configuration module `bootui-autoconfigure` is now `bootui-spring-autoconfigure`,
-  and the reference app `bootui-sample-app` is now `bootui-spring-sample-app`. **The only breaking change is the
-  published Maven Central coordinate `com.julien-dubois.bootui:bootui-autoconfigure` → `…:bootui-spring-autoconfigure`.**
-  Consumers who depend on `bootui-spring-boot-starter` (the recommended path) need no change — the starter pulls in
-  the renamed module transitively. Only projects that declared a direct dependency on `bootui-autoconfigure` must
-  update the artifact id. The `bootui-spring-boot-starter` artifact id is unchanged, Java package names
-  (`io.github.jdubois.bootui.*`) are unchanged, and the published Docker image names (`jdubois/bootui-sample-app*`)
-  are unchanged.
-- **Merged the `bootui-spi` module into `bootui-engine`.** The framework-neutral service-provider interfaces now
-  live in the `io.github.jdubois.bootui.spi` package inside `bootui-engine` (the boundary is still enforced by
-  `SpiBoundaryArchitectureTests`), reducing the shared modules from four to three (`bootui-core`, `bootui-engine`,
-  `bootui-conformance`). **The only breaking change is that the published Maven Central coordinate
-  `com.julien-dubois.bootui:bootui-spi` no longer exists** — its types ship in `bootui-engine`. Java package names
-  (`io.github.jdubois.bootui.spi.*`) are unchanged, so code that imports these interfaces still compiles; consumers
-  who depend on `bootui-spring-boot-starter` or `bootui-quarkus` (the recommended paths) need no change, since both
-  pull the engine in. Only projects that declared a direct dependency on `bootui-spi` must drop it (the engine
-  already provides those classes).
+- **Quarkus advisors were hardened before release.** Application and Security advisors gained parity fixes plus
+  Quarkus-specific production, JWT, header, form-auth, management, gRPC, GraphQL, and messaging checks (#472).
+- **Dependencies were refreshed.** Vue, Spotless, PostgreSQL JDBC, and Prettier moved to current lines (#468–#471).
+- **Spring Cache is now Cache.** The route and API moved to `/cache` and `/bootui/api/cache`; the old browser route
+  redirects, but the old API path and `bootui.panels.spring-cache.*` keys were removed.
+- **Spring adapter modules were renamed.** `bootui-autoconfigure` became `bootui-spring-autoconfigure`; direct Maven
+  users must update that artifact id, while starter users need no change.
+- **`bootui-spi` was merged into `bootui-engine`.** The `bootui-spi` Maven coordinate no longer exists, but the
+  `io.github.jdubois.bootui.spi.*` package remains in the engine for import compatibility.
 
 ## [1.7.0] - 2026-06-29
 
@@ -3551,7 +2693,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/jdubois/boot-ui/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/jdubois/boot-ui/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/jdubois/boot-ui/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/jdubois/boot-ui/compare/v1.16.0...v1.17.0

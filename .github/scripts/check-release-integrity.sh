@@ -2,14 +2,21 @@
 
 set -euo pipefail
 
-# Usage: check-release-integrity.sh [release.yml] [pages.yml] [docker-publish.yml]
-# RELEASE_INTEGRITY_ROOT is a test seam for the repository checked by the release-line rules; no
-# workflow may set it.
+# Usage: check-release-integrity.sh [release.yml] [pages.yml] [docker-publish.yml] [consumer-smoke-tests.sh]
+#                                   [stage-release-candidate.sh] [check-central-bundle.py]
+# RELEASE_INTEGRITY_ROOT is a test seam for the repository checked by the release-line and POM rules;
+# no workflow may set it.
 readonly REPOSITORY_ROOT="${RELEASE_INTEGRITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPTS_DIR
 readonly WORKFLOW="${1:-.github/workflows/release.yml}"
 readonly PAGES_WORKFLOW="${2:-$REPOSITORY_ROOT/.github/workflows/pages.yml}"
 readonly DOCKER_WORKFLOW="${3:-$REPOSITORY_ROOT/.github/workflows/docker-publish.yml}"
+readonly SMOKE_SCRIPT="${4:-$SCRIPTS_DIR/consumer-smoke-tests.sh}"
+readonly STAGE_SCRIPT="${5:-$SCRIPTS_DIR/stage-release-candidate.sh}"
+readonly BUNDLE_CHECK="${6:-$SCRIPTS_DIR/check-central-bundle.py}"
 readonly ROOT_POM="$REPOSITORY_ROOT/pom.xml"
+readonly STARTER_POM="$REPOSITORY_ROOT/bootui-spring-boot-starter/pom.xml"
 readonly RELEASE_LINE_FILE="$REPOSITORY_ROOT/.github/release-line"
 readonly VERSION_POLICY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-version-policy.sh"
 readonly LINE_GATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-line-gate.sh"
@@ -22,7 +29,8 @@ if [[ ! -r "$ROOT_POM" ]]; then
   printf 'Cannot read root POM: %s\n' "$ROOT_POM" >&2
   exit 2
 fi
-for required in "$VERSION_POLICY" "$LINE_GATE" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW"; do
+for required in "$VERSION_POLICY" "$LINE_GATE" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW" "$SMOKE_SCRIPT" "$STAGE_SCRIPT" \
+  "$BUNDLE_CHECK" "$STARTER_POM"; do
   if [[ ! -r "$required" ]]; then
     printf 'Cannot read %s\n' "$required" >&2
     exit 2
@@ -96,34 +104,72 @@ require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
   'documentation redeploy decision from the tags on origin'
 require_literal "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'" \
   'documentation redeploy restricted to the newest major'
-require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli,bootui-agent-bridge,bootui-agent \' \
-  'publication-only Maven reactor'
+readonly PUBLICATION_REACTOR='-pl .,bootui-core,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \'
+require_literal "$PUBLICATION_REACTOR" 'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
   'runnable CLI uber-jar availability check'
 require_literal '"bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"' \
   'Java agent availability check'
-require_literal '-f "$AGENT_SMOKE_DIR/pom.xml"' 'external Java agent consumer invocation'
-require_literal 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then' \
-  'Java agent consumer dependency-free assertion'
-require_literal 'java -javaagent:"$AGENT_JAR" -version' 'Java agent attach smoke test'
-require_literal 'AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); dormant until BootUI claims it"' \
-  'Java agent dormant startup assertion'
-require_literal 'create_spring_smoke_project "$MVC_SMOKE_DIR" "bootui-spring-boot-starter" "8080"' \
-  'standalone Spring MVC consumer smoke project'
-require_literal 'create_spring_smoke_project "$WEBFLUX_SMOKE_DIR" "bootui-spring-boot-starter-reactive" "8081"' \
-  'standalone Spring WebFlux consumer smoke project'
-require_literal '-f "$MVC_SMOKE_DIR/pom.xml"' 'external Spring MVC consumer invocation'
-require_literal '-f "$WEBFLUX_SMOKE_DIR/pom.xml"' 'external Spring WebFlux consumer invocation'
+
+# The published coordinates. Each published module carries a flattened, parentless consumer POM, and
+# neither parent POM is published. Every list of them below must say exactly this.
+readonly PUBLISHED_ARTIFACTS=(
+  bootui-core
+  bootui-engine
+  bootui-ui
+  bootui-spring-boot-starter
+  bootui-quarkus
+  bootui-quarkus-deployment
+  bootui-cli
+  bootui-agent
+)
+EXPECTED_PUBLISHED="$(printf '%s\n' "${PUBLISHED_ARTIFACTS[@]}" | sort)"
+readonly EXPECTED_PUBLISHED
+
+# The consumer smoke tests run three times: against the staged candidate inside the pre-tag
+# verification build (a failure there consumes nothing), against it again from the immutable tagged
+# checkout before publication, and against Maven Central after it. One script holds them all.
+readonly STAGED_SMOKE='bash .github/scripts/consumer-smoke-tests.sh "$VERSION" "$RUNNER_TEMP/bootui-candidate"'
+readonly PREPUBLICATION_SMOKE='bash .github/scripts/consumer-smoke-tests.sh "$RELEASE_VERSION" "$RUNNER_TEMP/bootui-candidate"'
+readonly CENTRAL_SMOKE='          bash .github/scripts/consumer-smoke-tests.sh "$VERSION"'
+readonly STAGE_CANDIDATE='bash .github/scripts/stage-release-candidate.sh "$RUNNER_TEMP/bootui-candidate"'
+require_literal "$STAGED_SMOKE" 'pre-tag consumer smoke tests against the staged candidate'
+require_literal "$PREPUBLICATION_SMOKE" 'pre-publication consumer smoke tests against the staged candidate'
+require_literal '      - name: Smoke test the staged release candidate' 'pre-publication staged smoke test step'
+if [[ "$(grep -Fc -- "$STAGE_CANDIDATE" "$WORKFLOW" || true)" -ne 2 ]]; then
+  report_error "the release candidate must be staged ('$STAGE_CANDIDATE') before tagging and before publication"
+fi
+if ! grep -Fxq -- "$CENTRAL_SMOKE" "$WORKFLOW"; then
+  report_error "missing Maven Central consumer smoke tests ('${CENTRAL_SMOKE#"${CENTRAL_SMOKE%%[![:space:]]*}"}' on a line of its own)"
+fi
 
 smoke_test_step="$(
   sed -n '/- name: Smoke test published distributions/,/- name: Decide documentation redeploy/p' "$WORKFLOW"
 )"
 readonly smoke_test_step
+if ! grep -Fxq -- "$CENTRAL_SMOKE" <<<"$smoke_test_step"; then
+  report_error 'the Maven Central consumer smoke tests must run in the published-distribution smoke test step'
+fi
 for sample_module in bootui-spring-sample-app bootui-spring-webflux-sample-app; do
-  if grep -Fq -- "-pl $sample_module" <<<"$smoke_test_step"; then
+  if grep -Fq -- "-pl $sample_module" <<<"$smoke_test_step" || grep -Fq -- "-pl $sample_module" "$SMOKE_SCRIPT"; then
     report_error "published-distribution smoke tests must not run unpublished reactor module '$sample_module'"
   fi
 done
+
+prepublication_step="$(
+  sed -n '/- name: Smoke test the staged release candidate/,/- name: Publish to Maven Central/p' "$WORKFLOW"
+)"
+readonly prepublication_step
+if ! grep -Fq -- "$PREPUBLICATION_SMOKE" <<<"$prepublication_step" ||
+  ! grep -Fq -- "$STAGE_CANDIDATE" <<<"$prepublication_step" ||
+  ! grep -Fxq -- "        if: env.RESUME_AFTER_PUBLISH != 'true' && env.CANDIDATE_SMOKE_PASSED != 'true'" \
+    <<<"$prepublication_step"; then
+  report_error 'the pre-publication step must stage the candidate and smoke-test it, skipped only on a resumed run or when the pre-tag smoke test passed'
+fi
+# Only a passing pre-tag smoke test may skip the pre-publication one.
+if [[ "$(grep -Fc 'CANDIDATE_SMOKE_PASSED=true' "$WORKFLOW" || true)" -ne 1 ]]; then
+  report_error 'CANDIDATE_SMOKE_PASSED may be set only once, by the pre-tag staged smoke test'
+fi
 
 # The bridge is built in the publication reactor only to be shaded into bootui-agent; Central never
 # receives it, so polling for it would only time out after a successful release.
@@ -134,12 +180,98 @@ readonly availability_step
 if grep -Fq 'bootui-agent-bridge/' <<<"$availability_step"; then
   report_error 'bootui-agent-bridge is never published and must not be polled on Maven Central'
 fi
+polled_artifacts="$(grep -oE '^[[:space:]]+"[a-z-]+/\$\{VERSION\}/' <<<"$availability_step" | tr -d ' "' | cut -d/ -f1 | sort -u)"
+if [[ "$polled_artifacts" != "$EXPECTED_PUBLISHED" ]]; then
+  report_error "Maven Central availability must poll exactly the published coordinates ($(tr '\n' ' ' <<<"$EXPECTED_PUBLISHED")), found: $(tr '\n' ' ' <<<"$polled_artifacts")"
+fi
+if grep -Eq '"bootui-(quarkus-)?parent/' <<<"$availability_step"; then
+  report_error 'neither parent POM is published, so neither may be polled on Maven Central'
+fi
+
+# The staging script builds the same reactor as the publication step.
+if ! grep -Fq -- "$PUBLICATION_REACTOR" "$STAGE_SCRIPT"; then
+  report_error "$STAGE_SCRIPT must stage the publication-only Maven reactor ('$PUBLICATION_REACTOR')"
+fi
+for literal in '-DcentralBaseUrl="$STUB_URL"' '-DwaitUntil=uploaded' '-Dcentral.autoPublish=false' \
+  'server = http.server.HTTPServer(("127.0.0.1", 0), Upload)' 'check-central-bundle.py'; do
+  if ! grep -Fq -- "$literal" "$STAGE_SCRIPT"; then
+    report_error "$STAGE_SCRIPT must use '$literal'"
+  fi
+done
+
+# The consumer smoke tests and the bundle check name the same coordinates.
+smoke_published="$(sed -n '/^readonly PUBLISHED_ARTIFACTS=(/,/^)/p' "$SMOKE_SCRIPT" | grep -E '^[[:space:]]+bootui-' | tr -d ' ' | sort)"
+if [[ "$smoke_published" != "$EXPECTED_PUBLISHED" ]]; then
+  report_error "$SMOKE_SCRIPT must expect exactly the published coordinates"
+fi
+bundle_published="$(sed -n '/^PUBLISHED = (/,/^)/p' "$BUNDLE_CHECK" | grep -oE '"bootui-[a-z-]+"' | tr -d '"' | sort)"
+if [[ "$bundle_published" != "$EXPECTED_PUBLISHED" ]]; then
+  report_error "$BUNDLE_CHECK must expect exactly the published coordinates"
+fi
+
+report_smoke_error() {
+  printf '%s: %s\n' "$SMOKE_SCRIPT" "$1" >&2
+  errors=$((errors + 1))
+}
+require_smoke_literal() {
+  if ! grep -Fq -- "$1" "$SMOKE_SCRIPT"; then
+    report_smoke_error "missing $2 ('$1')"
+  fi
+}
+smoke_line_of() {
+  local match
+  match="$(grep -nF -- "$1" "$SMOKE_SCRIPT" | head -n 1 || true)"
+  printf '%s' "${match%%:*}"
+}
+require_smoke_literal 'readonly EXPECTED_ORIGIN="bootui-staged"' 'staged-candidate origin'
+require_smoke_literal 'readonly EXPECTED_ORIGIN="central"' 'Maven Central origin'
+require_smoke_literal '"$(basename "$file")>${EXPECTED_ORIGIN}="' 'per-file origin check of every resolved BootUI artifact'
+require_smoke_literal 'if [[ "$RESOLVED_ARTIFACTS" != "$EXPECTED_ARTIFACTS" ]]; then' \
+  'check that the consumers resolved exactly the published coordinates'
+require_smoke_literal 'create_spring_smoke_project "$MVC_SMOKE_DIR" "spring-boot-starter-web" "$MVC_PORT"' \
+  'standalone Spring MVC consumer smoke project'
+require_smoke_literal 'create_spring_smoke_project "$WEBFLUX_SMOKE_DIR" "spring-boot-starter-webflux" "$WEBFLUX_PORT"' \
+  'standalone Spring WebFlux consumer smoke project'
+require_smoke_literal '<artifactId>bootui-spring-boot-starter</artifactId>' 'Spring consumers of the one starter'
+require_smoke_literal 'run_spring_smoke "Spring MVC" "$MVC_SMOKE_DIR" "$MVC_PORT" SERVLET org.springframework.boot.tomcat.TomcatWebServer' \
+  'Spring MVC consumer asserted SERVLET on Tomcat'
+require_smoke_literal 'run_spring_smoke "Spring WebFlux" "$WEBFLUX_SMOKE_DIR" "$WEBFLUX_PORT" REACTIVE org.springframework.boot.reactor.netty.NettyWebServer' \
+  'Spring WebFlux consumer asserted REACTIVE on Netty'
+require_smoke_literal '  jakarta.servlet:jakarta.servlet-api \' 'Servlet API kept off the WebFlux consumer classpath'
+require_smoke_literal '  org.apache.tomcat.embed:tomcat-embed-core \' 'Tomcat kept off the WebFlux consumer classpath'
+require_smoke_literal '  io.projectreactor.netty:reactor-netty-http \' 'Reactor Netty kept off the Spring MVC consumer classpath'
+require_smoke_literal 'consumer_mvn -q -f "$project_dir/pom.xml" -Dmaven.test.skip=true package' \
+  'external Spring consumer build'
+require_smoke_literal 'java -jar "$app_jar" > "$log" 2>&1 &' 'Spring consumer started as its own JVM, so it can be stopped'
+require_smoke_literal 'if [[ "$CLI_CLASSPATH" != "com.julien-dubois.bootui:bootui-cli" ]]; then' \
+  'dependency-free CLI client consumer assertion'
+require_smoke_literal 'CLI_VERSION_OUTPUT="$(java -jar "$CLI_ALL_JAR" --version)"' 'runnable CLI uber-jar smoke test'
+require_smoke_literal '-f "$AGENT_SMOKE_DIR/pom.xml"' 'external Java agent consumer invocation'
+require_smoke_literal 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then' \
+  'Java agent consumer dependency-free assertion'
+require_smoke_literal 'java -javaagent:"$AGENT_JAR" -version' 'Java agent attach smoke test'
+require_smoke_literal 'AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); dormant until BootUI claims it"' \
+  'Java agent dormant startup assertion'
+readonly SMOKE_PURGE='rm -rf "$LOCAL_REPO/com/julien-dubois/bootui"'
+for consumer in 'create_spring_smoke_project "$MVC_SMOKE_DIR"' '-f "$CLI_SMOKE_DIR/pom.xml"' '-f "$QUARKUS_SMOKE_DIR/pom.xml"' \
+  '-f "$AGENT_SMOKE_DIR/pom.xml"'; do
+  purge_line="$(smoke_line_of "$SMOKE_PURGE")"
+  consumer_line="$(smoke_line_of "$consumer")"
+  if [[ -z "$purge_line" || -z "$consumer_line" || "$purge_line" -ge "$consumer_line" ]]; then
+    report_smoke_error "every consumer ($consumer) must resolve BootUI after the local BootUI artifacts are dropped"
+  fi
+done
+if [[ "$(grep -Fc -- "$SMOKE_PURGE" "$SMOKE_SCRIPT" || true)" -ne 1 ]]; then
+  report_smoke_error 'the local BootUI artifacts must be dropped exactly once, before every consumer'
+fi
 
 excluded_artifacts="$(
   sed -n '/<excludeArtifacts>/,/<\/excludeArtifacts>/p' "$ROOT_POM"
 )"
 readonly excluded_artifacts
 readonly expected_exclusions=(
+  bootui-parent
+  bootui-quarkus-parent
   bootui-conformance
   bootui-agent-bridge
   bootui-coverage
@@ -181,6 +313,60 @@ if grep -Fq '<skip>${maven.deploy.skip}</skip>' "$ROOT_POM"; then
   report_error "Central publishing does not support the legacy per-module <skip> configuration"
 fi
 
+report_pom_error() {
+  printf '%s: %s\n' "$1" "$2" >&2
+  errors=$((errors + 1))
+}
+
+# Flattened consumer POMs: no parent, resolved versions, and the root's Central metadata unchanged. The
+# flattened file must stay beside pom.xml (no <outputDirectory>): Quarkus 3.33 takes the directory of a
+# module's POM file as its base directory.
+flatten_plugin="$(sed -n '/<artifactId>flatten-maven-plugin<\/artifactId>/,/<\/plugin>/p' "$ROOT_POM")"
+for literal in '<flattenMode>ossrh</flattenMode>' '<flattenDependencyMode>direct</flattenDependencyMode>' \
+  '<goal>flatten</goal>' '<phase>process-resources</phase>'; do
+  if ! grep -Fq -- "$literal" <<<"$flatten_plugin"; then
+    report_pom_error "$ROOT_POM" "flatten-maven-plugin must be configured with $literal"
+  fi
+done
+if grep -Fq '<outputDirectory>' <<<"$flatten_plugin"; then
+  report_pom_error "$ROOT_POM" 'the flattened POM must stay beside pom.xml; Quarkus 3.33 in-reactor builds break otherwise'
+fi
+for literal in 'child.project.url.inherit.append.path="false"' 'child.scm.connection.inherit.append.path="false"' \
+  'child.scm.developerConnection.inherit.append.path="false"' 'child.scm.url.inherit.append.path="false"'; do
+  if ! grep -Fq -- "$literal" "$ROOT_POM"; then
+    report_pom_error "$ROOT_POM" "the published POMs must keep the root url and scm ($literal)"
+  fi
+done
+for module in "${PUBLISHED_ARTIFACTS[@]}"; do
+  if ! grep -Fq '<artifactId>flatten-maven-plugin</artifactId>' "$REPOSITORY_ROOT/$module/pom.xml" 2>/dev/null; then
+    report_pom_error "$REPOSITORY_ROOT/$module/pom.xml" 'a published module must declare flatten-maven-plugin'
+  fi
+done
+for removed in bootui-spring-autoconfigure bootui-spring-boot-starter-reactive bootui-client; do
+  if grep -Fq "<module>$removed</module>" "$ROOT_POM" || grep -Fq "<artifactId>$removed</artifactId>" "$ROOT_POM"; then
+    report_pom_error "$ROOT_POM" "$removed was merged into another published module and must not return"
+  fi
+done
+
+# The one Spring starter never chooses the application's web stack: both stacks are provided-scope, and
+# the enforcer execution fails the build if either reaches its compile or runtime dependencies.
+starter_web_scopes="$(
+  perl -0ne 'while (m{<dependency>(.*?)</dependency>}sg) { my $d = $1; if ($d =~ m{<artifactId>(spring-boot-starter-(?:web|webmvc|webflux|tomcat|jetty|undertow|reactor-netty)|spring-webmvc|spring-boot-(?:webmvc|webflux|tomcat|jetty|reactor-netty)|jakarta\.servlet-api|reactor-netty-http|tomcat-embed-[a-z]+)</artifactId>}) { my $a = $1; my $s = $d =~ m{<scope>([^<]+)</scope>} ? $1 : "compile"; print "$a:$s\n"; } }' "$STARTER_POM"
+)"
+if [[ "$(sort <<<"$starter_web_scopes")" != $'spring-boot-starter-web:provided\nspring-boot-starter-webflux:provided' ]]; then
+  report_pom_error "$STARTER_POM" "the starter may compile against spring-boot-starter-web and spring-boot-starter-webflux only at provided scope, found: $(tr '\n' ' ' <<<"$starter_web_scopes")"
+fi
+starter_enforcer="$(sed -n '/<artifactId>maven-enforcer-plugin<\/artifactId>/,/<\/plugin>/p' "$STARTER_POM")"
+for literal in '<id>no-web-stack</id>' '<bannedDependencies>' '<searchTransitive>true</searchTransitive>' \
+  'org.springframework.boot:spring-boot-starter-web:*:*:compile' 'org.springframework.boot:spring-boot-starter-webflux:*:*:runtime' \
+  'org.springframework.boot:spring-boot-starter-tomcat:*:*:runtime' 'org.apache.tomcat.embed:*:*:*:runtime' \
+  'jakarta.servlet:jakarta.servlet-api:*:*:compile' 'io.projectreactor.netty:reactor-netty-http:*:*:runtime' \
+  'org.springframework.boot:spring-boot-starter-jetty:*:*:compile' 'org.springframework.boot:spring-boot-starter-undertow:*:*:compile'; do
+  if ! grep -Fq -- "$literal" <<<"$starter_enforcer"; then
+    report_pom_error "$STARTER_POM" "the no-web-stack enforcer rule must keep $literal"
+  fi
+done
+
 require_order '- name: Check release workflow integrity' '- name: Set up JDK 17' \
   'release integrity must be checked before importing signing credentials or preparing a version'
 require_order './mvnw -B -ntp -Prelease clean verify' 'git commit -m "Release $TAG"' \
@@ -213,10 +399,16 @@ require_order 'git merge-base --is-ancestor "$RELEASE_SHA"' '- name: Publish to 
   'the release branch must be checked before Maven Central publication'
 require_order '- name: Smoke test published distributions' '- name: Decide documentation redeploy' \
   'the documentation redeploy decision must follow the consumer smoke tests'
-require_order 'rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"' '-f "$AGENT_SMOKE_DIR/pom.xml"' \
-  'the Java agent smoke test must resolve bootui-agent from Maven Central, after the local BootUI artifacts are dropped'
-require_order '-f "$AGENT_SMOKE_DIR/pom.xml"' '- name: Decide documentation redeploy' \
-  'the Java agent smoke test must run with the published-distribution smoke tests'
+require_order './mvnw -B -ntp -Prelease clean verify' "$STAGED_SMOKE" \
+  'the staged candidate must be smoke-tested after the verification build'
+require_order "$STAGED_SMOKE" 'git commit -m "Release $TAG"' \
+  'the staged candidate must be smoke-tested before the release commit and tag exist'
+require_order "$STAGED_SMOKE" 'echo "CANDIDATE_SMOKE_PASSED=true" >> "$GITHUB_ENV"' \
+  'only a passing pre-tag staged smoke test may skip the pre-publication one'
+require_order '- name: Checkout immutable release' '- name: Smoke test the staged release candidate' \
+  'the pre-publication staged smoke test must run from the immutable release checkout'
+require_order '- name: Smoke test the staged release candidate' '- name: Publish to Maven Central' \
+  'the staged candidate must be smoke-tested before Maven Central publication'
 require_order '- name: Decide documentation redeploy' '- name: Redeploy documentation site' \
   'the documentation redeploy decision must precede the documentation deployment'
 

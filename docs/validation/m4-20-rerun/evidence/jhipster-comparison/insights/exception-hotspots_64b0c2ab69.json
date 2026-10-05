@@ -1,0 +1,129 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:64b0c2ab69",
+    "kind": "exception-hotspots",
+    "subject": "Behind 4xx responses",
+    "status": "OBSERVED",
+    "sentence": "10 exception groups on 10 routes were recorded only behind 4xx responses: 130 occurrences in 130 requests.",
+    "eligible": 0,
+    "affected": 0,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "ca164676ba5688cc",
+      "081de37dde9239cf",
+      "a8a5ad5cb23dbe76"
+    ],
+    "evidenceRows": 10,
+    "limitations": [
+      "A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed in the previous run, is not counted here."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Route",
+    "Exception",
+    "Requests",
+    "Occurrences",
+    "Statuses"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "POST /api/authenticate",
+        "BadCredentialsException",
+        "13",
+        "13",
+        "401"
+      ]
+    },
+    {
+      "cells": [
+        "POST /api/account/reset-password/init",
+        "ConstraintViolationException",
+        "13",
+        "13",
+        "400"
+      ]
+    },
+    {
+      "cells": [
+        "GET /api/admin/users/{login}",
+        "ResponseStatusException",
+        "13",
+        "13",
+        "404"
+      ]
+    },
+    {
+      "cells": [
+        "GET /**",
+        "NoResourceFoundException",
+        "13",
+        "13",
+        "404"
+      ]
+    },
+    {
+      "cells": [
+        "POST /api/labels",
+        "MethodArgumentNotValidException",
+        "13",
+        "13",
+        "400"
+      ]
+    },
+    {
+      "cells": [
+        "GET /api/labels/{id}",
+        "ResponseStatusException",
+        "13",
+        "13",
+        "404"
+      ]
+    },
+    {
+      "cells": [
+        "POST /api/bank-accounts",
+        "MethodArgumentNotValidException",
+        "13",
+        "13",
+        "400"
+      ]
+    },
+    {
+      "cells": [
+        "GET /api/bank-accounts/{id}",
+        "ResponseStatusException",
+        "13",
+        "13",
+        "404"
+      ]
+    },
+    {
+      "cells": [
+        "POST /api/operations",
+        "MethodArgumentNotValidException",
+        "13",
+        "13",
+        "400"
+      ]
+    },
+    {
+      "cells": [
+        "GET /api/operations/{id}",
+        "ResponseStatusException",
+        "13",
+        "13",
+        "404"
+      ]
+    }
+  ],
+  "truncated": 0
+}

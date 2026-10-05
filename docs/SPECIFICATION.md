@@ -4,8 +4,8 @@
 
 BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
 running application. It runs on **Spring Boot 4 (servlet or WebFlux) and Quarkus** from a single codebase: each stack
-ships a thin adapter — a Spring Boot starter (`bootui-spring-boot-starter` for servlet, `bootui-spring-boot-starter-reactive`
-for WebFlux) or a Quarkus extension — over a shared, framework-neutral engine, so all three serve the
+ships a thin adapter — one Spring Boot starter (`bootui-spring-boot-starter`, for servlet and WebFlux alike) or a
+Quarkus extension — over a shared, framework-neutral engine, so all three serve the
 **same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
 Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development
 loop of a single application.
@@ -780,13 +780,16 @@ Acceptance criteria:
 
 ### 5.7.5 Side Effects
 
-Purpose: answer "Which processes and other side effects did this route or background work start?"
+Purpose: answer "Which processes, hosts, and other side effects did this route or background work start or reach?"
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. In M5-5a only the `processes` sensor records. The
-  `network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, and `security-sinks`
-  sensors are still listed but report `not-available` with reason `Not available in this version.`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
+  sensors record by default, and `files` and `environment` (M5-5d) when opted in. The `thread-activity`,
+  `thread-locals`, `resources`, `blocking`, and `security-sinks` sensors are still listed but report `not-available`
+  with reason `Not available in this version.`
+- The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
+  whether a panel captured a network connection's work.
 - The runtime journal's HTTP exchange names the request route. If it is disabled, route rows merge under
   `(route hidden: HTTP Exchanges is disabled)` and expose no request ids.
 - The Code Paths stamp, when the Code Paths panel is enabled and the `code-paths` sensor is active, names the bean
@@ -810,19 +813,57 @@ Features:
   or environment, and also records start failure, exit status, and lifetime when watched. Starts are published at once;
   exits are attributed as their starts were and carry the start time. Exits are watched on the agent-owned
   `bootui-agent-process-exits` executor, with at most 1,024 watched at once.
-- BootUI's own process starts, agent threads, BootUI threads, reentrant inner hooks, and starts during class
-  transformation are not recorded. A failed self-test disables the sensor and removes its transformer. After 100
-  internal side-effect-sensor errors, the sensors switch off for the JVM's life. The side-effect ring holds 1,024
-  records; the per-thread aggregation table is for hotter sensors in later slices.
+- The `network` sensor hooks `Socket.connect(SocketAddress, int)`, `SocketChannelImpl.connect`, `blockingConnect`, and
+  `finishConnect`, `DatagramChannelImpl.send`, `DatagramSocket.send`, and `InetAddress.getAddressesFromNameService`
+  (a JVM address-cache miss). It records a host string and port, never resolved, without user information, sanitized,
+  at most 128 characters and 1,024 distinct targets a run, or a looked-up name; connect, send, and resolution time; the
+  outcome; and the client recognized in the engine, infrastructure first (an exporter's, shipper's, or container
+  tool's frame, never OpenTelemetry's instrumentation; an exporter thread; a configured exporter endpoint; DNS), then
+  from the first frame outside the socket plumbing and the call site's frames, then a well-known infrastructure port,
+  then the thread family. It never reads a byte sent or received. Connects and lookups are published at once; a
+  non-blocking connect is pending until its `finishConnect` record, which carries its owner and time; a datagram's
+  first send per target and call site is published at once and the next ones counted in the thread's table.
+- A network connection or datagram row is `captured` (with the panel id), `not-captured` (no visible panel shows the
+  work), or `infrastructure` (DNS resolvers, telemetry exporters, metrics and log shippers, container tooling). A
+  JDBC, messaging, or mail client's is captured while SQL Trace, the broker's panel, or Email is available and enabled,
+  decided on read. Any other is captured when a REST client call of the same request or execution, or, unowned,
+  at the same time with a second of slack, names its host and port, or a configured proxy; it waits for that until its
+  request was named plus 2 seconds (or the connect, when later), an execution's 60 seconds, unowned 10 seconds, 60 for a
+  recognized HTTP client; a finish record is decided as its connect was. A datagram's owner comes from the thread's
+  slot only, which a request scope fills even without code paths; an event loop never captures an owner. The runtime model gains observed `OPENS` edges from routes,
+  scheduled jobs, and beans to `HOST` nodes keyed `host:port`, hidden with the panel; change impact never walks them.
+- The `files` sensor hooks `FileInputStream`, `FileOutputStream`, and `RandomAccessFile`'s private `open` methods, the
+  `Files` methods that open (`newByteChannel`, `newInputStream`, `newOutputStream`), delete, move, and copy, and
+  `FileChannel.open`. The agent turns each path into a pattern before it leaves the hook: the working directory as `.`,
+  the temporary directory as `$TMPDIR`, the home as `~`, another user's home as `*`, ids collapsed to `{token}`,
+  `{uuid}`, `{hex}`, `{id}` (12 or more characters mixing letters and digits, or 24 or more letters mixing cases), and
+  `{n}`; the engine masks a segment its secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL).
+  Class files, archives, archive file systems, Java's home, class path directories, and any other file a class loader
+  reads are counted in buckets. Each row has a kind (`read`,
+  `write`, `delete`, `move from`, `move to`, `copy from`, `copy to`), a location (`working-directory`,
+  `temporary-directory`, `home`, `system`, `elsewhere`), and an origin (`application`, `library`, `class-path`, `jdk`,
+  `logging`, `unknown`); class path, JDK, and logging rows are grouped apart. Never contents.
+- The opt-in `environment` sensor hooks `System.getenv` and `System.getProperty` at entry, records a name the first time
+  a thread reads it for a request or execution, drops reads whose immediate caller is the JDK, and never records a
+  value or a default.
+- The runtime model also gains `FILE_PATTERN` and `ENVIRONMENT_VARIABLE` nodes, with `OPENS` and `READS` edges from
+  routes, GraphQL operations, and scheduled jobs, for application rows, while Side Effects is visible; change impact's
+  closure and its route reads and writes ignore them.
+- BootUI's own process starts and connections (its JDK `HttpClient`s run on a `bootui-http-N` executor), agent
+  threads, BootUI threads, reentrant inner hooks, and work during class transformation are not recorded, nor is the
+  JDK's own loopback pair. A hook that fails its self-test is left out and its sensor keeps recording; a failing core
+  hook disables only its sensor, and the transformer is reinstalled with the others. After 100 internal
+  side-effect-sensor errors, the sensors switch off for the JVM's life. The side-effect ring holds 1,024 records. File operations and environment reads in a
+  request scope aggregate in the thread's table and flush when it ends.
 - Rows are keyed by attribution, sensor, kind, normalized target, call site, and bean method stamp when available.
   Attribution prefers request route, then the execution no request owns as its journal event names it (a scheduled
   run, a consumed message, a WebSocket message; `work no request owns` when never named), startup, thread family with
   digits collapsed, and finally unattributed. A request whose route is still unknown after 30 seconds counts under `(unknown route)`. Inline
   work owned by another request remains attributed to that other request through a small per-thread owner stack. Targets
   normalize the home directory to `~`, UUIDs to `{uuid}`, long hex runs with a digit to `{hex}`, and digit runs to
-  `{n}`. The call site is the first frame in the application's packages, else the first frame outside the JDK.
+  `{n}`, except network targets, which keep their digits. The call site is the first frame in the application's packages, else the first frame outside the JDK.
 - Each row reports count, failed, completed, non-zero exits, last exit status, total and longest lifetime, first and
-  last seen, and up to three exemplar request ids. Rows are capped at 500 per sensor and 2,000 per run, with the rest
+  last seen, and up to three exemplar request ids; a network row also its client, `capture`, and `capturedBy`. Rows are capped at 500 per sensor and 2,000 per run, with the rest
   counted in that sensor's Other row. Up to 10,000 observations wait for a route. Side Effects is an AgentEvidence store:
   Clear recording and Free BootUI memory clear its rows, records still in the agent with a first occurrence before the
   clear are dropped by a watermark, the panel says `The recording was cleared`, and journal status reports
@@ -834,7 +875,7 @@ Features:
   hooks, and limitations. `GET /bootui/api/side-effects/sensor?sensor=<id>&offset=&limit=` returns one sensor's rows,
   most frequent first, with a default limit of 100 and maximum of 500; an unknown sensor id is `400` with `{error}`.
   `get_side_effects` and `bootui side-effects` take `query` and `limit` (20 by default) and return every sensor's
-  coverage followed by matching rows, most frequent first.
+  coverage followed by matching rows, most frequent first; `query` `not captured` lists the hidden outbound calls.
 
 Acceptance criteria:
 
@@ -844,7 +885,16 @@ Acceptance criteria:
 - With the agent and `side-effects-seed.scheduled-every` set, the Quarkus sample's scheduled
   `ScheduledJavaVersion#report` run shows a `java` process row of scope `execution`, named as the runtime journal names
   that scheduled run, with no exemplar request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, and `processes`; `threads` remains opt-in.
+- With the agent, the three samples' `GET /api/side-effects/sdk-call` shows a `connect` row to `localhost:<port>` from
+  `LicenseSdkClient#check` that is `not-captured`, and its request header never appears; the counterexample
+  `GET /api/side-effects/rest-call`, through the recorded REST client, shows no `not-captured` row.
+- With the agent, `GET /api/side-effects/report` on the three samples shows a `write` of
+  `./target/bootui-side-effects/report-{n}-{n}-{n}.csv` (working directory, application origin) attributed to the
+  route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
+  value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
+  `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `network`; `threads`,
+  `files`, and `environment` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.
@@ -2843,11 +2893,8 @@ BootUI/
 ├── bootui-engine/
 ├── bootui-conformance/
 ├── bootui-ui/
-├── bootui-client/
 ├── bootui-cli/
-├── bootui-spring-autoconfigure/
 ├── bootui-spring-boot-starter/
-├── bootui-spring-boot-starter-reactive/
 ├── bootui-spring-sample-app/
 ├── bootui-spring-webflux-sample-app/
 ├── bootui-quarkus-parent/
@@ -2869,18 +2916,19 @@ Shared modules:
 - `bootui-conformance`: the shared HTTP contract suite and golden panel manifests run against every adapter.
 - `bootui-ui`: the Vue 3 / Composition API / Vite / Bootstrap 5.3 SPA, built once into
   `META-INF/resources/bootui/` and served unchanged by every adapter.
-- `bootui-client`: the dependency-free client for the command-line endpoint — URL and token handling, tool invocation,
-  outcome mapping, and an opaque JSON tree. Depends on nothing, not even `bootui-core`, so it stays version-compatible
-  with applications it was not built against.
 - `bootui-cli`: the `bootui` command-line interface, a picocli tree generated from the engine's tool catalog and
-  published as a runnable uber-jar.
+  published as a runnable uber-jar (the `all` classifier), together with the dependency-free client for the
+  command-line endpoint, the `io.github.jdubois.bootui.client` package — URL and token handling, tool invocation,
+  outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even `bootui-core` or
+  picocli, so it stays version-compatible with applications it was not built against; picocli is an optional
+  dependency of `bootui-cli`, so tooling that depends on it for the client gets no dependency at all.
 
 Spring Boot modules:
 
-- `bootui-spring-autoconfigure`: shared Spring MVC/WebFlux auto-configuration, thin endpoint bindings, Spring SPI
-  implementations, safety filters, and Spring bootstrap integrations.
-- `bootui-spring-boot-starter`: drop-in Spring MVC/servlet starter.
-- `bootui-spring-boot-starter-reactive`: drop-in Spring WebFlux/reactive starter.
+- `bootui-spring-boot-starter`: the drop-in Spring MVC and Spring WebFlux starter: shared auto-configuration, thin
+  endpoint bindings, Spring SPI implementations, safety filters, Spring bootstrap integrations, and the bundled UI. It
+  brings no web stack, so the application's own `spring-boot-starter-web` or `spring-boot-starter-webflux` decides
+  which binding activates.
 - `bootui-spring-sample-app`: Spring MVC reference app and Playwright end-to-end suite.
 - `bootui-spring-webflux-sample-app`: Spring WebFlux reference app and conformance target.
 
@@ -2893,8 +2941,10 @@ Quarkus modules:
 - `bootui-quarkus-sample-app`: Quarkus reference app.
 
 Dependency direction is one-way: `bootui-engine` depends on `bootui-core`, and each framework adapter depends on both.
-`bootui-client` sits outside that chain entirely and depends on nothing; `bootui-cli` depends on it and on picocli, and
-on `bootui-engine` only in test scope, to generate its command manifest.
+`bootui-cli` sits outside that chain entirely: its client package depends on nothing, its command line on picocli
+(optional), and it uses `bootui-engine` only in test scope, to generate its command manifest. Maven Central receives
+eight coordinates, each with a flattened, parentless POM: `bootui-core`, `bootui-engine`, `bootui-ui`,
+`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`.
 The shared `core`, `engine`, `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing and
 serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
 
@@ -3431,8 +3481,10 @@ Design rules:
 ### 6.9 The `bootui` command-line interface
 
 `bootui-cli` is the terminal front-end over that endpoint: one subcommand per tool, `--json` for the exact payload,
-and an exit code a script can branch on. `bootui-client` is the transport underneath it, kept separate so a future
-Maven plugin or third-party tooling has the same foundation without inheriting a CLI's argument parsing.
+and an exit code a script can branch on. The transport underneath it is the dependency-free
+`io.github.jdubois.bootui.client` package of the same artifact, so a future Maven plugin or third-party tooling has the
+same foundation without inheriting a CLI's argument parsing: picocli is an optional dependency of `bootui-cli`, and the
+runnable CLI is the shaded `bootui-cli-<version>-all.jar`, never the thin jar.
 
 Design rules:
 
@@ -3442,8 +3494,8 @@ Design rules:
   over the catalog. Adding an MCP tool without giving it a command therefore fails the build, and a hand-written
   command for a tool that no longer exists cannot survive either. A second test runs every command against a stub and
   asserts it reaches the tool it claims to, so a tree that builds but shadows a leaf is caught as well.
-- **No compile-time coupling to BootUI's types.** `bootui-client` depends on nothing — not `bootui-core`, not Jackson,
-  not an HTTP library beyond the JDK's — and treats payloads as opaque JSON re-emitted verbatim. A CLI from one
+- **No compile-time coupling to BootUI's types.** The client package depends on nothing — not `bootui-core`, not
+  Jackson, not picocli, not an HTTP library beyond the JDK's, enforced by `ClientDependencyTests` — and treats payloads as opaque JSON re-emitted verbatim. A CLI from one
   release has to keep working against an application running another, which rules out sharing DTO records with it.
   The engine is a *test-scoped* dependency of `bootui-cli`, used only to generate the manifest.
 - **Runtime discovery is authoritative.** The bundled manifest exists so `--help` works with nothing running. What a

@@ -1,0 +1,38 @@
+{
+  "available": true,
+  "columns": [
+    "Method",
+    "Change",
+    "This run"
+  ],
+  "observation": {
+    "affected": 1,
+    "eligible": 2,
+    "evidenceRows": 1,
+    "id": "changed-code-not-executed:ed332e0635",
+    "kind": "changed-code-not-executed",
+    "limitations": [
+      "Methods called before BootUI claimed the agent are not seen: the main class's early work and anything that ran before the claim may read as never executed.",
+      "Routes that executed this class's methods in this run: GET /, GET /api/villains/{id}, GET /api/villains/random, POST /api/villains, PUT /api/villains/{id}, and others."
+    ],
+    "listed": true,
+    "minimumTier": "REQUEST_ID",
+    "sentence": "Your change has not run yet: 1 changed method of `VillainService` was not executed in this run.",
+    "status": "OBSERVED",
+    "subject": "io.quarkus.sample.superheroes.villain.service.VillainService",
+    "whatToCheck": [
+      "Send a request to a route that ran this class's other methods, such as `GET /`, or run the test that reaches it.",
+      "If it still does not run, check that the code path that should call it is wired: the right bean, route, or condition."
+    ]
+  },
+  "rows": [
+    {
+      "cells": [
+        "VillainService.deleteAllVillains()V",
+        "changed",
+        "not executed in this run"
+      ]
+    }
+  ],
+  "truncated": 0
+}

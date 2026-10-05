@@ -1,0 +1,197 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:6f0b2c75f0",
+    "kind": "exception-hotspots",
+    "subject": "GET /api/authorities/{id}",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/authorities/{id}` recorded `ResponseStatusException` in 24 of 48 requests (24 occurrences).",
+    "eligible": 48,
+    "affected": 24,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "ce30947bfee9714b",
+      "2deec5bc2b6b7262",
+      "bbbca1f9bb431ddd"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Exceptions a WebFlux handler handles itself, such as with onErrorResume, are not recorded."
+    ],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "ce30947bfee9714b",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "2deec5bc2b6b7262",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "bbbca1f9bb431ddd",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "faad3122c467b270",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "b8a241f9b161f5a8",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "b142c427062f78dd",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "504db5acdb2bdf6e",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "9df98455d1512284",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "3bee4154af3fe00f",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "0eb150b33490c412",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "535da4897ef3521f",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "c0471ac3bd9102f9",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "2e4022942548f9be",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "c8896b26572263d0",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "49baea705959b2c5",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "73a8e42f9181d605",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "6f570c6fc96da56d",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "404bc3be546fa215",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "d3b0357042369bc2",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    },
+    {
+      "cells": [
+        "92840edb5c2b998e",
+        "404",
+        "1",
+        "19bc573e64816f28"
+      ]
+    }
+  ],
+  "truncated": 4
+}

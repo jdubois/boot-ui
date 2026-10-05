@@ -22,7 +22,7 @@ Before changing anything:
 4. Find the runnable module, active development profile, configured HTTP port, and existing BootUI dependency.
 5. Run the project's existing focused tests before and after changes when practical.
 
-Do not add both Spring starters. Do not add a Spring starter to Quarkus or the Quarkus extension to Spring.
+Do not add a Spring web starter for BootUI's sake; keep the application's own. Do not add the Spring starter to Quarkus or the Quarkus extension to Spring.
 
 ## Install BootUI
 
@@ -37,9 +37,12 @@ Choose exactly one dependency:
 
 | Application | Maven coordinates |
 | --- | --- |
-| Spring Boot servlet | `com.julien-dubois.bootui:bootui-spring-boot-starter` |
-| Spring Boot WebFlux | `com.julien-dubois.bootui:bootui-spring-boot-starter-reactive` |
+| Spring Boot (Spring MVC or WebFlux) | `com.julien-dubois.bootui:bootui-spring-boot-starter` |
 | Quarkus | `com.julien-dubois.bootui:bootui-quarkus` |
+
+The Spring starter brings no web stack: keep the application's own `spring-boot-starter-web` or
+`spring-boot-starter-webflux`, which decides the stack BootUI binds to. Before BootUI 2.0, WebFlux applications used
+`bootui-spring-boot-starter-reactive` instead.
 
 For Spring, prefer a runtime-only Gradle configuration when that matches the build. The Quarkus extension may remain an
 implementation dependency. Do not add `bootui-quarkus-deployment` directly.
@@ -137,7 +140,7 @@ bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
 bootui code paths --json                        # with the agent: which methods each route spends its time in
-bootui side-effects --json                      # with the agent: which processes routes or background work started
+bootui side-effects --json                      # with the agent: processes, hosts, files, env reads per route or work
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -216,9 +219,13 @@ assembly only.
 
 With the agent attached, run `bootui side-effects --json` (`get_side_effects`): every sensor's coverage first, then the
 most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
-environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`. Pass
-`--query processes`, a route, target, or call site to narrow it. Non-process sensor groups are listed as not available
-in this version.
+environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`; `network`
+records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
+recognized from the calling frames, never a byte sent or received; the opt-in `files` records path patterns (`./` working
+directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
+opt-in `environment` records variable and property names, never values. Pass `--query not-captured` to list the
+outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, a route, target,
+client, or call site to narrow it. The other sensor groups are listed as not available in this version.
 
 ### Read MySQL operational evidence
 

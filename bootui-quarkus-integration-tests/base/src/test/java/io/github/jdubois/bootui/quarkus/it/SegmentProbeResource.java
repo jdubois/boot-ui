@@ -12,9 +12,14 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.jboss.resteasy.reactive.server.core.CurrentRequestManager;
 
 /**
@@ -25,12 +30,18 @@ import org.jboss.resteasy.reactive.server.core.CurrentRequestManager;
  * <p>The probe registers its completion callback from the resource method, so it runs <em>after</em> BootUI's, which
  * a request filter registered first. A reading of {@code none} therefore means BootUI had already stopped metering
  * the worker; the request's own id means the worker went back to its pool still charged to the finished request.</p>
+ *
+ * <p>Quarkus may run that callback only after the client has received the response, so a reading is read back by
+ * waiting, bounded, for the one the latest call of its probe records.</p>
  */
 @Path("/it/segments")
 public class SegmentProbeResource {
 
-    /** The last reading of each probe, by name, so the test can read it back over HTTP. */
-    private static final Map<String, String> OBSERVED = new ConcurrentHashMap<>();
+    /** The reading of the latest call of each probe, by name, so the test can read it back over HTTP. */
+    private static final Map<String, CompletableFuture<String>> OBSERVED = new ConcurrentHashMap<>();
+
+    /** How long a read back waits for the completion callback of the probe's latest call. */
+    private static final Duration READING_TIMEOUT = Duration.ofSeconds(10);
 
     private static final String NONE = "none";
 
@@ -55,8 +66,18 @@ public class SegmentProbeResource {
     @Path("/observed/{probe}")
     @Blocking
     @Produces(MediaType.TEXT_PLAIN)
-    public String observed(@PathParam("probe") String probe) {
-        return OBSERVED.getOrDefault(probe, "missing");
+    public String observed(@PathParam("probe") String probe) throws InterruptedException {
+        CompletableFuture<String> reading = OBSERVED.get(probe);
+        if (reading == null) {
+            return "missing";
+        }
+        try {
+            return reading.get(READING_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            return "missing";
+        } catch (ExecutionException ex) {
+            throw new IllegalStateException(ex.getCause());
+        }
     }
 
     /**
@@ -64,11 +85,13 @@ public class SegmentProbeResource {
      * it, as {@code <inMethod>|<atCompletion>|<completedOnTheSameThread>}.
      */
     private static String observe(String probe) {
+        CompletableFuture<String> reading = new CompletableFuture<>();
+        OBSERVED.put(probe, reading);
         Thread worker = Thread.currentThread();
         String inMethod = metered();
         CurrentRequestManager.get()
                 .registerCompletionCallback(throwable ->
-                        OBSERVED.put(probe, inMethod + "|" + metered() + "|" + (Thread.currentThread() == worker)));
+                        reading.complete(inMethod + "|" + metered() + "|" + (Thread.currentThread() == worker)));
         return inMethod;
     }
 

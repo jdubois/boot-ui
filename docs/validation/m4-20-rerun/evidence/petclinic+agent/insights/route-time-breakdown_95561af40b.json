@@ -1,0 +1,63 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:95561af40b",
+    "kind": "route-time-breakdown",
+    "subject": "GET /oups",
+    "status": "OBSERVED",
+    "sentence": "`GET /oups`: warm median 0.4 ms over 183 requests; Other filters 51 %, Other handler time 44 %, Handler: CrashController.triggerException 5 %. Median CPU 0.4 ms and 90 KB allocated per request.",
+    "eligible": 183,
+    "affected": 183,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in filters before the handler: check what they do per request.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "5456437888bbcc2a",
+      "f5d8841d600bf578",
+      "85c3598bd8d63015"
+    ],
+    "evidenceRows": 3,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 299 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "34",
+        "51 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: CrashController.triggerException",
+        "3.2",
+        "5 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "30",
+        "44 %",
+        "0.2"
+      ]
+    }
+  ],
+  "truncated": 0
+}

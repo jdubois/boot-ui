@@ -87,17 +87,23 @@ turn, the sidebar tooltip and the panel's own alert banner (§6.7). `docs/featur
 
 ```text
 bootui-core / bootui-engine / bootui-ui        Unchanged — reused by all three adapters
-bootui-spring-autoconfigure                    Shared Spring module: servlet AND reactive bindings both live here
+bootui-spring-boot-starter                     The one Spring module and starter: servlet AND reactive bindings both live here
   ...autoconfigure.web                         Servlet @RestControllers (framework-neutral; reused unmodified by both)
   ...autoconfigure.reactive                    Reactive-only bindings: WebFilters, the two new @Configuration classes,
                                                 and the handful of Reactive* controllers that needed a genuine rewrite
-bootui-spring-boot-starter                     Drop-in servlet starter (Tomcat + MVC) — unchanged
-bootui-spring-boot-starter-reactive            New drop-in reactive starter (Netty + WebFlux), this effort's Phase 0
-bootui-spring-webflux-sample-app               New reference WebFlux app for demos + conformance + e2e (Phase 5)
+bootui-spring-webflux-sample-app               Reference WebFlux app for demos + conformance + e2e (Phase 5)
 ```
 
+Until 2.0, the auto-configuration was its own `bootui-spring-autoconfigure` module, with a servlet starter that pulled in
+`spring-boot-starter-web` and a `bootui-spring-boot-starter-reactive` that pulled in `spring-boot-starter-webflux`.
+BootUI 2.0 publishes one `bootui-spring-boot-starter` that pulls in neither: the application's own web starter decides,
+so a WebFlux application can no longer become a servlet one by adding BootUI. Both stacks are `provided` in the
+starter, and a `no-web-stack` enforcer rule fails its build if any servlet or reactive web-server artifact reaches its
+compile or runtime dependencies. `WebFluxApplicationTypeIntegrationTest` and the release consumer smoke tests pin a
+WebFlux application to `REACTIVE` on Netty with no Servlet API or Tomcat on its classpath.
+
 `BootUiAutoConfiguration` (servlet) and `BootUiReactiveAutoConfiguration` (reactive) are two separate autoconfigurations
-in the same `bootui-spring-autoconfigure` module — not two modules — because nearly all of the underlying
+in the same module — not two modules — because nearly all of the underlying
 `@RestController`s, safety decisions, and engine wiring are identical. Only the request/response binding and the
 streaming primitive genuinely differ per stack. Spring Boot's `WebApplicationType` deduction makes the two mutually
 exclusive: a running application is either `SERVLET` or `REACTIVE`, never both, so exactly one activates.
@@ -205,7 +211,10 @@ were already framework-neutral in practice, not just in the engine underneath th
     armed for the run and the bridge supports Side Effects. The WebFlux adapter records a process attributed through
     the request's context when it starts on a thread carrying BootUI's context, captured at the start since the
     request scope's owner slot is not yet filled on the schedulers Reactor restores the context on (pending for the
-    hot sensors of later slices); otherwise the row is attributed under its thread family. M5-5a records only `processes`; the other sensor groups are listed as not available in this
+    hot sensors of later slices); otherwise the row is attributed under its thread family. The `network` sensor
+    (M5-5b) records connects, datagrams, and lookups the same way; a WebClient's connect on a Reactor Netty event loop
+    is unowned and captured by a REST client call at the same time. The opt-in `files` and `environment` sensors
+    (M5-5d) capture the owner when no slot names one, too. The other sensor groups are listed as not available in this
     version.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
@@ -288,7 +297,7 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 
 | Panel          | Reactive binding                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and `BootUiHttpExchangesWebFilter`, a subclass of Actuator's reactive `HttpExchangesWebFilter`, instead of the servlet filter — same DTO, same UI, same capture semantics, including skipping BootUI's own requests below the WebFlux base path and the shared `bootui.activity.request-slow-threshold-ms`. Route rankings take the WebFlux handler pattern from `HttpExchangeTraceRegistry`, which `ReactiveHttpExchangeTraceFilter` fills only when OpenTelemetry is present, as it is with the reactive starter. Without OpenTelemetry, a path is matched against the WebFlux routes the Mappings provider reads from Actuator's `dispatcherHandlers` descriptions, as on Spring MVC; a path no declared route matches falls back to a masked path, and the rankings state that limitation |
+| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and `BootUiHttpExchangesWebFilter`, a subclass of Actuator's reactive `HttpExchangesWebFilter`, instead of the servlet filter — same DTO, same UI, same capture semantics, including skipping BootUI's own requests below the WebFlux base path and the shared `bootui.activity.request-slow-threshold-ms`. Route rankings take the WebFlux handler pattern from `HttpExchangeTraceRegistry`, which `ReactiveHttpExchangeTraceFilter` fills only when OpenTelemetry is present, as it is with the BootUI starter. Without OpenTelemetry, a path is matched against the WebFlux routes the Mappings provider reads from Actuator's `dispatcherHandlers` descriptions, as on Spring MVC; a path no declared route matches falls back to a masked path, and the rankings state that limitation |
 | MCP Server     | `ReactiveBootUiMcpController` — same `BootUiMcpService`, `McpServerState`, and `McpProtocol` as the servlet `BootUiMcpController`; only the transport differs (`DataBuffer` payload assembly with the same `bootui.mcp.max-payload-bytes` limit, and tool execution offloaded to `Schedulers.boundedElastic()`) |
 | Command Line   | `ReactiveBootUiCliController` — same `CliService` and the same `/bootui/api/cli` contract and statuses as the servlet `BootUiCliController`, with tool invocation offloaded to `Schedulers.boundedElastic()` because BootUI's tools call blocking diagnostics |
 
@@ -605,7 +614,7 @@ response, but A01 servlet coverage is `NOT_APPLICABLE` and no-finding mixed-cate
 `INFO` wording. The reactive Security advisor owns `SecurityWebFilterChain`, reactive CORS, and route-policy review. The
 collector uses `spring.webflux.base-path` for the validated loopback target instead of the servlet-only
 `server.servlet.context-path`, and inactive servlet session settings do not produce findings. This is the same defensive
-pattern the rest of the codebase uses for optional-dependency adapters — the reactive starter was simply the first
+pattern the rest of the codebase uses for optional-dependency adapters — WebFlux was simply the first
 Spring-side consumer where an MVC type can be genuinely absent from
 the classpath, not just absent as a bean.
 

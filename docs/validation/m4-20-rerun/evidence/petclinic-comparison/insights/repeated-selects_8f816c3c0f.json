@@ -1,0 +1,242 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "repeated-selects:8f816c3c0f",
+    "kind": "repeated-selects",
+    "subject": "GET /owners/{ownerId}/pets/new",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/{ownerId}/pets/new` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 183 of 183 requests, up to 7 times in one.",
+    "eligible": 183,
+    "affected": 183,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+      "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+    ],
+    "exemplarRequestIds": [
+      "7a212018531a581f",
+      "2c10c23846905fd2",
+      "0173e2cc8b43fab6"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Counts statements the request ran; a statement Hibernate batches counts once.",
+      "Whether the repeat count tracks a parent result size is not recorded: statements carry no row count.",
+      "Total repeat time is 3.9 ms, summed across affected requests."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Executions",
+    "Time (ms)",
+    "Call site",
+    "Phase",
+    "In transaction"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "7a212018531a581f",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "2c10c23846905fd2",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "0173e2cc8b43fab6",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "4bd31c3bd9cf1fb4",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "a099962b0c672c82",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "ec76fdb27dd93da2",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "ff0341df9904a874",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "932b120c8137a164",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "2dbf3e6fcd6e1e95",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "2be7acf8c2137d09",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "1637092023a09793",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "c1e33dc1812bff9b",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "82af1397ebaffcaf",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "0b22bf1996ad810f",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "f83672864368b02c",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "7313507a2919dd6b",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "8d18eb5388086744",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "28410f936b7b4e88",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "fa6b5e20016f78d5",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    },
+    {
+      "cells": [
+        "2a971ff435ba9faa",
+        "7",
+        "0.0",
+        "org.springframework.samples.petclinic.owner.PetController.populatePetTypes(PetController.java:64)",
+        "mixed",
+        "no"
+      ]
+    }
+  ],
+  "truncated": 163
+}

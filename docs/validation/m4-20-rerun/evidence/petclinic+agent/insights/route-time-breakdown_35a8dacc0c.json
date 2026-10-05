@@ -1,0 +1,119 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:35a8dacc0c",
+    "kind": "route-time-breakdown",
+    "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+    "status": "OBSERVED",
+    "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit`: warm median 5.8 ms over 184 requests; Response write 67 %, Handler: PetController.findOwner 11 %, Handler: PetController.findPet 7 %. Median CPU 5.8 ms and 1.2 MB allocated per request.",
+    "eligible": 184,
+    "affected": 184,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "ca0665794a4a64ab",
+      "34db44d340e79db1",
+      "ac416e553b2989e1"
+    ],
+    "evidenceRows": 10,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 299 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "60",
+        "5 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "2.8",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "15",
+        "1 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: PetController.findOwner",
+        "129",
+        "11 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: PetController.findPet",
+        "74",
+        "7 %",
+        "0.4"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: PetController.populatePetTypes",
+        "52",
+        "5 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: PetController.initOwnerBinder",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: PetController.initPetBinder",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "38",
+        "3 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "766",
+        "67 %",
+        "3.9"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -7,15 +7,28 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
 - Use `.github/workflows/release.yml` for version bumps. It must update Maven versions, `README.md`, `docs/SETUP.md`,
   and every npm package and lock file.
 - Keep `quarkus.platform.version` independent from the BootUI project version.
-- Published artifacts are the parent POM, core, engine, UI, Spring autoconfigure, both Spring starters (MVC and
-  reactive), Quarkus parent, Quarkus runtime, Quarkus deployment, `bootui-client`, `bootui-cli`, and the `bootui-agent`
-  `-javaagent` jar. Sample apps, integration tests, coverage, and conformance must retain `maven.deploy.skip=true`,
-  remain in the Central plugin's `excludeArtifacts` list, and stay outside the publication-only reactor in
-  `release.yml`.
+- Exactly eight coordinates are published: `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`
+  (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux), `bootui-quarkus`,
+  `bootui-quarkus-deployment`, `bootui-cli` (the CLI and its dependency-free client package, plus the shaded `all`
+  classifier), and the `bootui-agent` `-javaagent` jar. The same list lives in `release.yml`'s availability poll,
+  `check-central-bundle.py`, `consumer-smoke-tests.sh`, and `check-release-integrity.sh`; change them together.
+- Neither `bootui-parent` nor `bootui-quarkus-parent` is published. Each published module declares
+  `flatten-maven-plugin` (configured in the root POM, `ossrh` mode), so its installed and published POM has no
+  `<parent>`, resolved dependency versions, scopes, optional flags and exclusions, and the root's Central metadata.
+  The flattened POM stays beside `pom.xml`: Quarkus 3.33 breaks in-reactor builds when it lives under `target/`. A new
+  published module must declare the plugin too. Both parents stay in the publication reactor and in `excludeArtifacts`.
+- Sample apps, integration tests, coverage, and conformance must retain `maven.deploy.skip=true`, remain in the Central
+  plugin's `excludeArtifacts` list, and stay outside the publication-only reactor in `release.yml`.
+- The consumer smoke tests live in `.github/scripts/consumer-smoke-tests.sh` and run three times:
+  `stage-release-candidate.sh` stages the exact Central bundle (unsigned, uploaded only to a loopback stand-in) as a file repository
+  inside the pre-tag verification build and again from the immutable tagged checkout before publication, and the
+  script then runs against Maven Central after publication. Every run requires each resolved BootUI file to come from
+  the source under test and the consumers to resolve exactly the published coordinates. `build.yml`'s
+  `release-candidate` job runs the staged smoke on every change.
 - `bootui-agent-bridge` is built but never published: `bootui-agent` shades it in and declares it, like Byte Buddy,
-  `<optional>`. It is the one non-distribution module inside the publication-only reactor, so it keeps
-  `maven.deploy.skip=true` and its `excludeArtifacts` entry, and is never polled on Maven Central. After publication,
-  `release.yml` resolves `bootui-agent` from Maven Central in a standalone consumer project, fails unless its runtime
+  `<optional>`. It is the one non-distribution jar module inside the publication-only reactor, so it keeps
+  `maven.deploy.skip=true` and its `excludeArtifacts` entry, and is never polled on Maven Central. The consumer smoke tests
+  resolve `bootui-agent` in a standalone consumer project, fails unless its runtime
   classpath is the agent jar alone, and runs `java -javaagent:<jar> -version` on the Java 17 baseline, requiring exit
   code 0 and the `[BootUI agent] BootUI agent <version> attached (javaagent); dormant until BootUI claims it` line.
 - The release also rewrites the `bootui-cli` coordinate in `jbang-catalog.json`, `README.md`, and `docs/CLI.md`, and
@@ -24,8 +37,8 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   must change together; `release.yml` verifies the `bootui-cli-${VERSION}-all.jar` is published.
 - Every published jar module attaches an empty placeholder `javadoc.jar` during `package`, before release-profile
   signing at `verify`; Maven Central requires the file, not generated Javadoc. The release profile's
-  `attach-empty-javadocs` execution covers modules with build output, and the source-less modules (`bootui-ui`,
-  `bootui-spring-boot-starter`, and `bootui-spring-boot-starter-reactive`) keep their own execution with the same id.
+  `attach-empty-javadocs` execution covers modules with build output, and the source-less `bootui-ui` keeps its own
+  execution with the same id.
 - Preserve the immutable source-first workflow sequence: prepare and verify the versioned working tree; commit the exact
   release contents; refuse to continue if the source branch advanced; create and verify a GPG-signed annotated tag; then
   atomically push the release commit and tag before any publication. Publish, verify, smoke-test, and deploy documentation

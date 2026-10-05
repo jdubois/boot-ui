@@ -26,14 +26,12 @@ participating you are expected to uphold this code.
 ```
 bootui-core/                         Shared DTOs, secret masking, and core helpers
 bootui-engine/                       Framework-neutral services/advisors and SPI ports
-bootui-spring-autoconfigure/         Spring MVC + WebFlux adapter (auto-config, endpoints, safety)
-bootui-spring-boot-starter/          Spring MVC starter
-bootui-spring-boot-starter-reactive/ Spring WebFlux starter
+bootui-spring-boot-starter/          Spring MVC + WebFlux adapter and starter (auto-config, endpoints, safety)
 bootui-ui/                           Vue 3 SPA bundled into META-INF/resources/bootui
 bootui-conformance/                  Shared HTTP contract suite + golden manifests for all adapters
 bootui-coverage/                     Aggregated coverage report (coverage profile only)
-bootui-client/                       Dependency-free client for the command-line endpoint
-bootui-cli/                          The `bootui` CLI, projected from the engine's MCP tool catalog
+bootui-cli/                          The `bootui` CLI, projected from the engine's MCP tool catalog, and its
+                                     dependency-free client package
 bootui-agent-bridge/                 JDK-only agent/engine contract, shaded into bootui-agent (never published)
 bootui-agent/                        The optional `-javaagent` jar, dormant until BootUI claims it
 bootui-spring-sample-app/            Reference Spring MVC app + Playwright e2e
@@ -320,14 +318,22 @@ throughput ratio and their median to `target/agent-overhead/`. The budget is 10 
 number of pairs (3 by default), `bootui.benchmark.agent.sensors` claims other sensors than the defaults (for example
 `executors` alone, to measure one sensor's share or a new sensor's cost), and
 `bootui.benchmark.agent.fail-above-percent` makes it fail when the median paired overhead exceeds that value; without it
-the benchmark only reports:
+the benchmark only reports. `bootui.benchmark.route=io` drives `/api/side-effects/benchmark-io` instead, the same search
+plus one outbound connect to a stub server the benchmark runs and one file read per request, so the side-effect sensors
+that hook connects and files are measured on a route that exercises them; `bootui.benchmark.agent.baseline-sensors`
+runs the other arm with the agent and those sensors instead of without the agent, an A/B of the sensors it leaves out;
+and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
 
 ```bash
 ./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dit.test=AgentOverheadBenchmarkIT \
   -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-CI runs it in `build.yml`'s `agent-overhead` job with five pairs on a four-processor runner, where the load generator
+CI runs it in `build.yml`'s `agent-overhead` job with five pairs on a four-processor runner, then on the I/O route with
+nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual
+runs, and pull requests labelled `agent` only, every default sensor against the same agent without `network`
+(`spring-mvc-network-ab`), the default sensors plus the opt-in `files` against the default sensors, fifteen pairs
+(`spring-mvc-files-ab`), and the default sensors plus `files` against no agent (`spring-mvc-agent-io-files`). The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
 summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail
@@ -398,7 +404,7 @@ Then run the live collectors and opt-in Quarkus HTTP fixture:
 
 ```bash
 ./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" \
-  -pl bootui-spring-autoconfigure test -Dtest='MySql*LiveTests'
+  -pl bootui-spring-boot-starter test -Dtest='MySql*LiveTests'
 
 ./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" \
   -pl bootui-quarkus-integration-tests/datasource \
@@ -663,7 +669,9 @@ released contents. The selected branch must allow
 
 Before dispatching, cut `CHANGELOG.md`'s `[Unreleased]` heading to
 `## [VERSION] - YYYY-MM-DD`, complete the notes, and land them on the source branch
-as their own commit. Use the intended release date and recheck it if publication
+as their own commit. Keep the notes short: a one- or two-sentence summary, then
+one- or two-line bullets for the main changes, with related small items merged
+and details left to the linked docs and pull requests. Use the intended release date and recheck it if publication
 is delayed. The exact source SHA must be green on `build.yml`; avoid merging other
 changes during the release run. For preparation-only work, stop before dispatch:
 leave Maven/npm versions and install coordinates for the workflow, and do not

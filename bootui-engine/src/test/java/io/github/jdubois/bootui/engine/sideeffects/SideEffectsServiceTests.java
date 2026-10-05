@@ -44,10 +44,15 @@ class SideEffectsServiceTests {
     private final AtomicBoolean routesVisible = new AtomicBoolean(true);
     private final Map<String, String> routes = new LinkedHashMap<>();
     private final AtomicBoolean panelVisible = new AtomicBoolean(true);
+    private volatile String panelVisibleExcept;
     private final AgentEvidence evidence = new AgentEvidence(
-            panel -> panel.equals(BootUiPanels.HTTP_EXCHANGES) ? routesVisible.get() : panelVisible.get(), null);
+            panel -> panel.equals(BootUiPanels.HTTP_EXCHANGES)
+                    ? routesVisible.get()
+                    : panelVisible.get() && !panel.equals(panelVisibleExcept),
+            null);
     private SideEffectsService service;
     private AgentClaim claim;
+    private final Map<String, Long> buckets = new LinkedHashMap<>();
 
     @BeforeEach
     void installAgent() {
@@ -189,7 +194,8 @@ class SideEffectsServiceTests {
                         "blocking",
                         "security-sinks");
         assertThat(report.sensors())
-                .filteredOn(sensor -> !sensor.id().equals("processes"))
+                .filteredOn(sensor ->
+                        !List.of("processes", "network", "files", "environment").contains(sensor.id()))
                 .allSatisfy(sensor -> {
                     assertThat(sensor.state()).isEqualTo(SideEffectsSensorDto.NOT_AVAILABLE);
                     assertThat(sensor.reason()).isEqualTo(SideEffectsCatalog.NOT_IN_THIS_VERSION);
@@ -293,9 +299,11 @@ class SideEffectsServiceTests {
                 .hasMessageContaining("processes")
                 .hasMessageContaining("not available in this version");
         AgentSensorSettings planned =
-                new AgentSensorSettings(List.of("executors", "network", "blocking"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("network", "blocking");
-        assertThat(planned.notAvailableWarning()).contains("network, blocking").contains("not available");
+                new AgentSensorSettings(List.of("executors", "resources", "blocking"), null, null, null);
+        assertThat(planned.notAvailable()).containsExactly("resources", "blocking");
+        assertThat(planned.notAvailableWarning())
+                .contains("resources, blocking")
+                .contains("not available");
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)
                 .as("the catalog's sensors this version does not ship")
@@ -309,6 +317,9 @@ class SideEffectsServiceTests {
                         .map(SideEffectsCatalog.Sensor::id)
                         .toList());
         assertThat(AgentSensorSettings.defaults().processes()).isTrue();
+        assertThat(AgentSensorSettings.defaults().network())
+                .as("on by default (D21)")
+                .isTrue();
         assertThat(AgentSensorSettings.defaults().sideEffects()).isTrue();
     }
 
@@ -399,6 +410,171 @@ class SideEffectsServiceTests {
         assertThat(service.status()).containsEntry("folded", 0L).containsEntry("rows", 0);
     }
 
+    @Test
+    void aReportWrittenOutsideTheTemporaryDirectoryIsAnApplicationWriteOfItsRouteByPatternOnly() {
+        start();
+        routes.put(REQUEST, "GET /reports");
+        context.set(CorrelationContext.forRequest(REQUEST));
+        Launcher.writeFile("/srv/exports/" + SECRET + "-2026-10-05.csv");
+        Launcher.writeFile("/srv/exports/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlMTIz/x.csv");
+        context.set(CorrelationContext.NONE);
+
+        SideEffectsSensorReport report = service.sensor("files", null, null);
+
+        assertThat(report.rows())
+                .filteredOn(row -> row.target().endsWith(".csv") && row.target().contains("-{n}-{n}-{n}"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.scope()).isEqualTo(SideEffectsRowDto.ROUTE);
+                    assertThat(row.attribution()).isEqualTo("GET /reports");
+                    assertThat(row.kind()).isEqualTo("write");
+                    assertThat(row.target()).isEqualTo("/srv/exports/hunter{n}-secret-{n}-{n}-{n}.csv");
+                    assertThat(row.origin()).isEqualTo(SideEffectOrigins.APPLICATION);
+                    assertThat(row.location()).isEqualTo(SideEffectOrigins.ELSEWHERE);
+                    assertThat(row.callSite()).isEqualTo("sideeffectsapp.Launcher#writeFile");
+                    assertThat(row.exemplarRequestIds()).containsExactly(REQUEST);
+                });
+        assertThat(report.toString()).doesNotContain("eyJhbGciOiJIUzI1NiJ9");
+        assertThat(service.modelAccesses()).anySatisfy(access -> {
+            assertThat(access.fromKey()).isEqualTo("GET /reports");
+            assertThat(access.type()).isEqualTo(io.github.jdubois.bootui.engine.model.EdgeType.OPENS);
+            assertThat(access.toKey()).isEqualTo("/srv/exports/hunter{n}-secret-{n}-{n}-{n}.csv");
+        });
+    }
+
+    @Test
+    void aPropertyReadDuringARequestIsItsRouteByNameNeverItsValue() {
+        start();
+        routes.put(REQUEST, "GET /reports");
+        System.setProperty("sample.report.title", SECRET);
+        try {
+            context.set(CorrelationContext.forRequest(REQUEST));
+            Launcher.readProperty("sample.report.title");
+            context.set(CorrelationContext.NONE);
+        } finally {
+            System.clearProperty("sample.report.title");
+        }
+
+        SideEffectsSensorReport report = service.sensor("environment", null, null);
+
+        assertThat(report.rows()).singleElement().satisfies(row -> {
+            assertThat(row.attribution()).isEqualTo("GET /reports");
+            assertThat(row.kind()).isEqualTo("system property");
+            assertThat(row.target()).isEqualTo("sample.report.title");
+            assertThat(row.origin()).isEqualTo(SideEffectOrigins.APPLICATION);
+            assertThat(row.location()).isNull();
+        });
+        assertThat(report.toString()).doesNotContain(SECRET);
+        assertThat(service.modelAccesses())
+                .anySatisfy(access -> assertThat(access.toKey()).isEqualTo("property:sample.report.title"));
+    }
+
+    @Test
+    void bucketsAreRowsGroupedApartCountedSinceTheLastClear() {
+        start();
+        buckets.put("classFiles", 40L);
+        buckets.put("javaHome", 2L);
+
+        assertThat(service.sensor("files", null, null).rows())
+                .extracting(SideEffectsRowDto::target, SideEffectsRowDto::count, SideEffectsRowDto::origin)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("(class files)", 40L, SideEffectOrigins.CLASS_PATH),
+                        org.assertj.core.groups.Tuple.tuple("(files in Java's home)", 2L, SideEffectOrigins.JDK));
+
+        evidence.clear();
+        buckets.put("classFiles", 45L);
+
+        assertThat(service.sensor("files", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.count()).isEqualTo(5L));
+        assertThat(service.modelAccesses()).isEmpty();
+    }
+
+    @Test
+    void anSdksConnectNoRestClientCallNamesIsARowOfItsRouteNotCapturedByAnyPanel() {
+        start();
+        SideEffects.enable(SideEffects.MASK_NETWORK);
+        routes.put(REQUEST, "GET /sdk");
+        context.set(CorrelationContext.forRequest(REQUEST));
+        sideeffectsapp.Dialer.connect("localhost", 9000);
+        sideeffectsapp.Dialer.lookup("db.internal");
+        context.set(CorrelationContext.NONE);
+        clock.set(System.currentTimeMillis() + 1_000L);
+        // The first read names the request; its grace runs from then.
+        service.sensor("network", null, null);
+        clock.addAndGet(SideEffectsStore.CAPTURE_GRACE_MILLIS);
+
+        SideEffectsSensorReport report = service.sensor("network", null, null);
+
+        assertThat(report.sensor().state()).isEqualTo(SideEffectsSensorDto.RECORDING);
+        assertThat(report.rows()).hasSize(2);
+        assertThat(report.rows())
+                .filteredOn(row -> row.kind().equals("connect"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.attribution()).isEqualTo("GET /sdk");
+                    assertThat(row.target()).isEqualTo("localhost:9000");
+                    assertThat(row.callSite()).isEqualTo("sideeffectsapp.Dialer#connect");
+                    assertThat(row.client()).isNull();
+                    assertThat(row.capture()).isEqualTo(SideEffectsRowDto.NOT_CAPTURED);
+                    assertThat(row.capturedBy()).isNull();
+                    assertThat(row.completed()).isEqualTo(1L);
+                    assertThat(row.exemplarRequestIds()).containsExactly(REQUEST);
+                });
+        assertThat(report.rows())
+                .filteredOn(row -> row.kind().equals("lookup"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.target()).isEqualTo("db.internal");
+                    assertThat(row.capture()).isNull();
+                });
+        assertThat(service.agentReport("not captured", null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo("localhost:9000"));
+        assertThat(service.hostOpens())
+                .extracting(io.github.jdubois.bootui.engine.model.HostOpen::from)
+                .containsExactlyInAnyOrder(
+                        io.github.jdubois.bootui.engine.model.HostOpen.ROUTE,
+                        io.github.jdubois.bootui.engine.model.HostOpen.CLASS);
+        assertThat(report.limitations()).contains(SideEffectsService.LIMITATION_CAPTURE);
+    }
+
+    @Test
+    void aConnectARestClientCallOfTheSameRequestNamesIsCapturedByRestClientTraceWhileItIsVisible() {
+        start();
+        SideEffects.enable(SideEffects.MASK_NETWORK);
+        JournalNetworkCapture capture = new JournalNetworkCapture(null, key -> null);
+        capture.learn(new io.github.jdubois.bootui.engine.journal.RuntimeEvent(
+                io.github.jdubois.bootui.engine.journal.JournalSource.REST_CLIENT,
+                System.currentTimeMillis(),
+                1_000_000L,
+                REQUEST,
+                null,
+                null,
+                "main",
+                null,
+                false,
+                new io.github.jdubois.bootui.engine.journal.RestClientPayload(
+                        "GET", "localhost:9000", "/x", 200, "RestClient", false)));
+        service.setNetworkCapture(capture);
+        routes.put(REQUEST, "GET /rest");
+        context.set(CorrelationContext.forRequest(REQUEST));
+        sideeffectsapp.Dialer.connect("localhost", 9000);
+        context.set(CorrelationContext.NONE);
+        clock.set(System.currentTimeMillis() + 500L);
+
+        assertThat(service.sensor("network", null, null).rows()).singleElement().satisfies(row -> {
+            assertThat(row.capture()).isEqualTo(SideEffectsRowDto.CAPTURED);
+            assertThat(row.capturedBy()).isEqualTo(BootUiPanels.REST_CLIENT_TRACE);
+        });
+
+        panelVisibleExcept = BootUiPanels.REST_CLIENT_TRACE;
+        assertThat(service.sensor("network", null, null).rows())
+                .as("no visible panel shows it")
+                .singleElement()
+                .satisfies(row -> assertThat(row.capture()).isEqualTo(SideEffectsRowDto.NOT_CAPTURED));
+    }
+
     private void start() {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class),
@@ -406,14 +582,20 @@ class SideEffectsServiceTests {
                 "shop-owner",
                 "dev",
                 List.of("sideeffectsapp"),
-                AgentSensorSettings.defaults());
+                new AgentSensorSettings(
+                        List.of("processes", "network", "files", "environment"),
+                        List.of(),
+                        List.of(),
+                        null,
+                        AgentSensorSettings.DEFAULT_RING_CAPACITY));
         claim.attach(new AgentHandoffs(context::get, null, null));
-        SideEffects.enable(SideEffects.MASK_PROCESSES);
+        SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_FILES | SideEffects.MASK_ENVIRONMENT);
         service = new SideEffectsService(
                 AgentBridgeAccess.bind(AgentBridge.class),
                 () -> claim,
                 () -> null,
-                id -> new JavaAgentService.SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, List.of(), 0L),
+                id -> new JavaAgentService.SideEffectsCoverage(
+                        SideEffectsSensorDto.RECORDING, null, List.of(), 0L, buckets),
                 evidence,
                 clock::get,
                 "/home/someone");
