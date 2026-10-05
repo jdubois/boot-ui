@@ -601,7 +601,7 @@ function hookStatus(value, label) {
                             >
                             <div class="small bootui-break-anywhere mt-1">{{ attribution(row) }}</div>
                           </td>
-                          <td>
+                          <td class="side-effects-target">
                             <code class="bootui-break-anywhere">{{ row.target || '—' }}</code>
                             <div class="small text-muted">
                               <span v-if="row.kind">{{ row.kind }}</span>
@@ -635,7 +635,7 @@ function hookStatus(value, label) {
                               <span v-else class="text-muted">—</span>
                             </td>
                           </template>
-                          <td>
+                          <td class="side-effects-call-site">
                             <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
                             <span v-else class="text-muted">—</span>
                             <div v-if="row.insideMethod" class="small text-muted bootui-break-anywhere">
@@ -719,6 +719,20 @@ function hookStatus(value, label) {
 
 .side-effects-state {
   white-space: nowrap;
+}
+
+/* A row's sentence never squeezes its call site, a class and method that would break into single letters. */
+.side-effects-target {
+  min-width: 22rem;
+  max-width: 36rem;
+}
+
+.side-effects-call-site {
+  min-width: 14rem;
+}
+
+.side-effects-detail {
+  overflow-wrap: break-word;
 }
 
 .side-effects-hooks .badge {
