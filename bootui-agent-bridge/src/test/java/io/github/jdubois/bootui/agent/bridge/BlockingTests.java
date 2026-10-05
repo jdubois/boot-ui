@@ -444,6 +444,25 @@ class BlockingTests {
     }
 
     @Test
+    void aLoopRegisteredPastTheThreadNamesRoomIsNamedByItsFamily() throws Exception {
+        enabledClaim();
+        for (int i = 0; i < SideEffects.ROOM_GUARANTEED[SideEffects.ROOM_THREADS]; i++) {
+            SideEffects.threadName("pool-" + i + "-thread-1");
+        }
+        assertThat(SideEffects.threadName("reactor-http-nio-7"))
+                .as("the room is full")
+                .isZero();
+
+        Thread loop = new Thread(Blocking::registerEventLoop, "reactor-http-nio-7");
+        loop.start();
+        loop.join();
+        Blocking.Loop registered = Blocking.find(loop.getId());
+        assertThat(registered).isNotNull();
+        assertThat(registered.name).isEqualTo(SideEffects.intern(SideEffects.threadFamily("reactor-http-nio-7")));
+        assertThat(registered.name).isNotZero();
+    }
+
+    @Test
     void terminatedLoopsStillReferencedFreeTheirSlots() throws Exception {
         enabledClaim();
         java.util.List<Thread> held = new java.util.ArrayList<>();

@@ -145,8 +145,7 @@ public final class Blocking {
                         return;
                     }
                     // Registered by an earlier run: stamped again, with its name in this run's table.
-                    if (TABLE.compareAndSet(
-                            ownSlot, own, new Loop(id, thread, current, SideEffects.threadName(thread.getName())))) {
+                    if (TABLE.compareAndSet(ownSlot, own, new Loop(id, thread, current, loopName(thread.getName())))) {
                         REGISTRATIONS.increment();
                         activated(current);
                         return;
@@ -157,8 +156,7 @@ public final class Blocking {
                     FULL.increment();
                     return;
                 }
-                if (TABLE.compareAndSet(
-                        free, freeLoop, new Loop(id, thread, current, SideEffects.threadName(thread.getName())))) {
+                if (TABLE.compareAndSet(free, freeLoop, new Loop(id, thread, current, loopName(thread.getName())))) {
                     REGISTRATIONS.increment();
                     activated(current);
                     return;
@@ -169,6 +167,15 @@ public final class Blocking {
         } catch (Throwable ex) {
             SideEffects.failed(SideEffects.SENSOR_BLOCKING, ex);
         }
+    }
+
+    /**
+     * The id of a loop's name: the raw name within the thread names' room, past it the loop's family, which many loops
+     * share and which the panel shows anyway, so a loop never reads as unknown for the run.
+     */
+    private static int loopName(String name) {
+        int id = SideEffects.threadName(name);
+        return id != 0 ? id : SideEffects.intern(SideEffects.threadFamily(name));
     }
 
     private static void activated(long registered) {
@@ -203,8 +210,8 @@ public final class Blocking {
     /**
      * A blocking operation of hook {@code hook} starts on this thread: a token for {@link #done}, 0 when nothing is
      * recorded (not on a registered event loop of this run, the sensor is off, the thread's work is skipped, or another
-     * side-effect hook is open on the thread). The network and files sensors call it from their own hooks before they
-     * open theirs. Never throws.
+     * side-effect hook is open on the thread). The network and files sensors never call it: they report an operation
+     * started on an event loop through {@link #onLoop}, from inside their own open hook. Never throws.
      */
     static long starting(int hook) {
         // The gate: the mask, with every bit set while a self-test runs.
