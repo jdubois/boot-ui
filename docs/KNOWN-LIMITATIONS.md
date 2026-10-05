@@ -86,13 +86,16 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - change impact by method, and a run comparison led by code changes;
 - metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors.
+- the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors;
+- `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
+  an outbound URL unchanged, with query and path parameters, not yet form values.
 
 **Planned, may not be in 2.0:**
 
 - the remaining Side Effects sensors: hosts, threads, thread locals, blocking calls, and leaked streams, with
   `thread-local-left-set`;
-- caught exceptions and security sinks: `exceptions-caught-in-code` and `request-input-in-sink`;
+- caught exceptions: `exceptions-caught-in-code`; and the rest of security sinks: deserialization without a filter,
+  weak algorithms, trust managers, and form values in `request-input-in-sink`;
 - side effects in change impact and run comparison, and methods no longer executed on routes exercised in both runs;
 - argument and return shapes in method probes;
 - dynamic access recording;

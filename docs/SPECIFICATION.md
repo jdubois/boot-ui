@@ -791,8 +791,10 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
-  sensors record by default, and `files` and `environment` (M5-5d) when opted in. The `thread-activity`,
-  `thread-locals`, `resources`, `blocking`, and `security-sinks` sensors are still listed but report `not-available`
+  sensors record by default, and `files` and `environment` (M5-5d) when opted in. `security-sinks` (M5-6b) records,
+  when opted in with `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a
+  file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The
+  `thread-activity`, `thread-locals`, `resources`, and `blocking` sensors are still listed but report `not-available`
   with reason `Not available in this version.`
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
