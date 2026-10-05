@@ -3,17 +3,20 @@ package bootuiagentit;
 import bootuicodepathsapp.OrderController;
 import bootuicodepathsapp.OrderService;
 import bootuicodepathsapp.Quotes;
+import bootuicodepathsapp.Shapes;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.AgentRing;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.CodePaths;
 import io.github.jdubois.bootui.agent.bridge.MethodProbes;
+import io.github.jdubois.bootui.agent.bridge.ProbeShapes;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
@@ -42,6 +45,8 @@ public final class ProbeBehaviors {
                 ProbeBehaviors::aClassLoadedLaterIsProbedAsItLoads,
                 ProbeBehaviors::fiveAtOnceThenTheSixthIsRefused,
                 ProbeBehaviors::aCallInFlightAcrossTheInstallAndTheRemoval,
+                ProbeBehaviors::aShapesProbeRecordsShapesWithoutRunningApplicationCode,
+                ProbeBehaviors::returnShapesNameApplicationCollectionsByClassAndJdkListsBySize,
                 ProbeBehaviors::aNewRunEndsItsProbes,
                 ProbeBehaviors::aRestartProbesOnlyTheNewRunsCopy,
                 ProbeBehaviors::aReleaseEndsAndRemovesProbes);
@@ -376,6 +381,163 @@ public final class ProbeBehaviors {
         CodePathsBehaviors.check(
                 "a release ends and removes probes (" + ended + ")",
                 MethodProbes.END_RUN.equals(ended.get("endReason")) && answer == 1 && adviceCalls() == calls);
+    }
+
+    static void aShapesProbeRecordsShapesWithoutRunningApplicationCode() throws Exception {
+        Shapes shapes = new Shapes();
+        Shapes.Basket basket = new Shapes.Basket();
+        Shapes.Card card = new Shapes.Card();
+        long id = start(APP + "Shapes#quote", Map.of("shapes", Boolean.TRUE, "maxInvocations", 2));
+        Map<String, Object> active = await(id, probe -> Boolean.TRUE.equals(probe.get("advised")));
+        Shapes.CALLS.set(0);
+        int answers = 0;
+        for (int i = 0; i < 3; i++) {
+            answers += shapes.quote(
+                    "sku-12",
+                    List.of(1, 2, 3),
+                    basket,
+                    card,
+                    Optional.of("c"),
+                    Shapes.Level.HIGH,
+                    new int[4],
+                    7,
+                    null,
+                    5L);
+        }
+        Map<String, Object> ended = await(id, ProbeBehaviors::removed);
+        List<long[]> hits = records(id, MethodProbes.PROBE_HIT);
+        List<long[]> shapeRecords = records(id, MethodProbes.PROBE_SHAPES);
+        long[] arguments = new long[12];
+        long returned = 0L;
+        for (long[] record : shapeRecords) {
+            long payload = record[AgentRing.PAYLOAD];
+            if (((payload >>> 3) & 31) != 0) {
+                continue;
+            }
+            int part = (int) (payload & 7);
+            if (part == MethodProbes.RETURN_PART) {
+                returned = record[AgentRing.PAYLOAD + 1];
+            } else {
+                for (int i = 0; i < 3; i++) {
+                    arguments[part * 3 + i] = record[AgentRing.PAYLOAD + 1 + i];
+                }
+            }
+        }
+        String described = describe(arguments) + " -> " + describe(new long[] {returned});
+        CodePathsBehaviors.check(
+                "a shapes probe records argument and return shapes, joined by index, and runs no application method ("
+                        + active.get("shapes") + ", " + hits.size() + " hits, " + shapeRecords.size()
+                        + " shape records, " + described + ", calls " + Shapes.CALLS.get() + ")",
+                Boolean.TRUE.equals(active.get("shapes"))
+                        && answers == 3 * 10
+                        && Shapes.CALLS.get() == 0
+                        && hits.size() == 2
+                        && ((hits.get(1)[AgentRing.PAYLOAD] >>> 3) & 31) == 1
+                        // Three argument records, nine of ten arguments, and the return record per invocation.
+                        && shapeRecords.size() == 8
+                        && Integer.valueOf(0).equals(ended.get("shapesDropped"))
+                        && is(arguments[0], ProbeShapes.STRING, 6, "java.lang.String")
+                        && is(arguments[1], ProbeShapes.COLLECTION, 3, "java.util.ImmutableCollections$ListN")
+                        && is(arguments[2], ProbeShapes.TYPE, 0, APP + "Shapes$Basket")
+                        && is(arguments[3], ProbeShapes.TYPE, 0, APP + "Shapes$Card")
+                        && is(arguments[4], ProbeShapes.OPTIONAL, 1, "java.util.Optional")
+                        && ProbeShapes.kind(arguments[5]) == ProbeShapes.ENUM
+                        && (APP + "Shapes$Level").equals(string(ProbeShapes.typeId(arguments[5])))
+                        && "HIGH".equals(string(ProbeShapes.summary(arguments[5])))
+                        && is(arguments[6], ProbeShapes.ARRAY, 4, "[I")
+                        && is(arguments[7], ProbeShapes.TYPE, 0, "java.lang.Integer")
+                        && ProbeShapes.kind(arguments[8]) == ProbeShapes.NULL
+                        && arguments[9] == 0L
+                        && is(returned, ProbeShapes.TYPE, 0, "java.lang.Integer")
+                        && !interned("sku-12")
+                        && !interned("4111111111111111"));
+    }
+
+    static void returnShapesNameApplicationCollectionsByClassAndJdkListsBySize() throws Exception {
+        Shapes shapes = new Shapes();
+        Shapes.Card card = new Shapes.Card();
+        long basket = start(APP + "Shapes#basket", Map.of("shapes", Boolean.TRUE, "maxInvocations", 1));
+        long names = start(APP + "Shapes#names", Map.of("shapes", Boolean.TRUE, "maxInvocations", 1));
+        long touch = start(APP + "Shapes#touch", Map.of("shapes", Boolean.TRUE, "maxInvocations", 1));
+        for (long id : new long[] {basket, names, touch}) {
+            await(id, probe -> Boolean.TRUE.equals(probe.get("advised")));
+        }
+        Shapes.CALLS.set(0);
+        Shapes.Basket answer = shapes.basket("b");
+        int size = shapes.names(5).size();
+        shapes.touch(card);
+        int calls = Shapes.CALLS.get();
+        for (long id : new long[] {basket, names, touch}) {
+            await(id, ProbeBehaviors::removed);
+        }
+        long basketShape = returnShape(basket);
+        long namesShape = returnShape(names);
+        List<long[]> touched = records(touch, MethodProbes.PROBE_SHAPES);
+        CodePathsBehaviors.check(
+                "return shapes name an application collection by its class and a JDK list by its size, and a void method"
+                        + " has none (" + describe(new long[] {basketShape, namesShape}) + ", " + touched.size()
+                        + " records for touch, calls " + calls + ")",
+                answer != null
+                        && size == 5
+                        && calls == 0
+                        && is(basketShape, ProbeShapes.TYPE, 0, APP + "Shapes$Basket")
+                        && is(namesShape, ProbeShapes.COLLECTION, 5, "java.util.ArrayList")
+                        && touched.size() == 1
+                        && (touched.get(0)[AgentRing.PAYLOAD] & 7) == 0
+                        && is(touched.get(0)[AgentRing.PAYLOAD + 1], ProbeShapes.TYPE, 0, APP + "Shapes$Card")
+                        && records(touch, MethodProbes.PROBE_HIT).size() == 1);
+    }
+
+    static long returnShape(long id) {
+        for (long[] record : records(id, MethodProbes.PROBE_SHAPES)) {
+            if ((record[AgentRing.PAYLOAD] & 7) == MethodProbes.RETURN_PART) {
+                return record[AgentRing.PAYLOAD + 1];
+            }
+        }
+        return 0L;
+    }
+
+    static boolean is(long shape, int kind, int summary, String type) {
+        return ProbeShapes.kind(shape) == kind
+                && ProbeShapes.summary(shape) == summary
+                && type.equals(string(ProbeShapes.typeId(shape)));
+    }
+
+    static String describe(long[] shapes) {
+        StringBuilder text = new StringBuilder();
+        for (long shape : shapes) {
+            text.append(text.length() == 0 ? "" : " ")
+                    .append(ProbeShapes.kind(shape))
+                    .append('/')
+                    .append(ProbeShapes.summary(shape))
+                    .append('/')
+                    .append(string(ProbeShapes.typeId(shape)));
+        }
+        return text.toString();
+    }
+
+    /** Whether the intern table holds {@code text}: a value must never reach it. */
+    static boolean interned(String text) {
+        String[] strings = AgentRing.interned(hitsGeneration, 1);
+        if (strings != null) {
+            for (String string : strings) {
+                if (text.equals(string)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The records of probe {@code id} of {@code type} drained so far. */
+    static List<long[]> records(long id, int type) {
+        List<long[]> list = new ArrayList<>();
+        for (long[] record : hits(id)) {
+            if (record[AgentRing.TYPE] == type) {
+                list.add(record);
+            }
+        }
+        return list;
     }
 
     // ---- harness -----------------------------------------------------------------------------------------------

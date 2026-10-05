@@ -69,7 +69,9 @@ test.describe('Code Paths view (Quarkus)', () => {
     await expect(detail.locator('.code-paths-callers')).toContainText('QuoteService.quote')
     await expect(detail.locator('.code-paths-reach')).toContainText('GET /api/quotes/{sku}')
 
-    // M5-8: Probe this method advises the current dev-mode run's copy and records the next calls, metadata only.
+    // M5-8: Probe this method advises the current dev-mode run's copy and records the next calls; asked for shapes
+    // (D44), it records the argument's and the return value's types, which MCP never sees.
+    await page.getByLabel('Record argument and return shapes').check()
     await page.getByRole('button', {name: 'Probe this method'}).click()
     const dialog = page.getByRole('dialog', {name: 'Probe this method?'})
     await dialog.getByRole('button', {name: 'Start probe'}).click()
@@ -79,8 +81,53 @@ test.describe('Code Paths view (Quarkus)', () => {
       expect((await page.request.get(`/api/quotes/probed-${i}`)).ok()).toBeTruthy()
     }
     await expect(probe).toContainText(/[3-9] of 20 invocations/, {timeout: 15_000})
-    await expect(page.locator('.code-paths-probe-hits tbody tr').first()).toContainText('QuoteService#quote')
+    const hit = page.locator('.code-paths-probe-hits tbody tr').first()
+    await expect(hit).toContainText('QuoteService#quote')
+    await expect(hit.locator('.code-paths-probe-arguments .code-paths-probe-shape')).toHaveText(['String'])
+    await expect(page.locator('.code-paths-probe-withheld')).toContainText('bootui.expose-values=FULL')
+    await expect(hit.locator('.code-paths-probe-shape').first()).toHaveText('int')
     await probe.getByRole('button', {name: 'Stop'}).click()
     await expect(probe.locator('.code-paths-probe-state')).toHaveText('ended', {timeout: 15_000})
+
+    const listed = await (await page.request.get('/bootui/api/code-paths/probes')).json()
+    const shaped = listed.probes.find((candidate) => candidate.recordShapes)
+    expect(shaped.hits[0].arguments).toMatchObject([{kind: 'string', type: 'java.lang.String', size: null}])
+    expect(shaped.hits[0].returned).toMatchObject({kind: 'primitive', declaredType: 'int'})
+    const forAgents = await callMcpTool(page, 'get_method_probe', {id: shaped.id})
+    expect(forAgents.shapesHiddenReason).toContain('never to MCP or the CLI')
+    expect(forAgents.hits.every((recorded) => recorded.arguments.length === 0 && recorded.returned === null)).toBe(true)
   })
 })
+
+/** Calls one BootUI MCP tool from the page, with the MCP server enabled for the call and restored after it. */
+async function callMcpTool(page, name, args) {
+  await page.goto('/bootui/')
+  return page.evaluate(
+    async ({name, args}) => {
+      const token = decodeURIComponent(
+        document.cookie
+          .split(';')
+          .map((part) => part.trim())
+          .find((part) => part.startsWith('XSRF-TOKEN='))
+          ?.substring('XSRF-TOKEN='.length) ?? ''
+      )
+      const headers = {'Content-Type': 'application/json', 'X-XSRF-TOKEN': token}
+      const toggle = (enabled) =>
+        fetch('api/mcp-server/toggle', {method: 'POST', headers, body: JSON.stringify({enabled})})
+      const before = await (await fetch('api/mcp-server')).json()
+      await toggle(true)
+      try {
+        const response = await fetch('api/mcp', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}})
+        })
+        const envelope = await response.json()
+        return JSON.parse(envelope.result.content[0].text)
+      } finally {
+        await toggle(before.enabled)
+      }
+    },
+    {name, args}
+  )
+}
