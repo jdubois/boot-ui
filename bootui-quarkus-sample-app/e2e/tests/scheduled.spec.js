@@ -12,7 +12,7 @@ test.describe('Scheduled tasks view (Quarkus)', () => {
     })
     await expect(row).toBeVisible()
     await expect(row).toContainText('FIXED_RATE')
-    await expect(row).toContainText('30 s')
+    await expect(row).toContainText('300 s')
     // Real Jandex-discovered @Scheduled task from the sample app, not a placeholder --
     // QuarkusScheduledTaskProvider renders the annotated method as `class#method`.
     await expect(row).toContainText('io.github.jdubois.bootui.sample.scheduling.EchoScheduler#echo')
