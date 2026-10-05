@@ -2,7 +2,7 @@
   "name": "BootUI 2.0 validation protocol, registered 2026-10-05 (M4-20a)",
   "registration": {
     "ref": "m4-20-protocol-1",
-    "kind": "annotated tag on the merged commit, created by the maintainer before the rerun and never moved",
+    "kind": "annotated tag (git cat-file -t is tag) on the merged commit, created by the maintainer right before the rerun, after any addition to the known misses, and never moved",
     "excluded": [".work/", "scoring/fixtures/"]
   },
   "seed": "bootui-v2-rerun-1",
@@ -16,6 +16,21 @@
     "petclinic": ["changed-code-not-executed"]
   },
   "agentKinds": ["work-after-response", "changed-code-not-executed"],
+  "agentRunExpectedFacts": {
+    "_note": "Facts a working kind is expected to give on each agent run. changed-code-not-executed: one per changed class not executed, verified on smoke runs (2 per run). work-after-response: no expectation; the 2026-10-05 smoke runs found none on JHipster (133 eligible requests) or the bookstore (213), whose failed emails JHipster now reports as errors-behind-2xx (M4-22)",
+    "super-heroes": {
+      "changed-code-not-executed": 2
+    },
+    "petclinic": {
+      "changed-code-not-executed": 2
+    },
+    "jhipster": {
+      "work-after-response": null
+    },
+    "bookstore": {
+      "work-after-response": null
+    }
+  },
   "unlistedByDesign": ["gc-inflated-latency", "heap-growth-after-gc"],
   "wholeKindUnlistedReasons": ["Garbage collection and heap rows are reached from the Memory panel"],
   "knownUnlistedReasons": [
@@ -33,8 +48,14 @@
   "reviewers": {
     "prompt": "REVIEWER-PROMPT.md",
     "panel": [
-      {"id": "r1", "model": "claude-opus-5.5"},
-      {"id": "r2", "model": "gpt-6-sol"}
+      {
+        "id": "r1",
+        "model": "claude-opus-5.5"
+      },
+      {
+        "id": "r2",
+        "model": "gpt-6-sol"
+      }
     ]
   },
   "holdoutExposure": [
@@ -49,12 +70,44 @@
       "seen": "Start checks with 2 to 10 traffic iterations, before and after M4-19: route-time-breakdown rows (POST /api/messages with AI calls at 94 %, POST /api/sign-in at 277 ms), ai-usage-by-route on POST /api/messages, exception-hotspots (UnauthorizedException, ResteasyReactiveViolationException, NullPointerException on GET /api/records, NotFoundException), and framework-warnings-by-route with one row per failed GET /api/records, since Quarkus's message carries a per-request error id. That grouping is fixed before the rerun in its own engine change."
     }
   ],
+  "allowedHoldoutFixes": [
+    {
+      "app": "bookstore",
+      "change": "Start Spring Modulith applications with BootUI: back off from their event multicaster",
+      "pr": 1274,
+      "commit": "baece9096"
+    },
+    {
+      "app": "timeless",
+      "change": "Group framework-warnings-by-route messages without their per-request error id",
+      "pr": null,
+      "commit": null,
+      "note": "Fill in the PR and commit when it merges, before the tag"
+    }
+  ],
   "gates": {
-    "target": {"usefulPercent": 70, "misleading": 0},
-    "postM3": {"usefulPercent": 50},
-    "escalation": {"pooledBelowPercent": 30, "holdoutGapAbovePoints": 20},
-    "perKind": {"minFacts": 3, "minApps": 2, "usefulPercent": 50, "misleading": 0}
+    "target": {
+      "usefulPercent": 70,
+      "misleading": 0
+    },
+    "postM3": {
+      "usefulPercent": 50
+    },
+    "escalation": {
+      "pooledBelowPercent": 30,
+      "holdoutGapAbovePoints": 20
+    },
+    "perKind": {
+      "minFacts": 3,
+      "minApps": 2,
+      "usefulPercent": 50,
+      "misleading": 0
+    }
   },
-  "timeToFirstObservation": {"targetMinutes": 5},
-  "investigations": {"count": 10}
+  "timeToFirstObservation": {
+    "targetMinutes": 5
+  },
+  "investigations": {
+    "count": 10
+  }
 }

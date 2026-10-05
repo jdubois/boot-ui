@@ -639,19 +639,80 @@ test('with no fact anywhere, nothing passes, the escalation triggers, and every 
   )
 })
 
-test('time to first observation keeps the latest row per application on the rerun commit, and names missing ones', () => {
+test('time to first observation takes one measurement per application on the rerun commit', () => {
   const rows = [
     {app: 'petclinic', bootuiCommit: 'old', seconds: 900},
-    {app: 'petclinic', bootuiCommit: 'c0ffee', seconds: 20},
-    {app: 'timeless', bootuiCommit: 'c0ffee', seconds: 200}
+    {app: 'petclinic', bootuiCommit: 'c0ffee', seconds: 400},
+    {app: 'petclinic', bootuiCommit: 'c0ffee', seconds: 20, reason: 'the first build hit a network error'},
+    {app: 'timeless', bootuiCommit: 'c0ffee', seconds: 200},
+    {app: 'timeless', bootuiCommit: 'c0ffee', seconds: 100}
   ]
   const t = timeToFirstObservation(rows, protocol, {bootuiCommit: 'c0ffee'})
   assert.deepEqual(
     t.rows.map((r) => [r.app, r.seconds]),
     [
       ['petclinic', 20],
-      ['timeless', 200]
+      ['timeless', 100]
     ]
   )
-  assert.equal(t.problems.length, 5)
+  assert.deepEqual(
+    t.superseded.map((r) => [r.app, r.seconds, r.supersededBecause]),
+    [
+      ['petclinic', 400, 'the first build hit a network error'],
+      ['timeless', 200, null]
+    ]
+  )
+  assert.ok(t.problems.includes('timeless was measured again without a reason'))
+  assert.equal(t.problems.filter((p) => p.startsWith('no time to first observation')).length, 5)
+})
+
+test('a kind whose rows are all hidden is not silent', () => {
+  const rows = [
+    {id: 'a/hidden/1', app: 'a', role: 'tuned', kind: 'safe-method-dml', section: 'hidden', subject: 'GET /x'}
+  ]
+  const judged = judge(
+    {rows},
+    {r1: reviewerMap({'a/hidden/1': 'Noise'}), r2: reviewerMap({'a/hidden/1': 'Noise'})},
+    new Map()
+  )
+  const inventory = [
+    {kind: 'safe-method-dml', checks: {a: 'EVALUATED'}, listed: 0, hidden: 4, unlistedByDesign: false},
+    {kind: 'proxy-bypass', checks: {a: 'EVALUATED'}, listed: 0, hidden: 0, unlistedByDesign: false}
+  ]
+  const kinds = Object.fromEntries(score(judged, protocol, inventory).perKind.map((k) => [k.kind, k]))
+  assert.equal(kinds['safe-method-dml'].status, 'ALL_HIDDEN')
+  assert.equal(kinds['proxy-bypass'].status, 'SILENT')
+})
+
+test('recall: found rows belong to the item’s application, and unmatched counterexample subjects warn', () => {
+  const known = {
+    applications: {
+      app: {misses: [{id: 'A-1'}], counterexamples: [{id: 'A-C1', subjects: ['com.example.Gone']}]}
+    }
+  }
+  const rows = [{id: 'other/fact/1', app: 'other', section: 'fact', subject: 'GET /a', final: 'Actionable'}]
+  const judgments = new Map([
+    ['A-1', {id: 'A-1', outcome: 'found-default', rows: 'other/fact/1'}],
+    ['A-C1', {id: 'A-C1', outcome: 'respected'}]
+  ])
+  const r = recall(known, judgments, rows, {app: ['com.example.Present']})
+  assert.match(r.problems[0], /must be app's worksheet facts/)
+  assert.match(r.warnings[0], /A-C1: none of its subjects appears/)
+})
+
+test('investigations must run on the rerun commit', () => {
+  const rows = []
+  for (let q = 1; q <= 10; q++) {
+    rows.push({question: String(q), arm: '2.0', result: 'correct', calls: '5', bootui_commit: 'c0ffee'})
+    rows.push({
+      question: String(q),
+      arm: '1.x',
+      result: 'correct',
+      calls: '6',
+      bootui_commit: q === 3 ? 'old' : 'c0ffee'
+    })
+  }
+  const r = investigations(rows, protocol, 'c0ffee')
+  assert.match(r.problems[0], /1 investigations did not run on the rerun's BootUI commit/)
+  assert.equal(r.meetsTarget, false)
 })

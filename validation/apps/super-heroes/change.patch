@@ -1,3 +1,16 @@
+diff --git a/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/rest/VillainResource.java b/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/rest/VillainResource.java
+index f5ebb3857..d1f62b7d0 100644
+--- a/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/rest/VillainResource.java
++++ b/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/rest/VillainResource.java
+@@ -130,7 +130,7 @@ public class VillainResource implements VillainsResource {
+   @RunOnVirtualThread
+ 	public Response deleteAllVillains() {
+ 		this.service.deleteAllVillains();
+-		Log.debug("Deleted all villains");
++		Log.info("Deleted all villains");
+ 		return Response.noContent().build();
+ 	}
+ 
 diff --git a/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/service/VillainService.java b/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/service/VillainService.java
 index 3def4c816..1c468c4a3 100644
 --- a/rest-villains/src/main/java/io/quarkus/sample/superheroes/villain/service/VillainService.java

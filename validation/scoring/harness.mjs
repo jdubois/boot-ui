@@ -54,18 +54,23 @@ const git = (args) =>
  * commit descends from the tag. `ref` 'none' skips the check (tests and smoke runs), and the result says so.
  */
 export function checkRegistration(ref, bootuiCommits = []) {
-  if (ref === 'none') return {ref, sha: null, problems: []}
+  if (ref === 'none') return {ref, sha: null, tag: null, problems: []}
   const problems = []
   let sha = null
+  let tag = null
   try {
     sha = git(['rev-parse', '--verify', `${ref}^{commit}`])
+    tag = git(['rev-parse', '--verify', `refs/tags/${ref}`])
   } catch {
     return {
       ref,
       sha,
+      tag,
       problems: [`the registration tag ${ref} does not exist: create it on the commit that registered the protocol`]
     }
   }
+  if (git(['cat-file', '-t', tag]) !== 'tag')
+    problems.push(`${ref} is a lightweight tag; the registration is an annotated tag`)
   const pathspec = ['--', '.', ...EXCLUDED.map((p) => `:(exclude)${p}`)]
   try {
     git(['diff', '--quiet', sha, ...pathspec])
@@ -82,7 +87,7 @@ export function checkRegistration(ref, bootuiCommits = []) {
       problems.push(`BootUI commit ${commit.slice(0, 9)} does not descend from ${ref}`)
     }
   }
-  return {ref, sha, problems}
+  return {ref, sha, tag, problems}
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) console.log(harnessHash())

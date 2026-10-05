@@ -2,7 +2,8 @@
 // admin and user, anonymous probes (health, info, 401s, a bad login, a password reset with a JSON-quoted email),
 // account reads and saves, user administration with paging (create, update, read, delete: each creation sends an
 // activation email through an SMTP server that does not run), and create-read-patch-delete on labels, bank accounts,
-// and operations, with eager and lazy paging, invalid bodies, and missing ids. The first run took about 130 s.
+// and operations, with eager and lazy paging, invalid bodies, and missing ids. The first run took about 130 s. One
+// request is new for the rerun: a valid password reset, whose @Async email also fails after the response.
 //
 //   node validation/traffic/jhipster.mjs --base-url http://localhost:18182 [--iterations 13] [--summary file.json]
 
@@ -53,6 +54,13 @@ for (let i = 1; i <= opts.iterations; i++) {
     body: '"nobody@example.invalid"',
     headers: {'Content-Type': 'application/json'},
     expect: [200, 400]
+  })
+  // Registered for M4-20 (not in the first run): a valid reset request, whose @Async email fails after the response.
+  await anon.post('/api/account/reset-password/init', {
+    label: 'POST /api/account/reset-password/init',
+    body: 'user@localhost',
+    headers: {'Content-Type': 'text/plain'},
+    expect: [200]
   })
 
   await user.get('/api/authenticate', {label: 'GET /api/authenticate', expect: [200, 204]})

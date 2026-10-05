@@ -20,3 +20,18 @@ index fb5eefa..b630b13 100644
  
  		pet.addVisit(visit);
  	}
+diff --git a/src/main/java/org/springframework/samples/petclinic/vet/Vet.java b/src/main/java/org/springframework/samples/petclinic/vet/Vet.java
+index fb2bd71..373bdcc 100644
+--- a/src/main/java/org/springframework/samples/petclinic/vet/Vet.java
++++ b/src/main/java/org/springframework/samples/petclinic/vet/Vet.java
+@@ -68,7 +68,9 @@ public class Vet extends Person {
+ 	}
+ 
+ 	public void addSpecialty(Specialty specialty) {
+-		getSpecialtiesInternal().add(specialty);
++		if (!getSpecialtiesInternal().contains(specialty)) {
++			getSpecialtiesInternal().add(specialty);
++		}
+ 	}
+ 
+ }

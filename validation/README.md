@@ -76,7 +76,8 @@ for app in petclinic jhipster super-heroes webflux-gateway kafka bookstore timel
   validation/bin/rerun.sh "$app" --compare
 done
 
-# 4. Time to first observation, the same way on every stack (appends to validation/.work/ttfo.jsonl).
+# 4. Time to first observation, the same way on every stack (appends to validation/.work/ttfo.jsonl). Each application
+#    is measured once on the rerun's commit; measuring it again needs --reason "<why>".
 for app in petclinic jhipster super-heroes webflux-gateway kafka bookstore timeless; do
   validation/bin/ttfo.sh "$app"
 done
@@ -134,8 +135,8 @@ summaries (duration, request count, statuses per route), and per service `runtim
 
    `score.md` holds the tables the report needs: scores per group, application, and kind with each gate's outcome,
    honesty, the hidden sample, misleading rows with their adjudication, recall, the agent investigations, and the time
-   to first observation. `investigations.csv` has one row per question and arm: `question,arm,result,calls,help_calls`,
-   with `arm` `2.0` or `1.x` and `result` `correct`, `partial`, or `wrong`.
+   to first observation. `investigations.csv` has one row per question and arm: `question,arm,result,calls,help_calls,bootui_commit`,
+   with `arm` `2.0` or `1.x`, `result` `correct`, `partial`, or `wrong`, and `bootui_commit` the rerun's commit.
 
 ## Check the harness
 

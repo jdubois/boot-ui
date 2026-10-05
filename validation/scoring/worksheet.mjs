@@ -250,6 +250,15 @@ export function worksheetFor(evidenceRoot, protocol, registrationRef) {
     loaded.runs.map((r) => r.bootuiCommit)
   )
   const worksheet = buildWorksheet(loaded, protocol, harness)
+  // Every subject the evidence holds per application, listed or hidden, so the recall check can tell a counterexample
+  // whose subject never appears from one that was respected.
+  worksheet.subjects = {}
+  for (const run of loaded.runs) {
+    const subjects = (worksheet.subjects[run.app] ||= [])
+    for (const {report} of run.services) for (const o of report.observations || []) subjects.push(o.subject)
+  }
+  for (const app of Object.keys(worksheet.subjects))
+    worksheet.subjects[app] = [...new Set(worksheet.subjects[app])].sort()
   worksheet.bootuiCommit = loaded.runs.find((r) => r.bootuiCommit)?.bootuiCommit ?? null
   const problems = [
     ...checkRuns(loaded.runs, loaded.superseded, protocol, harness),

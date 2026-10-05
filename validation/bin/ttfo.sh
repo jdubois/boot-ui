@@ -10,10 +10,14 @@
 #   5. Runtime Insights is read every 2 s; the stopwatch stops at the first default-visible row, of any status, and
 #      the time to the first OBSERVED one is recorded too.
 #
-# Usage: validation/bin/ttfo.sh <app>        Appends one JSON line to $WORK/ttfo.jsonl and prints it.
+# Usage: validation/bin/ttfo.sh <app> [--reason <why>]
+#   Appends one JSON line to $WORK/ttfo.jsonl and prints it. Each application is measured once on the rerun's commit;
+#   measuring it again needs --reason, which the scorer prints beside the superseded measurement.
 source "$(dirname "$0")/lib.sh"
 
-app="${1:?usage: ttfo.sh <app>}"
+app="${1:?usage: ttfo.sh <app> [--reason <why>]}"
+reason=""
+if [ "${2:-}" = "--reason" ]; then reason="${3:?--reason needs a value}"; fi
 require_cmd node curl git
 load_pin "$app"
 load_build
@@ -24,6 +28,11 @@ load_build
 PORT="$APP_PORT"
 check_port "$PORT"
 home="$(app_home "$app")"
+if [ -f "$WORK/ttfo.jsonl" ] && [ -z "$reason" ] &&
+  node -e 'const [f,a,c]=process.argv.slice(1);const rows=require("fs").readFileSync(f,"utf8").split("\n").filter(Boolean).map(JSON.parse);process.exit(rows.some(r=>r.app===a&&r.bootuiCommit===c)?0:1)' \
+    "$WORK/ttfo.jsonl" "$app" "$BOOTUI_COMMIT"; then
+  die "$app was already measured on $BOOTUI_COMMIT; pass --reason to measure it again"
+fi
 
 log "preparing $app without BootUI and building it once (not timed)"
 "$VALIDATION_HOME/bin/prepare-app.sh" "$app" --without-bootui
@@ -44,8 +53,8 @@ node "$VALIDATION_HOME/traffic/$app.mjs" --base-url "http://localhost:$PORT" --i
   --allow-unexpected >/dev/null
 
 node --input-type=module - "http://localhost:$PORT/bootui/api/runtime-insights" "$started" "$built" "$ready" "$app" "$APP_STACK" \
-  "$BOOTUI_COMMIT" >>"$WORK/ttfo.jsonl" <<'EOF'
-const [url, started, built, ready, app, stack, commit] = process.argv.slice(2)
+  "$BOOTUI_COMMIT" "$reason" >>"$WORK/ttfo.jsonl" <<'EOF'
+const [url, started, built, ready, app, stack, commit, reason] = process.argv.slice(2)
 const deadline = Date.now() + 20 * 60_000
 let first = null
 let observed = null
@@ -63,7 +72,8 @@ console.log(JSON.stringify({
   app, stack, bootuiCommit: commit, measuredAt: new Date().toISOString(),
   buildSeconds: s(Number(built)), readySeconds: s(Number(ready)),
   seconds: s(first?.at), firstStatus: first?.status ?? null, firstKind: first?.kind ?? null,
-  firstObservedSeconds: s(observed)
+  firstObservedSeconds: s(observed),
+  ...(reason ? {reason} : {})
 }))
 EOF
 tail -1 "$WORK/ttfo.jsonl"

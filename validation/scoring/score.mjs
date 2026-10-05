@@ -175,7 +175,13 @@ export function score(judged, protocol, inventory = []) {
     const ran = !entry || Object.values(entry.checks).some((status) => status === 'EVALUATED' || status === 'PARTIAL')
     let status
     if (kindFacts.length === 0) {
-      status = byDesign ? 'NOT_LISTED' : misleading > 0 ? 'FAIL' : ran ? 'SILENT' : 'NOT_EXERCISED'
+      // Silent means the kind produced no row at all; a kind whose every row was filtered out of the default list
+      // cannot escape its gate by being hidden.
+      const anyRow = (entry ? entry.listed + entry.hidden : 0) + kindHidden.length > 0
+      if (byDesign) status = 'NOT_LISTED'
+      else if (misleading > 0) status = 'FAIL'
+      else if (anyRow) status = 'ALL_HIDDEN'
+      else status = ran ? 'SILENT' : 'NOT_EXERCISED'
     } else if (misleading > g.perKind.misleading) status = 'FAIL'
     else if (kindFacts.length < g.perKind.minFacts || kindApps.size < g.perKind.minApps) status = 'UNDER_SAMPLED'
     else status = atLeast(t.useful, kindFacts.length, g.perKind.usefulPercent) ? 'PASS' : 'FAIL'
@@ -185,6 +191,7 @@ export function score(judged, protocol, inventory = []) {
       UNDER_SAMPLED: 'hidden, not externally validated: too few facts',
       SILENT: 'stays listed, marked as not externally validated',
       NOT_EXERCISED: 'stays listed, marked as not externally validated: its check never ran',
+      ALL_HIDDEN: 'hidden, not externally validated: no row of it was listed by default',
       NOT_LISTED: 'not listed by default; judged through the hidden sample'
     }
     // Under escalation, every kind that does not pass its gate folds, the silent, not-exercised, and under-sampled
@@ -244,9 +251,10 @@ export function score(judged, protocol, inventory = []) {
 
 const RECALL_OUTCOMES = ['found-default', 'found-hidden', 'honest-gap', 'missed', 'not-exercised']
 
-export function recall(knownMisses, judgments, judgedRows = []) {
+export function recall(knownMisses, judgments, judgedRows = [], evidenceSubjects = null) {
   const out = []
   const problems = []
+  const warnings = []
   const regressions = []
   const byId = new Map(judgedRows.map((r) => [r.id, r]))
   const known = new Set()
@@ -264,8 +272,9 @@ export function recall(knownMisses, judgments, judgedRows = []) {
         regressions.push(`${m.id} (${m.outcome})`)
       }
       const rows = (m.rows || '').split(/\s+/).filter(Boolean)
-      if (m.outcome === 'found-default' && !(rows.length && rows.every((id) => byId.get(id)?.section === 'fact'))) {
-        problems.push(`recall item ${m.id} is found in the default list, so its rows must be worksheet facts`)
+      const ownFact = (id) => byId.get(id)?.section === 'fact' && baseApp(byId.get(id).app) === app
+      if (m.outcome === 'found-default' && !(rows.length && rows.every(ownFact))) {
+        problems.push(`recall item ${m.id} is found in the default list, so its rows must be ${app}'s worksheet facts`)
       }
       if (m.outcome === 'found-hidden' && !rows.length) {
         problems.push(`recall item ${m.id} is found in a hidden row: name it (a worksheet id or an observation id)`)
@@ -275,6 +284,15 @@ export function recall(knownMisses, judgments, judgedRows = []) {
       known.add(c.id)
       if (!['respected', 'violated'].includes(c.outcome))
         problems.push(`counterexample ${c.id} has no outcome (respected|violated)`)
+      const named = (c.subjects || []).filter((subject) => !subject.startsWith('('))
+      if (c.outcome === 'respected' && evidenceSubjects && named.length) {
+        const seen = new Set(evidenceSubjects[app] || [])
+        if (!named.some((subject) => seen.has(subject))) {
+          warnings.push(
+            `counterexample ${c.id}: none of its subjects appears in ${app}'s evidence, so "respected" is unchecked`
+          )
+        }
+      }
       if (c.outcome === 'respected') {
         const contradicting = judgedRows.filter(
           (r) =>
@@ -314,11 +332,16 @@ export function recall(knownMisses, judgments, judgedRows = []) {
     })
   }
   for (const id of judgments.keys()) if (!known.has(id)) problems.push(`recall judgment for unknown item ${id}`)
-  return {byApp: out, regressions, problems}
+  return {byApp: out, regressions, problems, warnings}
 }
 
-export function investigations(rows, protocol) {
+export function investigations(rows, protocol, commit = null) {
   const problems = []
+  if (commit) {
+    const others = rows.filter((r) => r.bootui_commit !== commit)
+    if (others.length)
+      problems.push(`${others.length} investigations did not run on the rerun's BootUI commit ${commit.slice(0, 9)}`)
+  }
   const arms = {}
   const seen = new Set()
   for (const r of rows) {
@@ -349,19 +372,30 @@ export function investigations(rows, protocol) {
   }
 }
 
-/** The latest measurement per registered application, on the rerun's BootUI commit. */
+/**
+ * One measurement per registered application on the rerun's BootUI commit. A repeated measurement must say why
+ * (`reason`, written by ttfo.sh --reason); the last one counts, and the earlier ones are listed.
+ */
 export function timeToFirstObservation(rows, protocol, worksheet = {}) {
   const problems = []
   const commit = worksheet.bootuiCommit
-  const latest = new Map()
+  const byApp = new Map()
   for (const row of rows) {
     if (commit && row.bootuiCommit !== commit) continue
-    latest.set(row.app, row)
+    if (!byApp.has(row.app)) byApp.set(row.app, [])
+    byApp.get(row.app).push(row)
+  }
+  const superseded = []
+  for (const [app, measured] of byApp) {
+    measured.slice(1).forEach((row, i) => {
+      if (!row.reason) problems.push(`${app} was measured again without a reason`)
+      superseded.push({...measured[i], supersededBecause: row.reason || null})
+    })
   }
   for (const app of [...protocol.tunedApps, ...protocol.holdoutApps]) {
-    if (!latest.has(app)) problems.push(`no time to first observation for ${app}`)
+    if (!byApp.has(app)) problems.push(`no time to first observation for ${app}`)
   }
-  return {rows: [...latest.values()], problems}
+  return {rows: [...byApp.values()].map((measured) => measured.at(-1)), superseded, problems}
 }
 
 const cell = (v) => (v === null || v === undefined ? '—' : String(v).replace(/\|/g, '\\|').replace(/\n/g, ' '))
@@ -380,7 +414,11 @@ export function markdown(result) {
   if (result.registration.ref !== result.expectedRegistration || !result.registration.sha) {
     out.push(`**Not checked against the registration tag (${result.registration.ref}): not a final score.**`, '')
   } else {
-    out.push(`Registered protocol: \`${result.registration.ref}\` at \`${result.registration.sha}\`.`, '')
+    out.push(
+      `Registered protocol: annotated tag \`${result.registration.ref}\` (\`${result.registration.tag}\`) on ` +
+        `commit \`${result.registration.sha}\`.`,
+      ''
+    )
   }
   if (result.missing?.length) out.push(`**Partial score: missing ${result.missing.join(' and ')}.**`, '')
   if (result.reviewers) {
@@ -575,6 +613,7 @@ export function markdown(result) {
         : "Every item the first run found is in the rerun's default list.",
       ''
     )
+    if (rc.warnings?.length) out.push(...rc.warnings.map((w) => `- Warning: ${w}`), '')
   }
   if (inv) {
     out.push('### Agent investigations', '')
@@ -610,6 +649,8 @@ export function markdown(result) {
           yes(t.seconds !== null && t.seconds <= 300)
         ])
       ),
+      '',
+      ...ttfo.superseded.map((t) => `- Superseded measurement of ${t.app} (${t.seconds} s): ${t.supersededBecause}`),
       ''
     )
   }
@@ -711,7 +752,7 @@ function main() {
   }
   const result = {
     protocol: protocol.name,
-    registration: {ref: registration.ref, sha: registration.sha},
+    registration: {ref: registration.ref, tag: registration.tag, sha: registration.sha},
     expectedRegistration: protocol.registration.ref,
     harnessSha256: current,
     reviewers: protocol.reviewers.panel,
@@ -726,13 +767,18 @@ function main() {
     const read = readCsvById(readFileSync(values['recall-judgments'], 'utf8'), 'the recall judgments')
     problems.push(...read.problems)
     const known = JSON.parse(readFileSync(join(validationHome, 'recall', 'known-misses.json'), 'utf8'))
-    result.recall = recall(known, read.map, judged.rows)
+    result.recall = recall(known, read.map, judged.rows, worksheet.subjects || null)
     problems.push(...result.recall.problems)
+    for (const warning of result.recall.warnings) console.warn(`warning: ${warning}`)
   } else {
     problems.push('recall is part of the protocol: pass --recall-judgments')
   }
   if (values.investigations) {
-    result.investigations = investigations(parseCsv(readFileSync(values.investigations, 'utf8')), protocol)
+    result.investigations = investigations(
+      parseCsv(readFileSync(values.investigations, 'utf8')),
+      protocol,
+      worksheet.bootuiCommit
+    )
     problems.push(...result.investigations.problems)
   } else {
     result.missing.push('the agent investigations')

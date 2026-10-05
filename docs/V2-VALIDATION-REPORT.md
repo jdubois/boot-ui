@@ -124,14 +124,16 @@ stub, collector, rubric, reviewer prompt, known misses, and scoring scripts. Rig
 to the known misses, the maintainer creates the annotated tag `m4-20-protocol-1` on the merged commit, never moves it,
 and records its SHA in the sign-off. (Not `v…`: `release.yml` starts on any pushed tag matching `v*`.) The scorer
 refuses to run unless the harness matches that tag, every run's BootUI commit descends from it, the worksheet the
-reviewers judged is the one the evidence gives, and the run set is complete; it writes the tag's SHA into its output.
+reviewers judged is the one the evidence gives, and the run set is complete. It checks that the tag is annotated, and
+writes the tag object's SHA and its commit's SHA into its output.
 Changing a rule after the evidence is collected is a protocol change: it is dated, says why, and reports the scores
 under both versions.
 
 ### Preconditions and integrity
 
 - The rerun starts once M4-18, M4-19, M4-21, and M4-22 are merged into `v2`, together with the fix for the Spring
-  Modulith startup failure found while selecting the holdouts (see [Holdout applications](#holdout-applications)). It
+  Modulith startup failure found while selecting the holdouts (#1274, merged as `baece9096`; the bookstore now starts
+  without any workaround) and the Timeless message-grouping fix below. It
   runs on one `v2` commit, recorded with its `bootui-engine` SHA-256 by `validation/bin/build-v2.sh`. A measured run
   refuses a checkout with any uncommitted or untracked change (`validation/` included), a checkout that is not that
   commit, and any workaround argument (`VALIDATION_APP_ARGS`). Each run records the BootUI commit, the engine jar's
@@ -143,10 +145,11 @@ under both versions.
   or its traffic reports unexpected statuses); the previous attempt is kept with its reason, and the report lists it.
   The worksheet refuses a missing, duplicated, or unregistered run, a role other than the registered one, and smoke
   runs, which the harness writes elsewhere. Superseded attempts and their reasons are printed with the scores.
-- **The holdouts stay holdouts.** Until the rerun, no change to BootUI may be motivated by what a holdout shows,
-  except fixes to real bugs that the start checks exposed. Those checks showed the maintainer some holdout output,
-  recorded as holdout exposure in `protocol.json` and printed with the scores:
-  - **Bookstore:** the startup failure with Spring Modulith (being fixed, see above), and, on two iterations of traffic
+- **The holdouts stay holdouts.** Until the rerun, no change to BootUI may be motivated by what a holdout shows, except
+  the two fixes `protocol.json` lists in `allowedHoldoutFixes`: the Spring Modulith startup fix (#1274) and the
+  Timeless message-grouping fix (its PR and commit are filled in before the tag). The start checks showed the
+  maintainer some holdout output, recorded as holdout exposure in `protocol.json` and printed with the scores:
+  - **Bookstore:** the startup failure with Spring Modulith (fixed, see above), and, on two iterations of traffic
     before M4-19, route breakdowns on every route (most `INSUFFICIENT`), exception groups for unknown orders and
     products, and the checks that did not run (`proxy-bypass`, `transaction-across-remote-call`, the agent kinds).
   - **Timeless:** on two to ten iterations, before and after M4-19, route breakdowns (`POST /api/messages` spends 94 %
@@ -163,13 +166,17 @@ under both versions.
 The five tuned applications are the first run's, at the same commits. The two holdouts, chosen below, were not used to
 tune anything. Each application's pin, patches, start command, and traffic are committed under `validation/apps/` and
 `validation/traffic/`; the traffic reproduces the first run's, with a fixed number of iterations in a fixed order
-instead of a duration, and prints its duration and request count. Each rerun covers:
+instead of a duration, and prints its duration and request count. One request is new: JHipster's traffic also sends a
+valid password-reset request, whose asynchronous email fails against the SMTP server that does not run (JH-4 in the
+known misses). Each rerun covers:
 
 1. the 5 + 2 applications without the BootUI agent, with tracing off and no BootUI property;
 2. four agent-attached runs: JHipster and the bookstore, for `work-after-response`; and, for
    `changed-code-not-executed`, Quarkus Super Heroes in dev mode and PetClinic under Spring Boot DevTools, each with a
    registered code change applied while it runs (`validation/apps/<app>/change.patch`): one changed method the traffic
-   reaches, and one it never does;
+   reaches, and two it never does, in two classes. `protocol.json` registers the facts each agent run is expected to
+   give (`agentRunExpectedFacts`): 2 per run for `changed-code-not-executed`, one per class, so 4 on two applications,
+   and none for `work-after-response`, which found nothing on either application in the start checks;
 3. a no-change comparison on every application (two runs sharing `bootui.runtime-journal.baseline-file`, the only
    BootUI property the rerun sets), reported in the text: any behaviour change it reports is a finding;
 4. the time to first observation on every application, measured the same way on every stack (below);
@@ -243,8 +250,10 @@ Findings and reviews and from each application's known issues. The maintainer ma
 tag is created, never after: the tag freezes the list with the rest of the harness. After the rerun, the maintainer marks each item found in the default list, found only in a hidden row, an
 honest gap (a check or coverage line says it cannot see it), missed, or not exercised, which is allowed only for an
 item registered now as out of the traffic's reach (none is); and each counterexample respected or violated. A found
-item names the rows that state it, a violation names the facts, which must be adjudicated Misleading, and a
-counterexample cannot be marked respected while a fact adjudicated Misleading sits on its subject. Recall is the share
+item names the rows that state it (for the default list, facts of the item's own application), a violation names the
+facts, which must be adjudicated Misleading, and a counterexample cannot be marked respected while a fact adjudicated
+Misleading sits on its subject; a counterexample whose subjects appear nowhere in the evidence is flagged, since its
+"respected" could not be checked. Recall is the share
 found in the default list among the items exercised. An item the first run found that the rerun misses, finds only in
 a hidden row, or reports only as an honest gap is a regression. The scorer always reads the registered list, and the
 final score refuses to run without recall.
@@ -261,11 +270,12 @@ state, comparing exact fractions, never rounded shares:
 | §2.3, after M3 | ≥ 50 % useful, pooled and on the tuned and holdout applications separately | Reported per group |
 | Per kind (D35) | A kind with at least 3 facts on at least 2 applications, over every run: at least 50 % useful, and nothing misleading | It stays listed by default; otherwise it folds into its panel or stays hidden |
 | Per kind, few facts | 1 or 2 facts, or facts on one application only | It is hidden, marked as not externally validated: too few facts (D35, "below that the kind folds into its panel or stays hidden"); something of the kind misleading fails it |
-| Per kind, silent | No fact anywhere: the kind's checks ran and found nothing listed | It stays listed, marked as not externally validated |
-| Per kind, not exercised | No fact anywhere, and no run evaluated the kind's check (not applicable or unavailable everywhere) | It stays listed, marked as not externally validated, and the report says its check never ran |
-| Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent, not-exercised, and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
+| Per kind, all hidden | No fact, but rows of the kind left out of the default list | It is hidden, marked as not externally validated: a kind cannot escape its gate by having every row filtered out |
+| Per kind, silent | No row of the kind anywhere, listed or hidden, and its checks ran | It stays listed, marked as not externally validated |
+| Per kind, not exercised | No row of the kind anywhere, and no run evaluated its check (not applicable or unavailable everywhere) | It stays listed, marked as not externally validated, and the report says its check never ran |
+| Escalation (§2.3, D35) | The pooled score is under 30 %, the holdouts score more than 20 points below the tuned applications, or the holdouts have no fact at all | Every kind that does not pass its gate folds into its existing panel, the silent, not-exercised, all-hidden, and few-facts ones included, and Runtime Insights is presented as a Live Activity view in 2.0.0 |
 
-Only kinds with no fact at all stay listed as not externally validated. Every kind any run's report evaluates is
+Only kinds with no row at all stay listed as not externally validated. Every kind any run's report evaluates is
 gated, so a kind that found nothing cannot drop out. The per-kind gate pools the tuned, holdout, and agent facts of the
 kind, and reports the tuned and holdout shares apart, so a kind that is useful only where it was tuned shows; the
 default-visible score is pooled over the seven applications, without agent facts. The kinds left out of the default
@@ -276,16 +286,22 @@ status is read from the evidence (every row of the kind hidden with the whole-ki
 
 ### Agent runs and investigations
 
-The agent-attached runs are scored as above, on their registered kinds; with two runs each, on two applications, both
-agent kinds can reach their per-kind gate. In the Super Heroes run, the change touches `findAllVillainsHavingName`,
-which the traffic runs, and `deleteAllVillains`, which nothing runs; in the PetClinic run, `Owner.addVisit`, which the
-traffic runs, and `Owner.getPet(String)`, which nothing calls. The ones the traffic runs must not be reported, and the
-others must be (SH-C4, SH-4, PC-C4, and PC-5 in the known misses). The ten investigations run
+The agent-attached runs are scored as above, on their registered kinds. `changed-code-not-executed` can reach its
+per-kind gate with 4 facts on two applications. `work-after-response` found nothing in the start checks with the agent
+(133 eligible requests on JHipster, 213 on the bookstore): JHipster's failed emails are reported by
+`errors-behind-2xx` since M4-22. If the rerun confirms that, it is silent and stays listed as not externally
+validated; with one or two facts, it is hidden. In the Super Heroes run, the change touches `findAllVillainsHavingName`,
+which the traffic runs, and `VillainService.deleteAllVillains` and `VillainResource.deleteAllVillains`, which nothing
+runs; in the PetClinic run, `Owner.addVisit`, which the traffic runs, and `Owner.getPet(String)` and
+`Vet.addSpecialty`, which nothing calls. Since the kind gives one fact per class, a working kind gives two facts per
+run. The ones the traffic runs must not be reported, and the others must be (SH-C4, SH-4, SH-5, PC-C4, PC-5, and PC-6
+in the known misses). The ten investigations run
 from a clean agent session each, with the `bootui` CLI and no other evidence, as in the first run; an independent
 grader marks each answer correct, partial, or wrong against the expected answer, and tool calls, with `--help` apart,
 are counted from the CLI's own log. The target is met when the 2.0 arm answers all ten correctly with fewer calls than
-the 1.x arm. The final score requires the investigations and the time to first observation of all seven applications
-on the rerun's commit; without them it is only a partial score, marked as such.
+the 1.x arm. Each investigation row records the BootUI commit it ran on, which must be the rerun's. The final score
+requires the investigations and the time to first observation of all seven applications on the rerun's commit; without
+them it is only a partial score, marked as such.
 
 ### Time to first observation
 
@@ -293,7 +309,9 @@ Measured by `validation/bin/ttfo.sh`, the same way on every stack: the applicati
 its own dependencies are downloaded; then the stopwatch starts, `bootui.patch` adds the dependency as the setup guide
 says, the application is built and started the way it is run (a jar for Spring, dev mode for Quarkus), one iteration
 of its traffic is sent, and Runtime Insights is read every 2 seconds until a first default-visible row appears, of any
-status. The time to the first `OBSERVED` row is recorded too. Tracing is off and no BootUI property is set. A trial run
+status. The time to the first `OBSERVED` row is recorded too. Tracing is off and no BootUI property is set. Each
+application is measured once on the rerun's commit; measuring it again needs a reason, and the scorer lists the
+superseded measurement beside the one it keeps. A trial run
 on PetClinic with this script read its first row 14 seconds after the dependency was added.
 
 ### Holdout applications
@@ -311,11 +329,10 @@ Quarkus, where `event-loop-blocking` must stay silent. The chat model is a deter
 (`validation/stubs/llm-stub.mjs`), behind the application's own OpenAI provider, so no paid API or downloaded model is
 needed; SQS is LocalStack, as the application's own `docker-compose.yaml` sets up.
 
-Both start on the current `v2` build and serve their traffic. One finding blocks the rerun, and is being fixed on
-`v2`: **the bookstore does not start with the `v2` build**, because BootUI's `applicationEventMulticaster` (M4-8)
-collides with Spring Modulith's, so every application with the event publication registry fails with a
-`BeanDefinitionOverrideException`. The start check used `spring.main.allow-bean-definition-overriding=true`, for that
-check only.
+Both start on the current `v2` build and serve their traffic. The start checks found one blocking bug, now fixed:
+BootUI's `applicationEventMulticaster` (M4-8) collided with Spring Modulith's, so every application with the event
+publication registry failed to start with a `BeanDefinitionOverrideException`. The first start check used
+`spring.main.allow-bean-definition-overriding=true`; since #1274 (`baece9096`), the bookstore starts without it.
 
 ## How to judge an observation
 

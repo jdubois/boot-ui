@@ -48,6 +48,14 @@
           "subjects": ["org.springframework.samples.petclinic.owner.Owner"],
           "firstRun": "not run",
           "run": "petclinic+agent"
+        },
+        {
+          "id": "PC-6",
+          "fact": "In the agent run, change.patch changes Vet.addSpecialty, which nothing calls: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["org.springframework.samples.petclinic.vet.Vet"],
+          "firstRun": "not run",
+          "run": "petclinic+agent"
         }
       ],
       "counterexamples": [
@@ -97,6 +105,14 @@
           "kinds": ["exception-hotspots"],
           "subjects": ["POST /api/account/reset-password/init"],
           "firstRun": "found"
+        },
+        {
+          "id": "JH-4",
+          "fact": "A valid POST /api/account/reset-password/init answers 200 while its @Async reset email fails against the SMTP server that does not run (AccountResource.java:162-173, MailService.java:115-118). Its request is new in the rerun's traffic.",
+          "kinds": ["errors-behind-2xx", "work-after-response"],
+          "subjects": ["POST /api/account/reset-password/init"],
+          "firstRun": "not run",
+          "run": "jhipster and jhipster+agent"
         }
       ],
       "counterexamples": [
@@ -144,7 +160,15 @@
           "id": "SH-4",
           "fact": "In the agent run, change.patch changes deleteAllVillains, which nothing runs: changed-code-not-executed must report it.",
           "kinds": ["changed-code-not-executed"],
-          "subjects": ["VillainService"],
+          "subjects": ["io.quarkus.sample.superheroes.villain.service.VillainService"],
+          "firstRun": "not run",
+          "run": "super-heroes+agent"
+        },
+        {
+          "id": "SH-5",
+          "fact": "In the agent run, change.patch changes VillainResource.deleteAllVillains (DELETE /api/villains), which the traffic never calls: changed-code-not-executed must report it.",
+          "kinds": ["changed-code-not-executed"],
+          "subjects": ["io.quarkus.sample.superheroes.villain.rest.VillainResource"],
           "firstRun": "not run",
           "run": "super-heroes+agent"
         }
@@ -168,7 +192,7 @@
         {
           "id": "SH-C4",
           "fact": "In the agent run, change.patch changes findAllVillainsHavingName, which the traffic runs: changed-code-not-executed must not report it.",
-          "subjects": ["VillainService"],
+          "subjects": ["io.quarkus.sample.superheroes.villain.service.VillainService"],
           "run": "super-heroes+agent"
         }
       ]
