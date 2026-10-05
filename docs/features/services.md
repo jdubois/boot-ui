@@ -274,6 +274,10 @@ The AI Framework panel summarizes Spring AI and LangChain4j activity from the Op
 observability emits. It groups chat client and chat model spans by conversation, showing request count, token usage for
 prompt, completion, and total, latency, model, and the prompt and response snippet when content capture is configured.
 
+AI calls and tokens per route, which Runtime Insights no longer lists by default since `ai-usage-by-route` did not pass its external
+validation ([overview](overview.md#runtime-insights), M4-20), are linked from this panel: the link opens Runtime
+Insights with every row shown.
+
 An inline chart shows total token usage over recent calls, and vector store and embedding spans appear alongside chat
 spans. The data comes from BootUI's local telemetry capture, lives in memory only, and is cleared on restart.
 

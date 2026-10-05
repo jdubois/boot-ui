@@ -457,6 +457,8 @@ class RouteTimeBreakdownTests {
 
         RuntimeInsightsService service =
                 new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        // The kind's own rule, apart from its external validation, which leaves every row out (M4-20).
+        service.assumeValidated();
         List<RuntimeObservationDto> observations = service.report().observations();
 
         assertThat(bySubject(observations, "GET /api/slow").listed()).isTrue();
@@ -494,10 +496,10 @@ class RouteTimeBreakdownTests {
             request("/actuator/health", 25 * MS, RequestTiming.startedAt(clock));
         }
 
-        List<RuntimeObservationDto> observations = new RuntimeInsightsService(
-                        journal, null, null, InsightsStack.SPRING_MVC, null)
-                .report()
-                .observations();
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        service.assumeValidated();
+        List<RuntimeObservationDto> observations = service.report().observations();
 
         RuntimeObservationDto report = bySubject(observations, "GET /api/report");
         assertThat(report.status()).isEqualTo("INSUFFICIENT");
@@ -662,6 +664,66 @@ class RouteTimeBreakdownTests {
                 .anySatisfy(cells -> assertThat(cells).first().isEqualTo("Authentication"));
     }
 
+    /**
+     * The bookstore's form login (M4-20's adjudication follow-up 5): Spring Security's filter answered with a redirect,
+     * so no handler was marked, and authentication took nearly all of the time. The sentence says so, consistent with
+     * the evidence table it sits above, instead of only saying the time is not split.
+     */
+    @Test
+    void aFormLoginTheSecurityFiltersAnsweredSaysAuthenticationTookMostOfItsTime() {
+        for (int i = 0; i < 6; i++) {
+            request("/login", 302, 100 * MS, new RequestTiming(clock, 98 * MS, -1, -1));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto login = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(login.sentence())
+                .contains("reached no handler BootUI marks")
+                .contains("the security filters' authentication took 98 % of it, and the rest is not split into"
+                        + " phases.");
+        assertThat(login.whatToCheck()).first().asString().contains("authentication");
+        assertThat(service.insight(login.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .first()
+                .satisfies(
+                        cells -> assertThat(cells).startsWith("Authentication").contains("98 %"));
+    }
+
+    /**
+     * Authentication is named whenever its row is in the evidence table, not only when it is the largest: at 40 %
+     * against 60 % unattributed, the sentence says so rather than only that the time is not split.
+     */
+    @Test
+    void authenticationIsNamedWithItsShareEvenWhenItIsNotTheLargestPhase() {
+        for (int i = 0; i < 6; i++) {
+            request("/login", 302, 10 * MS, new RequestTiming(clock, 4 * MS, -1, -1));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto login = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(login.sentence())
+                .contains("the security filters' authentication took 40 % of it, and the rest is not split into"
+                        + " phases.")
+                .doesNotContain("so the time is not split into phases");
+        assertThat(service.insight(login.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .anySatisfy(
+                        cells -> assertThat(cells).startsWith("Authentication").contains("40 %"));
+        assertThat(login.whatToCheck())
+                .as("authentication is not most of the time, so its check does not lead")
+                .noneMatch(check -> check.startsWith("Most of the time is authentication"));
+    }
+
     @Test
     void securityRejectedRequestsWithoutHandlerMarksAreNotCalledApplicationCode() {
         for (int i = 0; i < 6; i++) {
@@ -767,9 +829,10 @@ class RouteTimeBreakdownTests {
         assertThat(admin.status()).isEqualTo("INSUFFICIENT");
         assertThat(admin.sentence())
                 .isEqualTo("`GET /api/admin`: warm median 2.0 ms over 3 requests; all of them answered 401 or 403"
-                        + " before reaching a handler BootUI marks, as security filters do when they reject a request,"
-                        + " so the time is not split into phases. First request 2.0 ms (cold).");
-        assertThat(admin.whatToCheck()).singleElement().asString().contains("requests it accepts");
+                        + " before reaching a handler BootUI marks, as security filters do when they reject a request:"
+                        + " the security filters' authentication took 50 % of it, and the rest is not split into"
+                        + " phases. First request 2.0 ms (cold).");
+        assertThat(admin.whatToCheck()).first().asString().contains("authentication");
     }
 
     @Test

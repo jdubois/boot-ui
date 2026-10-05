@@ -1,0 +1,60 @@
+name: Copilot Setup Steps
+
+# Prepares the GitHub Copilot cloud agent's environment before it starts working: the JDKs BootUI builds and tests
+# with, the Node.js the UI and the Playwright suites use, and warm Maven and npm caches, so an agent session does not
+# rediscover them by trial and error. Only the copilot-setup-steps job's steps, permissions, runs-on, services,
+# snapshot, and timeout-minutes are honored by the agent, and the file only takes effect from the default branch.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+permissions:
+  contents: read
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      # The last JDK listed becomes JAVA_HOME: Java 17 is the baseline. JAVA_HOME_21_X64 and JAVA_HOME_25_X64 stay
+      # available for the JDK-specific lanes, and Spotless runs on any of them.
+      - name: Set up the JDKs
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            21
+            25
+            17
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: |
+            bootui-ui/src/main/frontend/package-lock.json
+            bootui-spring-sample-app/e2e/package-lock.json
+            bootui-quarkus-sample-app/e2e/package-lock.json
+
+      - name: Install the UI and browser-suite dependencies
+        run: |
+          (cd bootui-ui/src/main/frontend && npm ci --no-audit --no-fund)
+          (cd bootui-spring-sample-app/e2e && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium)
+          (cd bootui-quarkus-sample-app/e2e && npm ci --no-audit --no-fund)
+
+      # Builds and installs the reactor without tests, which downloads every plugin and dependency (Quarkus
+      # augmentation included) into the local Maven repository the agent then reuses.
+      - name: Warm the Maven repository
+        run: ./mvnw -T 1C -B -ntp -DskipTests install

@@ -32,6 +32,30 @@ class AiUsageByRouteTests {
         journal.close();
     }
 
+    /**
+     * A tool round-trip (M4-20's adjudication follow-up 2, Timeless's {@code POST /api/messages}): two model calls whose
+     * input barely grew. The sentence does not speak of growth, and the advice is not to trim the prompt.
+     */
+    @Test
+    void aToolRoundTripWhoseInputBarelyGrewIsNotCalledGrowth() {
+        for (int i = 0; i < 2; i++) {
+            request("/api/messages", "t" + i, chat(800L, 30L, "tool_calls", 0), chat(830L, 40L, "stop", 10));
+        }
+
+        RuntimeObservationDto observation = new RuntimeInsightsService(journal, null, null, null, null)
+                .report().observations().stream()
+                        .filter(row -> row.kind().equals(AiUsageByRoute.KIND))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(observation.sentence()).doesNotContain("grew").doesNotContain("1.0 times");
+        assertThat(observation.whatToCheck())
+                .noneMatch(check -> check.contains("trim"))
+                .first()
+                .asString()
+                .contains("one tool call and its answer");
+    }
+
     @Test
     void aiOperationsAreLinkedToTheirRequestByTraceIdWithAgentLoopsGrowthAndLengthLimitedStops() {
         request(
@@ -57,7 +81,8 @@ class AiUsageByRouteTests {
             assertThat(observation.sentence())
                     .isEqualTo("`GET /api/assistant` made 5 AI operations in 2 of 2 requests: 4 model calls, up to 3"
                             + " in one request, a median 40 ms each, 8400 input and 4426 output tokens (reported by 4"
-                            + " of 4 calls). Input tokens grew across successive model calls in 1 request, up to 4.0"
+                            + " of 4 calls). Input tokens grew by half or more across successive model calls in 1"
+                            + " request, up to 4.0"
                             + " times the first call's. 1 call stopped at the length limit.");
             assertThat(observation.whatToCheck())
                     .hasSize(3)

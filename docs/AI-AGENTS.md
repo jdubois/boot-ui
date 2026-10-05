@@ -325,8 +325,8 @@ read tools return short, stable facts rather than a dashboard:
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so a route's time breakdown only when prominent, exceptions behind a 5xx, a failed run, a redirect, or new, no garbage collection or heap rows, and no insufficient repeated-selects row under 50 ms that ran fewer than 10 times in any request; a limitation counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
-| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations |
+| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so only the kinds that passed their external validation or stayed silent on it (M4-20), and no time breakdown, exception hotspot, repeated SELECT, connection, AI, garbage collection, or heap row; a limitation names the returned rows' kinds that are not externally validated, and another counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
+| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations, and a row of a kind not externally validated says so |
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
 | `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then at most 8 route/execution behavior rows and edges; latency is left out |
 
@@ -367,9 +367,9 @@ known, runs the tests, calls
    routes whose requests ran the method itself; a route under `notObserved` ran without showing it, which is not proof
    it never does.
 2. After the edit and a DevTools restart or Quarkus live reload, run the tests, then
-   `bootui insights list --query repeated-selects --json`. The default list keeps a sufficient repeated SELECT, including
-   a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times in any
-   request, so that query shows whether a weak cheap repeat is gone. Absence is evidence only when the
+   `bootui insights list --query repeated-selects --json`. The default list leaves repeated SELECTs out since their
+   external validation (M4-20), so that query shows whether a repeat is gone; a statement repeated after the handler
+   returned is reported by `lazy-sql-after-handler` instead, with its cause. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
 3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
    come first: the methods changed since the previous run, which ran, and on which routes. Omitted `id` or `previous`
@@ -422,7 +422,9 @@ approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue
 ### Did this method run, and how?
 
 A [method probe](features/java-agent.md#method-probes) records one application method's next invocations: metadata
-only, in every exposure mode (D24).
+only, in every exposure mode (D24). A probe the user started in the Code Paths panel with argument and return shapes
+says so (`recordShapes`), but `get_method_probe` never returns those shapes, in any exposure mode: its
+`shapesHiddenReason` says they are shown in the panel only.
 
 | Tool | CLI | Returns |
 | --- | --- | --- |

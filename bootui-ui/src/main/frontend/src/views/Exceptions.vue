@@ -10,6 +10,7 @@ import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import FoldedInsightsLink from './components/FoldedInsightsLink.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import AiExportPreview from './components/AiExportPreview.vue'
@@ -282,6 +283,8 @@ onMounted(() => {
       </div>
 
       <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Clearing exceptions is read-only.</ReadOnlyNotice>
+
+      <FoldedInsightsLink v-if="report.available" class="mb-3" theme="errors" what="Exception groups per route" />
 
       <template v-if="report.available">
         <div v-if="!report.groups || report.groups.length === 0" class="alert alert-secondary">

@@ -619,7 +619,9 @@ public final class BootUiApiContractCatalog {
                             "maxInvocations", JsonType.NUMBER,
                             "windowSeconds", JsonType.NUMBER,
                             "probes", JsonType.ARRAY,
-                            "limitations", JsonType.ARRAY)));
+                            "limitations", JsonType.ARRAY,
+                            "shapesAvailable", JsonType.BOOLEAN,
+                            "shapesUnavailableReason", JsonType.NULLABLE_STRING)));
 
     /**
      * One Runtime Insights observation with its evidence, a detail read of the {@code runtime-insights} panel

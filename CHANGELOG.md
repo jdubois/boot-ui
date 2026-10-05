@@ -91,6 +91,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
   Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
   ([Method probes](docs/features/java-agent.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
+- **Argument and return shapes for method probes.** A probe can also record argument and return types, nullness, and
+  sizes, never values, shown in the panel only ([shapes](docs/features/java-agent.md#argument-and-return-shapes), D44).
 - **The agent evidence contract (M5-11).** Code Paths' request and route trees, Code Inventory's first calls, and Side
   Effects rows, which the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on
   Spring MVC, Spring WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible,
@@ -343,6 +345,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
+  default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-24).
 - **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
   2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:

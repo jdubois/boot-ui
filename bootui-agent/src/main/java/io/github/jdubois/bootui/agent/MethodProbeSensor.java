@@ -28,7 +28,8 @@ import net.bytebuddy.utility.JavaModule;
 
 /**
  * Method probes' agent side (PLAN-v2 §5.14, M5-8): installs and removes one Byte Buddy transformer per probe, each
- * advising one method of one class with {@link MethodProbeAdvice}, off the caller's thread, on one agent thread that
+ * advising one method of one class with {@link MethodProbeAdvice}, or {@link MethodProbeShapesAdvice} for a probe that
+ * records argument and return shapes, off the caller's thread, on one agent thread that
  * runs only while a probe is pending or installed.
  *
  * <p><b>Which class.</b> Only the copies of the class that the current run's class loaders defined: those on the
@@ -299,7 +300,7 @@ final class MethodProbeSensor {
             Advice advice = Advice.withCustomMapping()
                     .bind(MethodProbeAdvice.Slot.class, Integer.valueOf(probe.request.slot))
                     .bind(MethodProbeAdvice.ProbeId.class, Long.valueOf(probe.request.id))
-                    .to(MethodProbeAdvice.class);
+                    .to(probe.request.shapes ? MethodProbeShapesAdvice.class : MethodProbeAdvice.class);
             return stats.configure(new AgentBuilder.Default(), new Rejections(probe))
                     .with(new Outcomes(probe))
                     .assureReadEdgeTo(instrumentation, MethodProbes.class)
@@ -538,6 +539,9 @@ final class MethodProbeSensor {
         final String className;
         final String methodName;
         final String descriptor;
+        /** Whether the probe records argument and return shapes, with {@link MethodProbeShapesAdvice}. */
+        final boolean shapes;
+
         private final List<WeakReference<ClassLoader>> loaders;
 
         Request(
@@ -546,12 +550,14 @@ final class MethodProbeSensor {
                 String className,
                 String methodName,
                 String descriptor,
+                boolean shapes,
                 List<WeakReference<ClassLoader>> loaders) {
             this.slot = slot;
             this.id = id;
             this.className = className;
             this.methodName = methodName;
             this.descriptor = descriptor;
+            this.shapes = shapes;
             this.loaders = loaders;
         }
 

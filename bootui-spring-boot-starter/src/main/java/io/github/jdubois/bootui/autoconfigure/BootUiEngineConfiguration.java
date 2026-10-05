@@ -574,7 +574,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
             ObjectProvider<BeanProvider> beans,
-            AgentEvidence evidence) {
+            AgentEvidence evidence,
+            BootUiExposure exposure) {
         CodePathsService service = new CodePathsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -595,6 +596,8 @@ public class BootUiEngineConfiguration {
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.getIfUnique(), null));
+        // Method probes' argument and return shapes follow the live bootui.expose-values (M5-8, D44).
+        service.setExposure(exposure);
         return service;
     }
 

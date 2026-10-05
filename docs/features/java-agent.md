@@ -1062,7 +1062,9 @@ once**:
 - each invocation's duration, thread kind (platform or virtual), request id (a link to Live Activity), outcome
   (returned, or the type of the exception it threw), and calling frame: the first frame of the application's packages
   above the method, past proxies and interceptors, else the frame right above it;
-- **metadata only**: never an argument, a return value, or a field, in any exposure mode.
+- by default, **metadata only**: never an argument, a return value, or a field, in any exposure mode;
+- with **Record argument and return shapes** checked before the start, also the **shapes** of the first nine arguments,
+  taken at entry, and of the return value (see [Argument and return shapes](#argument-and-return-shapes)).
 
 The **Method probes** card lists the run's probes, newest first, with their state (**starting**, **active**,
 **waiting for its class** when this run has not loaded the class yet, **ending** while the agent removes its
@@ -1093,13 +1095,47 @@ invocations, its window, a **Stop**, or the end of the run. The card refreshes e
 | Method and path | Does |
 | --- | --- |
 | `GET /bootui/api/code-paths/probes` | The run's probes with their recorded invocations, the bounds, and the limitations |
-| `POST /bootui/api/code-paths/probes` | Starts a probe on `{"method": "com.example.PriceService#quote(I)J"}`: 400 for a method that cannot be probed, 409 when refused (unavailable, five running, or already probed) |
+| `POST /bootui/api/code-paths/probes` | Starts a probe on `{"method": "com.example.PriceService#quote(I)J"}`, with `"recordShapes": true` for shapes: 400 for a method that cannot be probed, 409 when refused (unavailable, five running, already probed, or shapes unavailable) |
 | `GET /bootui/api/code-paths/probes/{id}` | One probe; 404 when this run has none |
 | `POST /bootui/api/code-paths/probes/{id}/stop`, `DELETE /bootui/api/code-paths/probes/{id}` | Stops a probe |
 
 AI agents start one with `start_method_probe` (`bootui probe start <method>`) and read it with `get_method_probe`
 (`bootui probe show <id>`), only after the user's separate approval; see
-[Did this method run, and how?](../AI-AGENTS.md#did-this-method-run-and-how).
+[Did this method run, and how?](../AI-AGENTS.md#did-this-method-run-and-how). Agents start metadata-only probes and
+never see a shape.
+
+#### Argument and return shapes
+
+A shape says what an argument or the return value looked like without saying what it was: its runtime type, whether it
+was `null`, and, for a short list of JDK types, a size, a length, or a presence. It answers "was this list empty?",
+"did this get `null`?", or "which implementation came in?" without a debugger, and never shows a value.
+
+| Value | Shape | Example |
+| --- | --- | --- |
+| `null` | null | `null` |
+| A primitive parameter or return value | its declared type, never its value | `int` |
+| `String` | its type; its length under `FULL` exposure | `String`, or `String (12 chars)` |
+| `ArrayList`, `LinkedList`, `HashSet`, `List.of(...)`, `HashMap`, `TreeMap`, `ConcurrentHashMap`, ... (exact JDK classes) | its type and size | `ArrayList (size 3)` |
+| An array | its type and length; a `char[]` or `byte[]` length under `FULL` exposure | `int[] (length 4)` |
+| `Optional`, `OptionalInt`, `OptionalLong`, `OptionalDouble` | present or empty | `Optional (present)` |
+| An enum constant | its enum; the constant's name under `FULL` exposure | `Level`, or `Level.HIGH` |
+| Anything else: boxed numbers, booleans, application objects, proxies, custom or wrapped collections | its runtime type only | `Card`, `PersistentBag`, `Integer` |
+
+- **No application code runs.** The agent reads a value's class and, by exact class, `String.length()`, an array's
+  length, `Optional.isPresent()`, `Enum.name()`, and the `size()` of JDK collections and maps that read their own
+  fields. It never calls `toString()`, `hashCode()`, `equals()`, a getter, an iterator, or the `size()` of an
+  application, Hibernate, unmodifiable, synchronized, or sorted-view collection: those show their type only, and a lazy
+  Hibernate collection is never initialized.
+- **Exposure.** `bootui.expose-values` decides what the panel shows, live: under `METADATA_ONLY`, no shape (and a probe
+  cannot be started with them); under `MASKED`, the default, types, nullness, collection, map, and array sizes, and
+  presence; under `FULL` (or `MASKED` with `bootui.mask-secrets=false`), also a string's length, a `char[]`, `byte[]`,
+  `Character[]`, or `Byte[]` length, and an enum constant's name, the details derived from a value. A number or a boolean is never shown.
+- **The panel only.** MCP, the CLI, and exports never return a shape, whatever the exposure: `get_method_probe` says a
+  probe records them (`recordShapes`) and why they are not shown (`shapesHiddenReason`).
+- **Bounds.** Shapes are opt-in per probe and cover the first nine arguments; the rest are counted. A shapes probe uses
+  its own advice, which builds its argument array only for an invocation it records, so the default metadata probes
+  cost what they did. A shape the agent's transport could not take, or one of an invocation running across a
+  **Clear recording**, shows as **lost**.
 
 ## Code Inventory
 

@@ -754,15 +754,20 @@ Features:
   (`binary.Class#name`, with its descriptor for an overloaded one) and records its next 20 invocations, for at most 60
   seconds, five probes at once: each invocation's duration, thread kind, request id, outcome (returned, or the thrown
   exception's type), and calling frame (the first frame of the application's packages above the method, past proxies
-  and interceptors). Metadata only: never an argument or a return value. The method must be one the agent's inventory
+  and interceptors). Metadata only by default: never an argument or a return value. Started with **Record argument and
+  return shapes** (`"recordShapes": true`, D44), a probe also records the shapes of the first nine arguments, at entry,
+  and of the return value: runtime types, nullness, and, by exact JDK class, collection, map, and array sizes and
+  `Optional` presence, read without calling any application method; a string's length, a `char[]` or `byte[]` length,
+  and an enum constant's name are shown under `bootui.expose-values=FULL` only, no shape under `METADATA_ONLY`, and MCP,
+  the CLI, and exports never show one. The method must be one the agent's inventory
   or code-paths transformer saw, in the claimed packages; only the current run's copy of its class is advised (a probe
   on a class this run has not loaded yet waits for it, within its window). The agent enforces the bounds where the
   method runs, ends a probe with its run (a restart, a live reload, a disarm, or a release), and removes its advice by
   retransformation, keeping the inventory and code-paths advice; a removal it cannot confirm is reported. A method
   returning a reactive or asynchronous result is flagged: its durations time the assembly only. `GET
   /bootui/api/code-paths/probes` lists the run's probes with their invocations, `POST /code-paths/probes` with
-  `{"method": ...}` starts one (400 for a method that cannot be probed, 409 when refused: unavailable, five running, or
-  already probed), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
+  `{"method": ..., "recordShapes": true}` starts one (400 for a method that cannot be probed, 409 when refused:
+  unavailable, five running, already probed, or shapes unavailable), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
   or `DELETE /code-paths/probes/{id}` stops one. `start_method_probe` (`bootui probe start <method>`) and
   `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode (D24).
 
@@ -772,7 +777,8 @@ Acceptance criteria:
   and otherwise unavailable with the Java Agent panel's reason, and every read answers the same `available: false`
   shape. Its reads start no scan, network call, or mutation; its method probes are actions that the global or per-panel
   read-only policy (`bootui.panels.code-paths.read-only`) refuses, in the API, MCP, and the CLI.
-- A probe never outlives its bound, and never records an argument or a return value.
+- A probe never outlives its bound, and never records an argument or a return value; its shapes run no application
+  method and never reach MCP, the CLI, or an export.
 - On the Spring sample with the agent, the seeded slow route's breakdown names `SlowPricingService.quote`, and the route
   tree's handler-phase time reconciles with the handler phase within 5 %; the seeded N+1 route's `repeated-selects`
   names `InsightOrderService.ordersLineByLine`, its statements show under that method, and Beans at runtime lists the
@@ -1857,20 +1863,25 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
+  Every check carries `validation` and `validationReason`, its kind's external validation ([PLAN-v2.md](PLAN-v2.md)
+  M4-20, recorded once in the engine's `ExternalValidation`): `PASSED` (`errors-behind-2xx`,
+  `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on the validation applications)
+  are listed by default, the latter marked in the panel; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
+  `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
+  its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
+  `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
+  reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` ([PLAN-v2.md](PLAN-v2.md) M4-19, D35): a `route-time-breakdown` is listed only when prominent
-  (a warm median of 20 ms or more, authorization taking 20 % of the warm time, or a median of 50 authorization
-  decisions a request; this replaces §5.5's former "or one phase ≥ 50 %", which nearly every short route met; a route
-  with fewer than five warm requests is listed as insufficient only when two to four of them have a warm median of
-  100 ms or more);
-  `exception-hotspots` lists groups behind a 5xx, a failed run or message, a redirect, or not observed in the previous
-  run, and collapses those seen only behind 4xx responses, and those caught in scheduled runs or messages that
-  completed, into one counted row each; `lazy-sql-after-handler` leaves out
-  a statement `repeated-selects` already lists from the same call site; `framework-warnings-by-route` leaves out a
-  `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts in one row the framework `ERROR` events
-  that carried no request id; `gc-inflated-latency` and `heap-growth-after-gc` are reached from the Memory panel
-  (revisiting D18). The four ORM and application-event kinds of D29 are listed, since their counterexample fixtures
-  pass the cross-observation harness (M4-18e). The panel's **Show all routes**, a search, or a deep link lists the rest.
+  not, `unlistedReason` (M4-19, M4-20): the kind's validation reason for a kind that is not listed, or else the kind's
+  own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
+  taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
+  groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
+  three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves
+  to `lazy-sql-after-handler` a statement that kind reports on the same route when every affected request repeated it
+  after the handler returned and the lazy row names each of its call sites, its check's reason counting them, and names the render-time call site of statements run after the handler; and
+  `framework-warnings-by-route` leaves out a `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts
+  in one row the framework `ERROR` events that carried no request id. The panel's **Show all routes**, a search, or a
+  deep link lists the rest.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a
