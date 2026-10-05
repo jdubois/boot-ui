@@ -85,6 +85,7 @@ import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
@@ -464,6 +465,21 @@ public class BootUiEngineConfiguration {
                 BootUiCorrelation::current,
                 phases,
                 properties.getAgent().getExecutors().getMaxHandoff());
+    }
+
+    /**
+     * The engine side of the BootUI agent's opt-in {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6a):
+     * routes its records into the runtime journal, which installs itself on it as on every recorder. The run's
+     * {@link AgentClaimOwner} starts it once the context is refreshed and its claim is armed; it stops routing when the
+     * context closes. Without the agent, or without the sensor, it starts nothing.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    AgentCaughtExceptions bootUiAgentCaughtExceptions(ObjectProvider<AgentClaimOwner> owner) {
+        return new AgentCaughtExceptions(AgentBridgeAccess.locate(), () -> {
+            AgentClaimOwner current = owner.getIfUnique();
+            return current == null ? null : current.claim();
+        });
     }
 
     /**

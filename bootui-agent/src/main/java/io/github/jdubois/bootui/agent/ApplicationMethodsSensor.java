@@ -1357,7 +1357,7 @@ final class ApplicationMethodsSensor {
         public void onIgnored(TypeDescription type, ClassLoader classLoader, JavaModule module, boolean loaded) {
             // A loaded class of a matched package the transformer leaves alone (synthetic, from a test root): seen, so
             // no later claim retransforms it again for nothing.
-            if (loaded && inventoryOn && AgentInstaller.inPackages(type.getName(), matching)) {
+            if (loaded && (inventoryOn || caughtOn) && AgentInstaller.inPackages(type.getName(), matching)) {
                 markSeen(classLoader, type.getName());
             }
         }
