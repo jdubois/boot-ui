@@ -13,7 +13,9 @@ const props = defineProps({
   toggle: {type: Object, required: true}
 })
 
-const emit = defineEmits(['switched'])
+// `switched` carries the Java Agent report after the switch; `stale` asks the panel to read its state again after a
+// refused or failed switch, which the bridge may still have applied.
+const emit = defineEmits(['switched', 'stale'])
 
 const STATES = {
   off: 'Off',
@@ -73,11 +75,13 @@ async function flip(event) {
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
       failure.value = body.error || body.reason || body.message || `HTTP ${res.status}`
+      emit('stale')
       return
     }
     emit('switched', body)
   } catch (e) {
     failure.value = formatLoadError(e, `Could not switch the ${props.toggle.id} sensor`)
+    emit('stale')
   } finally {
     busy.value = false
   }

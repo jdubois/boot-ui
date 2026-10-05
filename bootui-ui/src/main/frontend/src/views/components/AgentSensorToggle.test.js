@@ -99,6 +99,7 @@ describe('AgentSensorToggle', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('could not switch threads')
     expect(wrapper.get('input[role="switch"]').element.checked).toBe(false)
     expect(wrapper.emitted('switched')).toBeUndefined()
+    expect(wrapper.emitted('stale')).toHaveLength(1)
   })
 
   it('is disabled with the reason when the Java Agent panel is read-only or the agent predates switches', async () => {

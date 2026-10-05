@@ -271,6 +271,11 @@ public final class AgentClaim {
         return activeSensors().contains(sensor);
     }
 
+    /** The runtime switch revision of the bridge's answer {@link #activeSensors()} comes from, -1 before any. */
+    public synchronized long sensorsRevision() {
+        return sensorsRevision;
+    }
+
     /** The runtime switches applied to this claim, sensor id to on or off, as the bridge last answered. */
     public synchronized Map<String, Boolean> sensorOverrides() {
         return sensorOverrides;

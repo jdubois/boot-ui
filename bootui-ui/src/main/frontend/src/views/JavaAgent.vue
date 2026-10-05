@@ -482,7 +482,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
           </p>
           <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
             <li v-for="toggle in toggles" :key="toggle.id">
-              <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" />
+              <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="load" />
             </li>
           </ul>
           <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">

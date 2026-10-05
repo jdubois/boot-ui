@@ -206,6 +206,13 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private Map<String, Object> switched(Map<String, Object> request, long requested) {
         long revision = number(request.get("sensorsRevision"));
         if (requested != generation) {
+            if (requested < generation
+                    && threads != null
+                    && !claimedSensors.contains(ThreadPropagation.SENSOR)
+                    && !strings(request.get("sensors")).contains(ThreadPropagation.SENSOR)) {
+                // A threads switch-off that a newer claim overtook: neither wants java.lang.Thread instrumented.
+                threads.release();
+            }
             return answer("ignored", "another claim's switch");
         }
         if (revision <= sensorsRevision) {

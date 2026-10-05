@@ -577,9 +577,15 @@ public final class JavaAgentService {
         if (!access.sensorSwitchSupported()) {
             throw new IllegalStateException(switchUnsupportedReason());
         }
+        long revision = ours.sensorsRevision();
         Map<String, Object> answer = ours.switchSensor(sensor, enabled);
         String answered = String.valueOf(answer.get("status"));
-        if (AgentClaim.ARMED.equals(answered)) {
+        // The bridge commits a switch before it calls the agent: one the agent then failed still holds, for this run
+        // and
+        // the next claims, so the report says so, with the agent's state and message, rather than a refusal.
+        boolean committed =
+                AgentClaim.FAILED.equals(answered) && ours.sensorsRevision() > revision && ours.uses(sensor) == enabled;
+        if (AgentClaim.ARMED.equals(answered) || committed) {
             for (Runnable listener : switchListeners) {
                 try {
                     listener.run();
@@ -644,7 +650,10 @@ public final class JavaAgentService {
             String reported = AgentBridgeAccess.text(sensor, "state");
             state = reported == null ? "installing" : reported;
         }
-        boolean supported = access.sensorSwitchSupported();
+        String unavailable = access.sensorSwitchSupported() ? null : switchUnsupportedReason();
+        if (unavailable == null && !enabled && AgentSensorSettings.THREADS.equals(id) && threadsFailedThisRun(ours)) {
+            unavailable = "The threads sensor failed in this run: it stays off until the application restarts.";
+        }
         return new JavaAgentSensorToggleDto(
                 id,
                 configured,
@@ -652,8 +661,15 @@ public final class JavaAgentService {
                 ours.sensorOverrides().containsKey(id),
                 state,
                 AgentSensorSettings.optInReason(id),
-                supported,
-                supported ? null : switchUnsupportedReason());
+                unavailable == null,
+                unavailable);
+    }
+
+    /** Whether the bridge disabled the threads sensor for this claim's generation, or for every generation. */
+    private boolean threadsFailedThisRun(AgentClaim ours) {
+        Long disabled = AgentBridgeAccess.number(
+                AgentBridgeAccess.map(access.status(), AgentSensorSettings.THREADS), "disabledGeneration");
+        return disabled != null && (disabled == Long.MAX_VALUE || disabled.equals(ours.generation()));
     }
 
     /**

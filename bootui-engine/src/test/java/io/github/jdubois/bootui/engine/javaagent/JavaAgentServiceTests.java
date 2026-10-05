@@ -738,6 +738,39 @@ class JavaAgentServiceTests {
     }
 
     @Test
+    void aSwitchTheAgentFailedAfterTheBridgeCommittedItIsReportedAsMadeNotRefused() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        stub.sensorsAnswer = new LinkedHashMap<>(Map.of("status", "failed", "reason", "boom"));
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        JavaAgentReport report = service.switchSensor("environment", true);
+
+        assertThat(report.toggles().get(2).enabled()).isTrue();
+        assertThat(report.toggles().get(2).overridden()).isTrue();
+    }
+
+    @Test
+    void theThreadsSwitchIsUnavailableInTheRunItFailedIn() {
+        Bridges.StubAgent.install();
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of(), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        assertThat(service.report().toggles().get(0).available()).isTrue();
+
+        io.github.jdubois.bootui.agent.bridge.ThreadPropagation.disable(
+                claim.get().generation(), false);
+
+        assertThat(service.report().toggles().get(0)).satisfies(toggle -> {
+            assertThat(toggle.available()).isFalse();
+            assertThat(toggle.unavailableReason()).contains("until the application restarts");
+        });
+    }
+
+    @Test
     void aSwitchRefusedByTheBridgeIsAConflictWithItsReason() {
         Bridges.StubAgent.install();
         AgentSensorSettings sensors = new AgentSensorSettings(List.of("threads"), List.of(), List.of(), null);

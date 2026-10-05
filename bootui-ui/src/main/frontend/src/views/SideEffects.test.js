@@ -668,4 +668,85 @@ describe('Side Effects panel', () => {
     expect(wrapper.find('[data-testid="agent-sensor-toggle-environment"]').exists()).toBe(false)
     expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
   })
+
+  it('shows a switch’s answer at once and reads the summary again', async () => {
+    const off = {
+      id: 'environment',
+      configured: false,
+      enabled: false,
+      overridden: false,
+      state: 'off',
+      optInReason: 'Off by default.',
+      available: true,
+      unavailableReason: null
+    }
+    const on = {...off, enabled: true, overridden: true, state: 'installing'}
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    let fetch
+    const responses = {
+      'api/overview': {},
+      'api/java-agent/sensors/environment': {state: 'ARMED', toggles: [on]},
+      'api/side-effects/sensor?sensor=environment&offset=0&limit=50': sensorReport('environment', []),
+      'api/side-effects': summary({
+        sensors: {environment: {state: 'not-claimed', reason: 'Not claimed.', toggle: off}}
+      })
+    }
+    ;({wrapper, fetch} = mountPanel(responses, {}, panels))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Environment')
+      .trigger('click')
+    await flushPromises()
+    const summaries = () => fetch.mock.calls.filter(([url]) => String(url).endsWith('api/side-effects')).length
+    const before = summaries()
+    responses['api/side-effects'] = summary({
+      sensors: {environment: {state: 'installing', reason: 'The sensor is installing.', toggle: on}}
+    })
+
+    await wrapper.get('[data-testid="agent-sensor-toggle-environment"] input').setValue(true)
+    await vi.waitFor(() =>
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('api/java-agent/sensors/environment'))).toBe(true)
+    )
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="agent-sensor-toggle-environment"]').text()).toContain('Overridden')
+    await vi.advanceTimersByTimeAsync(2_500)
+    await flushPromises()
+    expect(summaries()).toBeGreaterThan(before)
+    expect(wrapper.get('[data-testid="agent-sensor-toggle-environment"]').text()).toContain('Installing')
+  })
+
+  it('does not point at the switch while the Java Agent panel is read-only', async () => {
+    const toggle = {
+      id: 'environment',
+      configured: false,
+      enabled: false,
+      overridden: false,
+      state: 'off',
+      optInReason: 'Off by default.',
+      available: true,
+      unavailableReason: null
+    }
+    const panels = ref({
+      panels: [{id: 'java-agent', enabled: true, available: true, readOnly: true, readOnlyReason: 'read-only'}]
+    })
+    ;({wrapper} = mountPanel(
+      {
+        'api/side-effects/sensor?sensor=environment&offset=0&limit=50': sensorReport('environment', []),
+        'api/side-effects': summary({sensors: {environment: {state: 'not-claimed', reason: 'Not claimed.', toggle}}})
+      },
+      {},
+      panels
+    ))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Environment')
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="agent-sensor-toggle-environment"] input').element.disabled).toBe(true)
+    expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
+  })
 })

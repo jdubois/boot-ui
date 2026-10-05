@@ -61,6 +61,7 @@ class AgentHandlerTests {
         assertThat(switched(8, 3, "executors").get("status")).isEqualTo("ok");
         apply("claim", 9);
         assertThat(switched(9, 1, "executors").get("status")).isEqualTo("ok");
+        assertThat(switched(8, 4, "executors").get("status")).isEqualTo("ignored");
     }
 
     @Test

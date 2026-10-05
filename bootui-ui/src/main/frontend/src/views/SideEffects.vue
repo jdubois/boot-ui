@@ -118,8 +118,30 @@ const available = computed(() => summary.value?.available === true)
 const panels = inject('panels', ref(null))
 const canSwitch = computed(() => {
   const owner = (panels.value?.panels ?? []).find((panel) => panel.id === 'java-agent')
-  return Boolean(owner) && owner.enabled !== false && owner.available !== false
+  return Boolean(owner) && owner.enabled !== false && owner.available !== false && owner.readOnly !== true
 })
+
+/** The switch answered the Java Agent report: its toggles show at once, then the summary is read again. */
+function onSensorSwitched(report) {
+  const toggles = new Map((report?.toggles ?? []).map((toggle) => [toggle.id, toggle]))
+  if (summary.value?.sensors) {
+    summary.value = {
+      ...summary.value,
+      sensors: summary.value.sensors.map((sensor) =>
+        toggles.has(sensor.id) ? {...sensor, toggle: toggles.get(sensor.id)} : sensor
+      )
+    }
+  }
+  refreshAfterSwitch()
+}
+
+/** Reads the summary again once any refresh in flight ended, so a switch is never skipped by one. */
+async function refreshAfterSwitch() {
+  for (let attempt = 0; attempt < 20 && loading.value; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  await load()
+}
 const activeGroup = computed(() => GROUPS.find((group) => group.id === activeTab.value) ?? GROUPS[0])
 
 const sensorsByGroup = computed(() => {
@@ -496,7 +518,8 @@ function hookStatus(value, label) {
               v-if="sensor.toggle"
               :toggle="sensor.toggle"
               class="side-effects-toggle mb-2"
-              @switched="load"
+              @switched="onSensorSwitched"
+              @stale="refreshAfterSwitch"
             />
 
             <div v-if="sensor.state !== 'recording'" class="alert alert-secondary small py-2 side-effects-state-note">
