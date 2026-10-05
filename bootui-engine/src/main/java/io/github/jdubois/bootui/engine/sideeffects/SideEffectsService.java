@@ -13,8 +13,8 @@ import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.SideEffectsSample;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
-import io.github.jdubois.bootui.engine.journal.RunSideEffects;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.RunSideEffects;
 import io.github.jdubois.bootui.engine.model.EdgeType;
 import io.github.jdubois.bootui.engine.model.HostOpen;
 import io.github.jdubois.bootui.engine.model.NodeType;
@@ -453,8 +453,8 @@ public final class SideEffectsService implements AutoCloseable {
     private RunSideEffects snapshot(Run current, AgentEvidence.Read read) {
         String hidden = shownReason(read);
         if (hidden != null) {
-            return RunSideEffects.unavailable("Side Effects was not shown when the run's side effects were read: "
-                    + hidden);
+            return RunSideEffects.unavailable(
+                    "Side Effects was not shown when the run's side effects were read: " + hidden);
         }
         boolean routesHidden = !read.requests();
         SideEffectsStore.Keys keys = current.store.keys();
@@ -504,7 +504,13 @@ public final class SideEffectsService implements AutoCloseable {
                 SideEffectsStore.KeyCount key = sensorKeys.get(i);
                 if (i < RunSideEffects.MAX_KEYS_PER_SENSOR) {
                     kept.add(new RunSideEffects.Key(
-                            key.sensor(), key.kind(), key.target(), key.scope(), key.owner(), key.client(), key.count()));
+                            key.sensor(),
+                            key.kind(),
+                            key.target(),
+                            key.scope(),
+                            key.owner(),
+                            key.client(),
+                            key.count()));
                 } else {
                     omitted++;
                 }
@@ -1369,6 +1375,7 @@ public final class SideEffectsService implements AutoCloseable {
 
         /** The sensors a runtime switch changed during this run (M5-14). */
         final java.util.Set<String> switched = new java.util.HashSet<>();
+
         long drainResolvedAt = Long.MIN_VALUE / 2;
 
         Run(AgentClaim claim, long readyAt) {

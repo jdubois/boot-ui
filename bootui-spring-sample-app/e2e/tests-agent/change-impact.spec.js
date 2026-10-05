@@ -4,7 +4,7 @@ import {expect, test} from '../tests/fixtures.js'
 /**
  * Change impact by method with the BootUI agent attached (docs/PLAN-v2.md §5.7, §5.17, M5-7a): a method's observed
  * routes are those whose requests' own call trees ran it, read from the route trees, and the run comparison leads with
- * the code changes, unavailable with the reason in a first run.
+ * the code changes, unavailable with the reason in a first run, then the side effects outside the JVM (M5-7b).
  */
 test.describe('Change impact by method, with the agent', () => {
   test('lists the route whose call trees ran the method, and the comparison says what it knows of code changes', async ({
@@ -44,5 +44,21 @@ test.describe('Change impact by method, with the agent', () => {
     await expect(
       comparison.locator('[data-section="code-changes"], [data-testid="code-changes-unavailable"]')
     ).toBeVisible()
+    // Side effects follow (M5-7b): compared per sensor, or unavailable with the reason, as in a first run.
+    await expect(
+      comparison.locator('[data-section="side-effects"], [data-testid="side-effects-unavailable"]')
+    ).toBeVisible()
+    const json = await (await page.request.get('/bootui/api/runtime-insights/comparison')).json()
+    expect(typeof json.sideEffects?.available).toBe('boolean')
+    if (json.sideEffects.available) {
+      expect(json.sideEffects.sensors.map((sensor) => sensor.sensor)).toEqual([
+        'network',
+        'files',
+        'processes',
+        'environment'
+      ])
+    } else {
+      expect(json.sideEffects.unavailableReason).toBeTruthy()
+    }
   })
 })

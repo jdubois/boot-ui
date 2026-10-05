@@ -11,15 +11,15 @@ import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangesDto;
 import io.github.jdubois.bootui.engine.codepaths.MethodRoutes;
 import io.github.jdubois.bootui.engine.codepaths.TracedMethods;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
-import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
-import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RunSideEffects;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -113,12 +113,16 @@ public final class RunComparisonService {
      * none.
      */
     public void setSideEffects(Supplier<SideEffectsService> sideEffects) {
-        setSideEffectsView(sideEffects == null ? null : () -> {
-            SideEffectsService service = sideEffects.get();
-            return service == null
-                    ? null
-                    : new SideEffectsView(service.read(), service.unavailableReason(), service::runSideEffects);
-        });
+        setSideEffectsView(
+                sideEffects == null
+                        ? null
+                        : () -> {
+                            SideEffectsService service = sideEffects.get();
+                            return service == null
+                                    ? null
+                                    : new SideEffectsView(
+                                            service.read(), service.unavailableReason(), service::runSideEffects);
+                        });
     }
 
     /** {@link #setSideEffects} from a view of Side Effects rather than its service. */
@@ -133,7 +137,8 @@ public final class RunComparisonService {
      * @param unavailableReason why Side Effects records nothing, or {@code null}
      * @param current this run's side effects so far, possibly {@code null}
      */
-    public record SideEffectsView(AgentEvidence.Read read, String unavailableReason, Supplier<RunSideEffects> current) {}
+    public record SideEffectsView(
+            AgentEvidence.Read read, String unavailableReason, Supplier<RunSideEffects> current) {}
 
     /**
      * Installs whether this application's application events are recorded ({@link AppEventCapture}), so a comparison
@@ -191,7 +196,8 @@ public final class RunComparisonService {
                 return RuntimeSideEffectChangesDto.unavailable(unavailable);
             }
             if (previous == null) {
-                return RuntimeSideEffectChangesDto.unavailable("There is no previous run to compare side effects with.");
+                return RuntimeSideEffectChangesDto.unavailable(
+                        "There is no previous run to compare side effects with.");
             }
             RunSideEffects before = previous.sideEffects();
             if (before == null) {
@@ -203,7 +209,8 @@ public final class RunComparisonService {
                 return RuntimeSideEffectChangesDto.unavailable(
                         "The previous run kept no side effects. " + before.unavailableReason());
             }
-            RunSideEffects now = service.current() == null ? null : service.current().get();
+            RunSideEffects now =
+                    service.current() == null ? null : service.current().get();
             if (now == null) {
                 return RuntimeSideEffectChangesDto.unavailable(NO_SIDE_EFFECTS);
             }

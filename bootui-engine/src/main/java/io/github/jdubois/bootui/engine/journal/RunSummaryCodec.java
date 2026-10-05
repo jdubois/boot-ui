@@ -301,7 +301,8 @@ final class RunSummaryCodec {
         }
         Map<String, Integer> perSensor = new LinkedHashMap<>();
         sideEffects.keys().forEach(key -> perSensor.merge(key.sensor(), 1, Integer::sum));
-        int limit = perSensor.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int limit =
+                perSensor.values().stream().mapToInt(Integer::intValue).max().orElse(0);
         RunSideEffects kept = sideEffects;
         while (limit > 0 && sideEffectsBytes(kept) > maxBytes) {
             limit /= 2;

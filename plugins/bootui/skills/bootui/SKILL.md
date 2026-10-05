@@ -366,7 +366,8 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
 3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
    (`get_runtime_run_comparison`, optional `id`), and stop. With the BootUI agent, its `codeChanges` come first: read
-   any changed method still `NEVER_EXECUTED` before anything else. The default list keeps a sufficient repeated SELECT,
+   any changed method still `NEVER_EXECUTED` before anything else, then any `sideEffects` change marked `ADDED`
+   (a new host, file, process, or variable name), trusting only sensors whose status is `COMPARED`. The default list keeps a sufficient repeated SELECT,
    including a cheap local-database N+1, and omits only an insufficient one under 50 ms that ran fewer than 10 times
    in any request, so that query shows whether a weak cheap repeat is gone. Omitted `id` or `previous` selects the
    newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint

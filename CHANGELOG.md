@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Side effects in the run comparison (M5-7b).** With the BootUI agent, Runtime Insights' comparison lists the hosts,
+  files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
+  both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
+
 - **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
   `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
   executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of

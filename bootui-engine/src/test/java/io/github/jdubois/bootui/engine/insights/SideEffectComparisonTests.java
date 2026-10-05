@@ -88,8 +88,10 @@ class SideEffectComparisonTests {
                         sensor("network"),
                         sensor("files"),
                         new RunSideEffects.Sensor(
-                                "processes", "it was not claimed: bootui.agent.sensors does not include processes",
-                                null, 0),
+                                "processes",
+                                "it was not claimed: bootui.agent.sensors does not include processes",
+                                null,
+                                0),
                         sensor("environment")),
                 key("network", "connect", "new:443", "route", "GET /orders"),
                 key("processes", "process", "git", "route", "GET /orders"));
@@ -113,7 +115,9 @@ class SideEffectComparisonTests {
         RunSideEffects previous = run(
                 List.of(
                         new RunSideEffects.Sensor(
-                                "environment", null, "the agent was still installing it when the application started",
+                                "environment",
+                                null,
+                                "the agent was still installing it when the application started",
                                 0),
                         sensor("network"),
                         sensor("files"),
@@ -143,7 +147,10 @@ class SideEffectComparisonTests {
     @Test
     void aRunThatKeptPartOfItsKeysWithholdsOnlyTheRowsThatPartCouldMakeWrong() {
         RunSideEffects cutBefore = run(
-                List.of(new RunSideEffects.Sensor("network", null, null, 4), sensor("files"), sensor("processes"),
+                List.of(
+                        new RunSideEffects.Sensor("network", null, null, 4),
+                        sensor("files"),
+                        sensor("processes"),
                         sensor("environment")),
                 key("network", "connect", "gone:443", "route", "GET /orders"));
         RunSideEffects current = run(whole(), key("network", "connect", "new:443", "route", "GET /orders"));
@@ -159,7 +166,10 @@ class SideEffectComparisonTests {
         assertThat(previousCut.sensors().get(0).reason()).contains("1 key not in it is not reported new");
 
         RunSideEffects cutNow = run(
-                List.of(new RunSideEffects.Sensor("network", null, null, 1), sensor("files"), sensor("processes"),
+                List.of(
+                        new RunSideEffects.Sensor("network", null, null, 1),
+                        sensor("files"),
+                        sensor("processes"),
                         sensor("environment")),
                 key("network", "connect", "new:443", "route", "GET /orders"));
         RuntimeSideEffectChangesDto currentCut = SideEffectComparison.compare(
@@ -180,7 +190,8 @@ class SideEffectComparisonTests {
                 null,
                 true,
                 whole(),
-                List.of(key("network", "connect", "a:443", "route", SideEffectComparison.HIDDEN_ROUTE),
+                List.of(
+                        key("network", "connect", "a:443", "route", SideEffectComparison.HIDDEN_ROUTE),
                         key("network", "connect", "b:443", "route", SideEffectComparison.HIDDEN_ROUTE)));
         RunSideEffects current = run(
                 whole(),

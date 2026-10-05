@@ -208,7 +208,13 @@ final class SideEffectComparison {
         for (RunSideEffects.Key key : sideEffects.keys()) {
             RunSideEffects.Key shown = hideRoutes && ROUTE.equals(key.scope())
                     ? new RunSideEffects.Key(
-                            key.sensor(), key.kind(), key.target(), key.scope(), HIDDEN_ROUTE, key.client(), key.count())
+                            key.sensor(),
+                            key.kind(),
+                            key.target(),
+                            key.scope(),
+                            HIDDEN_ROUTE,
+                            key.client(),
+                            key.count())
                     : key;
             keys.merge(
                     shown.identity(),
@@ -246,10 +252,11 @@ final class SideEffectComparison {
         String client = key.client() == null ? "" : " (" + key.client() + ")";
         return switch (change) {
             case RuntimeSideEffectChangeDto.ADDED -> owner + " now " + what + " " + target + client + suffix(key) + ".";
-            case RuntimeSideEffectChangeDto.REMOVED -> owner + " no longer " + what + " " + target + client
-                    + suffix(key) + ".";
-            default -> owner + " " + past(what) + " " + target + client + " in the previous run, and was not exercised"
-                    + " in this run: not compared.";
+            case RuntimeSideEffectChangeDto.REMOVED ->
+                owner + " no longer " + what + " " + target + client + suffix(key) + ".";
+            default ->
+                owner + " " + past(what) + " " + target + client + " in the previous run, and was not exercised"
+                        + " in this run: not compared.";
         };
     }
 

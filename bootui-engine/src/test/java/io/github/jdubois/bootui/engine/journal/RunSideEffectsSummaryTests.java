@@ -9,8 +9,8 @@ import io.github.jdubois.bootui.engine.codepaths.MethodRoutes;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
-import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -96,7 +96,8 @@ class RunSideEffectsSummaryTests {
 
         RunSideEffects fitted = RunSummaryCodec.fitSideEffects(full, RunSummaryCodec.SIDE_EFFECTS_MAX_BYTES);
 
-        assertThat(RunSummaryCodec.sideEffectsBytes(fitted)).isLessThanOrEqualTo(RunSummaryCodec.SIDE_EFFECTS_MAX_BYTES);
+        assertThat(RunSummaryCodec.sideEffectsBytes(fitted))
+                .isLessThanOrEqualTo(RunSummaryCodec.SIDE_EFFECTS_MAX_BYTES);
         int kept = (int) fitted.keys().stream()
                 .filter(key -> key.sensor().equals("network"))
                 .count();
@@ -160,10 +161,7 @@ class RunSideEffectsSummaryTests {
         JournalAggregates aggregates = new JournalAggregates();
         publish(aggregates, http("r2", "/orders"));
         RunComparisonService service = new RunComparisonService(journal, aggregates, history);
-        service.setCodeChanges(
-                () -> true,
-                limit -> null,
-                wanted -> MethodRoutes.unavailable("not in this test"));
+        service.setCodeChanges(() -> true, limit -> null, wanted -> MethodRoutes.unavailable("not in this test"));
         RunSideEffects current = run(key("network", "connect", "api.example.com:443", "GET /orders"));
         service.setSideEffectsView(() -> new RunComparisonService.SideEffectsView(
                 new AgentEvidence.Read("side-effects", true, true, null), null, () -> current));
@@ -183,8 +181,7 @@ class RunSideEffectsSummaryTests {
                                 "`GET /orders` no longer connects to `old.example.com:443`."));
         RuntimeRunComparisonAgentDto agent = RuntimeInsightsAgentView.comparison(comparison);
         assertThat(agent.sideEffects().changes()).hasSize(2);
-        assertThat(agent.next())
-                .anySatisfy(next -> assertThat(next.tool()).isEqualTo("get_side_effects"));
+        assertThat(agent.next()).anySatisfy(next -> assertThat(next.tool()).isEqualTo("get_side_effects"));
     }
 
     @Test

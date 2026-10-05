@@ -123,13 +123,11 @@ class SideEffectsRunTests {
         start();
         Launcher.failedStart("migrate-tool");
 
-        assertThat(service.runSideEffects().keys())
-                .singleElement()
-                .satisfies(key -> {
-                    assertThat(key.scope()).isEqualTo("startup");
-                    assertThat(key.owner()).isEqualTo("startup");
-                    assertThat(key.target()).isEqualTo("migrate-tool");
-                });
+        assertThat(service.runSideEffects().keys()).singleElement().satisfies(key -> {
+            assertThat(key.scope()).isEqualTo("startup");
+            assertThat(key.owner()).isEqualTo("startup");
+            assertThat(key.target()).isEqualTo("migrate-tool");
+        });
     }
 
     @Test
@@ -254,7 +252,8 @@ class SideEffectsRunTests {
         assertThat(written)
                 .contains("GET /reports", "report-tool", "/srv/keys/******/export.csv")
                 .doesNotContain(AWS_KEY, "the-value-itself", "hunter2-secret", "--password", "/opt/tools");
-        assertThat(new RunBaselineFile(path, "shop").read().summary().sideEffects()).isEqualTo(run);
+        assertThat(new RunBaselineFile(path, "shop").read().summary().sideEffects())
+                .isEqualTo(run);
     }
 
     private void start() {
@@ -268,7 +267,8 @@ class SideEffectsRunTests {
                 "shop-owner",
                 "dev",
                 List.of("sideeffectsapp"),
-                new AgentSensorSettings(sensors, List.of(), List.of(), null, AgentSensorSettings.DEFAULT_RING_CAPACITY));
+                new AgentSensorSettings(
+                        sensors, List.of(), List.of(), null, AgentSensorSettings.DEFAULT_RING_CAPACITY));
         claim.attach(new AgentHandoffs(context::get, null, null));
         SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_FILES | SideEffects.MASK_ENVIRONMENT);
         service = new SideEffectsService(
