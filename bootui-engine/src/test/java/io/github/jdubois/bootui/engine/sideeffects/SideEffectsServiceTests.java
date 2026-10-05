@@ -194,8 +194,8 @@ class SideEffectsServiceTests {
                         "blocking",
                         "security-sinks");
         assertThat(report.sensors())
-                .filteredOn(sensor ->
-                        !List.of("processes", "network", "files", "environment").contains(sensor.id()))
+                .filteredOn(sensor -> !List.of("processes", "network", "files", "environment", "security-sinks")
+                        .contains(sensor.id()))
                 .allSatisfy(sensor -> {
                     assertThat(sensor.state()).isEqualTo(SideEffectsSensorDto.NOT_AVAILABLE);
                     assertThat(sensor.reason()).isEqualTo(SideEffectsCatalog.NOT_IN_THIS_VERSION);

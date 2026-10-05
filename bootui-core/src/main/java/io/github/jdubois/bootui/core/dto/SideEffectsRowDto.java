@@ -49,6 +49,12 @@ import java.util.List;
  *     infrastructure client, such as a DNS resolver or a telemetry exporter, which no panel is meant to show); {@code
  *     null} for lookups and other sensors
  * @param capturedBy the id of the panel that captured it, such as {@code rest-client-trace}, or {@code null}
+ * @param parameter for security sinks, the name of the request parameter whose value reached the sink, as
+ *     {@code @RequestParam}, a path variable, or the query names it, or {@code param#} and four hexadecimal digits when
+ *     its name is not safe to show; never its value; {@code null} for other sensors
+ * @param detail for security sinks, the fact the row states, worded as a fact and never as a vulnerability, such as
+ *     "Request input reached this SQL text unchanged: the value of `name` appeared inside a literal. Check that it is
+ *     bound as a parameter or escaped."; {@code null} for other sensors
  */
 public record SideEffectsRowDto(
         String scope,
@@ -72,7 +78,60 @@ public record SideEffectsRowDto(
         List<String> exemplarRequestIds,
         String client,
         String capture,
-        String capturedBy) {
+        String capturedBy,
+        String parameter,
+        String detail) {
+
+    /** A row of a sensor other than security sinks: no parameter and no detail. */
+    public SideEffectsRowDto(
+            String scope,
+            String attribution,
+            String sensor,
+            String kind,
+            String target,
+            String callSite,
+            String insideMethod,
+            String origin,
+            String location,
+            long count,
+            long failed,
+            long completed,
+            long nonZeroExits,
+            Integer lastExitStatus,
+            long totalMillis,
+            long maxMillis,
+            long firstSeen,
+            long lastSeen,
+            List<String> exemplarRequestIds,
+            String client,
+            String capture,
+            String capturedBy) {
+        this(
+                scope,
+                attribution,
+                sensor,
+                kind,
+                target,
+                callSite,
+                insideMethod,
+                origin,
+                location,
+                count,
+                failed,
+                completed,
+                nonZeroExits,
+                lastExitStatus,
+                totalMillis,
+                maxMillis,
+                firstSeen,
+                lastSeen,
+                exemplarRequestIds,
+                client,
+                capture,
+                capturedBy,
+                null,
+                null);
+    }
 
     /** Done while an HTTP request was handled, or by work it handed off. */
     public static final String ROUTE = "route";

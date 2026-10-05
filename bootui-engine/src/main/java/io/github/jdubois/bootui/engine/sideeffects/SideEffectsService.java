@@ -137,6 +137,22 @@ public final class SideEffectsService implements AutoCloseable {
             "The HTTP Exchanges panel is disabled: Side Effects attributes rows to"
                     + " request routes through it, so route rows are merged under one hidden route, without request ids.";
 
+    static final String LIMITATION_SECURITY_SINKS = "Security sinks: request input is matched only while"
+            + " bootui.agent.security-sinks.request-values is on, against the current request's query and path parameter"
+            + " values of 4 to 256 characters, at most 32 of them, never form values, headers, or bodies, and only"
+            + " verbatim: a value encoded, trimmed, or changed in case is not seen. The values are compared, never stored,"
+            + " and forgotten when the response completes. SQL text is checked where SQL Trace captures a statement,"
+            + " never with R2DBC; a command where the processes sensor sees it start; a file path only with the files"
+            + " sensor; an outbound URL where the REST client panel records the call. A task the request hands to a"
+            + " managed executor still matches, until the response completes; a task the agent propagates never does. A"
+            + " row's target is the redacted text, the value replaced by the parameter's name, and SQL literals masked;"
+            + " when a text was scanned only in part or held more matches than could be redacted, no text is kept. A"
+            + " value outside an SQL literal, or made of digits only, is shown once a second request confirms the text"
+            + " varies with it.";
+
+    /** A security-sinks row whose redacted text the holder could not keep. */
+    static final String TEXT_NOT_KEPT = "(text not kept)";
+
     /** A files row's target past the agent's quota of distinct path patterns. */
     static final String TOO_MANY_PATHS = "(path not kept: too many distinct paths or strings)";
 
@@ -845,6 +861,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_CAPTURE,
                 LIMITATION_FILES,
                 LIMITATION_ENVIRONMENT,
+                LIMITATION_SECURITY_SINKS,
                 LIMITATION_ATTRIBUTION));
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
@@ -859,6 +876,13 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 if (current.clears > 0) {
                     limitations.add(RECORDING_CLEARED);
+                }
+                long unconfirmed = current.store.unconfirmed();
+                if (unconfirmed > 0) {
+                    limitations.add(unconfirmed
+                            + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
+                            + " not shown yet: a value outside an SQL literal or made of digits only may be a word the"
+                            + " text always holds, until a second request confirms the text varies with it.");
                 }
                 if (current.stale > 0) {
                     limitations.add(current.stale + " records of an earlier run were dropped.");
@@ -1159,7 +1183,9 @@ public final class SideEffectsService implements AutoCloseable {
                     return;
                 }
                 String target = string(record.target());
-                if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
+                if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
+                    store.add(sink(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                     // Ahead of the context below: a network record's bits 32-63 are its client frame, not a context.
                     store.add(network(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_PROCESSES) {
@@ -1244,6 +1270,47 @@ public final class SideEffectsService implements AutoCloseable {
                     captureKey,
                     host,
                     port);
+        }
+
+        /**
+         * A security-sinks record's observation (M5-6b): the sink, its redacted target (a file's pattern masked per
+         * segment as the files sensor's), where in an SQL text the value sat, and the parameter's name; never a value.
+         */
+        private SideEffectsStore.Observation sink(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
+            String shown;
+            if (target == null) {
+                shown = TEXT_NOT_KEPT;
+            } else if (record.kind() == SideEffectsCatalog.KIND_SINK_FILE) {
+                shown = SideEffectOrigins.maskPath(normalizer.target(target));
+            } else if (record.kind() == SideEffectsCatalog.KIND_SINK_URL) {
+                // A path segment the secret detector recognizes is masked, as a file path's is.
+                shown = SideEffectOrigins.maskPath(target);
+            } else {
+                shown = target;
+            }
+            String location = null;
+            if (record.kind() == SideEffectsCatalog.KIND_SINK_SQL) {
+                location = (record.outcome() & 0x3) == SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+                        ? SideEffectsCatalog.OUTSIDE_LITERAL
+                        : SideEffectsCatalog.INSIDE_LITERAL;
+            }
+            String parameter = string(record.exitStatus());
+            return SideEffectsStore.Observation.sink(
+                    record,
+                    sensor.id(),
+                    kind,
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    location,
+                    parameter == null ? "(name not kept)" : parameter);
         }
 
         /** A frame of BootUI's own modules, never an application's, as the sample apps' are. */

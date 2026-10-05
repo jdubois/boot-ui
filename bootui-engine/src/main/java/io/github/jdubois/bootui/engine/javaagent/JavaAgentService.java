@@ -251,6 +251,31 @@ public final class JavaAgentService {
      * One Side Effects sensor's coverage for this application: whether it records, and why not, with its hooks as the
      * agent reports them and the records the bridge dropped for it ({@code docs/PLAN-v2.md} §5.16). Never throws.
      */
+    /**
+     * The {@code security-sinks} sensor while the agent reports no hooks of its own for it (M5-6b1): its request-value
+     * matching rides on the SQL and REST client recorders and on the processes and files sensors' hooks, so it records
+     * once the claim asks for it and {@code bootui.agent.security-sinks.request-values} is on.
+     */
+    static SideEffectsCoverage securitySinksCoverage(
+            Map<String, Object> status, List<SideEffectsHookDto> hooks, long dropped) {
+        if (!AgentRequestValues.enabled()) {
+            return new SideEffectsCoverage(
+                    SideEffectsSensorDto.DISABLED,
+                    "Request-value matching is off: set bootui.agent.security-sinks.request-values=true to check"
+                            + " whether request input reaches SQL text, a command, a file path, or an outbound URL.",
+                    hooks,
+                    dropped);
+        }
+        if (!AgentBridgeAccess.flag(AgentBridgeAccess.map(status, "requestValues"), "active")) {
+            return new SideEffectsCoverage(
+                    SideEffectsSensorDto.INSTALLING,
+                    "The attached BootUI agent has not turned request-value matching on for this claim.",
+                    hooks,
+                    dropped);
+        }
+        return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped);
+    }
+
     public SideEffectsCoverage sideEffectsCoverage(String id) {
         try {
             String unavailable = sideEffectsUnavailableReason();
@@ -275,6 +300,9 @@ public final class JavaAgentService {
                         "This application's bootui.agent.sensors does not include " + id + ".",
                         hooks,
                         dropped);
+            }
+            if (sensor == null && AgentSensorSettings.SECURITY_SINKS.equals(id)) {
+                return securitySinksCoverage(status, hooks, dropped);
             }
             if (sensor == null) {
                 return new SideEffectsCoverage(

@@ -104,7 +104,71 @@ final class SideEffectsStore {
             String host,
             int port,
             String origin,
-            String location) {
+            String location,
+            String parameter) {
+
+        /** An observation without a parameter: every sensor but security sinks. */
+        Observation(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily,
+                String client,
+                String captureKey,
+                String host,
+                int port,
+                String origin,
+                String location) {
+            this(
+                    record,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    threadFamily,
+                    client,
+                    captureKey,
+                    host,
+                    port,
+                    origin,
+                    location,
+                    null);
+        }
+
+        /**
+         * A security-sinks observation (M5-6b): the sink request input reached, its redacted target, where in it the
+         * value sat ({@code location}), and the parameter's name.
+         */
+        static Observation sink(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily,
+                String location,
+                String parameter) {
+            return new Observation(
+                    record,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    threadFamily,
+                    null,
+                    null,
+                    null,
+                    -1,
+                    null,
+                    location,
+                    parameter);
+        }
 
         /** A network observation: no origin or location. */
         Observation(
@@ -188,7 +252,8 @@ final class SideEffectsStore {
                     host,
                     port,
                     origin,
-                    location);
+                    location,
+                    parameter);
         }
 
         boolean waiting() {
@@ -207,7 +272,11 @@ final class SideEffectsStore {
             String client,
             String captureKey,
             String origin,
-            String location) {}
+            String location,
+            String parameter) {}
+
+    /** The requests whose raw sink texts a security-sinks row remembers to confirm it (M5-6 design Important 11). */
+    static final int CONFIRMATIONS = 4;
 
     private static final class Row {
         final Key key;
@@ -222,12 +291,33 @@ final class SideEffectsStore {
         long lastSeen;
         final List<String> exemplars = new ArrayList<>(EXEMPLARS);
 
+        /**
+         * Security sinks only: up to {@value #CONFIRMATIONS} keyed hashes of distinct raw sink texts with the request
+         * that produced each, never a text; and whether one observation stands alone, a value that is not digits only,
+         * inside an SQL literal or in another sink, which is shown from one request.
+         */
+        long[] rawHashes;
+
+        String[] rawRequests;
+        int raw;
+        boolean standalone;
+
         Row(Key key) {
             this.key = key;
         }
 
         void add(Observation observation, String requestId) {
             SideEffectRecord record = observation.record();
+            if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
+                count += record.count();
+                sink(record, requestId);
+                firstSeen = Math.min(firstSeen, record.firstMillis());
+                lastSeen = Math.max(lastSeen, record.lastMillis());
+                if (requestId != null && exemplars.size() < EXEMPLARS && !exemplars.contains(requestId)) {
+                    exemplars.add(requestId);
+                }
+                return;
+            }
             if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                 network(record);
             } else if (record.kind() == SideEffectsCatalog.KIND_PROCESS_EXIT) {
@@ -280,7 +370,60 @@ final class SideEffectsStore {
             }
         }
 
+        /** A security-sinks record: its raw text's keyed hash, carried in its duration's place, and its position. */
+        private void sink(SideEffectRecord record, String requestId) {
+            int flags = record.outcome();
+            boolean numeric = (flags & SideEffectsCatalog.SINK_NUMERIC) != 0;
+            boolean outside = (flags & 0x3) == SideEffectsCatalog.SINK_OUTSIDE_LITERAL;
+            standalone |= !numeric && !outside;
+            remember(record.nanos(), requestId);
+        }
+
+        private void remember(long hash, String requestId) {
+            if (hash == 0L || requestId == null) {
+                return;
+            }
+            if (rawHashes == null) {
+                rawHashes = new long[CONFIRMATIONS];
+                rawRequests = new String[CONFIRMATIONS];
+            }
+            for (int i = 0; i < raw; i++) {
+                if (rawHashes[i] == hash && requestId.equals(rawRequests[i])) {
+                    return;
+                }
+            }
+            if (raw < CONFIRMATIONS) {
+                rawHashes[raw] = hash;
+                rawRequests[raw] = requestId;
+                raw++;
+            }
+        }
+
+        /**
+         * Whether the row's text varies with the value: two requests produced different raw texts with the same redacted
+         * text, so the value is part of the text, not a word it always holds.
+         */
+        boolean confirmed() {
+            for (int i = 0; i < raw; i++) {
+                for (int j = i + 1; j < raw; j++) {
+                    if (rawHashes[i] != rawHashes[j] && !rawRequests[i].equals(rawRequests[j])) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /** Whether a security-sinks row is shown: standing alone, or confirmed. */
+        boolean shown() {
+            return standalone || confirmed();
+        }
+
         void merge(Row other, boolean withExemplars) {
+            standalone |= other.standalone;
+            for (int i = 0; i < other.raw; i++) {
+                remember(other.rawHashes[i], other.rawRequests[i]);
+            }
             count += other.count;
             failed += other.failed;
             completed += other.completed;
@@ -324,7 +467,11 @@ final class SideEffectsStore {
                     exemplars,
                     key.client(),
                     capture == null ? null : capture[0],
-                    capture == null ? null : capture[1]);
+                    capture == null ? null : capture[1],
+                    key.parameter(),
+                    SideEffectsCatalog.SECURITY_SINKS_ID.equals(key.sensor())
+                            ? SinkWording.detail(key.kind(), key.location(), key.parameter(), key.target(), confirmed())
+                            : null);
         }
     }
 
@@ -664,7 +811,8 @@ final class SideEffectsStore {
                 observation.client(),
                 observation.captureKey(),
                 observation.origin(),
-                observation.location());
+                observation.location(),
+                observation.parameter());
         Row row = rows.get(key);
         if (row == null) {
             int perSensor = rowsPerSensor.getOrDefault(sensor, 0);
@@ -675,6 +823,7 @@ final class SideEffectsStore {
                         sensor,
                         observation.kind(),
                         OTHER,
+                        null,
                         null,
                         null,
                         null,
@@ -738,7 +887,8 @@ final class SideEffectsStore {
                     row.key.client(),
                     row.key.captureKey(),
                     row.key.origin(),
-                    row.key.location());
+                    row.key.location(),
+                    row.key.parameter());
             // Always a copy: a read never changes the store's own rows.
             Row target = merged.get(shown);
             if (target == null) {
@@ -749,6 +899,11 @@ final class SideEffectsStore {
         }
         List<SideEffectsRowDto> list = new ArrayList<>();
         for (Row row : merged.values()) {
+            if (!visible(row)) {
+                // A match that may be coincidental, as a value equal to a column the statement always names: counted
+                // until a second request confirms the text varies with the value.
+                continue;
+            }
             list.add(row.dto(row.key.captureKey() == null ? null : captures.apply(row.key.captureKey())));
         }
         list.sort(Comparator.comparing((SideEffectsRowDto row) -> SideEffectsRowDto.OTHER.equals(row.scope()))
@@ -784,25 +939,43 @@ final class SideEffectsStore {
     }
 
     /** {@code sensor}'s rows, the Other row included. */
+    /** The security-sinks rows not shown yet: matches no second request confirmed, which may be coincidental. */
+    long unconfirmed() {
+        long hidden = 0;
+        for (Row row : rows.values()) {
+            if (!visible(row)) {
+                hidden++;
+            }
+        }
+        return hidden;
+    }
+
     long rowCount(String sensor) {
         long count = 0;
-        for (Key key : rows.keySet()) {
-            if (key.sensor().equals(sensor)) {
+        for (Row row : rows.values()) {
+            if (row.key.sensor().equals(sensor) && visible(row)) {
                 count++;
             }
         }
         return count;
     }
 
-    /** The operations {@code sensor}'s rows count: starts, for processes. */
+    /** The operations {@code sensor}'s shown rows count: starts, for processes. */
     long occurrences(String sensor) {
         long count = 0;
         for (Row row : rows.values()) {
-            if (row.key.sensor().equals(sensor)) {
+            if (row.key.sensor().equals(sensor) && visible(row)) {
                 count += row.count;
             }
         }
         return count;
+    }
+
+    /** Whether a row is shown: every row but a security-sinks match not confirmed yet. */
+    private static boolean visible(Row row) {
+        return !SideEffectsCatalog.SECURITY_SINKS_ID.equals(row.key.sensor())
+                || SideEffectsRowDto.OTHER.equals(row.key.scope())
+                || row.shown();
     }
 
     /** What {@code sensor} saw that no row counts. */

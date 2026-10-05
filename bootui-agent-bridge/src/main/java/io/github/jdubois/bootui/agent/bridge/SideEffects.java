@@ -82,6 +82,17 @@ public final class SideEffects {
     /** The environment sensor's id (M5-5d), opt-in. */
     public static final String ENVIRONMENT = "environment";
 
+    /**
+     * The security-sinks sensor's id (M5-6b): its request-value matching (M5-6b1) publishes its records on this ring;
+     * its own hooks and its registration among the sensors above are M5-6b2's.
+     */
+    public static final String SECURITY_SINKS = "security-sinks";
+
+    /** The security-sinks sensor's id in records and its mask bit. */
+    public static final int SENSOR_SECURITY_SINKS = 8;
+
+    public static final int MASK_SECURITY_SINKS = 1 << SENSOR_SECURITY_SINKS;
+
     /** Sensor ids in records and bit positions in the mask: 0 is unused. */
     public static final int SENSOR_PROCESSES = 1;
 
@@ -557,12 +568,18 @@ public final class SideEffects {
                 return;
             }
             RECORDED[HOOK_PROCESS_START].increment();
-            int target = intern(commandName(command, process != null));
+            String name = commandName(command, process != null);
             int outcome = process != null
                     ? OUTCOME_STARTED
                     : thrown instanceof java.io.IOException ? OUTCOME_IO_ERROR : OUTCOME_ERROR;
             long stamp = CodePaths.stamp();
             long frames = frames(claim);
+            // Request input in the command's arguments (M5-6b), never an argument recorded: only while matching runs.
+            // An executable that held a value is not named by this record either.
+            if (RequestValues.commandStarted(claim, command, name, stamp, frames)) {
+                name = RequestValues.FROM_REQUEST_INPUT;
+            }
+            int target = intern(name);
             Owner owner = owner(frame, claim);
             long startMillis = System.currentTimeMillis();
             // A rare hook: published at once, never held in the thread's table.
@@ -1701,7 +1718,10 @@ public final class SideEffects {
             return;
         }
         RECORDED[hook].increment();
-        int id = internQuota(pattern, SENSOR_FILES);
+        // Request input in the path (M5-6b), only while matching runs: this record's pattern, as the security-sinks
+        // record's, is then built from the redacted path, so the value is never kept.
+        String redacted = RequestValues.fileUsed(claim, text, where, stamp, summary[0]);
+        int id = internQuota(redacted != null ? redacted : pattern, SENSOR_FILES);
         Owner owner = owner(frame, claim);
         record(frame, owner, SENSOR_FILES, kind, id, outcome, (int) summary[1], stamp, summary[0], nanos);
     }
@@ -3429,7 +3449,8 @@ public final class SideEffects {
 
     /** Whether {@code claim} asks for a side-effect sensor. */
     static boolean claims(Claim claim) {
-        return claimedMask(claim) != 0;
+        // The security-sinks sensor's records need the ring and the intern table even when it is the only one asked.
+        return claimedMask(claim) != 0 || claim.hasSensor(SECURITY_SINKS);
     }
 
     private static int claimedMask(Claim claim) {

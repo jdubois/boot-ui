@@ -184,6 +184,10 @@ public final class AgentBridge {
                     // The side-effect sensors' ring and intern table, before any of their hooks records for the run.
                     SideEffects.claimed(next);
                 }
+                // Request-value matching (M5-6b1) runs under a claim asking for the security-sinks sensor. Until its
+                // hooks and self-test land (M5-6b2), which enable it from the side-effect sensors' enable path, the
+                // claim itself turns it on.
+                RequestValues.sensor(next.hasSensor(SideEffects.SECURITY_SINKS), next.generation);
                 CodePaths.refresh();
                 // A probe never outlives the run that started it (PLAN-v2 M5-8).
                 MethodProbes.claimed(next.generation);

@@ -151,6 +151,29 @@ public final class AgentRequestValues {
         }
     }
 
+    /** Record flags of a match ({@code RequestValues.POSITION_*}, {@code FLAG_NUMERIC}). */
+    public static final int POSITION_IN_LITERAL = 1;
+
+    public static final int POSITION_OUTSIDE_LITERAL = 2;
+    public static final int FLAG_NUMERIC = 4;
+
+    /**
+     * Publishes an engine-side sink's match of the calling thread's request's value named {@code name}: the sink's
+     * {@code kind}, its {@code target} already redacted and normalized ({@code null} to keep none), {@code flags},
+     * {@code rawHash}, a keyed hash of the raw text, and the code-paths {@code stamp}. Never a value. Never throws.
+     */
+    public static void publish(int kind, String name, int flags, String target, long rawHash, long stamp) {
+        MethodHandle publish = handles.publish;
+        if (publish == null || name == null) {
+            return;
+        }
+        try {
+            publish.invokeExact(kind, name, flags, target, rawHash, stamp);
+        } catch (Throwable ex) {
+            // The agent never fails a request.
+        }
+    }
+
     /** The holder's counters, never a value or a name; empty without the agent. Never throws. */
     @SuppressWarnings("unchecked")
     public static Map<String, Object> status() {
@@ -286,9 +309,14 @@ public final class AgentRequestValues {
     }
 
     private record Handles(
-            MethodHandle active, MethodHandle begin, MethodHandle end, MethodHandle match, MethodHandle status) {
+            MethodHandle active,
+            MethodHandle begin,
+            MethodHandle end,
+            MethodHandle match,
+            MethodHandle status,
+            MethodHandle publish) {
 
-        static final Handles NONE = new Handles(null, null, null, null, null);
+        static final Handles NONE = new Handles(null, null, null, null, null, null);
 
         static Handles locate() {
             try {
@@ -322,7 +350,18 @@ public final class AgentRequestValues {
                                 requestValues,
                                 "match",
                                 MethodType.methodType(int.class, String.class, int.class, int[].class, String[].class)),
-                        lookup.findStatic(requestValues, "status", MethodType.methodType(Map.class)));
+                        lookup.findStatic(requestValues, "status", MethodType.methodType(Map.class)),
+                        lookup.findStatic(
+                                requestValues,
+                                "sinkMatched",
+                                MethodType.methodType(
+                                        void.class,
+                                        int.class,
+                                        String.class,
+                                        int.class,
+                                        String.class,
+                                        long.class,
+                                        long.class)));
             } catch (Throwable ex) {
                 return NONE;
             }

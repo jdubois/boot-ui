@@ -47,6 +47,11 @@ public final class FakeRequestValues {
         return 0;
     }
 
+    public static synchronized void sinkMatched(
+            int kind, String name, int flags, String target, long rawHash, long stamp) {
+        CALLS.add("sink " + kind + " " + name + " " + flags + " " + target);
+    }
+
     public static Map<String, Object> status() {
         return Map.of();
     }

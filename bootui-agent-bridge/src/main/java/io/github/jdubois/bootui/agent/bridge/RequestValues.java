@@ -2,7 +2,9 @@ package io.github.jdubois.bootui.agent.bridge;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLongArray;
@@ -115,6 +117,31 @@ public final class RequestValues {
     /** The request's entry was busy with another check: nothing was compared. */
     public static final int F_BUSY = 16;
 
+    /**
+     * Where a matched value sat in its sink, in a {@code security-sinks} record's outcome byte: inside a string or
+     * numeric literal of an SQL text, or outside one (an identifier or keyword position); 0 when the sink has no
+     * literals.
+     */
+    public static final int POSITION_IN_LITERAL = 1;
+
+    public static final int POSITION_OUTSIDE_LITERAL = 2;
+
+    /** In a record's outcome byte: the matched value is made of digits only. */
+    public static final int FLAG_NUMERIC = 4;
+
+    /** What a process start's or a file operation's own record names when its executable or path held request input
+     * whose redaction could not cover every occurrence. */
+    public static final String FROM_REQUEST_INPUT = "(not kept: it held request input)";
+
+    /** Command arguments checked per process start at most. */
+    static final int MAX_ARGUMENTS = 32;
+
+    /** Distinct sink targets and parameter names interned per claim generation at most; past it, none is kept. */
+    static final int INTERN_QUOTA = 2_000;
+
+    /** The key of the per-process keyed hashes of raw sink texts (PLAN-v2 M5-6 design Important 11). */
+    private static final long HASH_KEY = ThreadLocalRandom.current().nextLong() | 1L;
+
     private static final int FREE = 0;
     private static final int LOCKED = 1;
 
@@ -160,6 +187,9 @@ public final class RequestValues {
     private static final LongAdder REFUSED_HANDOFF = new LongAdder();
     private static final LongAdder REFUSED_EXECUTION = new LongAdder();
     private static final LongAdder FORCED = new LongAdder();
+    private static final LongAdder PUBLISHED = new LongAdder();
+    private static final LongAdder NOT_KEPT = new LongAdder();
+    private static final AtomicInteger INTERNED = new AtomicInteger();
     private static final LongAdder ERRORS = new LongAdder();
 
     private RequestValues() {}
@@ -231,6 +261,7 @@ public final class RequestValues {
             long now = claim != null && claim.armed ? claim.generation : Long.MIN_VALUE;
             if (now != tableGeneration) {
                 tableGeneration = now;
+                INTERNED.set(0);
                 wipeAll();
             }
         } catch (Throwable ex) {
@@ -494,19 +525,246 @@ public final class RequestValues {
                     || claim.generation != sensorGeneration) {
                 return 0;
             }
-            long request = callerRequest(claim);
-            if (request == 0L) {
-                return 0;
-            }
-            int index = find(request);
-            if (index < 0) {
-                return 0;
-            }
-            return compare(index, request, claim.generation, text, kind, spans, names);
+            return matchFor(claim, callerRequest(claim), text, kind, spans, names);
         } catch (Throwable ex) {
             ERRORS.increment();
             return 0;
         }
+    }
+
+    /** {@link #match} for the request {@code request} the caller already resolved. */
+    private static int matchFor(Claim claim, long request, String text, int kind, int[] spans, String[] names) {
+        if (request == 0L || text == null) {
+            return 0;
+        }
+        int index = find(request);
+        if (index < 0) {
+            return 0;
+        }
+        return compare(index, request, claim.generation, text, kind, spans, names);
+    }
+
+    // ---- the sinks -------------------------------------------------------------------------------------------------
+
+    /**
+     * An engine-side sink (an SQL statement, a REST client URL) matched the calling thread's request's value named
+     * {@code name}: publishes one {@code security-sinks} record of kind {@code kind} with {@code target}, the sink's
+     * text already redacted and normalized by the caller ({@code null} when it keeps none), {@code flags} ({@link
+     * #POSITION_IN_LITERAL}, {@link #POSITION_OUTSIDE_LITERAL}, {@link #FLAG_NUMERIC}), {@code rawHash}, the caller's
+     * keyed hash of the raw text, and the code-paths {@code stamp}. Its call site is the first application frame, never
+     * the recorder's. Never a value. Never throws.
+     */
+    public static void sinkMatched(int kind, String name, int flags, String target, long rawHash, long stamp) {
+        try {
+            Claim claim = AgentBridge.current();
+            if (claim == null || !claim.armed || claim.generation != sensorGeneration || name == null) {
+                return;
+            }
+            long request = callerRequest(claim);
+            if (request == 0L) {
+                return;
+            }
+            // The application frame only: the first frame outside the JDK is the recorder's, BootUI's own.
+            long frames = SideEffects.frames(claim) & 0xFFFFFFFFL;
+            publish(claim, request, kind, flags, target, name, rawHash & Long.MAX_VALUE, stamp, frames);
+        } catch (Throwable ex) {
+            ERRORS.increment();
+        }
+    }
+
+    /**
+     * The processes sensor's {@code ProcessBuilder.start} hook started {@code command}, whose file name is
+     * {@code commandName}: each of its first {@value #MAX_ARGUMENTS} elements is checked, and a match publishes the
+     * command's file name and the argument's index, never an argument. A match in the executable itself names no file,
+     * and returns true, so the processes sensor's own record does not name it either. Never throws.
+     */
+    static boolean commandStarted(Claim claim, List<String> command, String commandName, long stamp, long frames) {
+        boolean executable = false;
+        try {
+            if (LIVE.get() == 0 || command == null || claim.generation != sensorGeneration) {
+                return false;
+            }
+            long request = callerRequest(claim);
+            if (request == 0L) {
+                return false;
+            }
+            int[] spans = new int[SPANS_LENGTH];
+            String[] names = new String[MAX_VALUES];
+            int size = Math.min(command.size(), MAX_ARGUMENTS);
+            for (int i = 0; i < size; i++) {
+                String argument = command.get(i);
+                int mask = matchFor(claim, request, argument, SINK_COMMAND, spans, names);
+                if (mask == 0) {
+                    continue;
+                }
+                executable |= i == 0;
+                String target = executable ? "(the executable), argument " + i : commandName + ", argument " + i;
+                publishEach(claim, request, SINK_COMMAND, 0, target, argument, mask, spans, names, stamp, frames);
+            }
+        } catch (Throwable ex) {
+            ERRORS.increment();
+        }
+        return executable;
+    }
+
+    /**
+     * The files sensor recorded an operation on {@code text}, a path as the application passed it: a match publishes the
+     * path pattern of the <b>redacted</b> path, {@code ../{file}} and never the value, or no target when redaction
+     * could not cover every occurrence. Returns the pattern the files sensor's own record must name instead of the
+     * path's (that redacted pattern, or {@link #FROM_REQUEST_INPUT}), or {@code null} when nothing matched. Never
+     * throws.
+     */
+    static String fileUsed(Claim claim, String text, SideEffects.Places where, long stamp, long frames) {
+        try {
+            if (LIVE.get() == 0 || text == null || claim.generation != sensorGeneration) {
+                return null;
+            }
+            long request = callerRequest(claim);
+            if (request == 0L) {
+                return null;
+            }
+            int[] spans = new int[SPANS_LENGTH];
+            String[] names = new String[MAX_VALUES];
+            int mask = matchFor(claim, request, text, SINK_FILE, spans, names);
+            if (mask == 0) {
+                return null;
+            }
+            String redacted = redact(text, spans, names);
+            String target = redacted == null ? null : SideEffects.pattern(SideEffects.absolute(redacted, where), where);
+            publishEach(claim, request, SINK_FILE, 0, target, text, mask, spans, names, stamp, frames);
+            return target == null ? FROM_REQUEST_INPUT : target;
+        } catch (Throwable ex) {
+            ERRORS.increment();
+            return null;
+        }
+    }
+
+    /** One record per matched parameter of a bridge-side sink, its value's digits-only flag read from its span. */
+    private static void publishEach(
+            Claim claim,
+            long request,
+            int kind,
+            int position,
+            String target,
+            String text,
+            int mask,
+            int[] spans,
+            String[] names,
+            long stamp,
+            long frames) {
+        long rawHash = keyedHash(text);
+        for (int i = 0; i < MAX_VALUES; i++) {
+            if ((mask & (1 << i)) == 0) {
+                continue;
+            }
+            publish(
+                    claim,
+                    request,
+                    kind,
+                    position | numericFlag(text, spans, i),
+                    target,
+                    names[i],
+                    rawHash,
+                    stamp,
+                    frames);
+        }
+    }
+
+    /** {@link #FLAG_NUMERIC} when the first span of value {@code index} holds digits only, else 0. */
+    static int numericFlag(String text, int[] spans, int index) {
+        int count = Math.min(spans[S_COUNT], MAX_SPANS);
+        for (int s = 0; s < count; s++) {
+            int slot = S_FIRST + 3 * s;
+            if (spans[slot] != index) {
+                continue;
+            }
+            int start = spans[slot + 1];
+            int end = spans[slot + 2];
+            if (start < 0 || end > text.length() || start >= end) {
+                return 0;
+            }
+            for (int c = start; c < end; c++) {
+                char ch = text.charAt(c);
+                if (ch < '0' || ch > '9') {
+                    return 0;
+                }
+            }
+            return FLAG_NUMERIC;
+        }
+        return 0;
+    }
+
+    /**
+     * A per-process keyed 64-bit hash of a raw sink text, at most its first {@value #MAX_SCAN} characters, never
+     * negative: the engine compares such hashes to tell a text varying with a value from a text that always contains
+     * it, and never sees the text.
+     */
+    public static long keyedHash(String text) {
+        long hash = HASH_KEY;
+        int length = Math.min(text.length(), MAX_SCAN);
+        for (int i = 0; i < length; i++) {
+            hash ^= text.charAt(i);
+            hash *= 0x100000001B3L;
+        }
+        hash ^= hash >>> 29;
+        hash *= 0xBF58476D1CE4E5B9L;
+        hash ^= hash >>> 32;
+        return hash & Long.MAX_VALUE;
+    }
+
+    /** Publishes one {@code security-sinks} record on the side-effect sensors' ring. */
+    private static void publish(
+            Claim claim,
+            long request,
+            int kind,
+            int flags,
+            String target,
+            String name,
+            long rawHash,
+            long stamp,
+            long frames) {
+        SideEffects.Owner owner = new SideEffects.Owner();
+        owner.generation = claim.generation;
+        owner.request = request;
+        owner.threadKind = ThreadPropagation.isVirtual(Thread.currentThread())
+                ? SideEffects.THREAD_VIRTUAL
+                : SideEffects.THREAD_PLATFORM;
+        long now = System.currentTimeMillis();
+        long[] values = new long[SideEffects.RECORD];
+        values[SideEffects.R_SENSOR] = SideEffects.SENSOR_SECURITY_SINKS;
+        values[SideEffects.R_KIND] = kind;
+        values[SideEffects.R_GENERATION] = claim.generation;
+        values[SideEffects.R_FIRST_MILLIS] = now;
+        values[SideEffects.R_LAST_MILLIS] = now;
+        values[SideEffects.R_REQUEST] = request;
+        values[SideEffects.R_STAMP] = stamp;
+        values[SideEffects.R_TARGET] = internQuota(target);
+        values[SideEffects.R_FLAGS] = SideEffects.flags(flags & 0xFF, owner, internQuota(name));
+        values[SideEffects.R_COUNT] = 1L;
+        values[SideEffects.R_NANOS] = rawHash;
+        values[SideEffects.R_MAX_NANOS] = rawHash;
+        values[SideEffects.R_FRAMES] = frames;
+        if (SideEffects.publish(SideEffects.SENSOR_SECURITY_SINKS, values)) {
+            PUBLISHED.increment();
+        }
+    }
+
+    /** {@code text}'s id among the side-effect sensors' strings, within this holder's quota; 0 past it, counted. */
+    private static int internQuota(String text) {
+        if (text == null) {
+            return 0;
+        }
+        if (INTERNED.get() >= INTERN_QUOTA) {
+            NOT_KEPT.increment();
+            return 0;
+        }
+        int id = SideEffects.intern(text);
+        if (id != 0) {
+            INTERNED.incrementAndGet();
+        } else {
+            NOT_KEPT.increment();
+        }
+        return id;
     }
 
     private static int compare(
@@ -912,6 +1170,8 @@ public final class RequestValues {
             map.put("refusedHandoff", Long.valueOf(REFUSED_HANDOFF.sum()));
             map.put("refusedExecution", Long.valueOf(REFUSED_EXECUTION.sum()));
             map.put("lockTakeovers", Long.valueOf(FORCED.sum()));
+            map.put("published", Long.valueOf(PUBLISHED.sum()));
+            map.put("notKept", Long.valueOf(NOT_KEPT.sum()));
             map.put("errors", Long.valueOf(ERRORS.sum()));
         } catch (Throwable ex) {
             ERRORS.increment();
@@ -929,6 +1189,7 @@ public final class RequestValues {
         sensorGeneration = Long.MIN_VALUE;
         wipeAll();
         tableGeneration = Long.MIN_VALUE;
+        INTERNED.set(0);
         LongAdder[] adders = {
             BEGUN,
             TABLE_FULL,
@@ -949,6 +1210,8 @@ public final class RequestValues {
             REFUSED_HANDOFF,
             REFUSED_EXECUTION,
             FORCED,
+            PUBLISHED,
+            NOT_KEPT,
             ERRORS
         };
         for (int i = 0; i < adders.length; i++) {
