@@ -941,7 +941,7 @@ before the scope opened. It reads each entry's key and whether its value is `nul
 | --- | --- | --- |
 | A Spring MVC request | BootUI's request filter, on the request's pooled worker | after the application's filters, which have cleaned up |
 | A request's task on a pool's own worker | the `executors` sensor reopens the request's context (`ThreadPoolExecutor` and fork-join workers; never a thread the application started itself) | when the task returns |
-| Spring WebFlux work on `boundedElastic` | Reactor's context propagation makes the request's context current on the worker | when it clears it |
+| Spring WebFlux work on `boundedElastic` | a Reactor schedule hook, around each task a scheduler runs, owned once Reactor's context propagation makes a request's context current inside it | when the task returns, after every context propagation accessor restored its value |
 | A Quarkus blocking resource method | BootUI's outermost JAX-RS request filter, on the worker | its response filter |
 | A Quarkus managed executor's task | SmallRye Context Propagation restores the request's context | when it ends |
 | A scheduled run | Spring's observation scope or Quarkus' interceptor, inside the run's context | when the run returns |

@@ -488,10 +488,21 @@ describe('Side Effects panel', () => {
       count: 2,
       requests: 2
     })
+    const unresolvedRow = row({
+      sensor: 'thread-locals',
+      kind: 'left set',
+      target: 'holder not resolved (java.lang.ThreadLocal)',
+      callSite: null,
+      insideMethod: null,
+      origin: 'unknown',
+      count: 1,
+      requests: 1
+    })
     ;({wrapper} = mountPanel({
       'api/side-effects/sensor?sensor=thread-locals&offset=0&limit=50': sensorReport('thread-locals', [
         leftRow,
-        cacheRow
+        cacheRow,
+        unresolvedRow
       ]),
       'api/side-effects': summary({
         sensors: {'thread-locals': {state: 'recording', rows: 2, occurrences: 6}}
@@ -516,6 +527,10 @@ describe('Side Effects panel', () => {
       'set during the request',
       'set during the request'
     ])
+    expect(table.text()).not.toContain('holder not resolved')
+    const apart = wrapper.get('.side-effects-apart')
+    expect(apart.text()).toContain('Libraries and holders not resolved (1), grouped apart')
+    expect(apart.text()).toContain('holder not resolved (java.lang.ThreadLocal)')
   })
 
   it('says why blocking is not applicable on a stack without event loops', async () => {

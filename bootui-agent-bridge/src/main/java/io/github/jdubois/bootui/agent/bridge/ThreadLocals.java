@@ -206,6 +206,48 @@ public final class ThreadLocals {
      * Never throws.
      */
     public static long open() {
+        return open(true);
+    }
+
+    /**
+     * The engine opens a scope on the calling thread before what will own it is known, as around a Reactor scheduler's
+     * task, inside which Reactor's context propagation makes a request's context current: {@link #own()} names its
+     * owner then, and a scope never owned reports nothing. Inside another scope it is nested and returns 0. Never throws.
+     */
+    public static long openUnowned() {
+        return open(false);
+    }
+
+    /**
+     * The calling thread's open scope, if {@link #openUnowned()} opened it and nothing owns it yet, is owned by what
+     * BootUI's context names now. Never throws.
+     */
+    public static void own() {
+        try {
+            if ((SideEffects.mask & SideEffects.MASK_THREAD_LOCALS) == 0) {
+                return;
+            }
+            CodePaths.Frame frame = CodePaths.FRAME.get();
+            Scope scope = frame == null ? null : frame.threadLocals;
+            if (scope == null || scope.depth != EXPLICIT || scope.request != 0L || scope.execution != 0L) {
+                return;
+            }
+            Claim claim = AgentBridge.current();
+            SideEffects.Owner owner = new SideEffects.Owner();
+            if (claim != null
+                    && claim.armed
+                    && claim.generation == scope.generation
+                    && SideEffects.ownerOf(CodePaths.capture(claim), owner)) {
+                scope.request = owner.request;
+                scope.execution = owner.execution;
+                scope.executionKind = owner.executionKind;
+            }
+        } catch (Throwable ex) {
+            SideEffects.failed(SideEffects.SENSOR_THREAD_LOCALS, ex);
+        }
+    }
+
+    private static long open(boolean owned) {
         try {
             Thread self = Thread.currentThread();
             boolean testing = self == selfTestThread;
@@ -223,7 +265,12 @@ public final class ThreadLocals {
             }
             long generation = SideEffects.generation;
             SideEffects.Owner owner = new SideEffects.Owner();
-            if (!testing) {
+            if (!owned) {
+                if (scope != null && scope.depth == EXPLICIT) {
+                    NESTED.increment();
+                    return 0L;
+                }
+            } else if (!testing) {
                 Claim claim = AgentBridge.current();
                 if (claim == null
                         || !claim.armed
@@ -233,7 +280,7 @@ public final class ThreadLocals {
                     return 0L;
                 }
             }
-            if (scope != null && scope.depth == EXPLICIT) {
+            if (owned && scope != null && scope.depth == EXPLICIT) {
                 boolean same = scope.generation == generation
                         && (owner.request != 0L
                                 ? scope.request == owner.request
@@ -480,6 +527,11 @@ public final class ThreadLocals {
                         || !claim.armed
                         || claim.generation != scope.generation
                         || (SideEffects.mask & SideEffects.MASK_THREAD_LOCALS) == 0)) {
+            return;
+        }
+        if (!testing && scope.request == 0L && scope.execution == 0L) {
+            // An unowned scope nothing claimed, as a scheduler's task no request's context reached.
+            UNOWNED.increment();
             return;
         }
         Registry registry = testing ? null : registry(scope.generation);

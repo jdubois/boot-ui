@@ -224,6 +224,32 @@ class ThreadLocalsTests {
     }
 
     @Test
+    void anUnownedScopeReportsOnlyOnceSomethingOwnsItWhateverOrderItsThreadLocalsAreSetAndRestoredIn() {
+        long token = enabledClaim();
+
+        long scope = ThreadLocals.openUnowned();
+        scanner.set(TENANT, true);
+        ThreadLocals.close(scope);
+        assertThat(drain(token)).isEmpty();
+        assertThat(ThreadLocals.counter("unowned")).isEqualTo(1L);
+
+        scanner.clear();
+        scope = ThreadLocals.openUnowned();
+        // A context propagation accessor sets its value before BootUI's names the owner, and restores it after.
+        scanner.set(CLEARED, true);
+        context.set(owner(REQUEST));
+        ThreadLocals.own();
+        context.set(null);
+        scanner.set(TENANT, true);
+        scanner.set(CLEARED, false);
+        ThreadLocals.close(scope);
+        List<long[]> records = drain(token);
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0)[SideEffects.R_REQUEST]).isEqualTo(REQUEST_BITS);
+        assertThat(records.get(0)[SideEffects.R_NANOS]).isEqualTo(scanner.hash(TENANT) & 0xFFFFFFFFL);
+    }
+
+    @Test
     void onlyTheOutermostScopeScans() {
         long token = enabledClaim();
         context.set(owner(REQUEST));

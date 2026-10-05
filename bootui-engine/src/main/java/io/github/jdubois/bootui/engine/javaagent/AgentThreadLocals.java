@@ -49,6 +49,35 @@ public final class AgentThreadLocals {
         }
     }
 
+    /**
+     * Opens a scope on the calling thread before what owns it is known, as around a Reactor scheduler's task: {@link
+     * #own()} names its owner once BootUI's context becomes current inside it; a scope never owned reports nothing. A
+     * token for {@link #close}, else 0.
+     */
+    public static long openUnowned() {
+        MethodHandle open = handles.openUnowned;
+        if (open == null) {
+            return 0L;
+        }
+        try {
+            return (long) open.invokeExact();
+        } catch (Throwable ex) {
+            return 0L;
+        }
+    }
+
+    /** The calling thread's scope {@link #openUnowned()} opened is owned by BootUI's current context, if not yet. */
+    public static void own() {
+        MethodHandle own = handles.own;
+        if (own != null) {
+            try {
+                own.invokeExact();
+            } catch (Throwable ex) {
+                // The agent never fails the application.
+            }
+        }
+    }
+
     /** Closes the scope {@link #open()} returned {@code token} for, on the same thread; 0 does nothing. */
     public static void close(long token) {
         MethodHandle close = handles.close;
@@ -107,9 +136,15 @@ public final class AgentThreadLocals {
     }
 
     private record Handles(
-            MethodHandle configure, MethodHandle open, MethodHandle close, MethodHandle holder, MethodHandle exclude) {
+            MethodHandle configure,
+            MethodHandle open,
+            MethodHandle close,
+            MethodHandle holder,
+            MethodHandle exclude,
+            MethodHandle openUnowned,
+            MethodHandle own) {
 
-        static final Handles NONE = new Handles(null, null, null, null, null);
+        static final Handles NONE = new Handles(null, null, null, null, null, null, null);
 
         static Handles locate() {
             try {
@@ -143,7 +178,9 @@ public final class AgentThreadLocals {
                         lookup.findStatic(
                                 threadLocals,
                                 "exclude",
-                                MethodType.methodType(void.class, long.class, int.class, int.class)));
+                                MethodType.methodType(void.class, long.class, int.class, int.class)),
+                        lookup.findStatic(threadLocals, "openUnowned", MethodType.methodType(long.class)),
+                        lookup.findStatic(threadLocals, "own", MethodType.methodType(void.class)));
             } catch (Throwable ex) {
                 // A bridge from before M5-5f.
                 return NONE;

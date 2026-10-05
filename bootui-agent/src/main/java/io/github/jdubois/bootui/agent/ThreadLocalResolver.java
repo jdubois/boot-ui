@@ -47,6 +47,10 @@ import net.bytebuddy.utility.OpenedClassReader;
 final class ThreadLocalResolver extends ThreadLocals.Resolver {
 
     static final long INDEX_MILLIS = 10_000L;
+
+    /** An index older than this is rebuilt once before a thread local is declared unresolved. */
+    static final long STALE_INDEX_MILLIS = 1_000L;
+
     static final long INVENTORY_MILLIS = 2_000L;
 
     /** The superclasses walked at most for one-level instance fields. */
@@ -80,10 +84,24 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     @Override
     public synchronized String[] resolve(Object threadLocal, String[] packages, String[] holders, long budgetNanos) {
         long deadline = System.nanoTime() + Math.max(1L, budgetNanos);
+        String[] claimed = packages == null ? new String[0] : packages;
+        refreshIndex(claimed, holders, false);
+        String[] answer = search(threadLocal, claimed, holders, deadline);
+        if (answer != null
+                && answer[0] == null
+                && System.currentTimeMillis() - indexedAt >= STALE_INDEX_MILLIS
+                && System.nanoTime() < deadline) {
+            // The holder's class may have loaded since the index was built: rebuilt once, then searched again.
+            refreshIndex(claimed, holders, true);
+            answer = search(threadLocal, claimed, holders, deadline);
+        }
+        return answer;
+    }
+
+    /** One search of the index; {@code null} when out of time. */
+    private String[] search(Object threadLocal, String[] claimed, String[] holders, long deadline) {
         boolean initialValue = initialValue(threadLocal);
         String hint = hint(threadLocal);
-        String[] claimed = packages == null ? new String[0] : packages;
-        refreshIndex(claimed, holders);
         // Framework holders first, by exact name, one level deep.
         if (holders != null) {
             for (String name : holders) {
@@ -402,9 +420,9 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
 
     // ---- the loaded classes ----------------------------------------------------------------------------------------
 
-    private void refreshIndex(String[] packages, String[] holders) {
+    private void refreshIndex(String[] packages, String[] holders, boolean force) {
         long now = System.currentTimeMillis();
-        if (now - indexedAt < INDEX_MILLIS && java.util.Arrays.equals(packages, indexedPackages)) {
+        if (!force && now - indexedAt < INDEX_MILLIS && java.util.Arrays.equals(packages, indexedPackages)) {
             return;
         }
         List<WeakReference<Class<?>>> fresh = new ArrayList<WeakReference<Class<?>>>();
