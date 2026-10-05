@@ -419,11 +419,13 @@ a candidate fix before the next validation.
 
 **Fixed by M4-24**, none changing the rerun's score: (1) a statement run after the handler returned takes its
 render-time call site, such as the formatter, and `repeated-selects` leaves to `lazy-sql-after-handler` a statement it
-reports on the same route from the same call site; (2) input growth is reported only from 1.5 times the first call's,
+reports on the same route only when every request repeated it after the handler and the lazy row names each of its call
+sites, so a handler's own N+1 stays reported; (2) input growth is reported only from 1.5 times the first call's,
 and two model calls are worded as a tool round-trip, not a prompt to trim; (3) a group that (nearly) every request to
 its route, at least three, recorded behind 4xx responses is its own row, never counted in **Behind 4xx responses**;
-(4) the hint names the routes mapped to the changed method by its own HTTP method and path, or says none is known;
-(5) a route the security filters answered says how much of its time authentication took. The maintainer's workbook
+(4) the hint names the routes mapped to the changed method by its own HTTP method and path, or says none is known, as when
+an inherited handler may reach it; (5) a route the security filters answered says how much of its time authentication
+took whenever its evidence names authentication. The maintainer's workbook
 ruled the `after-commit-writes` row honest, and its sentence and table agree, so it is unchanged.
 
 ### Known harness issues under m4-20-protocol-2

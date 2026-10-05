@@ -214,41 +214,36 @@ public final class LazySqlAfterHandler implements Observation {
     }
 
     /**
-     * Whether one of {@code lazy}, this kind's findings, already reports {@code repeated}, a {@code repeated-selects}
-     * finding, with its cause (M4-20's adjudication follow-up 1): a finding with the same key, the route and the
-     * statement's fingerprint, that shares one of its call sites, or names none when that one names none either, and is
-     * at least as sufficient, so the fact is never reported weaker than it was.
+     * Whether one of {@code lazy}, this kind's findings, already reports all of {@code repeated}, a {@code
+     * repeated-selects} finding, with its cause (M4-20's adjudication follow-up 1): its repeats ran after the handler
+     * returned in every affected request ({@link RepeatedSelects#REPEATED_AFTER_HANDLER}), and a finding with the same
+     * key, the route and the statement's fingerprint, at least as sufficient, names the call site of every one of its
+     * rows. A handler's own repeats, or a row from a call site the lazy finding does not name, keep it reported.
      */
     static boolean reports(List<Finding> lazy, Finding repeated) {
-        Set<String> repeatedSites = callSites(repeated);
+        if (!repeated.limitations().contains(RepeatedSelects.REPEATED_AFTER_HANDLER)) {
+            return false;
+        }
+        Set<String> repeatedSites = rowSites(repeated);
         for (Finding finding : lazy) {
-            if (!finding.key().equals(repeated.key()) || (repeated.sufficient() && !finding.sufficient())) {
-                continue;
-            }
-            Set<String> sites = callSites(finding);
-            if (sites.isEmpty() && repeatedSites.isEmpty()) {
+            if (finding.key().equals(repeated.key())
+                    && (!repeated.sufficient() || finding.sufficient())
+                    && rowSites(finding).containsAll(repeatedSites)) {
                 return true;
-            }
-            for (String site : sites) {
-                if (repeatedSites.contains(site)) {
-                    return true;
-                }
             }
         }
         return false;
     }
 
-    /** The non-empty values of a finding's {@code Call site} evidence column. */
-    private static Set<String> callSites(Finding finding) {
+    /** Every row's {@code Call site}, blank for a row that names none; empty when the finding has no such column. */
+    private static Set<String> rowSites(Finding finding) {
         int column = finding.columns().indexOf("Call site");
         Set<String> sites = new HashSet<>();
         if (column < 0) {
             return sites;
         }
         for (List<String> row : finding.rows()) {
-            if (column < row.size() && !row.get(column).isBlank()) {
-                sites.add(row.get(column));
-            }
+            sites.add(column < row.size() ? row.get(column).strip() : "");
         }
         return sites;
     }

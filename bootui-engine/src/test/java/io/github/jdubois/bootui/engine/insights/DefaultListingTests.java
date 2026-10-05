@@ -111,13 +111,18 @@ class DefaultListingTests {
     }
 
     @Test
-    void aRepeatedSelectIsLeftToLazySqlOnlyWhenItReportsTheSameStatementAndCallSiteAtLeastAsSufficiently() {
-        Finding repeated =
-                finding("GET /r:abc", List.of("Request", "Executions", "Time (ms)", "Call site", "Phase"), SITE, true);
+    void aRepeatedSelectIsLeftToLazySqlOnlyWhenItRepeatedAfterTheHandlerAndLazySqlNamesEveryCallSite() {
+        List<String> columns = List.of("Request", "Executions", "Time (ms)", "Call site", "Phase");
+        Finding repeated = afterHandler(finding("GET /r:abc", columns, SITE, true));
         List<String> lazyColumns = List.of("Request", "Executions", "Call site");
 
         assertThat(LazySqlAfterHandler.reports(List.of(finding("GET /r:abc", lazyColumns, SITE, true)), repeated))
                 .isTrue();
+        assertThat(LazySqlAfterHandler.reports(
+                        List.of(finding("GET /r:abc", lazyColumns, SITE, true)),
+                        finding("GET /r:abc", columns, SITE, true)))
+                .as("repeats the handler ran itself")
+                .isFalse();
         assertThat(LazySqlAfterHandler.reports(List.of(finding("GET /r:other", lazyColumns, SITE, true)), repeated))
                 .as("another statement or route")
                 .isFalse();
@@ -131,8 +136,51 @@ class DefaultListingTests {
                 .isFalse();
         assertThat(LazySqlAfterHandler.reports(
                         List.of(finding("GET /r:abc", lazyColumns, SITE, true)),
-                        finding("GET /r:abc", repeated.columns(), SITE, false)))
+                        afterHandler(finding("GET /r:abc", columns, SITE, false))))
                 .isTrue();
+    }
+
+    /** A repeat reported on two call sites, only one of which SQL after the handler names, stays reported. */
+    @Test
+    void aRepeatedSelectWithARowFromACallSiteLazySqlDoesNotNameStaysReported() {
+        String other = "com.example.OrderController.lines(OrderController.java:40)";
+        List<String> columns = List.of("Request", "Executions", "Time (ms)", "Call site", "Phase");
+        Finding repeated = afterHandler(new Finding(
+                "GET /r:abc",
+                "GET /r",
+                true,
+                "s",
+                3,
+                2,
+                List.of(),
+                List.of("r1", "r2"),
+                columns,
+                List.of(
+                        List.of("r1", "5", "1", SITE, "response write"),
+                        List.of("r2", "5", "1", other, "response write")),
+                List.of()));
+
+        assertThat(LazySqlAfterHandler.reports(
+                        List.of(finding("GET /r:abc", List.of("Request", "Executions", "Call site"), SITE, true)),
+                        repeated))
+                .isFalse();
+    }
+
+    private static Finding afterHandler(Finding finding) {
+        List<String> limitations = new java.util.ArrayList<>(finding.limitations());
+        limitations.add(RepeatedSelects.REPEATED_AFTER_HANDLER);
+        return new Finding(
+                finding.key(),
+                finding.subject(),
+                finding.sufficient(),
+                finding.sentence(),
+                finding.eligible(),
+                finding.affected(),
+                finding.whatToCheck(),
+                finding.exemplarRequestIds(),
+                finding.columns(),
+                finding.rows(),
+                limitations);
     }
 
     private static Finding finding(boolean sufficient) {

@@ -532,6 +532,67 @@ class RuntimeInsightsServiceTests {
                 .contains("while the view was rendered");
     }
 
+    /**
+     * The mixed case: the handler runs an N+1 at its own call site, and the view repeats the same statement from a
+     * formatter. SQL after the handler returned reports the view's repeats, but the handler's N+1 is not covered, so
+     * Repeated SELECTs keeps reporting it, with the handler's call site.
+     */
+    @Test
+    void aHandlersOwnNPlusOneStaysReportedWhenTheViewRepeatsTheSameStatementElsewhere() {
+        String loop = "com.example.OrderController.lines(OrderController.java:40)";
+        String formatter = "com.example.LineFormatter.print(LineFormatter.java:12)";
+        for (int i = 0; i < 3; i++) {
+            List<Child> children = new ArrayList<>();
+            children.add(new Child(
+                    JournalSource.SQL,
+                    1_000_000,
+                    new SqlPayload(
+                            "select * from orders", "Orders.find:1", "db", false, null, RequestPhase.HANDLER, 100)));
+            for (int r = 0; r < 6; r++) {
+                children.add(new Child(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload(
+                                "select * from lines where order_id = ?",
+                                loop,
+                                "db",
+                                false,
+                                null,
+                                RequestPhase.HANDLER,
+                                200 + r)));
+            }
+            for (int r = 0; r < 5; r++) {
+                children.add(new Child(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload(
+                                "select * from lines where order_id = ?",
+                                null,
+                                "db",
+                                false,
+                                ApplicationFrames.of(List.of(
+                                        formatter,
+                                        "org.thymeleaf.engine.ProcessorTemplateHandler.handleText("
+                                                + "ProcessorTemplateHandler.java:562)")),
+                                RequestPhase.RESPONSE,
+                                300 + r)));
+            }
+            request("GET", "/orders/{id}", children.toArray(Child[]::new));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeInsightsReportDto report = service.report();
+
+        assertThat(observations(report, LazySqlAfterHandler.KIND)).containsKey("GET /orders/{id}");
+        RuntimeObservationDto repeated =
+                observations(report, RepeatedSelects.KIND).get("GET /orders/{id}");
+        assertThat(repeated).as("the handler's N+1 is still reported").isNotNull();
+        assertThat(repeated.limitations()).doesNotContain(RepeatedSelects.REPEATED_AFTER_HANDLER);
+        assertThat(service.insight(repeated.id()).rows())
+                .allSatisfy(row -> assertThat(row.cells().get(3)).isEqualTo(loop));
+    }
+
     @Test
     void aSufficientLocalNPlusOneStaysInTheDefaultListAndAWeakCheapRepeatDoesNot() {
         for (int i = 0; i < 3; i++) {

@@ -138,6 +138,7 @@ public final class ChangedCodeNotExecuted implements Observation {
         for (ChangedClass changed : code.classes()) {
             List<List<String>> rows = new ArrayList<>();
             Set<String> mapped = new LinkedHashSet<>();
+            boolean maybeInherited = false;
             long classTracked = 0;
             for (CodeInventoryMethodDto method : changed.methods()) {
                 String status = method.status();
@@ -150,13 +151,20 @@ public final class ChangedCodeNotExecuted implements Observation {
                             CodeChanges.ADDED.equals(method.change()) ? "added" : "changed",
                             "not executed in this run"));
                     mapped.addAll(routesMappedTo(declared, method));
+                    maybeInherited |= mayBeInherited(declared, method);
                 } else {
                     untracked++;
                 }
             }
             tracked += classTracked;
             if (!rows.isEmpty()) {
-                findings.add(finding(changed, classTracked, rows, List.copyOf(mapped), declared != null, code.note()));
+                findings.add(finding(
+                        changed,
+                        classTracked,
+                        rows,
+                        List.copyOf(mapped),
+                        declared != null && !maybeInherited,
+                        code.note()));
             }
         }
         return new Evaluation(
@@ -173,7 +181,7 @@ public final class ChangedCodeNotExecuted implements Observation {
             long eligible,
             List<List<String>> rows,
             List<String> mapped,
-            boolean routesKnown,
+            boolean noneMapped,
             String note) {
         String simple = InsightText.simpleName(changed.className());
         String sentence = "Your change has not run yet: " + InsightText.counted(rows.size(), "changed method") + " of `"
@@ -186,7 +194,7 @@ public final class ChangedCodeNotExecuted implements Observation {
                     + (mapped.size() > named.size() ? ", and others" : "") + ", or run the test that reaches "
                     + (rows.size() == 1 ? "it" : "them") + ", then read Code Inventory again.");
         } else {
-            whatToCheck.add((routesKnown ? "No declared route is mapped to " : "No route is known to be mapped to ")
+            whatToCheck.add((noneMapped ? "No declared route is mapped to " : "No route is known to be mapped to ")
                     + (rows.size() == 1 ? "it" : "them")
                     + ": run the test, or send the request, whose code path should call "
                     + (rows.size() == 1 ? "it" : "them") + ", then read Code Inventory again.");
@@ -229,18 +237,8 @@ public final class ChangedCodeNotExecuted implements Observation {
         String className = method.className().replace('$', '.');
         Set<String> routes = new LinkedHashSet<>();
         for (MappingDto mapping : declared) {
-            if (mapping == null || mapping.handler() == null || mapping.pattern() == null) {
-                continue;
-            }
-            String handler = mapping.handler().trim();
-            int hash = handler.indexOf('#');
-            if (hash < 0) {
-                continue;
-            }
-            int paren = handler.indexOf('(', hash);
-            String handlerClass = handler.substring(0, hash).replace('$', '.');
-            String handlerMethod = handler.substring(hash + 1, paren < 0 ? handler.length() : paren);
-            if (!handlerClass.equals(className) || !handlerMethod.equals(method.name())) {
+            String[] handler = handler(mapping);
+            if (handler == null || !handler[0].equals(className) || !handler[1].equals(method.name())) {
                 continue;
             }
             String verb = mapping.method() == null || mapping.method().isBlank()
@@ -249,5 +247,46 @@ public final class ChangedCodeNotExecuted implements Observation {
             routes.add(RouteLabel.idOf(verb, RouteTemplateResolver.canonical(mapping.pattern())));
         }
         return List.copyOf(routes);
+    }
+
+    /**
+     * Whether a declared route may still reach {@code method} through a class this engine cannot relate to it: Spring and
+     * Quarkus describe an inherited handler by the concrete controller or resource class, and the engine does not know
+     * the class hierarchy, so a handler of the same method name in another class may be {@code method} inherited. Only
+     * when none exists is no declared route mapped to it; a route whose handler names no method, such as a functional
+     * route, maps to no method.
+     */
+    static boolean mayBeInherited(List<MappingDto> declared, CodeInventoryMethodDto method) {
+        if (declared == null || method.className() == null || method.name() == null) {
+            return true;
+        }
+        String className = method.className().replace('$', '.');
+        for (MappingDto mapping : declared) {
+            String[] handler = handler(mapping);
+            if (handler != null && !handler[0].equals(className) && handler[1].equals(method.name())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A mapping's handler class and method name, from {@code com.example.Resource#name(...)}, or {@code null} when it
+     * names no method, as a functional route's does.
+     */
+    private static String[] handler(MappingDto mapping) {
+        if (mapping == null || mapping.handler() == null || mapping.pattern() == null) {
+            return null;
+        }
+        String handler = mapping.handler().trim();
+        int hash = handler.indexOf('#');
+        if (hash < 0) {
+            return null;
+        }
+        int paren = handler.indexOf('(', hash);
+        return new String[] {
+            handler.substring(0, hash).replace('$', '.'),
+            handler.substring(hash + 1, paren < 0 ? handler.length() : paren)
+        };
     }
 }

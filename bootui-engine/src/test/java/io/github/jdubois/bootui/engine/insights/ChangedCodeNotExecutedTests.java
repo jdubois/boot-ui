@@ -138,6 +138,30 @@ class ChangedCodeNotExecutedTests {
                         .doesNotContain("/orders/{id}"));
     }
 
+    /**
+     * Spring describes an inherited handler by its concrete controller, and the engine does not know the class
+     * hierarchy: a changed base-controller method whose name another class's handler carries may be that handler, so
+     * its check says no route is known, never that none is mapped.
+     */
+    @Test
+    void aChangedMethodAnotherClassesHandlerMayInheritSaysNoRouteIsKnown() {
+        code.set(changes(
+                method("pay", CodeChanges.CHANGED, CodeInventoryService.NEVER_EXECUTED),
+                method("list", CodeChanges.CHANGED, CodeInventoryService.EXECUTED)));
+        RuntimeInsightsService service = service();
+        service.setDeclaredRoutes(
+                () -> List.of(
+                        new MappingDto("GET", "/orders", "shop.OrderService#list()", null, null),
+                        new MappingDto("POST", "/shop/pay", "shop.ShopController#pay()", null, null)),
+                null);
+
+        assertThat(observations(service.report()))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.whatToCheck().get(0))
+                        .startsWith("No route is known to be mapped to it")
+                        .doesNotContain("POST /shop/pay"));
+    }
+
     /** A changed method no declared route maps to, such as a service method, names no route rather than a guess. */
     @Test
     void aChangedMethodNoRouteMapsToNamesNoRoute() {

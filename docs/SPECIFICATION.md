@@ -1871,8 +1871,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
   groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
   three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves
-  to `lazy-sql-after-handler` a statement that kind reports on the same route from the same call site, its check's
-  reason counting them, and names the render-time call site of statements run after the handler; and
+  to `lazy-sql-after-handler` a statement that kind reports on the same route when every affected request repeated it
+  after the handler returned and the lazy row names each of its call sites, its check's reason counting them, and names the render-time call site of statements run after the handler; and
   `framework-warnings-by-route` leaves out a `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts
   in one row the framework `ERROR` events that carried no request id. The panel's **Show all routes**, a search, or a
   deep link lists the rest.

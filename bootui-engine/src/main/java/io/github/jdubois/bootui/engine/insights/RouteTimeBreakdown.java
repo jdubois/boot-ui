@@ -506,7 +506,8 @@ public final class RouteTimeBreakdown implements Observation {
         long rejected = unmarked.stream().filter(b -> rejected(b.request())).count();
         String which = unmarked.size() == warm.size() ? "all of them" : unmarked.size() + " of them";
         Totals totals = Totals.of(unmarked);
-        String authentication = authenticationLed(totals);
+        String authentication = authenticationShare(totals);
+        boolean authenticationLed = authenticationLed(totals);
         StringBuilder sentence = new StringBuilder("`")
                 .append(route)
                 .append("`: warm median ")
@@ -561,7 +562,7 @@ public final class RouteTimeBreakdown implements Observation {
                         sentence.toString(),
                         warm.size(),
                         unmarked.size(),
-                        authentication != null
+                        authenticationLed
                                 ? List.of(
                                         check(Phase.AUTHENTICATION),
                                         "Open the slowest exemplar request in Live Activity to see its timeline and"
@@ -592,18 +593,21 @@ public final class RouteTimeBreakdown implements Observation {
     }
 
     /**
-     * The share authentication took of {@code totals}, such as {@code 98 %}, when it is the largest phase, or
-     * {@code null}: the time security filters spent authenticating, as a form login does, is named even when no handler
-     * was marked.
+     * The share authentication took of {@code totals}, such as {@code 40 %}, whenever its row is in the evidence table,
+     * or {@code null}: the time security filters spent authenticating, as a form login does, is named even when no
+     * handler was marked, so the sentence never contradicts the table below it.
      */
-    private static String authenticationLed(Totals totals) {
+    private static String authenticationShare(Totals totals) {
+        long[] authentication = totals.phases().get(Phase.AUTHENTICATION);
+        return authentication == null || authentication[0] <= 0 ? null : percent(authentication[0], totals.sum());
+    }
+
+    /** Whether authentication is the largest phase of {@code totals}, which makes its check the first. */
+    private static boolean authenticationLed(Totals totals) {
         List<Map.Entry<Phase, long[]>> ranked = totals.ranked();
-        if (ranked.isEmpty()
-                || ranked.get(0).getKey() != Phase.AUTHENTICATION
-                || ranked.get(0).getValue()[0] <= 0) {
-            return null;
-        }
-        return percent(ranked.get(0).getValue()[0], totals.sum());
+        return !ranked.isEmpty()
+                && ranked.get(0).getKey() == Phase.AUTHENTICATION
+                && ranked.get(0).getValue()[0] > 0;
     }
 
     /**

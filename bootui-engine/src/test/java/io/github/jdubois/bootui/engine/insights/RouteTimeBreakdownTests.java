@@ -694,6 +694,36 @@ class RouteTimeBreakdownTests {
                         cells -> assertThat(cells).startsWith("Authentication").contains("98 %"));
     }
 
+    /**
+     * Authentication is named whenever its row is in the evidence table, not only when it is the largest: at 40 %
+     * against 60 % unattributed, the sentence says so rather than only that the time is not split.
+     */
+    @Test
+    void authenticationIsNamedWithItsShareEvenWhenItIsNotTheLargestPhase() {
+        for (int i = 0; i < 6; i++) {
+            request("/login", 302, 10 * MS, new RequestTiming(clock, 4 * MS, -1, -1));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto login = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(login.sentence())
+                .contains("the security filters' authentication took 40 % of it, and the rest is not split into"
+                        + " phases.")
+                .doesNotContain("so the time is not split into phases");
+        assertThat(service.insight(login.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .anySatisfy(
+                        cells -> assertThat(cells).startsWith("Authentication").contains("40 %"));
+        assertThat(login.whatToCheck())
+                .as("authentication is not most of the time, so its check does not lead")
+                .noneMatch(check -> check.startsWith("Most of the time is authentication"));
+    }
+
     @Test
     void securityRejectedRequestsWithoutHandlerMarksAreNotCalledApplicationCode() {
         for (int i = 0; i < 6; i++) {

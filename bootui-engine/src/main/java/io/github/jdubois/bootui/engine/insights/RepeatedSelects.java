@@ -65,6 +65,15 @@ public final class RepeatedSelects implements Observation {
 
     static final String UNKNOWN_REPEAT_TIME = "Total repeat time is unknown.";
 
+    /**
+     * Stable limitation saying the repeats ran after the handler returned in every affected request: at least
+     * {@value #MIN_REPEATS} times there, and fewer before. Only such a finding may be left to {@code
+     * lazy-sql-after-handler}, so a handler's own N+1 is never hidden by the view repeating the same statement.
+     */
+    static final String REPEATED_AFTER_HANDLER = "In every affected request, the statement ran " + MIN_REPEATS
+            + " or more times after the handler returned, while the response was written or the view rendered, and"
+            + " fewer than " + MIN_REPEATS + " times before.";
+
     static final String RESULT_SIZE_UNRECORDED =
             "Whether the repeat count tracks a parent result size is not" + " recorded: statements carry no row count.";
 
@@ -240,6 +249,9 @@ public final class RepeatedSelects implements Observation {
         if (snapshot.available(JournalSource.TRANSACTION) && snapshot.dropped(JournalSource.TRANSACTION) > 0) {
             limitations.add("Transaction events were dropped, so whether repeats ran inside one is unknown.");
         }
+        if (repeats.stream().allMatch(Repeat::afterHandlerOnly)) {
+            limitations.add(REPEATED_AFTER_HANDLER);
+        }
         if (named) {
             boolean through = false;
             boolean repositoryOnly = false;
@@ -390,6 +402,7 @@ public final class RepeatedSelects implements Observation {
             boolean unknownTime,
             boolean measured,
             Map<String, Integer> sites,
+            int afterHandler,
             String phase,
             String inTransaction,
             Map<Integer, Integer> issuers) {
@@ -416,6 +429,18 @@ public final class RepeatedSelects implements Observation {
             }
             String site = best.startsWith(AFTER_HANDLER) ? best.substring(AFTER_HANDLER.length()) : best;
             return site.isEmpty() ? null : site;
+        }
+
+        /**
+         * Whether it repeated after the handler returned: {@value #MIN_REPEATS} or more executions there, and fewer
+         * before.
+         */
+        boolean afterHandlerOnly() {
+            return afterHandler >= MIN_REPEATS && executions - afterHandler < MIN_REPEATS;
+        }
+
+        private static int afterHandler(SqlPayload sql) {
+            return sql.phase() == RequestPhase.RESPONSE ? 1 : 0;
         }
 
         /** {@code sites} with {@code sql}'s call site counted once more. */
@@ -449,6 +474,7 @@ public final class RepeatedSelects implements Observation {
                     unknown,
                     duration > 0,
                     site(Map.of(), sql),
+                    afterHandler(sql),
                     phaseLabel(sql.phase()),
                     transactionLabel(event, windows),
                     issuer(Map.of(), sql));
@@ -477,6 +503,7 @@ public final class RepeatedSelects implements Observation {
                     unknown,
                     measured || duration > 0,
                     site(sites, sql),
+                    afterHandler + afterHandler(sql),
                     merge(phase, phaseLabel(sql.phase())),
                     merge(inTransaction, transactionLabel(event, windows)),
                     issuer(issuers, sql));
