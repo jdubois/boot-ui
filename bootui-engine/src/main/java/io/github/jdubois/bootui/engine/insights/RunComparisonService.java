@@ -7,13 +7,17 @@ import io.github.jdubois.bootui.core.dto.RuntimeCodeChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeCodeChangesDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRestartCostDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
+import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangesDto;
 import io.github.jdubois.bootui.engine.codepaths.MethodRoutes;
 import io.github.jdubois.bootui.engine.codepaths.TracedMethods;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
+import io.github.jdubois.bootui.engine.journal.RunSideEffects;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import java.util.ArrayList;
@@ -53,6 +57,7 @@ public final class RunComparisonService {
     private volatile Function<Integer, CodeInventoryService.ChangesRead> inventoryChanges;
     private volatile Function<Predicate<String>, MethodRoutes> codePaths;
     private volatile Supplier<AppEventCapture> appEventCapture;
+    private volatile Supplier<SideEffectsView> sideEffects;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -102,6 +107,35 @@ public final class RunComparisonService {
     }
 
     /**
+     * Installs Side Effects, so the comparison says which hosts, file patterns, processes, and variable names are new or
+     * gone outside the JVM ({@code docs/PLAN-v2.md} §5.8, §5.16, M5-7b). Read once per comparison, under its panel's and
+     * HTTP Exchanges' read; without the agent ({@link #setCodeChanges}'s {@code agentAttached}), the comparison carries
+     * none.
+     */
+    public void setSideEffects(Supplier<SideEffectsService> sideEffects) {
+        setSideEffectsView(sideEffects == null ? null : () -> {
+            SideEffectsService service = sideEffects.get();
+            return service == null
+                    ? null
+                    : new SideEffectsView(service.read(), service.unavailableReason(), service::runSideEffects);
+        });
+    }
+
+    /** {@link #setSideEffects} from a view of Side Effects rather than its service. */
+    public void setSideEffectsView(Supplier<SideEffectsView> sideEffects) {
+        this.sideEffects = sideEffects;
+    }
+
+    /**
+     * What a comparison reads of Side Effects, once per comparison.
+     *
+     * @param read its panel's and HTTP Exchanges' visibility now
+     * @param unavailableReason why Side Effects records nothing, or {@code null}
+     * @param current this run's side effects so far, possibly {@code null}
+     */
+    public record SideEffectsView(AgentEvidence.Read read, String unavailableReason, Supplier<RunSideEffects> current) {}
+
+    /**
      * Installs whether this application's application events are recorded ({@link AppEventCapture}), so a comparison
      * that compares no application event edge says why. Without it, they are assumed recorded.
      */
@@ -114,7 +148,8 @@ public final class RunComparisonService {
      * kept run, including one with no HTTP traffic.
      */
     public RuntimeRunComparisonDto compare(String runId) {
-        RuntimeRunComparisonDto comparison = withUnrecordedAppEvents(compareRuns(runId));
+        RunSummary[] previous = new RunSummary[1];
+        RuntimeRunComparisonDto comparison = withUnrecordedAppEvents(compareRuns(runId, previous));
         if (RunComparison.UNAVAILABLE.equals(comparison.status()) && comparison.current() == null) {
             return comparison;
         }
@@ -123,8 +158,89 @@ public final class RunComparisonService {
                 || "previous".equals(runId)
                 || (!comparison.runs().isEmpty()
                         && comparison.runs().get(0).runId().equals(runId));
-        return comparison.withCodeChanges(codeChanges(previousRun));
+        return comparison.withCodeChanges(codeChanges(previousRun)).withSideEffects(sideEffects(previous[0]));
     }
+
+    /**
+     * What changed outside the JVM since {@code previous}, from Side Effects ({@code docs/PLAN-v2.md} M5-7b);
+     * {@code null} without the agent, and unavailable with the reason when it cannot be compared. Never throws.
+     */
+    RuntimeSideEffectChangesDto sideEffects(RunSummary previous) {
+        Supplier<SideEffectsView> source = sideEffects;
+        try {
+            if (source == null || !agentAttached.getAsBoolean()) {
+                // Without the agent, the comparison is what it was before side effects.
+                return null;
+            }
+        } catch (RuntimeException ex) {
+            return null;
+        }
+        try {
+            SideEffectsView service = source.get();
+            if (service == null) {
+                return RuntimeSideEffectChangesDto.unavailable(NO_SIDE_EFFECTS);
+            }
+            AgentEvidence.Read read = service.read();
+            String unavailable = service.unavailableReason();
+            if (unavailable == null && (read == null || !read.shown())) {
+                unavailable = read == null || read.hiddenReason() == null
+                        ? "The Side Effects panel is hidden."
+                        : read.hiddenReason();
+            }
+            if (unavailable != null) {
+                return RuntimeSideEffectChangesDto.unavailable(unavailable);
+            }
+            if (previous == null) {
+                return RuntimeSideEffectChangesDto.unavailable("There is no previous run to compare side effects with.");
+            }
+            RunSideEffects before = previous.sideEffects();
+            if (before == null) {
+                return RuntimeSideEffectChangesDto.unavailable(
+                        "The previous run kept no side effects: it ran without the BootUI agent's side-effect sensors,"
+                                + " or with a BootUI that did not keep them.");
+            }
+            if (before.unavailableReason() != null) {
+                return RuntimeSideEffectChangesDto.unavailable(
+                        "The previous run kept no side effects. " + before.unavailableReason());
+            }
+            RunSideEffects now = service.current() == null ? null : service.current().get();
+            if (now == null) {
+                return RuntimeSideEffectChangesDto.unavailable(NO_SIDE_EFFECTS);
+            }
+            if (now.unavailableReason() != null) {
+                return RuntimeSideEffectChangesDto.unavailable(now.unavailableReason());
+            }
+            Set<String> routes = new HashSet<>();
+            Set<String> executions = new HashSet<>();
+            if (aggregates != null) {
+                JournalAggregates.AggregatesSnapshot snapshot = aggregates.snapshot();
+                snapshot.routes().forEach(route -> {
+                    if (route.requests() > 0) {
+                        routes.add(route.route());
+                    }
+                });
+                snapshot.executions().forEach(execution -> {
+                    if (execution.stats().requests() > 0) {
+                        executions.add(execution.stats().route());
+                    }
+                });
+            }
+            return SideEffectComparison.compare(
+                    before,
+                    now,
+                    (scope, owner) -> SideEffectComparison.ROUTE.equals(scope)
+                            ? routes.contains(owner)
+                            : SideEffectComparison.EXECUTION.equals(scope) && executions.contains(owner),
+                    !read.requests());
+        } catch (RuntimeException ex) {
+            LOG.log(Level.FINE, "BootUI could not compare the side effects", ex);
+            return RuntimeSideEffectChangesDto.unavailable(
+                    "Side effects could not be compared: " + ex.getClass().getSimpleName() + ".");
+        }
+    }
+
+    static final String NO_SIDE_EFFECTS = "This run records no side effects: Side Effects needs one of the BootUI"
+            + " agent's side-effect sensors (network, files, processes, environment); see the Java Agent panel.";
 
     /**
      * {@code comparison}, naming among its limitations why no application event edge is compared when this run's
@@ -157,7 +273,8 @@ public final class RunComparisonService {
                 comparison.restartCost(),
                 comparison.latency(),
                 limitations,
-                comparison.codeChanges());
+                comparison.codeChanges(),
+                comparison.sideEffects());
     }
 
     /**
@@ -318,7 +435,7 @@ public final class RunComparisonService {
         }
     }
 
-    private RuntimeRunComparisonDto compareRuns(String runId) {
+    private RuntimeRunComparisonDto compareRuns(String runId, RunSummary[] selected) {
         if (journal == null || aggregates == null || !journal.settings().enabled()) {
             return new RuntimeRunComparisonDto(
                     RunComparison.UNAVAILABLE,
@@ -377,6 +494,7 @@ public final class RunComparisonService {
         if (history == null) {
             reason = "The run history is unavailable; no previous run can be retained.";
         }
+        selected[0] = previous;
         return RunComparison.compare(
                 journal.run(),
                 aggregates.snapshot(),

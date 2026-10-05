@@ -11,7 +11,8 @@ import {
   comparisonStatusLabel,
   isComparison,
   restartCostText,
-  runLabel
+  runLabel,
+  sideEffectChanges
 } from '../../utils/runComparison.js'
 import InsightText from './InsightText.vue'
 
@@ -55,6 +56,7 @@ watch(selectedRun, load)
 
 const sections = computed(() => comparisonSections(comparison.value))
 const code = computed(() => codeChanges(comparison.value))
+const outside = computed(() => sideEffectChanges(comparison.value))
 const compared = computed(() => comparison.value?.status === 'COMPARED')
 const restart = computed(() => restartCostText(comparison.value?.restartCost))
 const extraReasons = computed(() => comparison.value?.notComparableReasons?.slice(1) ?? [])
@@ -145,6 +147,47 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
         </div>
         <p v-else-if="code" class="small text-muted mb-0 mt-2" data-testid="code-changes-unavailable">
           Code changes unavailable: {{ code.reason }}
+        </p>
+        <div v-if="outside?.available" class="insight-comparison-section" data-section="side-effects">
+          <h3 class="h6 mb-1">
+            Outside the JVM
+            <span class="text-muted fw-normal small"> · hosts, files, processes, and variable names</span>
+          </h3>
+          <ul class="list-unstyled small mb-1 insight-comparison-sensors">
+            <li
+              v-for="sensor in outside.sensors"
+              :key="sensor.id"
+              :class="{'text-muted': !sensor.compared}"
+              :data-sensor="sensor.id"
+            >
+              <strong class="fw-semibold">{{ sensor.label }}</strong> · {{ sensor.summary }}
+              <span v-if="sensor.reason" class="d-block text-muted">{{ sensor.reason }}</span>
+            </li>
+          </ul>
+          <p v-if="outside.rows.length === 0" class="small text-muted mb-0">
+            No compared route, job, or startup reached a new or different host, file, process, or variable.
+          </p>
+          <ul v-else class="list-unstyled mb-0 insight-comparison-rows">
+            <li v-for="row in outside.rows" :key="row.key" class="insight-comparison-row">
+              <span class="insight-comparison-marker" :title="row.marker.label">
+                <i class="bi" :class="row.marker.icon" aria-hidden="true"></i>
+                <span class="visually-hidden">{{ row.marker.label }}:</span>
+              </span>
+              <span class="insight-comparison-sentence"><InsightText :text="row.sentence" /></span>
+            </li>
+          </ul>
+          <p v-if="outside.more" class="small text-muted mb-0 mt-1">
+            {{ formatNumber(outside.more) }} more not listed: see the Side Effects panel.
+          </p>
+          <details v-if="outside.limitations.length" class="small text-muted mt-1 insight-comparison-limits">
+            <summary>Side effect limits · {{ outside.limitations.length }}</summary>
+            <ul class="mb-0 mt-1">
+              <li v-for="limitation in outside.limitations" :key="limitation">{{ limitation }}</li>
+            </ul>
+          </details>
+        </div>
+        <p v-else-if="outside" class="small text-muted mb-0 mt-2" data-testid="side-effects-unavailable">
+          Side effects not compared: {{ outside.reason }}
         </p>
         <p v-if="comparison.reason" class="mb-0 mt-2 insight-comparison-reason">{{ comparison.reason }}</p>
         <ul v-if="extraReasons.length" class="small mb-0 mt-1 insight-comparison-reason">
@@ -301,6 +344,10 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
 
 .insight-comparison-sentence {
   overflow-wrap: anywhere;
+}
+
+.insight-comparison-sensors li + li {
+  margin-top: 0.15rem;
 }
 
 .insight-comparison-limits summary {

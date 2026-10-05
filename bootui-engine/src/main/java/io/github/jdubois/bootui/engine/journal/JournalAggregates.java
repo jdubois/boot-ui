@@ -152,6 +152,7 @@ public final class JournalAggregates implements JournalListener {
     private volatile RunHistory history;
     private volatile RunIdentity run;
     private volatile RunBaselineFile baseline;
+    private volatile Supplier<RunSideEffects> sideEffects;
     private RunStart runStart;
     private Long runReadyAtEpochMillis;
 
@@ -190,12 +191,21 @@ public final class JournalAggregates implements JournalListener {
         }
     }
 
+    /**
+     * Installs what the run did outside the JVM, read once when the journal closes into the run's summary, such as
+     * {@code SideEffectsService::runSideEffects} ({@code docs/PLAN-v2.md} M5-7b); {@code null} keeps none.
+     */
+    public void setRunSideEffects(Supplier<RunSideEffects> sideEffects) {
+        this.sideEffects = sideEffects;
+    }
+
     @Override
     public void onClose() {
         RunHistory target = history;
         RunIdentity ended = run;
         if (target != null && ended != null) {
-            RunSummary summary = RunSummary.of(ended, snapshot(), runStart(), System.currentTimeMillis());
+            RunSummary summary =
+                    RunSummary.of(ended, snapshot(), runStart(), runSideEffects(), System.currentTimeMillis());
             target.record(summary);
             RunBaselineFile file = baseline;
             if (file != null) {
@@ -205,6 +215,20 @@ public final class JournalAggregates implements JournalListener {
                     log.log(Level.WARNING, "BootUI could not write the baseline file " + file.path(), ex);
                 }
             }
+        }
+    }
+
+    /** The run's side effects for its summary, or {@code null}; never throws. */
+    private RunSideEffects runSideEffects() {
+        Supplier<RunSideEffects> source = sideEffects;
+        if (source == null) {
+            return null;
+        }
+        try {
+            return source.get();
+        } catch (RuntimeException ex) {
+            log.log(Level.WARNING, "BootUI could not read the run's side effects for its summary", ex);
+            return null;
         }
     }
 

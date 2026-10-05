@@ -497,6 +497,22 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Publishes the calling thread's buffered side-effect records to the ring now, as a thread's table is otherwise
+     * flushed only by its next record, a scope change, or when full ({@code docs/PLAN-v2.md} M5-7b). Does nothing with
+     * a bridge without it. Never throws.
+     */
+    public void sideEffectsFlushThread() {
+        if (!sideEffectsSupported() || sideEffects.flushThread() == null) {
+            return;
+        }
+        try {
+            sideEffects.flushThread().invoke();
+        } catch (Throwable ex) {
+            // The records stay buffered until the thread's next record.
+        }
+    }
+
+    /**
      * The strings the side-effect records of claim {@code generation} refer to, from id {@code from}, or {@code null}
      * when their table belongs to another generation or without the sensors' bridge.
      */
@@ -625,7 +641,8 @@ public final class AgentBridgeAccess {
     }
 
     /** The side-effect sensors' bridge entry points, bound once; {@code null} when the bridge has none. */
-    private record SideEffectsHandles(MethodHandle drain, MethodHandle interned, MethodHandle recordingCleared) {
+    private record SideEffectsHandles(
+            MethodHandle drain, MethodHandle interned, MethodHandle recordingCleared, MethodHandle flushThread) {
 
         static SideEffectsHandles bind(Class<?> bridge) {
             try {
@@ -636,7 +653,8 @@ public final class AgentBridgeAccess {
                                 sideEffects, "drain", MethodType.methodType(int.class, long.class, Consumer.class)),
                         lookup.findStatic(
                                 sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)),
-                        recordingCleared(lookup, sideEffects));
+                        recordingCleared(lookup, sideEffects),
+                        flushThread(lookup, sideEffects));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-5a: no side-effect sensors.
                 return null;
@@ -648,6 +666,15 @@ public final class AgentBridgeAccess {
             try {
                 return lookup.findStatic(
                         sideEffects, "recordingCleared", MethodType.methodType(void.class, long.class));
+            } catch (ReflectiveOperationException ex) {
+                return null;
+            }
+        }
+
+        /** {@code SideEffects.flushThread()}, or {@code null} for a bridge without it. */
+        private static MethodHandle flushThread(MethodHandles.Lookup lookup, Class<?> sideEffects) {
+            try {
+                return lookup.findStatic(sideEffects, "flushThread", MethodType.methodType(void.class));
             } catch (ReflectiveOperationException ex) {
                 return null;
             }

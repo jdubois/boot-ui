@@ -403,6 +403,10 @@ public class BootUiEngineProducer {
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(
                 key -> config.getOptionalValue(key, String.class).orElse(null));
+        if (journalAggregates != null) {
+            // The run's side-effect keys go into its summary, for the next start's comparison (M5-7b).
+            journalAggregates.setRunSideEffects(service::runSideEffects);
+        }
         return service;
     }
 

@@ -1726,6 +1726,27 @@ public abstract class AbstractBootUiApiConformanceTest {
                 assertThat(codeChanges.path("unavailableReason").asText()).isNotBlank();
             }
         }
+        // Side effects follow with the BootUI agent (M5-7b): null without it; with it, the same shape on every stack,
+        // each of the four compared sensors with a status, or unavailable with its reason.
+        JsonNode sideEffects = json.path("sideEffects");
+        if (!sideEffects.isNull()) {
+            assertThat(sideEffects.path("available").isBoolean())
+                    .as(sideEffects.toString())
+                    .isTrue();
+            assertThat(sideEffects.path("changes").isArray())
+                    .as(sideEffects.toString())
+                    .isTrue();
+            if (sideEffects.path("available").asBoolean()) {
+                List<String> sensors = new ArrayList<>();
+                sideEffects.path("sensors").forEach(sensor -> {
+                    sensors.add(sensor.path("sensor").asText());
+                    assertThat(sensor.path("status").asText()).isIn("COMPARED", "PARTIAL", "NOT_COMPARED");
+                });
+                assertThat(sensors).containsExactly("network", "files", "processes", "environment");
+            } else {
+                assertThat(sideEffects.path("unavailableReason").asText()).isNotBlank();
+            }
+        }
 
         Response unknown = probe.get(api(contract.relativePath() + "?run=conformance-unknown-run"));
         assertThat(unknown.status()).isEqualTo(200);

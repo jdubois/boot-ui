@@ -35,7 +35,7 @@ import org.springframework.util.ClassUtils;
  * <p>As initializer, it records its context and registers itself as a singleton so the Java Agent panel can read the
  * claim. As listener, it refines the claim with the auto-configuration packages and the application's bean classes (for
  * the agent's {@code code-paths} sensor) when its own context is refreshed, and
- * attaches the context's {@link AgentHandoffs} so the agent starts propagating requests' context, and disarms it when its own context closes or the application fails to start. It also disarms when the context destroys
+ * attaches the context's {@link AgentHandoffs} so the agent starts propagating requests' context, and disarms it when its own context closes, after ending the run's Side Effects, or the application fails to start. It also disarms when the context destroys
  * its singletons. Disarming is idempotent.
  */
 public final class AgentClaimOwner
@@ -49,6 +49,7 @@ public final class AgentClaimOwner
 
     private final AgentClaim claim;
     private volatile ConfigurableApplicationContext context;
+    private volatile SideEffectsService sideEffects;
 
     AgentClaimOwner(AgentClaim claim) {
         this.claim = claim;
@@ -101,6 +102,11 @@ public final class AgentClaimOwner
                 }
             } else if (event instanceof ContextClosedEvent closed) {
                 if (context != null && closed.getApplicationContext() == context) {
+                    // Side Effects freezes the run's keys while the claim still says which sensors recorded (M5-7b).
+                    SideEffectsService started = sideEffects;
+                    if (started != null) {
+                        started.endRun();
+                    }
                     claim.disarm();
                 }
             } else if (event instanceof ApplicationFailedEvent failed) {
@@ -149,6 +155,7 @@ public final class AgentClaimOwner
                 applicationContext.getBeanProvider(SideEffectsService.class).getIfUnique();
         if (sideEffects != null) {
             sideEffects.start();
+            this.sideEffects = sideEffects;
         }
     }
 

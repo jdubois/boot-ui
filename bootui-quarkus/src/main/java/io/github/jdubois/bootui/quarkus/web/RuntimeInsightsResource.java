@@ -144,6 +144,8 @@ public class RuntimeInsightsResource {
                 wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
         this.impact.setCodeInventory((type, name) ->
                 codeInventory.isResolvable() ? codeInventory.get().lookup(type, name) : null);
+        // What changed outside the JVM since the previous start, from Side Effects (M5-7b).
+        this.comparison.setSideEffects(() -> sideEffects.isResolvable() ? sideEffects.get() : null);
         this.comparison.setCodeChanges(
                 () -> codeInventory.isResolvable() && codeInventory.get().agentAttached(),
                 limit -> codeInventory.isResolvable() ? codeInventory.get().changesWithAccess(limit) : null,
