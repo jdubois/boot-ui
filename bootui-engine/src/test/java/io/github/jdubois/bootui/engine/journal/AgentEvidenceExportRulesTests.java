@@ -138,10 +138,13 @@ class AgentEvidenceExportRulesTests {
             "SideEffectsRowDto.kind",
             "SideEffectsRowDto.lastExitStatus",
             "SideEffectsRowDto.lastSeen",
+            // Thread activity (M5-5e): counts, never a value a thread or an executor holds.
+            "SideEffectsRowDto.leftRunning",
             "SideEffectsRowDto.location",
             "SideEffectsRowDto.maxMillis",
             "SideEffectsRowDto.nonZeroExits",
             "SideEffectsRowDto.origin",
+            "SideEffectsRowDto.requests",
             "SideEffectsRowDto.scope",
             "SideEffectsRowDto.sensor",
             "SideEffectsRowDto.target",

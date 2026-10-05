@@ -42,6 +42,8 @@ public final class AgentBridgeAccess {
     /** The side-effect sensors' bridge class, beside the bridge ({@code docs/PLAN-v2.md} M5-5a). */
     static final String SIDE_EFFECTS_CLASS = "io.github.jdubois.bootui.agent.bridge.SideEffects";
 
+    static final String THREAD_ACTIVITY_CLASS = "io.github.jdubois.bootui.agent.bridge.ThreadActivity";
+
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
 
@@ -482,6 +484,27 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Tells the thread-activity sensor that request {@code request} of claim {@code generation} ended, its response
+     * complete (M5-5e): its drain checks what the request left running. Takes no lock; does nothing with a bridge from
+     * before M5-5e.
+     */
+    public void threadActivityRequestEnded(long generation, long request) {
+        if (!sideEffectsSupported() || sideEffects.requestEnded() == null) {
+            return;
+        }
+        try {
+            sideEffects.requestEnded().invoke(generation, request);
+        } catch (Throwable ex) {
+            // Its threads are not checked at its end.
+        }
+    }
+
+    /** Whether the bridge carries the thread-activity sensor (M5-5e). */
+    public boolean threadActivitySupported() {
+        return sideEffectsSupported() && sideEffects.requestEnded() != null;
+    }
+
+    /**
      * Tells the bridge the recording of claim {@code generation} was cleared, so the files and environment sensors'
      * intern quotas count again; does nothing with a bridge from before M5-5d.
      */
@@ -625,7 +648,8 @@ public final class AgentBridgeAccess {
     }
 
     /** The side-effect sensors' bridge entry points, bound once; {@code null} when the bridge has none. */
-    private record SideEffectsHandles(MethodHandle drain, MethodHandle interned, MethodHandle recordingCleared) {
+    private record SideEffectsHandles(
+            MethodHandle drain, MethodHandle interned, MethodHandle recordingCleared, MethodHandle requestEnded) {
 
         static SideEffectsHandles bind(Class<?> bridge) {
             try {
@@ -636,9 +660,21 @@ public final class AgentBridgeAccess {
                                 sideEffects, "drain", MethodType.methodType(int.class, long.class, Consumer.class)),
                         lookup.findStatic(
                                 sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)),
-                        recordingCleared(lookup, sideEffects));
+                        recordingCleared(lookup, sideEffects),
+                        requestEnded(lookup, bridge));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-5a: no side-effect sensors.
+                return null;
+            }
+        }
+
+        /** {@code ThreadActivity.requestEnded(long, long)}, or {@code null} for a bridge from before M5-5e. */
+        private static MethodHandle requestEnded(MethodHandles.Lookup lookup, Class<?> bridge) {
+            try {
+                Class<?> threadActivity = Class.forName(THREAD_ACTIVITY_CLASS, false, bridge.getClassLoader());
+                return lookup.findStatic(
+                        threadActivity, "requestEnded", MethodType.methodType(void.class, long.class, long.class));
+            } catch (ReflectiveOperationException | LinkageError ex) {
                 return null;
             }
         }

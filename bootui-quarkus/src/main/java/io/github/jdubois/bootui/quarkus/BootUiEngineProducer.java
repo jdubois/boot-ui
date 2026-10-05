@@ -385,7 +385,8 @@ public class BootUiEngineProducer {
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
             AgentEvidence evidence,
-            Config config) {
+            Config config,
+            RequestPhases requestPhases) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
@@ -403,6 +404,8 @@ public class BootUiEngineProducer {
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(
                 key -> config.getOptionalValue(key, String.class).orElse(null));
+        // Each request's end, as the capture filter marks it, so the thread-activity sensor checks what it left running.
+        service.listenToRequestEnds(requestPhases);
         return service;
     }
 
