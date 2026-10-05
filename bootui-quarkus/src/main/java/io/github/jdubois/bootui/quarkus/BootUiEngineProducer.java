@@ -403,6 +403,8 @@ public class BootUiEngineProducer {
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(
                 key -> config.getOptionalValue(key, String.class).orElse(null));
+        // A side-effect sensor switched on at run time records from now on, even before the panel is read (M5-14).
+        javaAgent.onSensorSwitched(service::start);
         return service;
     }
 

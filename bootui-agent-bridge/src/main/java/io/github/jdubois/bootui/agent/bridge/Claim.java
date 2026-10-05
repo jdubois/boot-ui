@@ -240,9 +240,7 @@ final class Claim {
                 kept.put(entry.getKey(), entry.getValue());
             }
         }
-        return kept.isEmpty()
-                ? Collections.<String, Boolean>emptyMap()
-                : Collections.unmodifiableMap(kept);
+        return kept.isEmpty() ? Collections.<String, Boolean>emptyMap() : Collections.unmodifiableMap(kept);
     }
 
     boolean hasSensor(String sensor) {

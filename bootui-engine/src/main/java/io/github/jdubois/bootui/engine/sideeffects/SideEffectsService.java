@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.codepaths.CodePathStamps;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
@@ -314,7 +315,7 @@ public final class SideEffectsService implements AutoCloseable {
                 if (claim == null
                         || !claim.armed()
                         || claim.generation() == null
-                        || !claim.sensors().sideEffects()
+                        || claim.activeSensors().stream().noneMatch(AgentSensorSettings.SIDE_EFFECT_SENSORS::contains)
                         || !access.sideEffectsSupported()) {
                     return;
                 }
@@ -818,7 +819,8 @@ public final class SideEffectsService implements AutoCloseable {
                 rows,
                 occurrences,
                 dropped,
-                covered.hooks());
+                covered.hooks(),
+                covered.toggle());
     }
 
     private JavaAgentService.SideEffectsCoverage coverage(String id, String reason) {

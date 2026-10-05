@@ -597,6 +597,11 @@ public class BootUiEngineConfiguration {
         service.setNetworkCapture(JournalNetworkCapture.of(journal.getIfAvailable()));
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(environment::getProperty);
+        // A side-effect sensor switched on at run time records from now on, even before the panel is read (M5-14).
+        JavaAgentService agent = javaAgent.getIfUnique();
+        if (agent != null) {
+            agent.onSensorSwitched(service::start);
+        }
         return service;
     }
 

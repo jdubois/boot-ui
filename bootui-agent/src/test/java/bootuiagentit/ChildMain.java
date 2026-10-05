@@ -50,6 +50,7 @@ public final class ChildMain {
             case "side-effects-behaviors" -> SideEffectsBehaviors.main(new String[] {args[1]});
             case "files-environment-behaviors" -> FilesEnvironmentBehaviors.main(new String[] {args[1]});
             case "network-behaviors" -> NetworkBehaviors.main(new String[] {args[1]});
+            case "sensor-switch-behaviors" -> SensorSwitchBehaviors.main(new String[0]);
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }

@@ -49,8 +49,30 @@ class AgentHandlerTests {
     }
 
     @Test
+    void aSensorSwitchAppliesToItsGenerationInRevisionOrder() {
+        apply("claim", 8);
+
+        assertThat(switched(7, 1, "executors").get("status")).isEqualTo("ignored");
+        assertThat(switched(8, 2, "executors").get("status")).isEqualTo("ok");
+        assertThat(switched(8, 1, "executors").get("status")).isEqualTo("ignored");
+        assertThat(switched(8, 2, "executors").get("status")).isEqualTo("ignored");
+        apply("disarm", 8);
+        // Still applied once the run ended, so a sensor switched off just before is removed.
+        assertThat(switched(8, 3, "executors").get("status")).isEqualTo("ok");
+        apply("claim", 9);
+        assertThat(switched(9, 1, "executors").get("status")).isEqualTo("ok");
+    }
+
+    @Test
     void anUnknownOperationFails() {
         assertThat(apply("explode", 1).get("status")).isEqualTo("failed");
+    }
+
+    private Map<String, Object> switched(long generation, long revision, String... sensors) {
+        Map<String, Object> request = request("sensors", generation);
+        request.put("sensors", List.of(sensors));
+        request.put("sensorsRevision", revision);
+        return handler.apply(request);
     }
 
     private Map<String, Object> apply(String op, long generation) {

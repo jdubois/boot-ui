@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.JavaAgentInventoryCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorToggleDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSetupDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsHookDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 
 /**
@@ -64,6 +66,7 @@ public final class JavaAgentService {
     private final AgentBridgeAccess access;
     private final Supplier<AgentClaim> claim;
     private final JavaAgentSettings settings;
+    private final List<Runnable> switchListeners = new CopyOnWriteArrayList<>();
 
     /**
      * @param access the bridge, usually {@link AgentBridgeAccess#locate()}
@@ -118,6 +121,7 @@ public final class JavaAgentService {
                 claimDto(bridgeClaim),
                 resolution.heldBy(),
                 sensors(agent, status, claimedSensors(resolution)),
+                toggles(resolution, agent),
                 retransformation(agent),
                 counters(AgentBridgeAccess.map(status, "counters")),
                 strings(AgentBridgeAccess.items(status, "messages")),
@@ -269,16 +273,27 @@ public final class JavaAgentService {
             }
             long dropped = longValue(counters, "dropped");
             AgentClaim ours = claim.get();
-            if (ours != null && !ours.sensors().sensors().contains(id)) {
+            JavaAgentSensorToggleDto toggle = ours == null ? null : toggle(ours, sensor, id);
+            if (ours != null && !ours.uses(id)) {
                 return new SideEffectsCoverage(
                         SideEffectsSensorDto.NOT_CLAIMED,
-                        "This application's bootui.agent.sensors does not include " + id + ".",
+                        Boolean.FALSE.equals(ours.sensorOverrides().get(id))
+                                ? "Switched off at run time: this application's bootui.agent.sensors includes " + id
+                                        + "."
+                                : "This application's bootui.agent.sensors does not include " + id + ".",
                         hooks,
-                        dropped);
+                        dropped,
+                        Map.of(),
+                        toggle);
             }
             if (sensor == null) {
                 return new SideEffectsCoverage(
-                        SideEffectsSensorDto.INSTALLING, "The agent has not started the sensor yet.", hooks, dropped);
+                        SideEffectsSensorDto.INSTALLING,
+                        "The agent has not started the sensor yet.",
+                        hooks,
+                        dropped,
+                        Map.of(),
+                        toggle);
             }
             String state = AgentBridgeAccess.text(sensor, "state");
             String disabled = AgentBridgeAccess.text(counters, "disabledReason");
@@ -289,21 +304,27 @@ public final class JavaAgentService {
                         "The sensor failed its self-test and the agent removed it"
                                 + (error == null ? "." : ": " + error),
                         hooks,
-                        dropped);
+                        dropped,
+                        Map.of(),
+                        toggle);
             }
             if (disabled != null || "failed".equals(state) || "release-failed".equals(state)) {
                 return new SideEffectsCoverage(
                         SideEffectsSensorDto.DISABLED,
                         "The agent disabled the sensor: " + (disabled == null ? state : disabled),
                         hooks,
-                        dropped);
+                        dropped,
+                        Map.of(),
+                        toggle);
             }
             if (!INSTALLED.equals(state) || !AgentBridgeAccess.flag(counters, "active")) {
                 return new SideEffectsCoverage(
                         SideEffectsSensorDto.INSTALLING,
                         "The sensor is " + (state == null ? "not installed yet" : state) + ".",
                         hooks,
-                        dropped);
+                        dropped,
+                        Map.of(),
+                        toggle);
             }
             Map<String, Long> buckets = new LinkedHashMap<>();
             AgentBridgeAccess.map(counters, "buckets").forEach((bucket, value) -> {
@@ -311,7 +332,7 @@ public final class JavaAgentService {
                     buckets.put(bucket, number.longValue());
                 }
             });
-            return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped, buckets);
+            return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped, buckets, toggle);
         } catch (RuntimeException ex) {
             return new SideEffectsCoverage(
                     SideEffectsSensorDto.UNAVAILABLE, SIDE_EFFECTS_REQUIREMENT + ".", List.of(), 0L);
@@ -328,18 +349,31 @@ public final class JavaAgentService {
      * @param buckets for the files sensor, the operations the bridge counted in buckets rather than recorded, by bucket
      *     ({@code classFiles}, {@code archives}, {@code archiveFileSystems}, {@code javaHome},
      *     {@code classPathDirectories}), since the claim; empty otherwise
+     * @param toggle the sensor's runtime switch, for an opt-in sensor while the agent is armed for this application;
+     *     otherwise {@code null}
      */
     public record SideEffectsCoverage(
-            String state, String reason, List<SideEffectsHookDto> hooks, long dropped, Map<String, Long> buckets) {
+            String state,
+            String reason,
+            List<SideEffectsHookDto> hooks,
+            long dropped,
+            Map<String, Long> buckets,
+            JavaAgentSensorToggleDto toggle) {
 
         public SideEffectsCoverage {
             hooks = hooks == null ? List.of() : List.copyOf(hooks);
             buckets = buckets == null ? Map.of() : Map.copyOf(buckets);
         }
 
-        /** A coverage without buckets. */
+        /** A coverage without a runtime switch. */
+        public SideEffectsCoverage(
+                String state, String reason, List<SideEffectsHookDto> hooks, long dropped, Map<String, Long> buckets) {
+            this(state, reason, hooks, dropped, buckets, null);
+        }
+
+        /** A coverage without buckets or a runtime switch. */
         public SideEffectsCoverage(String state, String reason, List<SideEffectsHookDto> hooks, long dropped) {
-            this(state, reason, hooks, dropped, Map.of());
+            this(state, reason, hooks, dropped, Map.of(), null);
         }
     }
 
@@ -360,7 +394,7 @@ public final class JavaAgentService {
             return requirement + ": " + reason;
         }
         AgentClaim ours = claim.get();
-        if (ours != null && !ours.sensors().sensors().contains(id)) {
+        if (ours != null && !ours.uses(id)) {
             return requirement + ": this application's claim does not use it; bootui.agent.sensors must include " + id
                     + ".";
         }
@@ -512,7 +546,114 @@ public final class JavaAgentService {
         if (ours == null || !JavaAgentReport.ARMED.equals(resolution.state())) {
             return List.of();
         }
-        return ours.sensors().sensors();
+        return ours.activeSensors();
+    }
+
+    /**
+     * Switches the opt-in sensor {@code id} on or off at run time for this application ({@code docs/PLAN-v2.md} M5-14),
+     * through its armed claim: the agent installs or removes it now, and the switch holds for this application's later
+     * claims in this JVM, across DevTools restarts and Quarkus live reloads, never written anywhere. Returns the report
+     * after the switch.
+     *
+     * @throws IllegalArgumentException when {@code id} is not one of {@link AgentSensorSettings#OPT_IN_SENSORS}
+     * @throws IllegalStateException when the agent is not armed for this application, predates runtime switches, or
+     *     refused or failed the switch
+     */
+    public JavaAgentReport switchSensor(String id, boolean enabled) {
+        String sensor = id == null ? "" : id.trim();
+        if (!AgentSensorSettings.OPT_IN_SENSORS.contains(sensor)) {
+            throw new IllegalArgumentException(
+                    "'" + id + "' is not an opt-in sensor: the sensors switched at run time are "
+                            + String.join(", ", AgentSensorSettings.OPT_IN_SENSORS) + ".");
+        }
+        Map<String, Object> status = access.status();
+        Resolution resolution = resolve(status, AgentBridgeAccess.map(status, "claim"));
+        AgentClaim ours = claim.get();
+        if (!JavaAgentReport.ARMED.equals(resolution.state()) || ours == null) {
+            String reason = resolution.reason() == null ? "the agent is not armed for it." : resolution.reason();
+            throw new IllegalStateException(
+                    "The BootUI agent is not armed for this application, so its sensors cannot be switched: " + reason);
+        }
+        if (!access.sensorSwitchSupported()) {
+            throw new IllegalStateException(switchUnsupportedReason());
+        }
+        Map<String, Object> answer = ours.switchSensor(sensor, enabled);
+        String answered = String.valueOf(answer.get("status"));
+        if (AgentClaim.ARMED.equals(answered)) {
+            for (Runnable listener : switchListeners) {
+                try {
+                    listener.run();
+                } catch (RuntimeException ex) {
+                    // A listener only starts routing early; the next read starts it anyway.
+                }
+            }
+            return report();
+        }
+        String reason = reason(answer, "no reason given");
+        if (AgentClaim.STALE.equals(answered)) {
+            throw new IllegalStateException("This application's claim on the BootUI agent changed while switching "
+                    + sensor + " (" + reason + "): reload and try again.");
+        }
+        throw new IllegalStateException("The BootUI agent could not switch " + sensor + ": " + reason);
+    }
+
+    /**
+     * Runs {@code listener} after each runtime switch the agent applied, such as Side Effects starting to route its
+     * records when the claim used no side-effect sensor until then.
+     */
+    public void onSensorSwitched(Runnable listener) {
+        if (listener != null) {
+            switchListeners.add(listener);
+        }
+    }
+
+    private String switchUnsupportedReason() {
+        return "The attached BootUI agent predates runtime sensor switches: attach the bootui-agent jar of BootUI "
+                + settings.bootUiVersion() + ".";
+    }
+
+    /** The opt-in sensors' runtime switches while this application's claim is armed, or none. */
+    private List<JavaAgentSensorToggleDto> toggles(Resolution resolution, Map<String, Object> agent) {
+        AgentClaim ours = claim.get();
+        if (ours == null || !JavaAgentReport.ARMED.equals(resolution.state())) {
+            return List.of();
+        }
+        List<JavaAgentSensorToggleDto> toggles = new ArrayList<>();
+        for (String id : AgentSensorSettings.OPT_IN_SENSORS) {
+            toggles.add(toggle(ours, sensor(agent, id), id));
+        }
+        return toggles;
+    }
+
+    /**
+     * The runtime switch of {@code id} for this application's claim, or {@code null} when {@code id} is not an opt-in
+     * sensor; {@code sensor} is the agent's status row for it, or {@code null}.
+     */
+    private JavaAgentSensorToggleDto toggle(AgentClaim ours, Map<String, Object> sensor, String id) {
+        if (!AgentSensorSettings.OPT_IN_SENSORS.contains(id)) {
+            return null;
+        }
+        boolean configured = ours.sensors().sensors().contains(id);
+        boolean enabled = ours.uses(id);
+        String state;
+        if (!enabled) {
+            state = "off";
+        } else if (sensor == null) {
+            state = "installing";
+        } else {
+            String reported = AgentBridgeAccess.text(sensor, "state");
+            state = reported == null ? "installing" : reported;
+        }
+        boolean supported = access.sensorSwitchSupported();
+        return new JavaAgentSensorToggleDto(
+                id,
+                configured,
+                enabled,
+                ours.sensorOverrides().containsKey(id),
+                state,
+                AgentSensorSettings.optInReason(id),
+                supported,
+                supported ? null : switchUnsupportedReason());
     }
 
     /**

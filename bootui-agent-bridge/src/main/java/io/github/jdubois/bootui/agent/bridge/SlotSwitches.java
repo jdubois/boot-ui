@@ -78,7 +78,8 @@ final class SlotSwitches {
         }
 
         boolean olderThan(Claim claim) {
-            return generation < claim.generation || (generation == claim.generation && revision < claim.sensorsRevision);
+            return generation < claim.generation
+                    || (generation == claim.generation && revision < claim.sensorsRevision);
         }
     }
 }
