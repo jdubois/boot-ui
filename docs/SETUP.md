@@ -1,19 +1,23 @@
 # Setup
 
-This page installs BootUI in a Spring Boot servlet application. On WebFlux, follow
+This page installs BootUI in a Spring Boot Spring MVC application. On WebFlux, the starter is the same; follow
 [BootUI on Spring WebFlux](setup/webflux.md). On Quarkus, follow [BootUI on Quarkus](setup/quarkus.md). All three serve
 the same console and the same JSON contract.
 
 ## Prerequisites
 
 - Java 17 or later
-- Spring Boot 4.x application
+- Spring Boot 4.x application on `spring-boot-starter-web` (or `spring-boot-starter-webmvc`)
 - Maven or Gradle (or their local wrappers)
 
 ## Add the starter dependency
 
 Adding the starter is the whole install. BootUI ships dormant: it activates in the `dev` and `local` profiles, or when
 `spring-boot-devtools` is on the classpath, and stays off in `prod` and `production`.
+
+The starter brings no web stack of its own. Your application's `spring-boot-starter-web` keeps it a servlet
+application on Tomcat, and BootUI binds to Spring MVC; a WebFlux application keeps `spring-boot-starter-webflux` and
+the same starter binds to WebFlux. An application with neither starts no web server, and BootUI stays off.
 
 ::: tabs#build
 
@@ -23,7 +27,7 @@ Adding the starter is the whole install. BootUI ships dormant: it activates in t
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>1.19.0</version>
+  <version>1.20.0</version>
 </dependency>
 ```
 
@@ -31,12 +35,12 @@ Adding the starter is the whole install. BootUI ships dormant: it activates in t
 
 ```groovy
 // Groovy DSL (build.gradle)
-runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.19.0'
+runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.20.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:1.19.0")
+runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:1.20.0")
 ```
 
 :::

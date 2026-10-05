@@ -35,7 +35,10 @@ the released artifact of the same version in `~/.m2`. To pick up later changes, 
 
 ## Use it in your application
 
-Add BootUI as the [setup guide](SETUP.md) describes, with the version the `v2` build installed:
+Add BootUI as the [setup guide](SETUP.md) describes, with the version the `v2` build installed. A WebFlux application
+uses the same `bootui-spring-boot-starter` as a Spring MVC one: the `v2` build has no
+`bootui-spring-boot-starter-reactive`, and the starter leaves the choice of web stack to the application's own starter.
+To find the version:
 
 ```bash
 ./mvnw -q -DforceStdout help:evaluate -Dexpression=project.version

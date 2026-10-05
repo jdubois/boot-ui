@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
-        <version>1.19.0</version>
+        <version>1.20.0</version>
     </parent>
 
     <artifactId>bootui-engine</artifactId>
@@ -283,6 +283,11 @@
 
     <build>
         <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
             <!--
               Compiles the Kotlin advisor fixtures under src/test/kotlin before the Java test sources that
               reference them. Test scope only: no Kotlin source, and no Kotlin dependency, reaches any

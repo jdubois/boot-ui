@@ -68,10 +68,8 @@ SHARED (framework-neutral, built once, reused by both backends)
   bootui-ui                      Vue 3 SPA, built once
 
 SPRING ADAPTER
-  bootui-spring-autoconfigure        Shared Spring MVC/WebFlux auto-configuration, endpoints, SPI implementations, and safety
-  bootui-spring-boot-starter         Drop-in Spring MVC starter
-  bootui-spring-boot-starter-reactive
-                                     Drop-in Spring WebFlux starter
+  bootui-spring-boot-starter         Shared Spring MVC/WebFlux auto-configuration, endpoints, SPI implementations,
+                                     and safety; the one drop-in Spring starter for both stacks
   bootui-spring-sample-app           Spring MVC demo/integration app + Playwright e2e
   bootui-spring-webflux-sample-app   Spring WebFlux demo/conformance app
 

@@ -7,14 +7,14 @@
     <parent>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-quarkus-parent</artifactId>
-        <version>1.19.0</version>
+        <version>1.20.0</version>
         <relativePath>../bootui-quarkus-parent/pom.xml</relativePath>
     </parent>
 
     <artifactId>bootui-quarkus</artifactId>
     <name>BootUI :: Quarkus Extension (Runtime)</name>
     <description>Quarkus extension that serves the BootUI developer console — the Quarkus adapter over the
-        framework-neutral bootui-engine, the analogue of bootui-spring-autoconfigure on Spring Boot.</description>
+        framework-neutral bootui-engine, the analogue of bootui-spring-boot-starter on Spring Boot.</description>
 
     <!--
         This is the runtime half of the BootUI Quarkus extension (deployment half:
@@ -333,7 +333,7 @@
           switch against a real, disposable database rather than hand-rolling a java.sql.DataSource/
           Connection fake (SwitchableActivityStore/BufferedActivityStore are final, so they cannot be
           mocked either, and this module has no Mockito). Mirrors the identical bootui-engine
-          (JdbcActivityStoreTests) and bootui-spring-autoconfigure (LiveActivityControllerTests) test
+          (JdbcActivityStoreTests) and bootui-spring-boot-starter (LiveActivityControllerTests) test
           dependency for the same feature. H2's version is managed by the imported quarkus-bom.
         -->
         <dependency>
@@ -345,6 +345,11 @@
 
     <build>
         <plugins>
+            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
             <!-- Generates the final META-INF/quarkus-extension.yaml (injecting the runtime `artifact` GAV) and
                  META-INF/quarkus-extension.properties (with the deployment-artifact GAV), linking this runtime jar
                  to bootui-quarkus-deployment. Bound to process-resources — the canonical Quarkus phase, matching

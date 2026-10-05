@@ -36,7 +36,9 @@ You are the BootUI vertical-PR owner. Deliver one coherent change from investiga
      change; both gate every build.
 
    Add a `CHANGELOG.md` entry under `[Unreleased]` for every user-visible change, in the existing Keep a Changelog style
-   with the issue link.
+   with the issue link. Keep it to a bold lead phrase and one short sentence of user-visible effect, at most two
+   wrapped lines; details belong in the docs and the pull request, following the release notes rules in
+   `.github/agents/bootui-release.agent.md`.
 7. Run the smallest targeted tests first, then reproduce the CI gates that the change actually touches:
    - Formatting: `./mvnw -B -ntp spotless:check`, plus `npm run format:check` in `bootui-ui/src/main/frontend`,
      `bootui-spring-sample-app/e2e`, and `bootui-quarkus-sample-app/e2e`.
@@ -71,7 +73,7 @@ You are the BootUI vertical-PR owner. Deliver one coherent change from investiga
   the enabled/disabled profile lists.
 - Optional integrations are safe when dependencies are absent.
 - The CLI stays a mechanical projection of `McpToolCatalog`, with the manifest regenerated rather than hand-edited, and
-  `bootui-client` stays dependency-free. CLI and client command names, exit codes, and JSON output are public contract.
+  the client package of `bootui-cli` stays dependency-free. CLI and client command names, exit codes, and JSON output are public contract.
 - UI behavior is accessible in light and dark themes and does not surprise users.
 - Versions change only through `release.yml`; sample, integration-test, coverage, and conformance modules keep
   `maven.deploy.skip=true` and stay outside the publication reactor.

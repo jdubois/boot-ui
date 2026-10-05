@@ -22,7 +22,7 @@ Before changing anything:
 4. Find the runnable module, active development profile, configured HTTP port, and existing BootUI dependency.
 5. Run the project's existing focused tests before and after changes when practical.
 
-Do not add both Spring starters. Do not add a Spring starter to Quarkus or the Quarkus extension to Spring.
+Do not add a Spring web starter for BootUI's sake; keep the application's own. Do not add the Spring starter to Quarkus or the Quarkus extension to Spring.
 
 ## Install BootUI
 
@@ -37,9 +37,12 @@ Choose exactly one dependency:
 
 | Application | Maven coordinates |
 | --- | --- |
-| Spring Boot servlet | `com.julien-dubois.bootui:bootui-spring-boot-starter` |
-| Spring Boot WebFlux | `com.julien-dubois.bootui:bootui-spring-boot-starter-reactive` |
+| Spring Boot (Spring MVC or WebFlux) | `com.julien-dubois.bootui:bootui-spring-boot-starter` |
 | Quarkus | `com.julien-dubois.bootui:bootui-quarkus` |
+
+The Spring starter brings no web stack: keep the application's own `spring-boot-starter-web` or
+`spring-boot-starter-webflux`, which decides the stack BootUI binds to. Before BootUI 2.0, WebFlux applications used
+`bootui-spring-boot-starter-reactive` instead.
 
 For Spring, prefer a runtime-only Gradle configuration when that matches the build. The Quarkus extension may remain an
 implementation dependency. Do not add `bootui-quarkus-deployment` directly.

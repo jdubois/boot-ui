@@ -26,14 +26,12 @@ participating you are expected to uphold this code.
 ```
 bootui-core/                         Shared DTOs, secret masking, and core helpers
 bootui-engine/                       Framework-neutral services/advisors and SPI ports
-bootui-spring-autoconfigure/         Spring MVC + WebFlux adapter (auto-config, endpoints, safety)
-bootui-spring-boot-starter/          Spring MVC starter
-bootui-spring-boot-starter-reactive/ Spring WebFlux starter
+bootui-spring-boot-starter/          Spring MVC + WebFlux adapter and starter (auto-config, endpoints, safety)
 bootui-ui/                           Vue 3 SPA bundled into META-INF/resources/bootui
 bootui-conformance/                  Shared HTTP contract suite + golden manifests for all adapters
 bootui-coverage/                     Aggregated coverage report (coverage profile only)
-bootui-client/                       Dependency-free client for the command-line endpoint
-bootui-cli/                          The `bootui` CLI, projected from the engine's MCP tool catalog
+bootui-cli/                          The `bootui` CLI, projected from the engine's MCP tool catalog, and its
+                                     dependency-free client package
 bootui-agent-bridge/                 JDK-only agent/engine contract, shaded into bootui-agent (never published)
 bootui-agent/                        The optional `-javaagent` jar, dormant until BootUI claims it
 bootui-spring-sample-app/            Reference Spring MVC app + Playwright e2e
@@ -405,7 +403,7 @@ Then run the live collectors and opt-in Quarkus HTTP fixture:
 
 ```bash
 ./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" \
-  -pl bootui-spring-autoconfigure test -Dtest='MySql*LiveTests'
+  -pl bootui-spring-boot-starter test -Dtest='MySql*LiveTests'
 
 ./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" \
   -pl bootui-quarkus-integration-tests/datasource \
@@ -670,7 +668,9 @@ released contents. The selected branch must allow
 
 Before dispatching, cut `CHANGELOG.md`'s `[Unreleased]` heading to
 `## [VERSION] - YYYY-MM-DD`, complete the notes, and land them on the source branch
-as their own commit. Use the intended release date and recheck it if publication
+as their own commit. Keep the notes short: a one- or two-sentence summary, then
+one- or two-line bullets for the main changes, with related small items merged
+and details left to the linked docs and pull requests. Use the intended release date and recheck it if publication
 is delayed. The exact source SHA must be green on `build.yml`; avoid merging other
 changes during the release run. For preparation-only work, stop before dispatch:
 leave Maven/npm versions and install coordinates for the workflow, and do not

@@ -45,12 +45,12 @@ class FakeCentral:
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
-    def publish(self, version, artifacts=("parent", "starter")):
+    def publish(self, version, artifacts=("core", "starter")):
         root = Path(self.directory.name) / GROUP
-        if "parent" in artifacts:
-            parent = root / "bootui-parent" / version / f"bootui-parent-{version}.pom"
-            parent.parent.mkdir(parents=True, exist_ok=True)
-            parent.write_text("<project/>", encoding="utf-8")
+        if "core" in artifacts:
+            core = root / "bootui-core" / version / f"bootui-core-{version}.jar"
+            core.parent.mkdir(parents=True, exist_ok=True)
+            core.write_bytes(b"jar")
         if "starter" in artifacts:
             name = f"bootui-spring-boot-starter-{version}.jar"
             starter = root / "bootui-spring-boot-starter" / version / name
@@ -124,7 +124,7 @@ class ReleaseLineGateTests(unittest.TestCase):
         self.assert_decision("false", "2.0.0", 2, ["v1.19.0", "v2.0.0"], "none with its artifacts")
 
     def test_a_partially_visible_release_publishes_nothing(self):
-        self.central.publish("2.0.0", artifacts=("parent",))
+        self.central.publish("2.0.0", artifacts=("core",))
         self.assert_decision("false", "2.0.0", 2, ["v1.19.0", "v2.0.0"])
 
     def test_2_0_0_on_central_publishes_the_2x_line(self):
