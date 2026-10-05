@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-10-05
+
+Feature release making BootUI's evidence easier to hand to an AI agent. Request profiles are available through
+MCP, the CLI, and Copy for AI, and now show the REST client calls and cache accesses a request made; Architecture,
+REST API, and Hibernate findings say where the code is, and HTTP Exchanges ranks routes by performance. New REST API,
+architecture, and database checks join audits of the advisor catalogs that retire noisy rules and false positives.
+Vulnerabilities scores CVSS v4.0 and reports malicious packages, the MySQL panel reads every Oracle MySQL version and
+MariaDB on a best-effort basis, and trace, log, and AI chat data now follow the value-exposure policy.
+
 ### Added
 
 - **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
@@ -2775,7 +2784,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/jdubois/boot-ui/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/jdubois/boot-ui/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/jdubois/boot-ui/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/jdubois/boot-ui/compare/v1.16.0...v1.17.0
