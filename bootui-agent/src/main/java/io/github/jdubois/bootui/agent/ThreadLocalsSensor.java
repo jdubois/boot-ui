@@ -204,6 +204,10 @@ final class ThreadLocalsSensor {
     String grant() {
         try {
             Module base = Object.class.getModule();
+            if (!(ThreadLocalsSensor.class.getClassLoader() instanceof AgentClassLoader)) {
+                // Never to another module: outside its isolated class loader, the agent's would be the application's.
+                return "the agent is not loaded by its own class loader";
+            }
             Module agent = ThreadLocalsSensor.class.getModule();
             if (!instrumentation.isModifiableModule(base)) {
                 return "java.base cannot be modified";

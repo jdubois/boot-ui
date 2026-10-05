@@ -529,7 +529,7 @@ describe('Side Effects panel', () => {
     ])
     expect(table.text()).not.toContain('holder not resolved')
     const apart = wrapper.get('.side-effects-apart')
-    expect(apart.text()).toContain('Libraries and holders not resolved (1), grouped apart')
+    expect(apart.text()).toContain('Holders not resolved (1), grouped apart')
     expect(apart.text()).toContain('holder not resolved (java.lang.ThreadLocal)')
   })
 

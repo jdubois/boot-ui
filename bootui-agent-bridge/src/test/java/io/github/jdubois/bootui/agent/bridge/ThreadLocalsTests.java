@@ -150,6 +150,38 @@ class ThreadLocalsTests {
     }
 
     @Test
+    void everyThreadLocalTheBridgeDeclaresIsSkippedByIdentity() throws Exception {
+        java.nio.file.Path classes = java.nio.file.Path.of(ThreadLocals.class
+                .getProtectionDomain()
+                .getCodeSource()
+                .getLocation()
+                .toURI());
+        java.nio.file.Path bridge = classes.resolve("io/github/jdubois/bootui/agent/bridge");
+        List<String> declared = new ArrayList<>();
+        try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.list(bridge)) {
+            for (java.nio.file.Path file : (Iterable<java.nio.file.Path>) files::iterator) {
+                String name = file.getFileName().toString();
+                if (!name.endsWith(".class")) {
+                    continue;
+                }
+                Class<?> type =
+                        Class.forName("io.github.jdubois.bootui.agent.bridge." + name.substring(0, name.length() - 6));
+                for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())
+                            && ThreadLocal.class.isAssignableFrom(field.getType())) {
+                        field.setAccessible(true);
+                        declared.add(type.getSimpleName() + "." + field.getName());
+                        assertThat(ThreadLocals.skipped(field.get(null)))
+                                .as("%s.%s is skipped", type.getSimpleName(), field.getName())
+                                .isTrue();
+                    }
+                }
+            }
+        }
+        assertThat(declared).contains("CodePaths.FRAME", "Reentrancy.STATE", "CaughtExceptions.COUNTS");
+    }
+
+    @Test
     void bootUisModulesAreSkippedButNeverTheSampleApplications() {
         assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.engine.support.BootUiThreadLocal"))
                 .isTrue();

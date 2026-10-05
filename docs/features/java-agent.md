@@ -955,7 +955,7 @@ already set when that request began.
 
 **What a row names.** Its target is the static field that holds the thread local, as
 `com.example.TenantContext.CURRENT`, resolved on the engine's drain thread, never on a request's, within 20 ms a
-second: among the application's already-initialized classes, and a list of known frameworks' holder classes, one level
+second, outside the engine's lock: among the application's already-initialized classes, and a list of known frameworks' holder classes, one level
 deep for their singletons (SLF4J's MDC adapter, Spring Security's strategy). It reads class files with ASM, so no field
 type is loaded, and a field through a private lookup on its class, comparing identities only; it never initializes a
 class, asking `jdk.internal.misc.Unsafe.shouldBeInitialized` first. When no static field holds it, the row names a hint
@@ -985,7 +985,8 @@ the opening, the sensor reports itself unavailable; a claim never fails.
 **Cost and caps.** Two scans of a thread's maps per scanned scope, about 0.1 to 0.5 µs for the usual 16 to 64 slots; a
 table larger than 16,384 slots or with more than 4,096 thread locals set is skipped, counted, at most 16 leftovers a
 scope are reported, and the bridge remembers at most 1,024 thread locals per run, weakly. With the sensor off, a scope
-costs one volatile read. The sensor is opt-in (D37) whatever its overhead: the `agent-overhead-thread-locals` job of
+costs one volatile read; on Spring WebFlux, while the agent is attached, each Reactor task also runs through a small
+wrapper. The sensor is opt-in (D37) whatever its overhead: the `agent-overhead-thread-locals` job of
 `build.yml` measures its own increment and the cumulative overhead on the default route. Add `thread-locals` to
 `bootui.agent.sensors` to record it.
 

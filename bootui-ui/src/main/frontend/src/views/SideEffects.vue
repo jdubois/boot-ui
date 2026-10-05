@@ -324,13 +324,13 @@ function columnCount(sensor) {
 }
 
 function groupedApart(row) {
-  if (row.sensor === 'thread-locals') return row.origin !== 'application'
+  if (row.sensor === 'thread-locals') return row.origin === 'unknown'
   return row.sensor === 'thread-activity' ? THREADS_APART.has(row.origin) : GROUPED_APART.has(row.origin)
 }
 
 /** What a sensor's rows grouped apart are. */
 function apartLabel(sensor) {
-  if (sensor.id === 'thread-locals') return 'Libraries and holders not resolved'
+  if (sensor.id === 'thread-locals') return 'Holders not resolved'
   return sensor.id === 'thread-activity' ? 'Libraries and the JDK' : 'Class path, JDK, and logging'
 }
 
@@ -617,7 +617,7 @@ function hookStatus(value, label) {
                               sensor.id === 'thread-activity'
                                 ? "Only libraries' and the JDK's threads and executors so far."
                                 : sensor.id === 'thread-locals'
-                                  ? "Only libraries' thread locals, or thread locals whose holder was not resolved, so far."
+                                  ? 'Only thread locals whose holder was not resolved so far.'
                                   : 'Only class loading, the JDK, and logging so far.'
                             }}
                           </td>

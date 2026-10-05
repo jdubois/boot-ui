@@ -33,6 +33,8 @@ final class ThreadLocalHolders {
             "io.micrometer.context.ContextRegistry",
             "io.opentelemetry.context.ThreadLocalContextStorage",
             "com.fasterxml.jackson.core.util.BufferRecyclers",
+            "com.fasterxml.jackson.core.util.JsonRecyclerPools$ThreadLocalPool",
+            "tools.jackson.core.util.JsonRecyclerPools$ThreadLocalPool",
             "io.netty.util.internal.InternalThreadLocalMap");
 
     /** Holders of thread locals the framework clears itself, or a per-thread cache it keeps: never a row. */
@@ -50,6 +52,7 @@ final class ThreadLocalHolders {
             "io.micrometer.tracing.",
             "io.opentelemetry.context.",
             "com.fasterxml.jackson.core.util.BufferRecyclers",
+            "com.fasterxml.jackson.core.util.JsonRecyclerPools",
             "tools.jackson.core.util.",
             "io.netty.util.internal.InternalThreadLocalMap");
 

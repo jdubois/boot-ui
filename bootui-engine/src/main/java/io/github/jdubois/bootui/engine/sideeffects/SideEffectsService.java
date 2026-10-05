@@ -1129,6 +1129,8 @@ public final class SideEffectsService implements AutoCloseable {
             return null;
         }
         current.drainNow();
+        // Outside the lock: the agent may take its time budget to name thread locals' holders.
+        current.retryHolders();
         synchronized (lock) {
             current.resolve(true);
             publish(current);
@@ -1266,6 +1268,7 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 int rows = current.store.rowCount();
                 current.store.clear();
+                current.excludedHolders.clear();
                 current.claim.sideEffectsRecordingCleared();
                 // Buckets are the bridge's counters since the claim: counted from now on.
                 current.bucketBaseline = new HashMap<>(
@@ -1294,7 +1297,9 @@ public final class SideEffectsService implements AutoCloseable {
          * at most the rows the store keeps.
          */
         long indexBytes() {
-            return strings.size() * STRING_BYTES + (methods.size() + holders.size()) * METHOD_BYTES;
+            return strings.size() * STRING_BYTES
+                    + (methods.size() + holders.size()) * METHOD_BYTES
+                    + holderWaiting.size() * SideEffectsStore.PENDING_BYTES;
         }
 
         /** The thread locals' holders this run named, by registry id and hash code: at most the bridge's registry. */
@@ -1305,6 +1310,12 @@ public final class SideEffectsService implements AutoCloseable {
 
         /** Thread locals dropped, by framework holder or reason, with how often they were left set. */
         final Map<String, Long> excludedHolders = new java.util.TreeMap<>();
+
+        /** The agent's answers, by registry id and hash code, asked for outside the lock. */
+        final Map<Long, String[]> answers = new java.util.concurrent.ConcurrentHashMap<>();
+
+        /** Guards the holders' time budget, never held while the agent resolves. */
+        final Object holderBudget = new Object();
 
         long holderWindowStart = Long.MIN_VALUE / 2;
         long holderSpentNanos;
@@ -1359,7 +1370,6 @@ public final class SideEffectsService implements AutoCloseable {
          * {@value #RESOLVE_MILLIS} ms from the drain thread or {@value #READ_RESOLVE_MILLIS} ms for a read.
          */
         void resolve(boolean read) {
-            retryHolders();
             if (store.pendingCount() == 0) {
                 return;
             }
@@ -1378,6 +1388,14 @@ public final class SideEffectsService implements AutoCloseable {
         @Override
         public void accept(long[] raw) {
             SideEffectRecord record = SideEffectRecord.decode(raw);
+            String[] answer = null;
+            if (record != null
+                    && record.sensor() == SideEffectsCatalog.RECORD_THREAD_LOCALS
+                    && record.generation() == generation) {
+                // Outside the lock: reads and Clear recording never wait for the agent's time budget.
+                retryHolders();
+                answer = answer(record, false);
+            }
             synchronized (lock) {
                 if (record == null) {
                     malformed++;
@@ -1420,7 +1438,7 @@ public final class SideEffectsService implements AutoCloseable {
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
                     store.add(threads(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_THREAD_LOCALS) {
-                    threadLocal(record, sensor, target, clock.getAsLong());
+                    threadLocal(record, sensor, target, answer, clock.getAsLong());
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
                     // The target is the event loop's thread name: shown as its family, as a thread row's is.
                     String loop = normalizer.threadFamily(target);
@@ -1464,42 +1482,106 @@ public final class SideEffectsService implements AutoCloseable {
         record WaitingHolder(SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, long since) {}
 
         /**
-         * A thread-locals record: its thread local's holder, named once per run by the agent within its time budget,
-         * decides its row, or drops it as a framework's or a per-thread cache, counted; while the agent has no time, it
+         * A thread-locals record, under the lock, with the agent's {@code answer} naming its holder, which decides its
+         * row or drops it as a framework's or a per-thread cache, counted; {@code null} when the agent had no time: it
          * waits, at most {@value #HOLDER_WAIT_MILLIS} ms, then shows as not resolved.
          */
-        private void threadLocal(SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, long now) {
-            ThreadLocalHolders.Holder holder = holder(record, target, now, false);
-            if (holder == null) {
-                if (holderWaiting.size() >= MAX_HOLDER_WAITING) {
-                    holder = holder(record, target, now, true);
-                } else {
+        private void threadLocal(
+                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, String[] answer, long now) {
+            if (answer == null) {
+                if (holderWaiting.size() < MAX_HOLDER_WAITING) {
                     holderWaiting.add(new WaitingHolder(record, sensor, target, now));
                     return;
                 }
+                answer = answer(record, true);
             }
-            observeThreadLocal(record, sensor, holder);
+            observeThreadLocal(record, sensor, holder(record, target, answer));
         }
 
-        /** The waiting thread locals the agent has time for, and those waiting too long, as not resolved. */
+        /**
+         * The waiting thread locals the agent has time for, and those waiting too long, as not resolved: asked outside
+         * the lock, observed under it.
+         */
         void retryHolders() {
-            long now = clock.getAsLong();
-            while (!holderWaiting.isEmpty()) {
-                WaitingHolder waiting = holderWaiting.peek();
-                boolean late = now - waiting.since() > HOLDER_WAIT_MILLIS;
-                ThreadLocalHolders.Holder holder = holder(waiting.record(), waiting.target(), now, late);
-                if (holder == null) {
+            while (true) {
+                WaitingHolder waiting;
+                long now;
+                synchronized (lock) {
+                    waiting = holderWaiting.peek();
+                    now = clock.getAsLong();
+                }
+                if (waiting == null) {
                     return;
                 }
-                holderWaiting.poll();
-                if (waiting.record().firstMillis() > clearedAt) {
-                    observeThreadLocal(waiting.record(), waiting.sensor(), holder);
+                String[] answer = answer(waiting.record(), now - waiting.since() > HOLDER_WAIT_MILLIS);
+                if (answer == null) {
+                    return;
+                }
+                synchronized (lock) {
+                    if (holderWaiting.peek() != waiting) {
+                        // Another thread observed it meanwhile.
+                        continue;
+                    }
+                    holderWaiting.poll();
+                    if (waiting.record().firstMillis() > clearedAt) {
+                        observeThreadLocal(
+                                waiting.record(), waiting.sensor(), holder(waiting.record(), waiting.target(), answer));
+                    }
+                    publish(this);
                 }
             }
         }
 
-        /** Its holder, named by the agent within the budget; {@code null} when out of time, unless {@code giveUp}. */
-        private ThreadLocalHolders.Holder holder(SideEffectRecord record, String target, long now, boolean giveUp) {
+        /**
+         * The agent's answer naming a record's holder, within the time budget, never under the lock: {@code null} when
+         * out of time, unless {@code giveUp}, which answers "not resolved".
+         */
+        String[] answer(SideEffectRecord record, boolean giveUp) {
+            int id = (record.exitStatus() >>> 8) & 0xFFFF;
+            int hash = (int) record.nanos();
+            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
+            String[] known = answers.get(key);
+            if (known != null) {
+                return known;
+            }
+            if (id == 0 || giveUp) {
+                String[] none = {null, "false", "false", null};
+                if (id != 0) {
+                    answers.putIfAbsent(key, none);
+                }
+                return none;
+            }
+            long left;
+            synchronized (holderBudget) {
+                long now = clock.getAsLong();
+                if (now - holderWindowStart >= HOLDER_WINDOW_MILLIS) {
+                    holderWindowStart = now;
+                    holderSpentNanos = 0L;
+                }
+                left = HOLDER_BUDGET_NANOS - holderSpentNanos;
+            }
+            if (left <= 0L) {
+                return null;
+            }
+            long started = System.nanoTime();
+            String[] answer = threadLocalHolders.holder(
+                    generation,
+                    id,
+                    hash,
+                    claim.packages().toArray(new String[0]),
+                    ThreadLocalHolders.HOLDER_CLASSES.toArray(new String[0]),
+                    left);
+            synchronized (holderBudget) {
+                holderSpentNanos += System.nanoTime() - started;
+            }
+            if (answer != null) {
+                answers.putIfAbsent(key, answer);
+            }
+            return answer;
+        }
+
+        /** Its holder, under the lock: decided once per thread local, whose exclusion the bridge is told once. */
+        private ThreadLocalHolders.Holder holder(SideEffectRecord record, String target, String[] answer) {
             int detail = record.exitStatus() & 0xFF;
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
@@ -1508,36 +1590,13 @@ public final class SideEffectsService implements AutoCloseable {
             if (known != null) {
                 return known;
             }
-            String[] answer = null;
-            if (id != 0 && !giveUp) {
-                if (now - holderWindowStart >= HOLDER_WINDOW_MILLIS) {
-                    holderWindowStart = now;
-                    holderSpentNanos = 0L;
-                }
-                long left = HOLDER_BUDGET_NANOS - holderSpentNanos;
-                if (left <= 0L) {
-                    return null;
-                }
-                long started = System.nanoTime();
-                answer = threadLocalHolders.holder(
-                        generation,
-                        id,
-                        hash,
-                        claim.packages().toArray(new String[0]),
-                        ThreadLocalHolders.HOLDER_CLASSES.toArray(new String[0]),
-                        left);
-                holderSpentNanos += System.nanoTime() - started;
-                if (answer == null) {
-                    return null;
-                }
-            }
             ThreadLocalHolders.Holder holder = ThreadLocalHolders.decide(answer, target, detail);
-            if (id != 0 && (answer != null || giveUp)) {
+            if (id != 0) {
                 holders.put(key, holder);
-            }
-            if (holder.excludedBy() != null && id != 0) {
-                // Skipped by the bridge from now on, so it never takes an application's thread local's place.
-                threadLocalHolders.exclude(generation, id, hash);
+                if (holder.excludedBy() != null) {
+                    // Skipped by the bridge from now on, so it never takes an application's thread local's place.
+                    threadLocalHolders.exclude(generation, id, hash);
+                }
             }
             return holder;
         }

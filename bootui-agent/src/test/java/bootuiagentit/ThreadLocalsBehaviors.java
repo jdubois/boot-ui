@@ -49,6 +49,8 @@ public final class ThreadLocalsBehaviors {
     public static void main(String[] args) throws Exception {
         String mode = args.length > 0 ? args[0] : "behaviors";
         new ThreadPoolExecutor(0, 1, 1, TimeUnit.SECONDS, new LinkedBlockingQueue<>()).shutdown();
+        // Loaded, never initialized: the resolver walks it and must never run its static initializer.
+        Class.forName("bootuiagentit.UninitializedHolder", false, ThreadLocalsBehaviors.class.getClassLoader());
         List<String> sensors = List.of("executors", SideEffects.THREAD_LOCALS);
         token = claim(sensors);
         for (String sensor : sensors) {
@@ -64,6 +66,7 @@ public final class ThreadLocalsBehaviors {
                 fallback();
             } else {
                 holders();
+                depthOne();
             }
             poolTask();
             jdkThreadLocals();
@@ -193,7 +196,8 @@ public final class ThreadLocalsBehaviors {
                         && "1".equals(holders.get(prefix + "INHERITED")[0])
                         && holders.containsKey(prefix + "CACHE")
                         && "true".equals(holders.get(prefix + "CACHE")[1])
-                        && holders.containsKey("null"));
+                        && holders.containsKey("null")
+                        && System.getProperty("bootui.it.clinit-ran") == null);
         TENANT.remove();
         INHERITED.remove();
         CACHE.remove();
@@ -218,6 +222,38 @@ public final class ThreadLocalsBehaviors {
                         + describe() + ", " + (status == null ? null : status.get("initializationCheck")) + ")",
                 RECORDS.size() == 1 && status != null && "inventory".equals(status.get("initializationCheck")));
         TENANT.remove();
+    }
+
+    /**
+     * A framework singleton's instance field, reached one level deep from the static field holding the singleton, and a
+     * holder class loaded but never initialized, which the resolver never initializes.
+     */
+    static void depthOne() {
+        RECORDS.clear();
+        request();
+        long scope = ThreadLocals.open();
+        FrameworkLike.INSTANCE.local.set(SECRET);
+        ThreadLocals.close(scope);
+        endRequest();
+        drain();
+        String holder = null;
+        if (RECORDS.size() == 1) {
+            long[] record = RECORDS.get(0);
+            String[] answer = ThreadLocals.holder(
+                    generation,
+                    (int) ((record[SideEffects.R_FLAGS] >>> 40) & 0xFFFF),
+                    (int) record[SideEffects.R_NANOS],
+                    new String[] {"bootuiagentit"},
+                    new String[] {"bootuiagentit.FrameworkLike"},
+                    5_000_000_000L);
+            holder = answer == null ? null : answer[0];
+        }
+        check(
+                "a framework singleton's instance field is resolved one level deep, and a holder class never"
+                        + " initialized stays so (" + holder + ")",
+                "bootuiagentit.FrameworkLike.local (via bootuiagentit.FrameworkLike.INSTANCE)".equals(holder)
+                        && System.getProperty("bootui.it.clinit-ran") == null);
+        FrameworkLike.INSTANCE.local.remove();
     }
 
     static void poolTask() throws Exception {

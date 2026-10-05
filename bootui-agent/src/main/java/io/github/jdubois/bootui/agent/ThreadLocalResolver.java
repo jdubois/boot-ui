@@ -62,6 +62,7 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     private final Instrumentation instrumentation;
     private final InitializationCheck check;
     private final MethodHandle supplier;
+    private final MethodHandle findLoadedClass = findLoadedClassHandle();
     private final Map<Class<?>, FieldInfo[]> fields = new WeakHashMap<Class<?>, FieldInfo[]>();
     private final Map<Class<?>, Boolean> initialValues = new WeakHashMap<Class<?>, Boolean>();
     private List<WeakReference<Class<?>>> index = new ArrayList<WeakReference<Class<?>>>();
@@ -129,7 +130,7 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
         for (Class<?> type : candidates) {
             String found = inClass(type, threadLocal, false, claimed);
             if (found != null) {
-                return answer(found, initialValue, true, hint);
+                return answer(found, initialValue, inPackages(type.getName(), claimed), hint);
             }
         }
         for (WeakReference<Class<?>> reference : index) {
@@ -256,11 +257,37 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
         return typeName == null || typeName.indexOf('.') < 0 || typeName.startsWith("[") || typeName.endsWith("]");
     }
 
-    /** A framework singleton's declared type: loaded through its holder's loader, never initialized. */
-    private static Class<?> loadedType(String typeName, ClassLoader loader) {
+    /**
+     * A framework singleton's declared type, only when its holder's loader or one of its parents already loaded it,
+     * through {@code ClassLoader.findLoadedClass} on the opened {@code java.lang}: never loaded, never initialized. A
+     * type nothing loaded holds no object this thread local could be in.
+     */
+    private Class<?> loadedType(String typeName, ClassLoader loader) {
+        if (findLoadedClass == null) {
+            return null;
+        }
+        for (ClassLoader current = loader; current != null; current = current.getParent()) {
+            try {
+                Class<?> found = (Class<?>) findLoadedClass.invoke(current, typeName);
+                if (found != null) {
+                    return found;
+                }
+            } catch (Throwable unavailable) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** {@code ClassLoader.findLoadedClass(String)}, through the opened {@code java.lang}; {@code null} if absent. */
+    private static MethodHandle findLoadedClassHandle() {
         try {
-            return Class.forName(typeName, false, loader);
-        } catch (Throwable notLoadable) {
+            return MethodHandles.privateLookupIn(ClassLoader.class, MethodHandles.lookup())
+                    .findVirtual(
+                            ClassLoader.class,
+                            "findLoadedClass",
+                            java.lang.invoke.MethodType.methodType(Class.class, String.class));
+        } catch (Throwable unavailable) {
             return null;
         }
     }
@@ -447,14 +474,31 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
                 same.add(new WeakReference<Class<?>>(type));
             }
         }
+        List<WeakReference<ClassLoader>> found = new ArrayList<WeakReference<ClassLoader>>();
+        for (WeakReference<Class<?>> reference : fresh) {
+            Class<?> type = reference.get();
+            ClassLoader loader = type == null ? null : type.getClassLoader();
+            boolean known = loader == null;
+            for (int i = 0; i < found.size() && !known; i++) {
+                known = found.get(i).get() == loader;
+            }
+            if (!known) {
+                found.add(new WeakReference<ClassLoader>(loader));
+            }
+        }
         index = fresh;
         byName = names;
+        loaders = found;
         indexedAt = now;
         indexedPackages = packages.clone();
     }
 
     private Map<String, List<WeakReference<Class<?>>>> byName = new HashMap<String, List<WeakReference<Class<?>>>>();
 
+    /**
+     * The loaded classes named {@code name}: from the index, else, for a class loaded since it was built, as asked of
+     * the claimed classes' loaders and the system class loader, never loading it.
+     */
     private List<Class<?>> loaded(String name) {
         List<Class<?>> classes = new ArrayList<Class<?>>();
         List<WeakReference<Class<?>>> references = byName.get(name);
@@ -466,8 +510,26 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
                 }
             }
         }
+        if (classes.isEmpty()) {
+            List<ClassLoader> asked = new ArrayList<ClassLoader>();
+            for (WeakReference<ClassLoader> reference : loaders) {
+                ClassLoader loader = reference.get();
+                if (loader != null) {
+                    asked.add(loader);
+                }
+            }
+            asked.add(ClassLoader.getSystemClassLoader());
+            for (ClassLoader loader : asked) {
+                Class<?> type = loadedType(name, loader);
+                if (type != null && !classes.contains(type)) {
+                    classes.add(type);
+                }
+            }
+        }
         return classes;
     }
+
+    private List<WeakReference<ClassLoader>> loaders = new ArrayList<WeakReference<ClassLoader>>();
 
     static boolean inPackages(String className, String[] packages) {
         if (packages == null) {

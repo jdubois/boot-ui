@@ -26,6 +26,8 @@ class ThreadLocalsBehaviorsIT {
             "thread locals cleared in finally, set to null, or set before the request are never reported",
             "holders are resolved to their static fields, a withInitial one flagged, an instance field's left"
                     + " unresolved",
+            "a framework singleton's instance field is resolved one level deep, and a holder class never initialized"
+                    + " stays so",
             "a request's pool task leaving a thread local set on its worker is reported, one clearing it in finally"
                     + " never is",
             "the JDK's own thread locals, as a read lock's hold counter, are never reported",
@@ -79,6 +81,7 @@ class ThreadLocalsBehaviorsIT {
                 "fallback");
 
         List<String> required = new ArrayList<>(REQUIRED);
+        required.remove(3);
         required.remove(2);
         required.add("without the Unsafe check the resolver falls back to Code Inventory and leftovers are still"
                 + " reported");

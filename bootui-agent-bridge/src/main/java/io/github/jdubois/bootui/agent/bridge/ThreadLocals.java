@@ -280,6 +280,14 @@ public final class ThreadLocals {
                     return 0L;
                 }
             }
+            if (owned && scope != null && scope.depth == EXPLICIT && scope.request == 0L && scope.execution == 0L) {
+                // A live unowned scope, as a scheduler task's: this work owns it, and is nested in it.
+                scope.request = owner.request;
+                scope.execution = owner.execution;
+                scope.executionKind = owner.executionKind;
+                NESTED.increment();
+                return 0L;
+            }
             if (owned && scope != null && scope.depth == EXPLICIT) {
                 boolean same = scope.generation == generation
                         && (owner.request != 0L
@@ -497,6 +505,11 @@ public final class ThreadLocals {
             if (current == null) {
                 return;
             }
+            if (scope.request == 0L && scope.execution == 0L && Thread.currentThread() != selfTestThread) {
+                // An unowned scope nothing claimed, as a scheduler's task no request's context reached: not scanned.
+                UNOWNED.increment();
+                return;
+            }
             found = current.leftovers(scope.open, scope.openCount, keys, scope.hashes, scope.inheritable);
             SCANS.increment();
             if (found == TOO_LARGE) {
@@ -527,11 +540,6 @@ public final class ThreadLocals {
                         || !claim.armed
                         || claim.generation != scope.generation
                         || (SideEffects.mask & SideEffects.MASK_THREAD_LOCALS) == 0)) {
-            return;
-        }
-        if (!testing && scope.request == 0L && scope.execution == 0L) {
-            // An unowned scope nothing claimed, as a scheduler's task no request's context reached.
-            UNOWNED.increment();
             return;
         }
         Registry registry = testing ? null : registry(scope.generation);
@@ -590,7 +598,10 @@ public final class ThreadLocals {
      * such as a lock's hold counter; BootUI's own.
      */
     static boolean skipped(Object key) {
-        if (key == CodePaths.FRAME || key == Reentrancy.STATE || key == TaskPropagation.ACTIVE) {
+        if (key == CodePaths.FRAME
+                || key == Reentrancy.STATE
+                || key == TaskPropagation.ACTIVE
+                || key == CaughtExceptions.COUNTS) {
             BRIDGE_KEYS.increment();
             return true;
         }
