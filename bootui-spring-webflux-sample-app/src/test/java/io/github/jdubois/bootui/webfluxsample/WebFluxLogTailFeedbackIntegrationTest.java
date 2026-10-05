@@ -3,15 +3,19 @@ package io.github.jdubois.bootui.webfluxsample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.logging.LogLevel;
@@ -74,7 +78,9 @@ class WebFluxLogTailFeedbackIntegrationTest {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
 
         // The stream has stalled partway through the backlog on CI runners, rarely and without reproducing elsewhere,
-        // so a stall is described while the stream is still open, before the probe gives up and closes it.
+        // so a stall is described while the stream is still open, before the probe gives up and closes it. That
+        // snapshot stays passive: an HTTP request logs an "Encoding [" line with web debug logging on, which the open
+        // stream would deliver, so requests that probe the stall wait until the stream has already failed.
         ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(task -> {
             Thread thread = new Thread(task, "log-tail-feedback-watchdog");
             thread.setDaemon(true);
@@ -83,7 +89,8 @@ class WebFluxLogTailFeedbackIntegrationTest {
         String streamed;
         String stall = "none";
         try {
-            ScheduledFuture<String> diagnosis = watchdog.schedule(() -> describeStall(probe), 20, TimeUnit.SECONDS);
+            ScheduledFuture<String> snapshot =
+                    watchdog.schedule(WebFluxLogTailFeedbackIntegrationTest::snapshotStall, 20, TimeUnit.SECONDS);
             streamed = probe.readStreamUntil(
                     "/bootui/api/log-tail/stream",
                     "backlog line " + (LINES - 1),
@@ -91,7 +98,7 @@ class WebFluxLogTailFeedbackIntegrationTest {
                     "live line",
                     Duration.ofSeconds(30));
             if (!streamed.contains("live line")) {
-                stall = diagnosis.get(15, TimeUnit.SECONDS);
+                stall = awaitSnapshot(snapshot) + probeStall(probe);
             }
         } finally {
             watchdog.shutdownNow();
@@ -119,20 +126,21 @@ class WebFluxLogTailFeedbackIntegrationTest {
     }
 
     /**
-     * What a stalled stream is waiting for: whether the buffer captured the whole backlog, whether a second stream
-     * receives it, and the stacks of the threads that capture, deliver, write, and read the stream.
+     * What a stalled stream is waiting for, read in-process without a request: whether the buffer captured the whole
+     * backlog (capture loss or delivery stall), its live subscribers, and the stacks of the threads that capture,
+     * deliver, write, and read the stream.
      */
-    private String describeStall(BootUiHttpProbe probe) {
+    private static String snapshotStall() {
         StringBuilder out = new StringBuilder();
-        String last = "backlog line " + (LINES - 1);
-        try {
+        BootUiLogAppender appender = BootUiLogAppender.find();
+        if (appender == null) {
+            out.append("\nno log-tail appender is installed");
+        } else {
+            String last = "backlog line " + (LINES - 1);
             out.append("\ncaptured: ")
-                    .append(probe.get("/bootui/api/log-tail/recent").body().contains(last));
-            String second = new BootUiHttpProbe("http://localhost:" + port)
-                    .readStreamUntil("/bootui/api/log-tail/stream", () -> {}, last, Duration.ofSeconds(5));
-            out.append("\na second stream delivers the backlog: ").append(second.contains(last));
-        } catch (RuntimeException ex) {
-            out.append("\nprobing failed: ").append(ex);
+                    .append(appender.buffer().recent().stream().anyMatch(line -> last.equals(line.message())))
+                    .append(", live subscribers: ")
+                    .append(appender.buffer().subscriberCount());
         }
         for (ThreadInfo thread : ManagementFactory.getThreadMXBean().dumpAllThreads(true, true)) {
             String name = thread.getThreadName();
@@ -150,5 +158,29 @@ class WebFluxLogTailFeedbackIntegrationTest {
             }
         }
         return out.toString();
+    }
+
+    private static String awaitSnapshot(Future<String> snapshot) throws InterruptedException {
+        try {
+            return snapshot.get(15, TimeUnit.SECONDS);
+        } catch (TimeoutException ex) {
+            return "\nthe stall snapshot did not complete in 15 s";
+        } catch (ExecutionException ex) {
+            return "\nthe stall snapshot failed: " + ex.getCause();
+        }
+    }
+
+    /**
+     * Once the stream has failed: whether a second stream receives the whole backlog, which tells a stalled connection
+     * from a stalled server. It reuses the test's client, so no second client is left open.
+     */
+    private static String probeStall(BootUiHttpProbe probe) {
+        String last = "backlog line " + (LINES - 1);
+        try {
+            String second = probe.readStreamUntil("/bootui/api/log-tail/stream", () -> {}, last, Duration.ofSeconds(5));
+            return "\na second stream delivers the backlog: " + second.contains(last);
+        } catch (RuntimeException ex) {
+            return "\nthe second stream failed: " + ex;
+        }
     }
 }
