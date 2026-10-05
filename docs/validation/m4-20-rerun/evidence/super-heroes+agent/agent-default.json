@@ -1,0 +1,146 @@
+{
+  "available": true,
+  "requests": 411,
+  "coverage": [
+    {
+      "byExecutionId": 0,
+      "byRequestId": 411,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 411,
+      "source": "http",
+      "unlinked": 0
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 439,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 439,
+      "source": "sql",
+      "unlinked": 0
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 42,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 42,
+      "source": "exception",
+      "unlinked": 0
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 0,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 1,
+      "source": "lifecycle",
+      "unlinked": 1
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 0,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 4,
+      "source": "gc",
+      "unlinked": 4
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 354,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 354,
+      "source": "orm",
+      "unlinked": 0
+    }
+  ],
+  "checksNotRun": [
+    "proxy-bypass: NOT_APPLICABLE, Quarkus: ArC intercepts a call from inside a bean, so a self-invocation keeps its interceptors.",
+    "anonymous-data-reach: NOT_APPLICABLE, The security-logs panel, whose evidence this reads, is not available in this application: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events.",
+    "anonymous-success-on-restricted-route: NOT_APPLICABLE, The security-logs panel, whose evidence this reads, is not available in this application: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events.",
+    "split-transaction-writes: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "transactional-listener-skipped: NOT_APPLICABLE, Quarkus: CDI notifies a transactional observer at once when no transaction is active, so none is skipped.",
+    "after-commit-writes: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "transaction-across-remote-call: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "lazy-sql-after-handler: NOT_APPLICABLE, Quarkus closes the session with the transaction, so a lazy load after the handler fails with LazyInitializationException, which Exception hotspots reports.",
+    "heap-growth-after-gc: INSUFFICIENT, No eligible work was recorded for this check."
+  ],
+  "observations": [
+    {
+      "id": "changed-code-not-executed:1a70ea57b2",
+      "kind": "changed-code-not-executed",
+      "status": "OBSERVED",
+      "subject": "io.quarkus.sample.superheroes.villain.rest.VillainResource",
+      "sentence": "Your change has not run yet: 1 changed method of `VillainResource` was not executed in this run.",
+      "eligible": 1,
+      "affected": 1,
+      "tier": "REQUEST_ID",
+      "verify": "Send a request to a route that ran this class's other methods, such as `GET /api/villains`, or run the test that reaches it.",
+      "listed": true
+    },
+    {
+      "id": "changed-code-not-executed:ed332e0635",
+      "kind": "changed-code-not-executed",
+      "status": "OBSERVED",
+      "subject": "io.quarkus.sample.superheroes.villain.service.VillainService",
+      "sentence": "Your change has not run yet: 1 changed method of `VillainService` was not executed in this run.",
+      "eligible": 2,
+      "affected": 1,
+      "tier": "REQUEST_ID",
+      "verify": "Send a request to a route that ran this class's other methods, such as `GET /`, or run the test that reaches it.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "Behind 4xx responses",
+      "sentence": "2 exception groups on 2 routes were recorded only behind 4xx responses: 42 occurrences in 42 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "096dbc26ef988081",
+      "verify": "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "listed": true
+    }
+  ],
+  "omitted": 0,
+  "notExercised": [
+    "DELETE /api/villains",
+    "PUT /api/villains"
+  ],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "Not listed by default: route-time-breakdown 13, exception-hotspots 2. Pass the query all, a kind, or a route to list them; get_runtime_insight on one says why it is left out.",
+    "Latency rows are included for prominent routes: a warm median of 20 ms or more, or authorization taking 20 % of the time or 50 decisions a request."
+  ],
+  "next": [
+    {
+      "arguments": {
+        "query": "changed"
+      },
+      "command": "bootui code inventory --query changed",
+      "tool": "get_code_inventory",
+      "why": "each changed method and whether it ran"
+    },
+    {
+      "arguments": {
+        "id": "changed-code-not-executed:1a70ea57b2"
+      },
+      "command": "bootui insights show changed-code-not-executed:1a70ea57b2",
+      "tool": "get_runtime_insight",
+      "why": "the evidence rows behind this changed-code-not-executed observation, call sites included"
+    },
+    {
+      "arguments": {
+        "query": "all"
+      },
+      "command": "bootui insights list --query all",
+      "tool": "get_runtime_insights",
+      "why": "every row, including those the default list leaves out"
+    }
+  ]
+}

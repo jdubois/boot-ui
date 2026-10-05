@@ -1,0 +1,22 @@
+{
+  "baseUrl": "http://localhost:18181",
+  "collectedAt": "2026-10-05T08:04:11.479Z",
+  "files": {},
+  "observations": 38,
+  "listed": 11,
+  "listedFlagPresent": true,
+  "byStatus": {
+    "OBSERVED": 38
+  },
+  "checksNotEvaluated": 5,
+  "agentDefault": {
+    "status": 200,
+    "observations": 8
+  },
+  "agentAll": {
+    "status": 200,
+    "limit": 38,
+    "observations": 38,
+    "omitted": 0
+  }
+}

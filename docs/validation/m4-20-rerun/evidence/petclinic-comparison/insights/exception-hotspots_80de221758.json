@@ -1,0 +1,195 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:80de221758",
+    "kind": "exception-hotspots",
+    "subject": "GET /oups",
+    "status": "OBSERVED",
+    "sentence": "`GET /oups` recorded `RuntimeException` in 183 of 183 requests (183 occurrences).",
+    "eligible": 183,
+    "affected": 183,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "5fba324764678a38",
+      "90e10a8d45fc191a",
+      "0e3d714f945561c7"
+    ],
+    "evidenceRows": 20,
+    "limitations": [],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "5fba324764678a38",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "90e10a8d45fc191a",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "0e3d714f945561c7",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "623c59067591925a",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "b2347abbe5361250",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "7dc9fc5f04744aca",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "94a2657a350ff124",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "e9910cfdc4530167",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "6d06de14dc0532fc",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "00208d7f7e504ae7",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "e78648442e1d4c8f",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "c166b11bc4b95210",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "4778fc9ec874ce2e",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "73e4beedac9d0b42",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "17ce7395ec7067a7",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "64fdab9d9c436a38",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "3db542c35c3fbc19",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "61e47da50fccb649",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "0c807fb849138225",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    },
+    {
+      "cells": [
+        "c5e6acb6ad2e3517",
+        "500",
+        "1",
+        "84ab832c1fb5ef9a"
+      ]
+    }
+  ],
+  "truncated": 163
+}

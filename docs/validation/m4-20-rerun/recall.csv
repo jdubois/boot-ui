@@ -1,0 +1,53 @@
+id,outcome,rows,note
+PC-1,found-default,petclinic/fact/d1ce3167 petclinic/fact/41f7e90d petclinic/fact/eb5bb5fb petclinic/fact/12b74f6b petclinic/fact/7d8b8716 petclinic/fact/05eafb9a petclinic/fact/0ec63efe petclinic/fact/173c24f4,"Default repeated-select facts show the pet-types query running 5 or more times on each form route, and the lazy-SQL facts name PetTypeFormatter.parse during view render. [3 of 3 advisors]"
+PC-2,missed,,The only owners row is a hidden 4.2 ms breakdown that never mentions one pagination link per page or a tail that grows with the owner table. [2 of 3 advisors (opus-5 said found-hidden)]
+PC-3,missed,,"Framework warnings were evaluated with no findings, and the eviction note about request-less ERROR logs does not identify the unowned Tomcat errors for GET /oups. [2 of 3 advisors (gpt-6.1-sol said honest-gap)]"
+PC-4,honest-gap,petclinic/honesty/1b89b7cb petclinic/honesty/bad21e50,"Both authorization checks are INSUFFICIENT with no eligible work rather than a clean pass, though the reason cites eviction instead of the absence of security. [3 of 3 advisors]"
+PC-5,found-default,petclinic+agent/fact/fe60e045,"The default fact says one changed method of Owner was not executed, and the comparison shows that method is getPet. [3 of 3 advisors]"
+PC-6,found-default,petclinic+agent/fact/e1a21005,"The default fact says one changed method of Vet was not executed, and the comparison shows that method is addSpecialty. [3 of 3 advisors]"
+PC-C1,respected,,"GET /oups throws on purpose; both reviewers judged its hotspot (petclinic/fact/b1f1e46f) Noise, and the protocol counts a counterexample as violated only when a fact on it is adjudicated Misleading. [protocol override of a 2 of 3 'violated' majority (opus-5 said respected)]"
+PC-C2,respected,,The default lazy-SQL fact attributes the repeated types query to PetTypeFormatter.parse and does not prescribe open-in-view or a fetch join. [3 of 3 advisors]
+PC-C3,respected,,No row calls the cached vet reads an N+1; the vets breakdowns are only hidden timing rows. [3 of 3 advisors]
+PC-C4,respected,,"The Owner fact reports one unexecuted changed method, and the comparison marks addVisit executed. [3 of 3 advisors]"
+JH-1,found-default,jhipster/fact/1c61d2f0,The default fact says every successful user creation answered 2xx while a task it handed to another thread failed. [3 of 3 advisors]
+JH-2,missed,,The timing facts say handler work dominates but never name DEBUG logging or LoggingAspect. [3 of 3 advisors]
+JH-3,found-hidden,jhipster/hidden/1a1d80e9,"The hidden ConstraintViolationException hotspot is the validation failure on this route, though it does not mention the JSON-quoted email. [3 of 3 advisors]"
+JH-4,found-default,jhipster/fact/c25fff20,The default fact says every successful reset init answered 2xx while a task handed to another thread failed. [3 of 3 advisors]
+JH-C1,respected,,The slow authenticate and create-user facts never name BCrypt or say the deliberate hash cost should be removed. [3 of 3 advisors]
+JH-C2,respected,,"Intended 400, 401, and 404 results are not default facts; BadCredentials is unlisted as behind 4xx and usually intended. [3 of 3 advisors]"
+JH-C3,respected,,"Actuator rows say those requests reached no marked handler, so their time is not split into application phases. [3 of 3 advisors]"
+SH-1,honest-gap,,"The not-exercised list names both villain routes, but that list is a limitation without a worksheet fact, so it cannot count as found in the default list. [2 of 3 advisors (grok-4.7 said found-default)]"
+SH-2,missed,,The hidden timing rows show SQL share only and do not say the list is unpaginated or that random runs a count plus offset. [2 of 3 advisors (opus-5 said found-hidden)]
+SH-3,missed,,The hidden GET / breakdown does not say the page renders the complete villain list. [2 of 3 advisors (opus-5 said found-hidden)]
+SH-4,found-default,super-heroes+agent/fact/f379ff0d,"The default fact says one changed method of VillainService was not executed, and the comparison shows deleteAllVillains never ran. [3 of 3 advisors]"
+SH-5,found-default,super-heroes+agent/fact/3ee46b2c,"The default fact says one changed method of VillainResource was not executed, and the comparison shows deleteAllVillains never ran. [3 of 3 advisors]"
+SH-C1,respected,,"The bean-validation and not-found exceptions are hidden or filed under behind-4xx, not presented as default defects. [3 of 3 advisors]"
+SH-C2,respected,,"Health and OpenAPI rows say they reached no application handler, and hello is an unlisted insufficient sample rather than a performance finding. [3 of 3 advisors]"
+SH-C3,respected,,"event-loop-blocking was evaluated with no findings, so blocking on the event loop was not reported. [3 of 3 advisors]"
+SH-C4,respected,,"The VillainService fact reports one unexecuted method, and the comparison marks findAllVillainsHavingName executed. [3 of 3 advisors]"
+WF-1,honest-gap,webflux-gateway/honesty/1b7fc08c webflux-gateway/hidden/fc1557c2,The repeated-selects check is UNAVAILABLE and states that R2DBC database access is not recorded. [3 of 3 advisors]
+WF-2,found-default,webflux-gateway/fact/18d872b0,"The default fact says every successful user creation answered 2xx and recorded an exception, without naming the activation email. [3 of 3 advisors]"
+WF-3,found-hidden,webflux-gateway/hidden/25818fa9,"The hidden hotspot says every PUT throws EmailAlreadyUsedException, which that missing-id path produces, but it does not state the missing id. [2 of 3 advisors (gpt-6.1-sol said missed)]"
+WF-4,found-default,webflux-gateway/fact/726b62eb webflux-gateway/fact/54542269,Default hotspots report a connect exception on every request to both absent-service routes. [3 of 3 advisors]
+WF-5,honest-gap,,"The limitation says declared routes could not be read, so unreached routes are not listed and that does not mean they were exercised. [3 of 3 advisors]"
+WF-C1,respected,,No default fact presents the anonymous readiness or 401 probes as a data-reach or authorization defect. [3 of 3 advisors]
+WF-C2,respected,,"WebFlux timing rows say no phases are marked and where the time went is not known, so it is not attributed to unseen application code. [3 of 3 advisors]"
+K-1,missed,,Payment and stock evaluated repeated selects and split transactions over hundreds of consumed messages and reported no findings. [3 of 3 advisors]
+K-2,missed,,"No row shows per-message SQL, transaction, or ORM work, and the listener time check only says no eligible work despite 400 retained messages. [2 of 3 advisors (gpt-6.1-sol said honest-gap)]"
+K-3,honest-gap,,The order-service limitation states that BootUI does not record Kafka Streams processing. [3 of 3 advisors]
+K-4,missed,,The hidden GET /orders breakdown does not say the handler scans the whole store or leaves the iterator open. [2 of 3 advisors (opus-5 said found-hidden)]
+K-C1,respected,,No row presents saga stock or payment rejections as a defect. [3 of 3 advisors]
+K-C2,respected,,The hidden POST /orders breakdown does not treat the asynchronous broker acknowledgement as handler time. [3 of 3 advisors]
+BS-1,honest-gap,bookstore/honesty/850374c1,"after-commit-writes is UNAVAILABLE because Modulith's event multicaster means application events are not recorded, and no row names the listeners or RabbitMQ. [2 of 3 advisors (opus-5 said found-default)]"
+BS-2,missed,,"Both anonymous checks were evaluated with no findings, and no row states which URL rules are open or that anonymous callers never reach admin. [3 of 3 advisors]"
+BS-C1,respected,,Anonymous cart and catalog access is not reported as a data-reach problem. [3 of 3 advisors]
+BS-C2,respected,,No fact presents the admin 403 or login redirect as a defect. [3 of 3 advisors]
+BS-C3,respected,,The not-found exceptions are hidden or behind 4xx and are not default facts on those routes. [3 of 3 advisors]
+TL-1,found-default,timeless/fact/01c6181c timeless/fact/637c2a77,Default facts report NullPointerException and a QuarkusErrorHandler ERROR on GET /api/records. [3 of 3 advisors]
+TL-2,missed,,"anonymous-data-reach was evaluated with no findings, and no row says this route is open and reads or writes user data anonymously. [3 of 3 advisors]"
+TL-3,found-default,timeless/fact/160673f8,"Default rows show AI calls taking 96 percent of POST /api/messages and up to two model calls in one request, but not the getBalance full read. [timeless/fact/54ac7ea2 dropped because it is adjudicated Misleading; 3 of 3 advisors]"
+TL-4,missed,,"The hidden timing row shows SQL share only and does not describe the count, page, and full amount and type reads. [2 of 3 advisors (opus-5 said found-hidden)]"
+TL-C1,respected,,The slow sign-in fact attributes time to the handler and does not name BCrypt or say the hash cost should be removed. [3 of 3 advisors]
+TL-C2,violated,timeless/fact/54ac7ea2,"No row says a transaction is held across the AI call, but the protocol counts a counterexample as violated when any fact on its subject (POST /api/messages) is adjudicated Misleading, and timeless/fact/54ac7ea2 was, for its 'grew up to 1.0 times' token wording. [3 of 3 advisors said respected; registered scorer rule]"
+TL-C3,respected,,event-loop-blocking was evaluated with no findings. [3 of 3 advisors]
+TL-C4,respected,,"The intentional 401, 409, and 403 exceptions are hidden, and the default records fact is the separate null-pointer failure. [3 of 3 advisors]"

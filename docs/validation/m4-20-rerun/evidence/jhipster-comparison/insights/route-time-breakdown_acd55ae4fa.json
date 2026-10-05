@@ -1,0 +1,102 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:acd55ae4fa",
+    "kind": "route-time-breakdown",
+    "subject": "GET /api/account",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/account`: warm median 5.2 ms over 13 requests; Handler, other work 65 %, Other filters 14 %, Response write 13 %. Median CPU 5.1 ms and 278 KB allocated per request. First request 12 ms (cold).",
+    "eligible": 13,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "Open the slowest exemplar request in Live Activity to see its timeline."
+    ],
+    "exemplarRequestIds": [
+      "c758b6122b1bb078",
+      "91d990b8bafcecb0",
+      "45b420a413f8f4dc"
+    ],
+    "evidenceRows": 8,
+    "limitations": [
+      "12 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "3.4",
+        "4 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "1.1",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "11",
+        "14 %",
+        "0.7"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.3",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "1.5",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "0.0",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "48",
+        "65 %",
+        "3.4"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "9.4",
+        "13 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

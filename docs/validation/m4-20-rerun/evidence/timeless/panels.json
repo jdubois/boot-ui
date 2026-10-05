@@ -1,0 +1,590 @@
+{
+  "platform": "quarkus",
+  "panels": [
+    {
+      "id": "overview",
+      "title": "Scorecard",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "health",
+      "title": "Health",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "http-sessions",
+      "title": "HTTP Sessions",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: this panel inventories servlet HTTP sessions via Spring Session's enumerable registry, but Quarkus is reactive/stateless by default and exposes no equivalent active-session registry to list (servlet sessions added via quarkus-undertow are not tracked), so it is not used here.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "metrics",
+      "title": "Metrics",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "live-memory",
+      "title": "Live Memory",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "jvm-tuning",
+      "title": "JVM Tuning",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "heap-dump",
+      "title": "Heap Dump",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "threads",
+      "title": "Threads",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "memory",
+      "title": "Memory",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "startup",
+      "title": "Startup Timeline",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: startup steps are eliminated by build-time augmentation, so there is no runtime per-step buffer (Spring's BufferingApplicationStartup) to record a timeline; only coarse boot totals exist, so this fine-grained step timeline is not used here.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "graalvm",
+      "title": "GraalVM",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: Quarkus builds native images and generates its own reachability metadata at build time, so this Spring-oriented native-image readiness advisor is not used here.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "config",
+      "title": "Configuration",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": true,
+      "readOnlyReason": "Runtime config overrides are not available on Quarkus (they target the Spring bootstrap property sources); properties remain fully visible."
+    },
+    {
+      "id": "profile-diff",
+      "title": "Profile Diff",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "loggers",
+      "title": "Loggers",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "beans",
+      "title": "Beans",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "conditions",
+      "title": "Conditions",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: Spring Conditions reports @ConditionalOn… auto-configuration match outcomes, but Quarkus performs build-time augmentation and exposes extensions/capabilities and profiles instead — there is no runtime positive/negative condition-match graph to display.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mappings",
+      "title": "Mappings",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "spring-security",
+      "title": "Spring Security",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: this panel reads Spring Security's filter chain and user store, which Quarkus does not run. Quarkus security (Elytron/OIDC, RBAC, TLS, CORS) is covered by the Quarkus-native Security advisor.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "security",
+      "title": "Security",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "security-logs",
+      "title": "Security Logs",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "pentesting",
+      "title": "Pentesting",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "scheduled",
+      "title": "Scheduled Tasks",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "database-connection-pools",
+      "title": "Database Connection Pools",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "postgresql",
+      "title": "PostgreSQL",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mysql",
+      "title": "MySQL",
+      "available": false,
+      "unavailableReason": "Not available: no supported MySQL JDBC datasource is declared. Add quarkus-jdbc-mysql and configure an active JDBC datasource with db-kind=mysql or a recognized MySQL JDBC URL. Unknown declarations are not verified; MariaDB Connector/J (db-kind=mariadb) and reactive-only clients are not supported.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "transactions",
+      "title": "Transactions",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "data",
+      "title": "Spring Data",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: this panel enumerates Spring Data repository beans, which Quarkus does not run; Quarkus models persistence with Panache/Hibernate ORM instead — see the Hibernate advisor for mapping insight.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "hibernate",
+      "title": "Hibernate",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "hibernate-statistics",
+      "title": "Hibernate Statistics",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "database-advisor",
+      "title": "Database",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "cache",
+      "title": "Cache",
+      "available": false,
+      "unavailableReason": "Not available: this application does not use Quarkus Cache. Add the quarkus-cache extension to enable the cache panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "traces",
+      "title": "Traces",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "log-tail",
+      "title": "Log Tail",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "exceptions",
+      "title": "Exceptions",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "http-exchanges",
+      "title": "HTTP Exchanges",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "http-probe",
+      "title": "HTTP Probe",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "vulnerabilities",
+      "title": "Vulnerabilities",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "devtools",
+      "title": "Spring DevTools",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: Spring Boot DevTools restart/LiveReload has no runtime analogue. Quarkus dev mode owns live reload through build-time augmentation, with no stable runtime API to read or trigger it, so this panel is not used here.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "dev-services",
+      "title": "Dev Services",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "copilot",
+      "title": "Copilot",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "claude-code",
+      "title": "Claude Code",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "flyway",
+      "title": "Flyway",
+      "available": false,
+      "unavailableReason": "Not available: this application does not use Flyway. Add the quarkus-flyway extension to enable the Flyway migrations panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "liquibase",
+      "title": "Liquibase",
+      "available": false,
+      "unavailableReason": "Not available: this application does not use Liquibase. Add the quarkus-liquibase extension and a change log to enable the Liquibase panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "github",
+      "title": "GitHub",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "rest-api",
+      "title": "REST API",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "spring",
+      "title": "Spring",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "crac",
+      "title": "CRaC",
+      "available": false,
+      "unavailableReason": "Not applicable on Quarkus: this CRaC checkpoint/restore advisor targets the Spring Boot startup model, and Quarkus's fast startup comes from build-time augmentation and native images instead, so it is not used here.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "sql-trace",
+      "title": "SQL Trace",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "rest-client-trace",
+      "title": "REST Client",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "ai",
+      "title": "AI Framework",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mcp-server",
+      "title": "MCP Server",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "cli",
+      "title": "Command Line",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "java-agent",
+      "title": "Java Agent",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "activity",
+      "title": "Live Activity",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "runtime-insights",
+      "title": "Runtime Insights",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "code-inventory",
+      "title": "Code Inventory",
+      "available": false,
+      "unavailableReason": "Requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "code-paths",
+      "title": "Code Paths",
+      "available": false,
+      "unavailableReason": "Requires the BootUI agent's code-paths sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "side-effects",
+      "title": "Side Effects",
+      "available": false,
+      "unavailableReason": "Requires the BootUI agent: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "email",
+      "title": "Email",
+      "available": false,
+      "unavailableReason": "Not available: this application does not use the Quarkus Mailer. Add the quarkus-mailer extension to enable the Email Viewer panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "kafka",
+      "title": "Kafka",
+      "available": false,
+      "unavailableReason": "Not available: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "rabbitmq",
+      "title": "RabbitMQ",
+      "available": false,
+      "unavailableReason": "Not available: this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "jms",
+      "title": "JMS",
+      "available": false,
+      "unavailableReason": "Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "fault-tolerance",
+      "title": "Fault Tolerance",
+      "available": false,
+      "unavailableReason": "Not available: this application has no fault-tolerance library. Add the quarkus-smallrye-fault-tolerance extension and annotate a method with @CircuitBreaker, @Retry, @Timeout, @Bulkhead or @RateLimit to enable the Fault Tolerance panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "websockets",
+      "title": "WebSockets",
+      "available": false,
+      "unavailableReason": "Not available: this application declares no WebSocket endpoint. Add the quarkus-websockets-next extension and a @WebSocket endpoint to enable the WebSockets panel.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    }
+  ]
+}

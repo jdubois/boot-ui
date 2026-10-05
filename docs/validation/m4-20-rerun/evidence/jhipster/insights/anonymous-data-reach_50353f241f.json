@@ -1,0 +1,145 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "anonymous-data-reach:50353f241f",
+    "kind": "anonymous-data-reach",
+    "subject": "POST /api/account/reset-password/init",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/account/reset-password/init` wrote table `jhi_user` in 13 of 13 successful anonymous requests.",
+    "eligible": 13,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "If `jhi_user` should only change for signed-in callers, check the rule that let these requests through.",
+      "Do not add authorization from this row alone: a public route or write, such as a catalog, a sign-up, or a contact form, is often intended."
+    ],
+    "exemplarRequestIds": [
+      "e632b4d0bee48337",
+      "7a0ff155315667cb",
+      "05c8656564bb4279"
+    ],
+    "evidenceRows": 13,
+    "limitations": [
+      "Tables are read from the statement text, so a write through a view, a procedure, or a trigger names what it called, not what it changed.",
+      "Only the target of each captured INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO statement text is counted, not affected rows or prepared-batch executions.",
+      "Statement batch previews retain at most five statements, each at most 256 characters before a truncation marker; omitted or truncated text can hide other write targets. Prepared batches retain one SQL text, not one per parameter set.",
+      "Only requests an authorization decision proved anonymous are counted; a request no rule checked is not."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Captured DML texts",
+    "Statement"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e632b4d0bee48337",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "7a0ff155315667cb",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "05c8656564bb4279",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "abded1869c4e7a57",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "0e13abd4b4909366",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "e85d836128a607e4",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "6e918f08a56ca85f",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "09a030061da15440",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "2caaf0b5a1274b88",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "46da3ae07f49d184",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "29b14a0960c8d142",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "a36ee72e3bb8df99",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    },
+    {
+      "cells": [
+        "62142a03307eab30",
+        "200",
+        "1",
+        "update jhi_user set activated=?,activation_key=?,email=?,first_name=?,image_url=?,lang_key=?,last_modified_by=?,last_modified_date=?,last_name=?,login=?,password_hash=?,reset_date=?,reset_key=? where id=?"
+      ]
+    }
+  ],
+  "truncated": 0
+}

@@ -1,0 +1,70 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:665a7fb2e8",
+    "kind": "route-time-breakdown",
+    "subject": "GET /vets",
+    "status": "OBSERVED",
+    "sentence": "`GET /vets`: warm median 0.5 ms over 183 requests; Other filters 41 %, Handler: VetController.showResourcesVetList 29 %, Response write 17 %. Median CPU 0.5 ms and 88 KB allocated per request.",
+    "eligible": 183,
+    "affected": 183,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in filters before the handler: check what they do per request."
+    ],
+    "exemplarRequestIds": [
+      "f6131a8f34cb6415",
+      "490cd5b631051b02",
+      "fc2f45852d5bd328"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold.",
+      "The handler's other work is split by method from the BootUI agent's code paths over 299 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "40",
+        "41 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: VetController.showResourcesVetList",
+        "28",
+        "29 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "13",
+        "13 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "16",
+        "17 %",
+        "0.1"
+      ]
+    }
+  ],
+  "truncated": 0
+}

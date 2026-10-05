@@ -1,0 +1,50 @@
+{
+  "state": "NOT_ATTACHED",
+  "reason": "This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence.",
+  "agentVersion": null,
+  "bootUiVersion": "1.19.0",
+  "protocol": null,
+  "expectedProtocol": 1,
+  "jdk": "26.0.1+8-34 (Oracle Corporation)",
+  "loadMode": null,
+  "jarPath": null,
+  "startupMicros": null,
+  "claim": null,
+  "heldBy": null,
+  "sensors": [],
+  "retransformation": null,
+  "counters": null,
+  "messages": [],
+  "warnings": [],
+  "setup": {
+    "jarPath": "<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar",
+    "jarFound": true,
+    "buildTool": "MAVEN",
+    "snippets": [
+      {
+        "id": "quarkus-dev",
+        "label": "Quarkus dev mode",
+        "language": "shell",
+        "text": "./mvnw quarkus:dev -Djvm.args=\"-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar\""
+      },
+      {
+        "id": "surefire",
+        "label": "Surefire and Failsafe",
+        "language": "xml",
+        "text": "<!-- In the maven-surefire-plugin and maven-failsafe-plugin configuration. @{argLine} keeps JaCoCo's\n     agent; without JaCoCo, declare an empty <argLine/> property. -->\n<configuration>\n    <argLine>@{argLine} -javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar</argLine>\n</configuration>"
+      },
+      {
+        "id": "intellij",
+        "label": "IntelliJ IDEA",
+        "language": "text",
+        "text": "-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar"
+      },
+      {
+        "id": "java-tool-options",
+        "label": "JAVA_TOOL_OPTIONS",
+        "language": "shell",
+        "text": "JAVA_TOOL_OPTIONS=\"-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar\" ./mvnw quarkus:dev"
+      }
+    ]
+  }
+}

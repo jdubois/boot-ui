@@ -1,0 +1,139 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:b8c5dcbaee",
+    "kind": "exception-hotspots",
+    "subject": "GET /api/labels/{id}",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/labels/{id}` recorded `ResponseStatusException` in 13 of 26 requests (13 occurrences).",
+    "eligible": 26,
+    "affected": 13,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "e13542618e0b83db",
+      "856302909d53b140",
+      "fe9505bd06c90fe7"
+    ],
+    "evidenceRows": 13,
+    "limitations": [],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "e13542618e0b83db",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "856302909d53b140",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "fe9505bd06c90fe7",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "af5adfc7d39e90aa",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "d41b673861df5a4e",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "f0c49cf2d78cfdf0",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "b6d489075693c5f1",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "8a5fe44be49106a5",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "6939f0525763be94",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "972a2ae49bd40913",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "23320a08fdbf04c1",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "bfaa9ef401e7cc06",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    },
+    {
+      "cells": [
+        "dda9fce46ea89f28",
+        "404",
+        "1",
+        "0e37bcfee963f9ec"
+      ]
+    }
+  ],
+  "truncated": 0
+}

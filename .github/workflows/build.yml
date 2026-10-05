@@ -506,15 +506,19 @@ jobs:
   # measurements run on the I/O route, which adds one outbound connect and one file read per request so the
   # side-effect sensors that hook them are exercised (M5-5b): every default sensor against no agent, nine pairs, on
   # every agent run; and, on pushes, manual runs, and pull requests labelled `agent` only, the default sensors against
-  # the same agent without network, the network sensor's own share, and against the same agent without blocking, the
+  # the same agent without network, the network sensor's own share; against the same agent without blocking, the
   # blocking sensor's own share (M5-5c), in fifteen pairs: it stays on by default only while its median increment is
-  # at most 3 % and the cumulative median at most 10 %, which a final step checks and fails the job otherwise.
+  # at most 3 % and the cumulative median at most 10 %, which a final step checks and fails the job otherwise; then the
+  # opt-in files sensor's own share (the default sensors plus files against the default sensors, fifteen pairs) and
+  # the cumulative overhead with it (nine pairs against no agent), which decide whether files can be on by default
+  # (D37): on with files' own median at most 3 % and the cumulative median at most 10 %. The first run measured 2.3 %
+  # and 10.6 %, so files stays opt-in.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -568,6 +572,25 @@ jobs:
           -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      - name: Measure the files sensor's share on the I/O route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-files-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with files on the I/O route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io-files
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
       - name: Publish the overhead report
         if: ${{ !cancelled() }}
         run: |
@@ -582,7 +605,7 @@ jobs:
           if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
             echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
           fi
-          for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab; do
+          for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab spring-mvc-agent-io-files; do
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")

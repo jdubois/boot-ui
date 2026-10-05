@@ -1,0 +1,590 @@
+{
+  "platform": "spring-boot",
+  "panels": [
+    {
+      "id": "overview",
+      "title": "Scorecard",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "health",
+      "title": "Health",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "http-sessions",
+      "title": "HTTP Sessions",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "metrics",
+      "title": "Metrics",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "live-memory",
+      "title": "Live Memory",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "jvm-tuning",
+      "title": "JVM Tuning",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "heap-dump",
+      "title": "Heap Dump",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "threads",
+      "title": "Threads",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "memory",
+      "title": "Memory",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "startup",
+      "title": "Startup Timeline",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "graalvm",
+      "title": "GraalVM",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "config",
+      "title": "Configuration",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "profile-diff",
+      "title": "Profile Diff",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "loggers",
+      "title": "Loggers",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "beans",
+      "title": "Beans",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "conditions",
+      "title": "Conditions",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mappings",
+      "title": "Mappings",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "spring-security",
+      "title": "Spring Security",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "security",
+      "title": "Security",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "security-logs",
+      "title": "Security Logs",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "pentesting",
+      "title": "Pentesting",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "scheduled",
+      "title": "Scheduled Tasks",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "database-connection-pools",
+      "title": "Database Connection Pools",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "postgresql",
+      "title": "PostgreSQL",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mysql",
+      "title": "MySQL",
+      "available": false,
+      "unavailableReason": "No MySQL JDBC datasource is configured. MariaDB requires a separate integration.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "transactions",
+      "title": "Transactions",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "data",
+      "title": "Spring Data",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "hibernate",
+      "title": "Hibernate",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "hibernate-statistics",
+      "title": "Hibernate Statistics",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "database-advisor",
+      "title": "Database",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "cache",
+      "title": "Cache",
+      "available": false,
+      "unavailableReason": "No CacheManager beans are available",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "traces",
+      "title": "Traces",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "log-tail",
+      "title": "Log Tail",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "exceptions",
+      "title": "Exceptions",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "http-exchanges",
+      "title": "HTTP Exchanges",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "http-probe",
+      "title": "HTTP Probe",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "vulnerabilities",
+      "title": "Vulnerabilities",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "devtools",
+      "title": "Spring DevTools",
+      "available": false,
+      "unavailableReason": "Spring Boot DevTools not on the classpath",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "dev-services",
+      "title": "Dev Services",
+      "available": false,
+      "unavailableReason": "Docker Compose or Testcontainers not on the classpath",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "copilot",
+      "title": "Copilot",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "claude-code",
+      "title": "Claude Code",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "flyway",
+      "title": "Flyway",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "liquibase",
+      "title": "Liquibase",
+      "available": false,
+      "unavailableReason": "Liquibase is not on the classpath",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "github",
+      "title": "GitHub",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "rest-api",
+      "title": "REST API",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "spring",
+      "title": "Spring",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "crac",
+      "title": "CRaC",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "sql-trace",
+      "title": "SQL Trace",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "rest-client-trace",
+      "title": "REST Client",
+      "available": false,
+      "unavailableReason": "No RestClient, RestTemplate, or WebClient has been instrumented yet.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "ai",
+      "title": "AI Framework",
+      "available": false,
+      "unavailableReason": "Spring AI or LangChain4j is not on the classpath",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mcp-server",
+      "title": "MCP Server",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "cli",
+      "title": "Command Line",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "java-agent",
+      "title": "Java Agent",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "activity",
+      "title": "Live Activity",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "runtime-insights",
+      "title": "Runtime Insights",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "code-inventory",
+      "title": "Code Inventory",
+      "available": false,
+      "unavailableReason": "Requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "code-paths",
+      "title": "Code Paths",
+      "available": false,
+      "unavailableReason": "Requires the BootUI agent's code-paths sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "side-effects",
+      "title": "Side Effects",
+      "available": false,
+      "unavailableReason": "Requires the BootUI agent: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "email",
+      "title": "Email",
+      "available": false,
+      "unavailableReason": "No JavaMailSender bean is available",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "kafka",
+      "title": "Kafka",
+      "available": false,
+      "unavailableReason": "No KafkaTemplate bean is available",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "rabbitmq",
+      "title": "RabbitMQ",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "jms",
+      "title": "JMS",
+      "available": false,
+      "unavailableReason": "No JmsTemplate bean is available",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "fault-tolerance",
+      "title": "Fault Tolerance",
+      "available": false,
+      "unavailableReason": "No supported fault tolerance library is present (Resilience4j or Spring Retry)",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "websockets",
+      "title": "WebSockets",
+      "available": false,
+      "unavailableReason": "No WebSocket support is on the classpath. Add spring-boot-starter-websocket (Spring MVC) or a reactive WebSocketHandler mapping (WebFlux).",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    }
+  ]
+}

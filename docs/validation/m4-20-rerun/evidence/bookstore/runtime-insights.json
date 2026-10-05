@@ -1,0 +1,1224 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "runId": "e9ee8586",
+    "firstEventAt": 1791186744001,
+    "lastEventAt": 1791186802277,
+    "retainedEvents": 10748,
+    "requests": 1683,
+    "evictedEvents": 0,
+    "droppedEvents": 0
+  },
+  "coverage": [
+    {
+      "source": "http",
+      "events": 1683,
+      "byRequestId": 1683,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 2518,
+      "byRequestId": 2070,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 448,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 1401,
+      "byRequestId": 1400,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "connection",
+      "events": 1545,
+      "byRequestId": 1523,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 22,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 86,
+      "byRequestId": 80,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 6,
+      "dropped": 0
+    },
+    {
+      "source": "security",
+      "events": 201,
+      "byRequestId": 201,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "authorization",
+      "events": 1722,
+      "byRequestId": 1722,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "messaging",
+      "events": 40,
+      "byRequestId": 40,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 86,
+      "byRequestId": 80,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 6,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 24,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 24,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 1441,
+      "byRequestId": 1441,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checks": [
+    {
+      "kind": "route-time-breakdown",
+      "title": "Route time breakdown",
+      "status": "EVALUATED",
+      "eligibleRequests": 1419,
+      "findings": 28,
+      "reason": null
+    },
+    {
+      "kind": "exception-hotspots",
+      "title": "Exception hotspots",
+      "status": "EVALUATED",
+      "eligibleRequests": 1683,
+      "findings": 3,
+      "reason": null
+    },
+    {
+      "kind": "errors-behind-2xx",
+      "title": "Errors behind 2xx responses",
+      "status": "EVALUATED",
+      "eligibleRequests": 962,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "repeated-selects",
+      "title": "Repeated SELECTs",
+      "status": "EVALUATED",
+      "eligibleRequests": 1683,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "connections-per-request",
+      "title": "Connections held together",
+      "status": "EVALUATED",
+      "eligibleRequests": 1683,
+      "findings": 1,
+      "reason": null
+    },
+    {
+      "kind": "safe-method-dml",
+      "title": "Writes in GET requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 1082,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "proxy-bypass",
+      "title": "Proxy bypass",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "anonymous-data-reach",
+      "title": "Anonymous writes",
+      "status": "EVALUATED",
+      "eligibleRequests": 362,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "anonymous-success-on-restricted-route",
+      "title": "Anonymous success on a restricted route",
+      "status": "EVALUATED",
+      "eligibleRequests": 562,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "split-transaction-writes",
+      "title": "Writes split across transactions",
+      "status": "EVALUATED",
+      "eligibleRequests": 320,
+      "findings": 1,
+      "reason": null
+    },
+    {
+      "kind": "transactional-listener-skipped",
+      "title": "Transactional listeners skipped",
+      "status": "UNAVAILABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events."
+    },
+    {
+      "kind": "after-commit-writes",
+      "title": "Writes after commit",
+      "status": "UNAVAILABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events."
+    },
+    {
+      "kind": "orm-auto-flush",
+      "title": "Hibernate auto-flushes",
+      "status": "EVALUATED",
+      "eligibleRequests": 1081,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "large-persistence-context",
+      "title": "Large persistence contexts",
+      "status": "EVALUATED",
+      "eligibleRequests": 1040,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "transaction-across-remote-call",
+      "title": "Transactions open across remote calls",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "lazy-sql-after-handler",
+      "title": "SQL after the handler returned",
+      "status": "EVALUATED",
+      "eligibleRequests": 1683,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "event-loop-blocking",
+      "title": "Blocking on event loops",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "Spring MVC serves requests on worker threads, not on event loops."
+    },
+    {
+      "kind": "gc-inflated-latency",
+      "title": "Pauses during slow requests",
+      "status": "EVALUATED",
+      "eligibleRequests": 1655,
+      "findings": 3,
+      "reason": null
+    },
+    {
+      "kind": "heap-growth-after-gc",
+      "title": "Heap growth after GC",
+      "status": "EVALUATED",
+      "eligibleRequests": 0,
+      "findings": 1,
+      "reason": null
+    },
+    {
+      "kind": "ai-usage-by-route",
+      "title": "AI usage by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 1683,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "framework-warnings-by-route",
+      "title": "Framework warnings by route",
+      "status": "EVALUATED",
+      "eligibleRequests": 1683,
+      "findings": 0,
+      "reason": null
+    },
+    {
+      "kind": "work-after-response",
+      "title": "Work after the response",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    },
+    {
+      "kind": "changed-code-not-executed",
+      "title": "Changed code not executed",
+      "status": "NOT_APPLICABLE",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+    }
+  ],
+  "observations": [
+    {
+      "id": "route-time-breakdown:e770b2ab0a",
+      "kind": "route-time-breakdown",
+      "subject": "GET /products",
+      "status": "OBSERVED",
+      "sentence": "`GET /products`: warm median 15 ms over 159 requests; Response write 54 %, Handler, other work 23 %, SQL 18 %. First request 63 ms (cold).",
+      "eligible": 159,
+      "affected": 159,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "e95934fed54c6786",
+        "230000f57b21c4db",
+        "a7604b7737813c33"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:eb33c83b20",
+      "kind": "route-time-breakdown",
+      "subject": "GET /orders",
+      "status": "OBSERVED",
+      "sentence": "`GET /orders`: warm median 6.9 ms over 80 requests; Response write 38 %, Handler, other work 31 %, SQL 18 %. First request 4.3 ms (cold).",
+      "eligible": 80,
+      "affected": 80,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization."
+      ],
+      "exemplarRequestIds": [
+        "5c7c86fca28d6ffd",
+        "f696d321fe165cd2",
+        "daa6cf62fcfa9fde"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+        "39 warm requests reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so they are left out of the phases."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:2a05f9407e",
+      "kind": "route-time-breakdown",
+      "subject": "POST /registration",
+      "status": "OBSERVED",
+      "sentence": "`POST /registration`: warm median 79 ms over 79 requests; Handler, other work 90 %, Response write 6 %, SQL 3 %. First request 30 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "5fdb93969fa96a8c",
+        "20c5b6ffae1c9ccc",
+        "2d39ea02203230d3"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:3bb9ca6432",
+      "kind": "route-time-breakdown",
+      "subject": "POST /orders",
+      "status": "OBSERVED",
+      "sentence": "`POST /orders`: warm median 10 ms over 79 requests; Handler, other work 35 %, SQL 31 %, Response write 25 %. First request 22 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "de81524c73fa67f6",
+        "c7be83d707ee3105",
+        "f695c23dde1c24ed"
+      ],
+      "evidenceRows": 8,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:7896713806",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/catalog/products/{code}",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/catalog/products/{code}`: warm median 10 ms over 79 requests; Handler, other work 42 %, Response write 31 %, SQL 22 %. First request 20 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "d290135d92901c4f",
+        "5296bb4727ba3fb3",
+        "e75494cb38a2b09d"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:8acc3d57a1",
+      "kind": "route-time-breakdown",
+      "subject": "GET /orders/{orderNumber}",
+      "status": "OBSERVED",
+      "sentence": "`GET /orders/{orderNumber}`: warm median 7.7 ms over 79 requests; Handler, other work 53 %, Response write 27 %, SQL 15 %. First request 25 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "1ceec20a171864b9",
+        "813462d2800fca39",
+        "608aed2baa9fe533"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:8c62fd766f",
+      "kind": "route-time-breakdown",
+      "subject": "POST /admin/catalog/products",
+      "status": "OBSERVED",
+      "sentence": "`POST /admin/catalog/products`: warm median 7.7 ms over 79 requests; Response write 39 %, Handler, other work 29 %, SQL 25 %. First request 15 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization."
+      ],
+      "exemplarRequestIds": [
+        "694ba243333911ab",
+        "d66207b461963715",
+        "748907decd4be4a0"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:a670e3c2bd",
+      "kind": "route-time-breakdown",
+      "subject": "POST /buy",
+      "status": "OBSERVED",
+      "sentence": "`POST /buy`: warm median 4.6 ms over 79 requests; Handler, other work 50 %, SQL 36 %, Other filters 7 %. First request 13 ms (cold).",
+      "eligible": 79,
+      "affected": 79,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "2f21d7ec5b25b3f7",
+        "ca0c0a3c632c42e3",
+        "bb31432f045bbe11"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "connections-per-request:925b771827",
+      "kind": "connections-per-request",
+      "subject": "POST /orders",
+      "status": "OBSERVED",
+      "sentence": "`POST /orders` held 3 connections of `dataSource` at the same time in 40 of 80 requests.",
+      "eligible": 80,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Check for a REQUIRES_NEW transaction, or a second call to the data source, inside an open transaction (Transactions).",
+        "With a pool of 10 connections and the observed maximum of 3 held per request, 5 concurrent requests can exhaust the pool while waiting for another connection. This is a hold-and-wait estimate, not proof of a deadlock (Database Connection Pools)."
+      ],
+      "exemplarRequestIds": [
+        "de81524c73fa67f6",
+        "f521fec9734297b9",
+        "ac6e2c7e13abc3e7"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "Counts logical connections the application obtained. The estimate assumes nested checkouts, not parallel independent work; other pool users can exhaust it at lower concurrency.",
+        "The estimate uses the pool's current maximum size."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "exception-hotspots:1897cf3c5e",
+      "kind": "exception-hotspots",
+      "subject": "GET /orders/{orderNumber}",
+      "status": "OBSERVED",
+      "sentence": "`GET /orders/{orderNumber}` recorded `OrderNotFoundException` in 40 of 80 requests (40 occurrences).",
+      "eligible": 80,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "cb4abbe294d32bae",
+        "1ceec20a171864b9",
+        "d92efed5804f7e06"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "exception-hotspots:ca222f3c88",
+      "kind": "exception-hotspots",
+      "subject": "GET /admin/catalog/products/{code}",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/catalog/products/{code}` recorded `ProductNotFoundException` in 40 of 80 requests (40 occurrences).",
+      "eligible": 80,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "5cfd74371aa59221",
+        "67975d63323878c5",
+        "ce381602db3e144a"
+      ],
+      "evidenceRows": 20,
+      "limitations": [],
+      "listed": false,
+      "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+    },
+    {
+      "id": "route-time-breakdown:18d54435ef",
+      "kind": "route-time-breakdown",
+      "subject": "GET /login",
+      "status": "OBSERVED",
+      "sentence": "`GET /login`: warm median 5.1 ms over 40 requests; Response write 90 %, Other filters 5 %, Handler, other work 4 %. First request 588 ms (cold).",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "30aefdfa5233641c",
+        "5e1805eb9c5e8a00",
+        "d5d1536d70ee2be9"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:3e9e4cc7c2",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/orders",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/orders`: warm median 19 ms over 40 requests; Response write 68 %, Handler, other work 19 %, SQL 11 %. First request 1.8 ms (cold).",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "11cf608bc57477f0",
+        "b232d0339fc55254",
+        "93d1248e50664c1e"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+        "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:4464bd2cc5",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/inventory",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/inventory`: warm median 18 ms over 40 requests; Response write 61 %, SQL 19 %, Handler, other work 17 %. First request 0.8 ms (cold).",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "e87a05a1fe346de2",
+        "0b2be8afbea1e5ea",
+        "25ec2330eada7435"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+        "39 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they reject a request, so they are left out of the phases."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:7d31e7fc8a",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/catalog/products",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/catalog/products`: warm median 28 ms over 40 requests; Response write 77 %, Handler, other work 12 %, SQL 10 %. First request 2.0 ms (cold).",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "2f27fbf9f9180c12",
+        "db364dfdc9a7b714",
+        "73963370d794ace6"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR.",
+        "39 warm requests reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so they are left out of the phases."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "split-transaction-writes:3bb9ca6432",
+      "kind": "split-transaction-writes",
+      "subject": "POST /orders",
+      "status": "OBSERVED",
+      "sentence": "`POST /orders` committed its writes in up to 8 independent units in 40 of 40 requests that wrote: if these writes must succeed together, one may persist while another fails.",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "If these writes must succeed together, run them in one transaction.",
+        "If one is meant to commit alone, such as an audit or outbox write, check that a failure after it leaves consistent data."
+      ],
+      "exemplarRequestIds": [
+        "de81524c73fa67f6",
+        "f521fec9734297b9",
+        "ac6e2c7e13abc3e7"
+      ],
+      "evidenceRows": 20,
+      "limitations": [
+        "A unit is a transaction that began its own physical transaction or a statement run outside every recorded transaction, which autocommits; a manual JDBC transaction is not recognized."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:158202b5f5",
+      "kind": "route-time-breakdown",
+      "subject": "POST /admin/catalog/products/{code}/delete",
+      "status": "OBSERVED",
+      "sentence": "`POST /admin/catalog/products/{code}/delete`: warm median 6.8 ms over 39 requests; Handler, other work 45 %, SQL 37 %, Hibernate flushes 6 %. First request 12 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "8ad26bdaff28071d",
+        "4fcd8737afd29469",
+        "8110488da31c1e37"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:305355c7b2",
+      "kind": "route-time-breakdown",
+      "subject": "GET /registration-success",
+      "status": "OBSERVED",
+      "sentence": "`GET /registration-success`: warm median 4.8 ms over 39 requests; Response write 90 %, Other filters 5 %, Handler, other work 4 %. First request 14 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "d6324f387138b9c1",
+        "6d16bd8afd5b4db6",
+        "a1de19b65b759d95"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:33fbaf337b",
+      "kind": "route-time-breakdown",
+      "subject": "POST /admin/orders/{orderNumber}/status",
+      "status": "OBSERVED",
+      "sentence": "`POST /admin/orders/{orderNumber}/status`: warm median 7.5 ms over 39 requests; Handler, other work 45 %, SQL 38 %, Hibernate flushes 6 %. First request 12 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "d762b35b4e0ac07b",
+        "962b9ce14771e1f5",
+        "75743b208d595ad5"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:445729a5b8",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/orders/{orderNumber}",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/orders/{orderNumber}`: warm median 12 ms over 39 requests; Response write 55 %, Handler, other work 23 %, SQL 18 %. First request 20 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "f410a84d7c21c9c3",
+        "4f3efea490796cbc",
+        "ccf301910957f5d1"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:508efd09c7",
+      "kind": "route-time-breakdown",
+      "subject": "GET /registration",
+      "status": "OBSERVED",
+      "sentence": "`GET /registration`: warm median 5.4 ms over 39 requests; Response write 92 %, Handler, other work 4 %, Other filters 4 %. First request 22 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "0e0827ccb33437bc",
+        "d9d2045bb0265562",
+        "c976efd0449ccfb8"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:5fa7dbe1e9",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/catalog/products/{code}/delete",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/catalog/products/{code}/delete`: warm median 11 ms over 39 requests; Response write 60 %, Handler, other work 23 %, SQL 12 %. First request 20 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "8f0fe2655e11880b",
+        "60b6547136fbd8f1",
+        "0278c59bd580fe15"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:6981fc53af",
+      "kind": "route-time-breakdown",
+      "subject": "POST /admin/inventory/{productCode}",
+      "status": "OBSERVED",
+      "sentence": "`POST /admin/inventory/{productCode}`: warm median 7.1 ms over 39 requests; Handler, other work 43 %, SQL 42 %, Other filters 5 %. First request 10 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "0fe6cfb7129df4d1",
+        "76836d989d4800ab",
+        "e8cc1d9119064e45"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:773f8ff417",
+      "kind": "route-time-breakdown",
+      "subject": "GET /",
+      "status": "OBSERVED",
+      "sentence": "`GET /`: warm median 1.1 ms over 39 requests; Other filters 38 %, Handler, other work 25 %, Response write 25 %. First request 3.4 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in filters before the handler: check what they do per request."
+      ],
+      "exemplarRequestIds": [
+        "0344b1b91dee02e8",
+        "ee7566c1df3554ef",
+        "e5904376e8b38ced"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:94643f31f4",
+      "kind": "route-time-breakdown",
+      "subject": "POST /admin/catalog/products/{code}/edit",
+      "status": "OBSERVED",
+      "sentence": "`POST /admin/catalog/products/{code}/edit`: warm median 6.8 ms over 39 requests; Handler, other work 48 %, SQL 35 %, Other filters 6 %. First request 16 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+      ],
+      "exemplarRequestIds": [
+        "130cbf722d5e7658",
+        "b6c8017ad4512cec",
+        "c832486e8694695a"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:a1fe781b20",
+      "kind": "route-time-breakdown",
+      "subject": "POST /admin/catalog/products/{code}/restore",
+      "status": "OBSERVED",
+      "sentence": "`POST /admin/catalog/products/{code}/restore`: warm median 6.4 ms over 39 requests; SQL 45 %, Handler, other work 39 %, Hibernate flushes 5 %. First request 9.7 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs."
+      ],
+      "exemplarRequestIds": [
+        "8632dbc0203484ab",
+        "be7403a9abdfb67d",
+        "ddf632988acdf0c8"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:a2ffb57e2c",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/catalog/products/new",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/catalog/products/new`: warm median 6.7 ms over 39 requests; Response write 89 %, Handler, other work 6 %, Other filters 4 %. First request 16 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "ff5e223588279ff9",
+        "a519dff32d16326e",
+        "1bd67b9b74199ffc"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:a86ebcf72a",
+      "kind": "route-time-breakdown",
+      "subject": "POST /update-cart",
+      "status": "OBSERVED",
+      "sentence": "`POST /update-cart`: warm median 2.1 ms over 39 requests; Response write 59 %, Handler, other work 22 %, Other filters 16 %. First request 11 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "db2eef3035ad5dab",
+        "c7c6e9c57a5e44e8",
+        "e17e77ddca8b9681"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:aa5948598d",
+      "kind": "route-time-breakdown",
+      "subject": "GET /cart",
+      "status": "OBSERVED",
+      "sentence": "`GET /cart`: warm median 4.9 ms over 39 requests; Response write 90 %, Other filters 4 %, Handler, other work 4 %. First request 17 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "b231187b76ef1d03",
+        "e7fc172dfa70200f",
+        "716290647c176106"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "route-time-breakdown:b102c398ca",
+      "kind": "route-time-breakdown",
+      "subject": "GET /admin/catalog/products/{code}/edit",
+      "status": "OBSERVED",
+      "sentence": "`GET /admin/catalog/products/{code}/edit`: warm median 10 ms over 39 requests; Response write 55 %, Handler, other work 22 %, SQL 19 %. First request 20 ms (cold).",
+      "eligible": 39,
+      "affected": 39,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Most of the time is writing the response: check its size and any lazy loading during serialization.",
+        "Open the slowest exemplar request in Live Activity to see its timeline."
+      ],
+      "exemplarRequestIds": [
+        "2abd009659800f7f",
+        "fe6247fff02823bc",
+        "8ac3cecb8e6de844"
+      ],
+      "evidenceRows": 7,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+    },
+    {
+      "id": "gc-inflated-latency:7d31e7fc8a",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /admin/catalog/products",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 3 of `GET /admin/catalog/products`'s 8 slowest requests (38 %), against 1 % of its other 71 requests; those pauses total 33 ms.",
+      "eligible": 8,
+      "affected": 3,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "74739fd09490a497",
+        "a646a7c2968c90fa",
+        "d6431d67cda94fa3"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:e770b2ab0a",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /products",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 3 of `GET /products`'s 16 slowest requests (19 %), against 0 % of its other 143 requests; those pauses total 42 ms.",
+      "eligible": 16,
+      "affected": 3,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "230000f57b21c4db",
+        "8a0b468a1664c970",
+        "0086dc5b99415975"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "gc-inflated-latency:3e9e4cc7c2",
+      "kind": "gc-inflated-latency",
+      "subject": "GET /admin/orders",
+      "status": "OBSERVED",
+      "sentence": "A stop-the-world pause completed during 2 of `GET /admin/orders`'s 8 slowest requests (25 %), against 0 % of its other 71 requests; those pauses total 20 ms.",
+      "eligible": 8,
+      "affected": 2,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+        "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+      ],
+      "exemplarRequestIds": [
+        "11cf608bc57477f0",
+        "93d1248e50664c1e"
+      ],
+      "evidenceRows": 2,
+      "limitations": [
+        "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    },
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "subject": "Behind 4xx responses",
+      "status": "OBSERVED",
+      "sentence": "2 exception groups on 2 routes were recorded only behind 4xx responses: 80 occurrences in 80 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+        "Open the exception group to read its message and stack trace."
+      ],
+      "exemplarRequestIds": [
+        "cb4abbe294d32bae",
+        "5cfd74371aa59221"
+      ],
+      "evidenceRows": 2,
+      "limitations": [
+        "A group also seen behind a 5xx response, a redirect, or a 2xx response, or not observed in the previous run, is not counted here."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:0f81055bc7",
+      "kind": "route-time-breakdown",
+      "subject": "POST /login",
+      "status": "INSUFFICIENT",
+      "sentence": "`POST /login`: warm median 80 ms over 40 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. Recorded calls: SQL 2 %, Connection wait 0 %. First request 270 ms (cold).",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+      ],
+      "exemplarRequestIds": [
+        "76e1d4d1f1ba85ac",
+        "a473118708a2c767",
+        "54ba4b30826829d7"
+      ],
+      "evidenceRows": 4,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": true,
+      "unlistedReason": null
+    },
+    {
+      "id": "route-time-breakdown:f933673de1",
+      "kind": "route-time-breakdown",
+      "subject": "GET /actuator/health",
+      "status": "INSUFFICIENT",
+      "sentence": "`GET /actuator/health`: warm median 2.7 ms over 40 requests; all of them reached no handler BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC), so the time is not split into phases. Recorded calls: Connection wait 0 %. First request 163 ms (cold).",
+      "eligible": 40,
+      "affected": 40,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls."
+      ],
+      "exemplarRequestIds": [
+        "f808c07429e72366",
+        "c33f14d37e3b0b25",
+        "6cc499fdddd9fb46"
+      ],
+      "evidenceRows": 2,
+      "limitations": [
+        "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+      ],
+      "listed": false,
+      "unlistedReason": "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, and its warm median is under 20 ms."
+    },
+    {
+      "id": "heap-growth-after-gc:0a8f06cc5f",
+      "kind": "heap-growth-after-gc",
+      "subject": "Heap",
+      "status": "INSUFFICIENT",
+      "sentence": "1 collection reclaimed old-generation space in this run; a trend needs 3.",
+      "eligible": 0,
+      "affected": 0,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Keep the application running under its usual load, then refresh."
+      ],
+      "exemplarRequestIds": [],
+      "evidenceRows": 1,
+      "limitations": [
+        "Counts the collections the journal still retains; older ones were evicted with their events.",
+        "Young collections only promote into the old generation, so they are not counted."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    }
+  ],
+  "limitations": [
+    "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events."
+  ],
+  "notExercised": [
+    "ANY /admin"
+  ],
+  "notExercisedOmitted": 0
+}

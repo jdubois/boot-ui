@@ -1,0 +1,387 @@
+{
+  "state": "ARMED",
+  "reason": null,
+  "agentVersion": "1.19.0",
+  "bootUiVersion": "1.19.0",
+  "protocol": 1,
+  "expectedProtocol": 1,
+  "jdk": "26.0.1+8-34 (Oracle Corporation)",
+  "loadMode": "javaagent",
+  "jarPath": "<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar",
+  "startupMicros": 19523,
+  "claim": {
+    "generation": 1,
+    "owner": "spring-modular-monolith@703cbd97",
+    "application": "spring-modular-monolith",
+    "mode": "dev",
+    "armedAt": 1791187008517,
+    "packages": [
+      "com.sivalabs.bookstore"
+    ],
+    "armed": true,
+    "abandoned": false
+  },
+  "heldBy": null,
+  "sensors": [
+    {
+      "id": "executors",
+      "state": "installed",
+      "active": true,
+      "instrumentedTypes": 21,
+      "failures": [],
+      "durationMillis": 731,
+      "installMillis": 681,
+      "selfTestMillis": 50,
+      "retransformMillis": 681,
+      "selfTestPassed": true,
+      "selfTestError": null,
+      "selfTestSteps": {
+        "thread-pool": "ok",
+        "scheduled": "ok",
+        "fork-join": "ok",
+        "delayed": "ok",
+        "fork": "ok"
+      },
+      "hooks": [
+        {
+          "id": "ThreadPoolExecutor.addWorker",
+          "kind": "key",
+          "type": "java.util.concurrent.ThreadPoolExecutor",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 2
+        },
+        {
+          "id": "ThreadPoolExecutor.queue",
+          "kind": "key",
+          "type": "java.util.concurrent.ThreadPoolExecutor",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 12
+        },
+        {
+          "id": "ScheduledThreadPoolExecutor",
+          "kind": "key",
+          "type": "java.util.concurrent.ScheduledThreadPoolExecutor",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "ForkJoinPool",
+          "kind": "key",
+          "type": "java.util.concurrent.ForkJoinPool",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "ForkJoinTask adapters",
+          "kind": "key",
+          "type": "java.util.concurrent.ForkJoinTask$RunnableExecuteAction",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "ForkJoinTask.fork",
+          "kind": "key",
+          "type": "java.util.concurrent.ForkJoinTask",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "DelayScheduler",
+          "kind": "key",
+          "type": "java.util.concurrent.DelayScheduler$ScheduledForkJoinTask",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "CompletableFuture.ThreadPerTaskExecutor",
+          "kind": "key",
+          "type": "java.util.concurrent.CompletableFuture$ThreadPerTaskExecutor",
+          "present": false,
+          "transformed": false,
+          "selfTest": "unsupported",
+          "fired": 0
+        },
+        {
+          "id": "ThreadPoolExecutor.runWorker",
+          "kind": "apply",
+          "type": "java.util.concurrent.ThreadPoolExecutor",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 14
+        },
+        {
+          "id": "ForkJoinTask.doExec",
+          "kind": "apply",
+          "type": "java.util.concurrent.ForkJoinTask",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "CompletableFuture.AsyncSupply",
+          "kind": "apply",
+          "type": "java.util.concurrent.CompletableFuture$AsyncSupply",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        },
+        {
+          "id": "CompletableFuture.AsyncRun",
+          "kind": "apply",
+          "type": "java.util.concurrent.CompletableFuture$AsyncRun",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        }
+      ],
+      "failedTypes": 0,
+      "skippedTypes": 0,
+      "transformedTypes": 21,
+      "retransformedTypes": 11,
+      "executors": {
+        "pending": 0,
+        "neverApplied": 0,
+        "ambiguous": 0,
+        "stale": 0,
+        "refused": 0,
+        "virtualSkipped": 6432,
+        "periodicSkipped": 19,
+        "skippedTasks": 0,
+        "skippedThreads": 0,
+        "failures": 0,
+        "disabledReason": null,
+        "asyncApplies": true,
+        "libraryThreadsSkipped": null,
+        "poolWorkersSkipped": null
+      },
+      "inventory": null,
+      "codePaths": null
+    },
+    {
+      "id": "inventory",
+      "state": "installed",
+      "active": true,
+      "instrumentedTypes": 104,
+      "failures": [],
+      "durationMillis": 194,
+      "installMillis": null,
+      "selfTestMillis": null,
+      "retransformMillis": 71,
+      "selfTestPassed": true,
+      "selfTestError": null,
+      "selfTestSteps": {
+        "probe": "ok"
+      },
+      "hooks": [
+        {
+          "id": "method entry",
+          "kind": "record",
+          "type": "(claimed packages)",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 256
+        },
+        {
+          "id": "class load",
+          "kind": "record",
+          "type": "(every class)",
+          "present": true,
+          "transformed": true,
+          "selfTest": "not-exercised",
+          "fired": 16070
+        }
+      ],
+      "failedTypes": 0,
+      "skippedTypes": 0,
+      "transformedTypes": 104,
+      "retransformedTypes": 28,
+      "executors": null,
+      "inventory": {
+        "methodsTracked": 462,
+        "executedThisRun": 256,
+        "methodOverflow": 0,
+        "transformFailures": 0,
+        "codeSources": 141,
+        "ringDropped": 0,
+        "ringLost": 0,
+        "internOverflow": 0,
+        "disabledReason": null
+      },
+      "codePaths": null
+    },
+    {
+      "id": "code-paths",
+      "state": "installed",
+      "active": true,
+      "instrumentedTypes": 27,
+      "failures": [],
+      "durationMillis": 194,
+      "installMillis": null,
+      "selfTestMillis": null,
+      "retransformMillis": 0,
+      "selfTestPassed": true,
+      "selfTestError": null,
+      "selfTestSteps": {
+        "probe": "ok"
+      },
+      "hooks": [
+        {
+          "id": "bean methods",
+          "kind": "record",
+          "type": "(bean classes)",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 1121
+        }
+      ],
+      "failedTypes": 0,
+      "skippedTypes": 0,
+      "transformedTypes": 0,
+      "retransformedTypes": 0,
+      "executors": null,
+      "inventory": null,
+      "codePaths": {
+        "fragmentsFlushed": 1121,
+        "fragmentsDropped": 0,
+        "queueDropped": 0,
+        "callsDropped": 0,
+        "queueBytes": 0,
+        "excludedMethods": 0,
+        "errors": 0,
+        "disabledReason": null
+      }
+    },
+    {
+      "id": "processes",
+      "state": "installed",
+      "active": true,
+      "instrumentedTypes": 1,
+      "failures": [],
+      "durationMillis": 194,
+      "installMillis": 194,
+      "selfTestMillis": 0,
+      "retransformMillis": 194,
+      "selfTestPassed": true,
+      "selfTestError": null,
+      "selfTestSteps": {
+        "processes": "ok"
+      },
+      "hooks": [
+        {
+          "id": "ProcessBuilder.start",
+          "kind": "record",
+          "type": "java.lang.ProcessBuilder",
+          "present": true,
+          "transformed": true,
+          "selfTest": "passed",
+          "fired": 0
+        }
+      ],
+      "failedTypes": 0,
+      "skippedTypes": 0,
+      "transformedTypes": 1,
+      "retransformedTypes": 1,
+      "executors": {
+        "pending": 0,
+        "neverApplied": 0,
+        "ambiguous": 0,
+        "stale": 0,
+        "refused": 0,
+        "virtualSkipped": 0,
+        "periodicSkipped": 0,
+        "skippedTasks": 0,
+        "skippedThreads": 0,
+        "failures": 0,
+        "disabledReason": null,
+        "asyncApplies": false,
+        "libraryThreadsSkipped": null,
+        "poolWorkersSkipped": null
+      },
+      "inventory": null,
+      "codePaths": null
+    }
+  ],
+  "retransformation": {
+    "state": "installed",
+    "transformed": 126,
+    "retransformed": 40,
+    "failed": 0,
+    "skipped": 0,
+    "durationMillis": 946,
+    "running": false
+  },
+  "counters": {
+    "claims": 1,
+    "takeovers": 0,
+    "holds": 0,
+    "staleTokens": 0,
+    "errors": 0
+  },
+  "messages": [
+    "BootUI agent 1.19.0 attached (javaagent); dormant until BootUI claims it"
+  ],
+  "warnings": [],
+  "setup": {
+    "jarPath": "<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar",
+    "jarFound": true,
+    "buildTool": "MAVEN",
+    "snippets": [
+      {
+        "id": "maven-plugin",
+        "label": "Spring Boot Maven plugin",
+        "language": "xml",
+        "text": "<plugin>\n    <groupId>org.springframework.boot</groupId>\n    <artifactId>spring-boot-maven-plugin</artifactId>\n    <configuration>\n        <agents>\n            <agent><rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar</agent>\n        </agents>\n    </configuration>\n</plugin>"
+      },
+      {
+        "id": "gradle-kotlin",
+        "label": "Gradle (Kotlin DSL)",
+        "language": "kotlin",
+        "text": "tasks.bootRun {\n    jvmArgs(\"-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar\")\n}"
+      },
+      {
+        "id": "gradle-groovy",
+        "label": "Gradle (Groovy DSL)",
+        "language": "groovy",
+        "text": "bootRun {\n    jvmArgs('-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar')\n}"
+      },
+      {
+        "id": "surefire",
+        "label": "Surefire and Failsafe",
+        "language": "xml",
+        "text": "<!-- In the maven-surefire-plugin and maven-failsafe-plugin configuration. @{argLine} keeps JaCoCo's\n     agent; without JaCoCo, declare an empty <argLine/> property. -->\n<configuration>\n    <argLine>@{argLine} -javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar</argLine>\n</configuration>"
+      },
+      {
+        "id": "intellij",
+        "label": "IntelliJ IDEA",
+        "language": "text",
+        "text": "-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar"
+      },
+      {
+        "id": "java-tool-options",
+        "label": "JAVA_TOOL_OPTIONS",
+        "language": "shell",
+        "text": "JAVA_TOOL_OPTIONS=\"-javaagent:<rerun>/validation/.work/m2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar\" ./mvnw spring-boot:run"
+      }
+    ]
+  }
+}

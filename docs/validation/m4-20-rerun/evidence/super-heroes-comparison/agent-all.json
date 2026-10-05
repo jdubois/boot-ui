@@ -1,0 +1,324 @@
+{
+  "available": true,
+  "query": "all",
+  "requests": 396,
+  "coverage": [
+    {
+      "byExecutionId": 0,
+      "byRequestId": 396,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 396,
+      "source": "http",
+      "unlinked": 0
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 423,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 423,
+      "source": "sql",
+      "unlinked": 0
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 42,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 42,
+      "source": "exception",
+      "unlinked": 0
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 0,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 1,
+      "source": "lifecycle",
+      "unlinked": 1
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 0,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 9,
+      "source": "gc",
+      "unlinked": 9
+    },
+    {
+      "byExecutionId": 0,
+      "byRequestId": 338,
+      "byTraceId": 0,
+      "dropped": 0,
+      "events": 338,
+      "source": "orm",
+      "unlinked": 0
+    }
+  ],
+  "checksNotRun": [
+    "proxy-bypass: NOT_APPLICABLE, Quarkus: ArC intercepts a call from inside a bean, so a self-invocation keeps its interceptors.",
+    "anonymous-data-reach: NOT_APPLICABLE, The security-logs panel, whose evidence this reads, is not available in this application: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events.",
+    "anonymous-success-on-restricted-route: NOT_APPLICABLE, The security-logs panel, whose evidence this reads, is not available in this application: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events.",
+    "split-transaction-writes: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "transactional-listener-skipped: NOT_APPLICABLE, Quarkus: CDI notifies a transactional observer at once when no transaction is active, so none is skipped.",
+    "after-commit-writes: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "transaction-across-remote-call: NOT_APPLICABLE, The transactions panel, whose evidence this reads, is not available in this application: transaction boundary capture relies on Spring Framework's TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans. Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary listener without far more invasive instrumentation, so this panel is not used here.",
+    "lazy-sql-after-handler: NOT_APPLICABLE, Quarkus closes the session with the transaction, so a lazy load after the handler fails with LazyInitializationException, which Exception hotspots reports.",
+    "work-after-response: NOT_APPLICABLE, This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "changed-code-not-executed: NOT_APPLICABLE, This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+  ],
+  "observations": [
+    {
+      "id": "exception-hotspots:64b0c2ab69",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "Behind 4xx responses",
+      "sentence": "2 exception groups on 2 routes were recorded only behind 4xx responses: 42 occurrences in 42 requests.",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "a0831a785172b569",
+      "verify": "Check that each of these 4xx responses is the one the caller should get, such as 400 for invalid input; Show all routes lists each group with its requests.",
+      "listed": true
+    },
+    {
+      "id": "route-time-breakdown:025ed23823",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "GET /api/villains/{id}",
+      "sentence": "`GET /api/villains/{id}`: warm median 3.7 ms over 83 requests; Handler, other work 41 %, SQL 36 %, Other filters 20 %. First request 12 ms (cold).",
+      "eligible": 83,
+      "affected": 83,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "6869b8fc1391e61b",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:27164da4b1",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "GET /api/villains",
+      "sentence": "`GET /api/villains`: warm median 5.2 ms over 62 requests; SQL 44 %, Handler, other work 37 %, Other filters 12 %. First request 48 ms (cold).",
+      "eligible": 62,
+      "affected": 62,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "b7a8a050a03bd8cf",
+      "verify": "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:773f8ff417",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "GET /",
+      "sentence": "`GET /`: warm median 7.4 ms over 43 requests; Handler, other work 54 %, SQL 33 %, Response write 8 %. First request 223 ms (cold).",
+      "eligible": 43,
+      "affected": 43,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "ab167ec82c4f5e9e",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:3904410b7b",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "PUT /api/villains/{id}",
+      "sentence": "`PUT /api/villains/{id}`: warm median 5.8 ms over 41 requests; Handler, other work 56 %, SQL 37 %, Hibernate flushes 5 %. First request 12 ms (cold).",
+      "eligible": 41,
+      "affected": 41,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "34d87d1a9f17e324",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:b9a41f0c02",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "PATCH /api/villains/{id}",
+      "sentence": "`PATCH /api/villains/{id}`: warm median 5.7 ms over 41 requests; Handler, other work 50 %, SQL 41 %, Hibernate flushes 4 %. First request 8.9 ms (cold).",
+      "eligible": 41,
+      "affected": 41,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "a9bf362f668d51a8",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:d9c348a22a",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "DELETE /api/villains/{id}",
+      "sentence": "`DELETE /api/villains/{id}`: warm median 5.1 ms over 41 requests; Handler, other work 54 %, SQL 39 %, Hibernate flushes 4 %. First request 13 ms (cold).",
+      "eligible": 41,
+      "affected": 41,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "476f95c0904c18c0",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:de95325264",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "POST /api/villains",
+      "sentence": "`POST /api/villains`: warm median 3.7 ms over 41 requests; Handler, other work 62 %, SQL 21 %, Hibernate flushes 10 %. First request 65 ms (cold).",
+      "eligible": 41,
+      "affected": 41,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "32bea119cbae79ae",
+      "verify": "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:653fe5bc87",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /api/villains/{id}",
+      "sentence": "`GET /api/villains/{id}` recorded `NotFoundException` in 21 of 84 requests (21 occurrences).",
+      "eligible": 84,
+      "affected": 21,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "a0831a785172b569",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "exception-hotspots:e365eb8de1",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "POST /api/villains",
+      "sentence": "`POST /api/villains` recorded `ResteasyReactiveViolationException` in 21 of 42 requests (21 occurrences).",
+      "eligible": 42,
+      "affected": 21,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "1d20b7b41ba113eb",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:f85ec4f404",
+      "kind": "route-time-breakdown",
+      "status": "OBSERVED",
+      "subject": "GET /api/villains/random",
+      "sentence": "`GET /api/villains/random`: warm median 6.6 ms over 20 requests; SQL 46 %, Handler, other work 41 %, Other filters 10 %. First request 21 ms (cold).",
+      "eligible": 20,
+      "affected": 20,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "6e659c4ab894e0f6",
+      "verify": "Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:2421f79db5",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /q/openapi",
+      "sentence": "`GET /q/openapi`: warm median 0.2 ms over 5 requests; all of them reached no handler BootUI marks (a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP security policy answered), so the time is not split into phases. First request 1.4 ms (cold).",
+      "eligible": 5,
+      "affected": 5,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "c348d17e92f88d2d",
+      "verify": "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:b0cef9c91f",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /q/health",
+      "sentence": "`GET /q/health`: warm median 2.2 ms over 5 requests; all of them reached no handler BootUI marks (a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP security policy answered), so the time is not split into phases. First request 3.0 ms (cold).",
+      "eligible": 5,
+      "affected": 5,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "c804906912600b4d",
+      "verify": "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:b085ce3e00",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /q/health/live",
+      "sentence": "`GET /q/health/live`: warm median 1.2 ms over 1 request; all of them reached no handler BootUI marks (a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP security policy answered), so the time is not split into phases. First request 17 ms (cold).",
+      "eligible": 1,
+      "affected": 1,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "50a5cd684604621e",
+      "verify": "Open the slowest exemplar request in Live Activity to see its timeline and recorded calls.",
+      "listed": false
+    },
+    {
+      "id": "heap-growth-after-gc:0a8f06cc5f",
+      "kind": "heap-growth-after-gc",
+      "status": "INSUFFICIENT",
+      "subject": "Heap",
+      "sentence": "1 collection reclaimed old-generation space in this run; a trend needs 3.",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "verify": "Keep the application running under its usual load, then refresh.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:867cd3670a",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /q/health/ready",
+      "sentence": "`GET /q/health/ready`: 0 of 5 warm requests needed. First request 2.0 ms (cold).",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "a32af1b5536b3cd4",
+      "verify": "Exercise the route a few more times to read where its time goes.",
+      "listed": false
+    },
+    {
+      "id": "route-time-breakdown:f541cb85a4",
+      "kind": "route-time-breakdown",
+      "status": "INSUFFICIENT",
+      "subject": "GET /api/villains/hello",
+      "sentence": "`GET /api/villains/hello`: 0 of 5 warm requests needed. First request 1.6 ms (cold).",
+      "eligible": 0,
+      "affected": 0,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "5432eea006e7b218",
+      "verify": "Exercise the route a few more times to read where its time goes.",
+      "listed": false
+    }
+  ],
+  "omitted": 0,
+  "notExercised": [
+    "DELETE /api/villains",
+    "PUT /api/villains"
+  ],
+  "notExercisedOmitted": 0,
+  "next": [
+    {
+      "command": "bootui exceptions list",
+      "tool": "get_exceptions",
+      "why": "the exception group ids, for get_exception_detail"
+    },
+    {
+      "arguments": {
+        "id": "exception-hotspots:64b0c2ab69"
+      },
+      "command": "bootui insights show exception-hotspots:64b0c2ab69",
+      "tool": "get_runtime_insight",
+      "why": "the evidence rows behind this exception-hotspots observation, call sites included"
+    },
+    {
+      "arguments": {
+        "id": "a0831a785172b569"
+      },
+      "command": "bootui request-profile a0831a785172b569",
+      "tool": "get_request_profile",
+      "why": "one request or execution that shows it, step by step"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:773f8ff417",
+    "kind": "route-time-breakdown",
+    "subject": "GET /",
+    "status": "OBSERVED",
+    "sentence": "`GET /`: warm median 1.9 ms over 39 requests; Other filters 43 %, Handler, other work 24 %, Response write 22 %. First request 3.2 ms (cold).",
+    "eligible": 39,
+    "affected": 39,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in filters before the handler: check what they do per request."
+    ],
+    "exemplarRequestIds": [
+      "6a5576e1d3ea4b84",
+      "aa0ed113a66a1e1a",
+      "77f3a13468d2ba8c"
+    ],
+    "evidenceRows": 4,
+    "limitations": [
+      "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report per thread: Profile resources samples them with JFR."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authorization",
+        "9.9",
+        "11 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "37",
+        "43 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "21",
+        "24 %",
+        "0.5"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "19",
+        "22 %",
+        "0.4"
+      ]
+    }
+  ],
+  "truncated": 0
+}

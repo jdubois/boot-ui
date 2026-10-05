@@ -1,0 +1,53 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "heap-growth-after-gc:0a8f06cc5f",
+    "kind": "heap-growth-after-gc",
+    "subject": "Heap",
+    "status": "INSUFFICIENT",
+    "sentence": "2 collections reclaimed old-generation space in this run; a trend needs 3.",
+    "eligible": 0,
+    "affected": 0,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Keep the application running under its usual load, then refresh."
+    ],
+    "exemplarRequestIds": [],
+    "evidenceRows": 2,
+    "limitations": [
+      "Counts the collections the journal still retains; older ones were evicted with their events.",
+      "Young collections only promote into the old generation, so they are not counted."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Collection",
+    "Completed",
+    "Cause",
+    "Old gen after (MiB)",
+    "Heap after (MiB)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "G1 Young Generation #132",
+        "2026-10-05T07:39:21.208Z",
+        "G1 Evacuation Pause",
+        "70.4",
+        "75.0"
+      ]
+    },
+    {
+      "cells": [
+        "G1 Young Generation #128",
+        "2026-10-05T07:39:17.558Z",
+        "G1 Evacuation Pause",
+        "70.2",
+        "74.1"
+      ]
+    }
+  ],
+  "truncated": 0
+}

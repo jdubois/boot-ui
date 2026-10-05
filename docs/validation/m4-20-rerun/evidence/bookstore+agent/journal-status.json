@@ -1,0 +1,93 @@
+{
+  "enabled": true,
+  "runId": "c280335a",
+  "retainedEvents": 10760,
+  "retainedBytes": 3980808,
+  "maxEvents": 50000,
+  "maxBytes": 33554432,
+  "reservedEvents": 421,
+  "reservedCapacity": 5000,
+  "evictedEvents": 0,
+  "bindingBound": null,
+  "oldestRetainedAt": 1791187011915,
+  "queueDepth": 0,
+  "queueCapacity": 10000,
+  "recorded": {
+    "http": 1683,
+    "sql": 2518,
+    "transaction": 1401,
+    "connection": 1545,
+    "exception": 86,
+    "security": 201,
+    "authorization": 1722,
+    "messaging": 40,
+    "log": 86,
+    "lifecycle": 1,
+    "gc": 22,
+    "orm": 1441,
+    "agent.executors": 14
+  },
+  "dropped": {},
+  "droppedEvents": 0,
+  "previousRuns": [],
+  "previousRunsUnavailable": null,
+  "agentEvidence": {
+    "retainedBytes": 394610,
+    "maxBytes": 70912128,
+    "stores": [
+      {
+        "store": "code-inventory",
+        "panel": "code-inventory",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 48818,
+        "maxBytes": 9699328,
+        "counts": {
+          "indexBytes": 46564,
+          "firstCallsWithRequest": 188,
+          "firstCalls": 188,
+          "firstLoads": 139
+        }
+      },
+      {
+        "store": "code-paths",
+        "panel": "code-paths",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 345792,
+        "maxBytes": 55444736,
+        "counts": {
+          "indexBytes": 2200,
+          "routes": 20,
+          "requestTrees": 256,
+          "routeNodes": 58
+        }
+      },
+      {
+        "store": "method-probes",
+        "panel": "code-paths",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 0,
+        "maxBytes": 172800,
+        "counts": {
+          "probes": 0,
+          "probeHits": 0
+        }
+      },
+      {
+        "store": "side-effects",
+        "panel": "side-effects",
+        "visible": true,
+        "note": null,
+        "retainedBytes": 0,
+        "maxBytes": 5595264,
+        "counts": {
+          "indexBytes": 0,
+          "sideEffectRows": 0,
+          "sideEffectsWaiting": 0
+        }
+      }
+    ]
+  }
+}

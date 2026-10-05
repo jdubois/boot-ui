@@ -1,0 +1,30 @@
+{
+  "enabled": true,
+  "runId": "975c3988",
+  "retainedEvents": 4373,
+  "retainedBytes": 1256342,
+  "maxEvents": 50000,
+  "maxBytes": 33554432,
+  "reservedEvents": 0,
+  "reservedCapacity": 5000,
+  "evictedEvents": 0,
+  "bindingBound": null,
+  "oldestRetainedAt": 1791186452773,
+  "queueDepth": 0,
+  "queueCapacity": 10000,
+  "recorded": {
+    "sql": 1219,
+    "transaction": 879,
+    "connection": 882,
+    "messaging": 600,
+    "log": 1,
+    "lifecycle": 1,
+    "gc": 12,
+    "orm": 779
+  },
+  "dropped": {},
+  "droppedEvents": 0,
+  "previousRuns": [],
+  "previousRunsUnavailable": null,
+  "agentEvidence": null
+}

@@ -634,6 +634,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
+  operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
+  ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
+- **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
+  default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through
   timed methods could overflow the stack a second time while the agent bridge was resetting the thread after the first
   overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop

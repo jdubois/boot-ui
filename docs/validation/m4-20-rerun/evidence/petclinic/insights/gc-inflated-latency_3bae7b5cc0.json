@@ -1,0 +1,84 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:3bae7b5cc0",
+    "kind": "gc-inflated-latency",
+    "subject": "POST /owners/new",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 5 of `POST /owners/new`'s 37 slowest requests (14 %), against 0 % of its other 329 requests; those pauses total 14 ms.",
+    "eligible": 37,
+    "affected": 5,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "1f5c7c4fad8d105b",
+      "75ad1d5511a2fb5e",
+      "fe15a01a784e1895"
+    ],
+    "evidenceRows": 5,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "1f5c7c4fad8d105b",
+        "5.9",
+        "1",
+        "4.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "75ad1d5511a2fb5e",
+        "5.8",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "fe15a01a784e1895",
+        "5.7",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "a4026b8caa5e7e38",
+        "4.6",
+        "1",
+        "2.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "aec7d70daa9c600c",
+        "3.8",
+        "1",
+        "2.0",
+        "G1 Young Generation"
+      ]
+    }
+  ],
+  "truncated": 0
+}

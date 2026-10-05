@@ -1,0 +1,24 @@
+{
+  "status": "COMPARED",
+  "reason": null,
+  "currentRunId": "c02a6560",
+  "previousRunId": "1d6904c9",
+  "runs": [
+    {
+      "runId": "1d6904c9",
+      "ordinal": 1,
+      "startedAt": 1791187477432,
+      "endedAt": 1791187562847,
+      "requests": 8401,
+      "source": "BASELINE_FILE"
+    }
+  ],
+  "notComparableReasons": [],
+  "codeChanges": null,
+  "behavior": [],
+  "behaviorOmitted": 0,
+  "edges": [],
+  "edgesOmitted": 0,
+  "limitations": [],
+  "next": []
+}

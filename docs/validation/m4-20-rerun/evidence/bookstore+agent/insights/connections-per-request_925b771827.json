@@ -1,0 +1,157 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "connections-per-request:925b771827",
+    "kind": "connections-per-request",
+    "subject": "POST /orders",
+    "status": "OBSERVED",
+    "sentence": "`POST /orders` held 3 connections of `dataSource` at the same time in 40 of 80 requests.",
+    "eligible": 80,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Check for a REQUIRES_NEW transaction, or a second call to the data source, inside an open transaction (Transactions).",
+      "With a pool of 10 connections and the observed maximum of 3 held per request, 5 concurrent requests can exhaust the pool while waiting for another connection. This is a hold-and-wait estimate, not proof of a deadlock (Database Connection Pools)."
+    ],
+    "exemplarRequestIds": [
+      "a69b8d61b3ac2415",
+      "f61ed4f5cea21141",
+      "9b8ebfd3d68e6b60"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Counts logical connections the application obtained. The estimate assumes nested checkouts, not parallel independent work; other pool users can exhaust it at lower concurrency.",
+      "The estimate uses the pool's current maximum size."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Connections held together"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "a69b8d61b3ac2415",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "f61ed4f5cea21141",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "9b8ebfd3d68e6b60",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "5a651abef1ab087d",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "420aa9f7bb9c76ae",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "3d356c15f050bf94",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "552098bc255cb6b6",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "906bd41ff35d553e",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "e646bb023f54e9b8",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "c60a0cb3d4811ff5",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "27ab6b9b2d087f36",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "8eefa66b991afd37",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "71f360c88f2a2f34",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "96c5cae6274a77c3",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "4fc557f411b52a8b",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "55ba54e1c56cc2d9",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "a10a440b6db372ba",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "eb03a8f868311432",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "8b2640f0b202cee6",
+        "3"
+      ]
+    },
+    {
+      "cells": [
+        "ac5f94bbb20f77af",
+        "3"
+      ]
+    }
+  ],
+  "truncated": 20
+}

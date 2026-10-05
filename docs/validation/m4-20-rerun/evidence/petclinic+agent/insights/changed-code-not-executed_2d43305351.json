@@ -1,0 +1,40 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "changed-code-not-executed:2d43305351",
+    "kind": "changed-code-not-executed",
+    "subject": "org.springframework.samples.petclinic.vet.Vet",
+    "status": "OBSERVED",
+    "sentence": "Your change has not run yet: 1 changed method of `Vet` was not executed in this run.",
+    "eligible": 1,
+    "affected": 1,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Run the test or send the request that should reach it, then read Code Inventory again.",
+      "If it still does not run, check that the code path that should call it is wired: the right bean, route, or condition."
+    ],
+    "exemplarRequestIds": [],
+    "evidenceRows": 1,
+    "limitations": [
+      "Methods called before BootUI claimed the agent are not seen: the main class's early work and anything that ran before the claim may read as never executed."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Method",
+    "Change",
+    "This run"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Vet.addSpecialty(Lorg/springframework/samples/petclinic/vet/Specialty;)V",
+        "changed",
+        "not executed in this run"
+      ]
+    }
+  ],
+  "truncated": 0
+}

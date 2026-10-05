@@ -1,0 +1,238 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "",
+  "requests": 5131,
+  "coverage": [
+    {
+      "source": "http",
+      "events": 5131,
+      "byRequestId": 5131,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "sql",
+      "events": 16515,
+      "byRequestId": 16515,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "transaction",
+      "events": 4771,
+      "byRequestId": 4771,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "connection",
+      "events": 11191,
+      "byRequestId": 11191,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 183,
+      "byRequestId": 183,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "cache",
+      "events": 366,
+      "byRequestId": 366,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 180,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 180,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 45,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 45,
+      "dropped": 0
+    },
+    {
+      "source": "orm",
+      "events": 11191,
+      "byRequestId": 11191,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    }
+  ],
+  "checksNotRun": [
+    "proxy-bypass: INSUFFICIENT, No eligible work was recorded for this check. 121 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing.",
+    "anonymous-data-reach: INSUFFICIENT, No eligible work was recorded for this check. 121 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing.",
+    "anonymous-success-on-restricted-route: INSUFFICIENT, No eligible work was recorded for this check. 121 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing.",
+    "transaction-across-remote-call: INSUFFICIENT, No eligible work was recorded for this check. 121 requests or executions started before events the journal evicted or cleared, so they are left out: some of their events may be missing.",
+    "event-loop-blocking: NOT_APPLICABLE, Spring MVC serves requests on worker threads, not on event loops."
+  ],
+  "observations": [
+    {
+      "id": "lazy-sql-after-handler:30e9325d8e",
+      "kind": "lazy-sql-after-handler",
+      "status": "OBSERVED",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "sentence": "`POST /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 920 times in 184 of 368 requests, outside a transaction, while the view was rendered.",
+      "eligible": 368,
+      "affected": 184,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "885e617b00b0a810",
+      "verify": "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+      "listed": true
+    },
+    {
+      "id": "lazy-sql-after-handler:99568a33e9",
+      "kind": "lazy-sql-after-handler",
+      "status": "OBSERVED",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 920 times in 184 of 184 requests, outside a transaction, while the view was rendered.",
+      "eligible": 184,
+      "affected": 184,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "c0ee1d440cd77266",
+      "verify": "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+      "listed": true
+    },
+    {
+      "id": "repeated-selects:30e9325d8e",
+      "kind": "repeated-selects",
+      "status": "OBSERVED",
+      "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+      "sentence": "`POST /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 184 of 368 requests, up to 7 times in one. Issued by `PetTypeFormatter.parse` and 1 other method.",
+      "eligible": 368,
+      "affected": 184,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "885e617b00b0a810",
+      "verify": "Look at `PetTypeFormatter.parse`, which issued the repeats: check whether it loops over the rows the first statement returned and loads each one's children.",
+      "listed": true
+    },
+    {
+      "id": "repeated-selects:99568a33e9",
+      "kind": "repeated-selects",
+      "status": "OBSERVED",
+      "subject": "GET /owners/{ownerId}/pets/{petId}/edit",
+      "sentence": "`GET /owners/{ownerId}/pets/{petId}/edit` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` 5 or more times after another statement in 184 of 184 requests, up to 6 times in one. Issued by `PetTypeFormatter.parse` and 1 other method.",
+      "eligible": 184,
+      "affected": 184,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "c0ee1d440cd77266",
+      "verify": "Look at `PetTypeFormatter.parse`, which issued the repeats: check whether it loops over the rows the first statement returned and loads each one's children.",
+      "listed": true
+    },
+    {
+      "id": "exception-hotspots:80de221758",
+      "kind": "exception-hotspots",
+      "status": "OBSERVED",
+      "subject": "GET /oups",
+      "sentence": "`GET /oups` recorded `RuntimeException` in 183 of 183 requests (183 occurrences).",
+      "eligible": 183,
+      "affected": 183,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "36f1214e2d3eb723",
+      "verify": "Open the exception group to read its message and stack trace.",
+      "listed": true
+    },
+    {
+      "id": "lazy-sql-after-handler:613704a9e5",
+      "kind": "lazy-sql-after-handler",
+      "status": "OBSERVED",
+      "subject": "POST /owners/{ownerId}/pets/new",
+      "sentence": "`POST /owners/{ownerId}/pets/new` ran `select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name` after its handler returned, 915 times in 183 of 366 requests, outside a transaction, while the view was rendered.",
+      "eligible": 366,
+      "affected": 183,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": "14ba5baf0cef381a",
+      "verify": "The view ran this query while it was rendered, through `PetTypeFormatter.parse`: load what the view needs in the handler and add it to the model, instead of querying from a formatter, converter, or template the view calls.",
+      "listed": true
+    },
+    {
+      "id": "changed-code-not-executed:2d43305351",
+      "kind": "changed-code-not-executed",
+      "status": "OBSERVED",
+      "subject": "org.springframework.samples.petclinic.vet.Vet",
+      "sentence": "Your change has not run yet: 1 changed method of `Vet` was not executed in this run.",
+      "eligible": 1,
+      "affected": 1,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": null,
+      "verify": "Run the test or send the request that should reach it, then read Code Inventory again.",
+      "listed": true
+    },
+    {
+      "id": "changed-code-not-executed:5d27290ea1",
+      "kind": "changed-code-not-executed",
+      "status": "OBSERVED",
+      "subject": "org.springframework.samples.petclinic.owner.Owner",
+      "sentence": "Your change has not run yet: 1 changed method of `Owner` was not executed in this run.",
+      "eligible": 2,
+      "affected": 1,
+      "tier": "REQUEST_ID",
+      "exemplarRequestId": null,
+      "verify": "Run the test or send the request that should reach it, then read Code Inventory again.",
+      "listed": true
+    }
+  ],
+  "omitted": 3,
+  "notExercised": [],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "The journal evicted 31178 older events, so requests before the oldest retained event are not projected.",
+    "121 requests or executions and 120 ERROR logs without a request id started before events the journal evicted or cleared, so they are left out: some of their events may be missing.",
+    "Not listed by default: route-time-breakdown 18, gc-inflated-latency 9. Pass the query all, a kind, or a route to list them; get_runtime_insight on one says why it is left out.",
+    "Latency rows are included for prominent routes: a warm median of 20 ms or more, or authorization taking 20 % of the time or 50 decisions a request.",
+    "Left out by limit: lazy-sql-after-handler 1, repeated-selects 2."
+  ],
+  "next": [
+    {
+      "command": "bootui insights show lazy-sql-after-handler:30e9325d8e",
+      "tool": "get_runtime_insight",
+      "arguments": {
+        "id": "lazy-sql-after-handler:30e9325d8e"
+      },
+      "why": "the evidence rows behind this lazy-sql-after-handler observation, call sites included"
+    },
+    {
+      "command": "bootui insights list --query lazy-sql-after-handler",
+      "tool": "get_runtime_insights",
+      "arguments": {
+        "query": "lazy-sql-after-handler"
+      },
+      "why": "the lazy-sql-after-handler observations this limit left out"
+    },
+    {
+      "command": "bootui insights list --query all",
+      "tool": "get_runtime_insights",
+      "arguments": {
+        "query": "all"
+      },
+      "why": "every row, including those the default list leaves out"
+    }
+  ]
+}

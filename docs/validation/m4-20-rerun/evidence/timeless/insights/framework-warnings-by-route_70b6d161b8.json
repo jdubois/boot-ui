@@ -1,0 +1,198 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "framework-warnings-by-route:70b6d161b8",
+    "kind": "framework-warnings-by-route",
+    "subject": "GET /api/records",
+    "status": "OBSERVED",
+    "sentence": "`GET /api/records` logged `ERROR` from `QuarkusErrorHandler` in 40 of 160 requests (40 events): \"HTTP Request to /api/records failed, error id: <id>\".",
+    "eligible": 160,
+    "affected": 40,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open one of these requests in Live Activity to read the message with its context."
+    ],
+    "exemplarRequestIds": [
+      "7c18ad345abcb6d2",
+      "def06b1f049217e0",
+      "4878308d5118345e"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Counts WARN and ERROR events written while the request's id was current; a warning logged at startup or on another thread is not counted.",
+      "Not yet compared with the previous run, whose summary does not keep log messages."
+    ],
+    "listed": true,
+    "unlistedReason": null
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Events",
+    "Logger"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "7c18ad345abcb6d2",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "def06b1f049217e0",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "4878308d5118345e",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "9a8016cc621c60c6",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "c3e37d1b2d172508",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "e3228f8110877ce3",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "7438e2074ac877a2",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "08f23c64560f6502",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "9b55e0b825b1b6f3",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "eb2e551592ee7940",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "e4d6c06a316a3fc0",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "396c0a6b648aebe8",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "08a99ac3b0cce144",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "352487f10a240ac4",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "dfd4cf4e8825a4e2",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "4d2398d31b6d9a12",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "57207e20f0d2ebd9",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "c113aefe4a27adbf",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "133bfdfc064a8cfe",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    },
+    {
+      "cells": [
+        "605f71f1df9e2e81",
+        "500",
+        "1",
+        "io.quarkus.vertx.http.runtime.QuarkusErrorHandler"
+      ]
+    }
+  ],
+  "truncated": 20
+}

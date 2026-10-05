@@ -1,0 +1,109 @@
+{
+  "status": "COMPARED",
+  "reason": null,
+  "currentRunId": "3c98118c",
+  "previousRunId": "8dff279f",
+  "runs": [
+    {
+      "runId": "8dff279f",
+      "ordinal": 1,
+      "startedAt": 1791187231770,
+      "endedAt": 1791187337568,
+      "requests": 8402,
+      "source": "MEMORY"
+    }
+  ],
+  "notComparableReasons": [],
+  "codeChanges": {
+    "available": true,
+    "unavailableReason": null,
+    "counts": {
+      "previousRun": true,
+      "note": null,
+      "changed": 3,
+      "added": 0,
+      "removed": 0,
+      "executed": 1,
+      "notExecuted": 2,
+      "partial": false,
+      "scanStatus": "COMPLETE"
+    },
+    "methods": [
+      {
+        "key": "org.springframework.samples.petclinic.owner.Owner#getPet(Ljava/lang/String;)Lorg/springframework/samples/petclinic/owner/Pet;",
+        "className": "org.springframework.samples.petclinic.owner.Owner",
+        "name": "getPet",
+        "descriptor": "(Ljava/lang/String;)Lorg/springframework/samples/petclinic/owner/Pet;",
+        "change": "CHANGED",
+        "status": "NEVER_EXECUTED",
+        "notTrackedReason": null,
+        "routes": [],
+        "routesTotal": 0,
+        "routesNote": null
+      },
+      {
+        "key": "org.springframework.samples.petclinic.vet.Vet#addSpecialty(Lorg/springframework/samples/petclinic/vet/Specialty;)V",
+        "className": "org.springframework.samples.petclinic.vet.Vet",
+        "name": "addSpecialty",
+        "descriptor": "(Lorg/springframework/samples/petclinic/vet/Specialty;)V",
+        "change": "CHANGED",
+        "status": "NEVER_EXECUTED",
+        "notTrackedReason": null,
+        "routes": [],
+        "routesTotal": 0,
+        "routesNote": null
+      },
+      {
+        "key": "org.springframework.samples.petclinic.owner.Owner#addVisit(Ljava/lang/Integer;Lorg/springframework/samples/petclinic/owner/Visit;)V",
+        "className": "org.springframework.samples.petclinic.owner.Owner",
+        "name": "addVisit",
+        "descriptor": "(Ljava/lang/Integer;Lorg/springframework/samples/petclinic/owner/Visit;)V",
+        "change": "CHANGED",
+        "status": "EXECUTED",
+        "notTrackedReason": null,
+        "routes": [],
+        "routesTotal": 0,
+        "routesNote": "The code-paths sensor times only the public and protected instance methods of the application's bean classes, never constructors, static, private, synthetic (lambda), or bridge methods, so only the first request's route is known."
+      }
+    ],
+    "methodsTotal": 3,
+    "limitations": [
+      "Code changes are since this application's previous run in this JVM, compared from its class files without git; a method's routes are those whose requests' own call trees executed it, or the route of the first request that ran it."
+    ]
+  },
+  "behavior": [
+    {
+      "kind": "allocation-per-request",
+      "subject": "POST /owners/{ownerId}/edit",
+      "detail": null,
+      "change": "DECREASED",
+      "before": 1081344,
+      "after": 352256,
+      "beforeSamples": 600,
+      "afterSamples": 600,
+      "sentence": "`POST /owners/{ownerId}/edit`'s median allocation was 0.3 MB per measured request, down from 1.0 MB in run 1."
+    }
+  ],
+  "behaviorOmitted": 0,
+  "edges": [],
+  "edgesOmitted": 0,
+  "limitations": [],
+  "next": [
+    {
+      "command": "bootui insights impact 'org.springframework.samples.petclinic.owner.Owner#getPet(Ljava/lang/String;)Lorg/springframework/samples/petclinic/owner/Pet;'",
+      "tool": "get_runtime_impact",
+      "arguments": {
+        "id": "org.springframework.samples.petclinic.owner.Owner#getPet(Ljava/lang/String;)Lorg/springframework/samples/petclinic/owner/Pet;"
+      },
+      "why": "the routes that reach this changed method, which the tests must still run"
+    },
+    {
+      "command": "bootui insights list --query new",
+      "tool": "get_runtime_insights",
+      "arguments": {
+        "query": "new"
+      },
+      "why": "the observations the previous run did not show"
+    }
+  ]
+}

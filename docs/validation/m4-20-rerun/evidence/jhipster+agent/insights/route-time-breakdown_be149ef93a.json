@@ -1,0 +1,141 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:be149ef93a",
+    "kind": "route-time-breakdown",
+    "subject": "POST /api/bank-accounts",
+    "status": "OBSERVED",
+    "sentence": "`POST /api/bank-accounts`: warm median 3.3 ms over 25 requests; Other handler time 30 %, Other filters 23 %, Response write 18 %. Median CPU 3.3 ms and 219 KB allocated per request. First request 13 ms (cold).",
+    "eligible": 25,
+    "affected": 25,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "c3919abf91818b09",
+      "4d590d1c7b98f3e6",
+      "0e0e919241a00b0a"
+    ],
+    "evidenceRows": 13,
+    "limitations": [
+      "The handler's other work is split by method from the BootUI agent's code paths over 25 warm requests: each method takes the share its own time has of the handler, its self time minus the SQL, REST client, cache, and AI calls stamped to it, which are already named."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Authentication",
+        "7.3",
+        "8 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Authorization",
+        "2.6",
+        "3 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Other filters",
+        "20",
+        "23 %",
+        "0.8"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "0.2",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "1.3",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "7.0",
+        "8 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: BankAccountResource.createBankAccount",
+        "5.2",
+        "6 %",
+        "0.2"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: LoggingAspect.logAround",
+        "2.2",
+        "2 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.customizeProblem",
+        "0.5",
+        "1 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.handleExceptionInternal",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler: ExceptionTranslator.wrapAndCustomizeProblem",
+        "0.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Other handler time",
+        "26",
+        "30 %",
+        "1.0"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "16",
+        "18 %",
+        "0.6"
+      ]
+    }
+  ],
+  "truncated": 0
+}

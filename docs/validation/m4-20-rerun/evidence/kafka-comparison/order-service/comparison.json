@@ -1,0 +1,43 @@
+{
+  "status": "COMPARED",
+  "reason": null,
+  "current": {
+    "runId": "60945ada",
+    "ordinal": 1,
+    "startedAt": 1791188421036,
+    "endedAt": null,
+    "requests": 242,
+    "source": "CURRENT"
+  },
+  "previous": {
+    "runId": "f49829a2",
+    "ordinal": 1,
+    "startedAt": 1791188272720,
+    "endedAt": 1791188413025,
+    "requests": 242,
+    "source": "BASELINE_FILE"
+  },
+  "runs": [
+    {
+      "runId": "f49829a2",
+      "ordinal": 1,
+      "startedAt": 1791188272720,
+      "endedAt": 1791188413025,
+      "requests": 242,
+      "source": "BASELINE_FILE"
+    }
+  ],
+  "notComparableReasons": [],
+  "behavior": [],
+  "edges": [],
+  "restartCost": {
+    "status": "UNAVAILABLE",
+    "reason": "A baseline file may come from another JVM; restart cost needs adjacent restarts in the same JVM.",
+    "readyMsBefore": null,
+    "readyMsAfter": null,
+    "beans": []
+  },
+  "latency": [],
+  "limitations": [],
+  "codeChanges": null
+}

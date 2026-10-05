@@ -1,0 +1,105 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "",
+  "requests": 242,
+  "coverage": [
+    {
+      "source": "http",
+      "events": 242,
+      "byRequestId": 242,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "exception",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "messaging",
+      "events": 200,
+      "byRequestId": 200,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 0,
+      "dropped": 0
+    },
+    {
+      "source": "log",
+      "events": 3,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 3,
+      "dropped": 0
+    },
+    {
+      "source": "lifecycle",
+      "events": 1,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 1,
+      "dropped": 0
+    },
+    {
+      "source": "gc",
+      "events": 5,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 5,
+      "dropped": 0
+    }
+  ],
+  "checksNotRun": [
+    "repeated-selects: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "connections-per-request: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "safe-method-dml: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "proxy-bypass: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "anonymous-data-reach: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "anonymous-success-on-restricted-route: INSUFFICIENT, No eligible work was recorded for this check.",
+    "split-transaction-writes: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "after-commit-writes: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "orm-auto-flush: INSUFFICIENT, No eligible work was recorded for this check.",
+    "large-persistence-context: INSUFFICIENT, No eligible work was recorded for this check.",
+    "transaction-across-remote-call: INSUFFICIENT, No eligible work was recorded for this check. This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use. Its SQL and connection evidence is not counted.",
+    "lazy-sql-after-handler: UNAVAILABLE, This application's database access is not recorded: BootUI records JDBC statements through a traced DataSource, not R2DBC or reactive SQL clients, and no traced DataSource is in use.",
+    "event-loop-blocking: NOT_APPLICABLE, Spring MVC serves requests on worker threads, not on event loops.",
+    "heap-growth-after-gc: INSUFFICIENT, No eligible work was recorded for this check.",
+    "work-after-response: NOT_APPLICABLE, This observation requires the BootUI agent's executors sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "changed-code-not-executed: NOT_APPLICABLE, This observation requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+  ],
+  "observations": [],
+  "omitted": 0,
+  "notExercised": [
+    "GET /swagger-ui.html",
+    "GET /v3/api-docs",
+    "GET /v3/api-docs.yaml",
+    "GET /v3/api-docs/swagger-config",
+    "POST /orders/generate"
+  ],
+  "notExercisedOmitted": 0,
+  "limitations": [
+    "Kafka Streams is on this application's classpath, and BootUI does not record stream processing: the records a topology consumes and produces are neither executions nor messages here, so a service that only processes streams can show no observation and no traffic. Messages its Kafka listeners consume and its producers send are still recorded.",
+    "Not listed by default: route-time-breakdown 2. Pass the query all, a kind, or a route to list them; get_runtime_insight on one says why it is left out.",
+    "Latency rows are included for prominent routes: a warm median of 20 ms or more, or authorization taking 20 % of the time or 50 decisions a request."
+  ],
+  "next": [
+    {
+      "command": "bootui insights list --query all",
+      "tool": "get_runtime_insights",
+      "arguments": {
+        "query": "all"
+      },
+      "why": "every row, including those the default list leaves out"
+    }
+  ]
+}

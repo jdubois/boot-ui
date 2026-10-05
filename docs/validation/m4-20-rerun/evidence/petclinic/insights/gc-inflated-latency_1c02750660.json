@@ -1,0 +1,66 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:1c02750660",
+    "kind": "gc-inflated-latency",
+    "subject": "POST /owners/{ownerId}/pets/{petId}/edit",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 3 of `POST /owners/{ownerId}/pets/{petId}/edit`'s 37 slowest requests (8 %), against 0 % of its other 330 requests; those pauses total 10 ms.",
+    "eligible": 37,
+    "affected": 3,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "ad57e0e1dac0be90",
+      "5cf56ab5028bf918",
+      "a834e399a3e6251e"
+    ],
+    "evidenceRows": 3,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "ad57e0e1dac0be90",
+        "8.8",
+        "1",
+        "5.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "5cf56ab5028bf918",
+        "7.0",
+        "1",
+        "3.0",
+        "G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "a834e399a3e6251e",
+        "6.1",
+        "1",
+        "2.0",
+        "G1 Young Generation"
+      ]
+    }
+  ],
+  "truncated": 0
+}

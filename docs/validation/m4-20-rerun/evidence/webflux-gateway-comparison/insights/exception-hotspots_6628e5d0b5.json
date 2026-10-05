@@ -1,0 +1,197 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "exception-hotspots:6628e5d0b5",
+    "kind": "exception-hotspots",
+    "subject": "PUT /api/admin/users/{login}",
+    "status": "OBSERVED",
+    "sentence": "`PUT /api/admin/users/{login}` recorded `EmailAlreadyUsedException` in 24 of 24 requests (24 occurrences).",
+    "eligible": 24,
+    "affected": 24,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open the exception group to read its message and stack trace."
+    ],
+    "exemplarRequestIds": [
+      "129ad7c04bd1de18",
+      "1ad7cc3f0dbb6585",
+      "0edce7718506b2b2"
+    ],
+    "evidenceRows": 20,
+    "limitations": [
+      "Exceptions a WebFlux handler handles itself, such as with onErrorResume, are not recorded."
+    ],
+    "listed": false,
+    "unlistedReason": "It was recorded only behind 4xx responses, which are usually intended, and is counted in the row Behind 4xx responses."
+  },
+  "columns": [
+    "Request",
+    "Status",
+    "Occurrences",
+    "Exception group"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "129ad7c04bd1de18",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "1ad7cc3f0dbb6585",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "0edce7718506b2b2",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "4dae45caf3057062",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "4c2cb965cd722625",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "09d2a5e95163f10b",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "cc81295ec6ee7942",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "7c24f3b421875695",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "bd11b1976daa2055",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "cc4ba37f530ea354",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "9a00d4cdb528fa1a",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "dd3984a9b0b48772",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "88d9fa006f0c4bfd",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "3ad7d160e63945e2",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "2e675da8355b62ea",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "2240fb24b6ccdba6",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "a640e0cac16760d8",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "a11a918d4f8d9c07",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "5e8a0fd97277111d",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    },
+    {
+      "cells": [
+        "a06ec8c8da486c36",
+        "400",
+        "1",
+        "9779368e50ad657d"
+      ]
+    }
+  ],
+  "truncated": 4
+}

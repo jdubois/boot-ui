@@ -1,0 +1,29 @@
+{
+  "available": true,
+  "observation": {
+    "affected": 0,
+    "eligible": 0,
+    "evidenceRows": 0,
+    "exemplarRequestIds": [
+      "486c33075b5811ab"
+    ],
+    "id": "route-time-breakdown:f541cb85a4",
+    "kind": "route-time-breakdown",
+    "limitations": [
+      "Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is unknown and counts as handler work: record the orm source to measure it.",
+      "The kafka, rabbitmq and jms panels are not available in this application, so its evidence is not counted: this application does not use Kafka messaging. Add the quarkus-messaging-kafka extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel. this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel. Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.",
+      "The security-logs panel is not available in this application, so its evidence is not counted: Quarkus security events are disabled. Set quarkus.security.events.enabled=true (with a security extension) to capture authentication/authorization events.",
+      "The rest-client-trace panel is not available in this application, so its evidence is not counted: this application does not use Quarkus REST Client Reactive. Add the quarkus-rest-client extension (with at least one REST Client interface) to enable the REST Client panel."
+    ],
+    "listed": false,
+    "minimumTier": "REQUEST_ID",
+    "sentence": "`GET /api/villains/hello`: 0 of 5 warm requests needed. First request 0.9 ms (cold).",
+    "status": "INSUFFICIENT",
+    "subject": "GET /api/villains/hello",
+    "unlistedReason": "It has fewer than 5 warm requests, so where its time goes is not known yet, and fewer than 2 of them or a warm median under 100 ms.",
+    "whatToCheck": [
+      "Exercise the route a few more times to read where its time goes."
+    ]
+  },
+  "truncated": 0
+}

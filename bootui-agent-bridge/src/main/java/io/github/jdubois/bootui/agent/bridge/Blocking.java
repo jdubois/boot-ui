@@ -146,7 +146,7 @@ public final class Blocking {
                     }
                     // Registered by an earlier run: stamped again, with its name in this run's table.
                     if (TABLE.compareAndSet(
-                            ownSlot, own, new Loop(id, thread, current, SideEffects.intern(thread.getName())))) {
+                            ownSlot, own, new Loop(id, thread, current, SideEffects.threadName(thread.getName())))) {
                         REGISTRATIONS.increment();
                         activated(current);
                         return;
@@ -158,7 +158,7 @@ public final class Blocking {
                     return;
                 }
                 if (TABLE.compareAndSet(
-                        free, freeLoop, new Loop(id, thread, current, SideEffects.intern(thread.getName())))) {
+                        free, freeLoop, new Loop(id, thread, current, SideEffects.threadName(thread.getName())))) {
                     REGISTRATIONS.increment();
                     activated(current);
                     return;
@@ -234,15 +234,21 @@ public final class Blocking {
             }
             CodePaths.Frame frame = CodePaths.frame();
             long now = System.nanoTime();
-            if (frame.sideEffectDepth != 0) {
-                if (now - frame.sideEffectSince < SideEffects.STALE_DEPTH_NANOS) {
-                    return 0L;
-                }
+            int open = frame.sideEffectOpen;
+            if (open != 0 && now - frame.sideEffectSince >= SideEffects.STALE_DEPTH_NANOS) {
                 // An exit that never ran, as when calling it overflowed the stack: the thread records again.
                 SideEffects.staleDepth();
+                open = 0;
             }
-            frame.sideEffectDepth = 1;
-            frame.sideEffectSince = now;
+            // Any open side-effect hook silences a blocking one: a park inside a connect is the connect's, which
+            // reports itself through onLoop.
+            if ((open & SideEffects.silencedBy(SideEffects.MASK_BLOCKING)) != 0) {
+                return 0L;
+            }
+            if (open == 0) {
+                frame.sideEffectSince = now;
+            }
+            frame.sideEffectOpen = open | SideEffects.MASK_BLOCKING;
             STARTED.increment();
             return now == 0L ? 1L : now;
         } catch (Throwable ex) {
@@ -291,7 +297,7 @@ public final class Blocking {
             SideEffects.failed(SideEffects.SENSOR_BLOCKING, ex);
         } finally {
             if (frame != null) {
-                frame.sideEffectDepth = 0;
+                frame.sideEffectOpen &= ~SideEffects.MASK_BLOCKING;
             }
         }
     }

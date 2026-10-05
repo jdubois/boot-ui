@@ -1,0 +1,85 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "route-time-breakdown:fbbe6d160d",
+    "kind": "route-time-breakdown",
+    "subject": "POST /owners/{ownerId}/pets/{petId}/visits/new",
+    "status": "OBSERVED",
+    "sentence": "`POST /owners/{ownerId}/pets/{petId}/visits/new`: warm median 2.9 ms over 368 requests; Handler, other work 49 %, Response write 33 %, Other filters 9 %. Median CPU 2.9 ms and 328 KB allocated per request.",
+    "eligible": 368,
+    "affected": 368,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Most of the time is in the handler outside recorded calls: run Profile resources to see the route's hottest frames."
+    ],
+    "exemplarRequestIds": [
+      "274ae910577d2692",
+      "88ef31fbcf135530",
+      "a502fb6425e08b17"
+    ],
+    "evidenceRows": 6,
+    "limitations": [
+      "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+    ],
+    "listed": false,
+    "unlistedReason": "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a request, so it is not prominent."
+  },
+  "columns": [
+    "Phase",
+    "Total (ms)",
+    "Share",
+    "Median per request (ms)"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "Other filters",
+        "106",
+        "9 %",
+        "0.3"
+      ]
+    },
+    {
+      "cells": [
+        "Connection wait",
+        "2.1",
+        "0 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "SQL",
+        "43",
+        "4 %",
+        "0.1"
+      ]
+    },
+    {
+      "cells": [
+        "Hibernate flushes",
+        "43",
+        "4 %",
+        "0.0"
+      ]
+    },
+    {
+      "cells": [
+        "Handler, other work",
+        "553",
+        "49 %",
+        "1.5"
+      ]
+    },
+    {
+      "cells": [
+        "Response write",
+        "375",
+        "33 %",
+        "0.5"
+      ]
+    }
+  ],
+  "truncated": 0
+}

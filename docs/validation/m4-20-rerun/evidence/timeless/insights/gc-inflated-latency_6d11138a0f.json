@@ -1,0 +1,56 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "observation": {
+    "id": "gc-inflated-latency:6d11138a0f",
+    "kind": "gc-inflated-latency",
+    "subject": "POST /api/messages",
+    "status": "OBSERVED",
+    "sentence": "A stop-the-world pause completed during 2 of `POST /api/messages`'s 12 slowest requests (17 %), against 0 % of its other 107 requests; those pauses total 50 ms.",
+    "eligible": 12,
+    "affected": 2,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Compare each pause with its request's duration in the request's timeline: a pause that is a small part of it does not explain the latency.",
+      "If pauses recur, check the Memory panel's allocation rate and heap size, and the route's allocated bytes in its requests."
+    ],
+    "exemplarRequestIds": [
+      "dacefbcda3b02a14",
+      "093a94a31487ed31"
+    ],
+    "evidenceRows": 2,
+    "limitations": [
+      "A pause that completed during a request stopped it for at most the pause's length; how much of the pause overlapped the request is not measured."
+    ],
+    "listed": false,
+    "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+  },
+  "columns": [
+    "Request",
+    "Duration (ms)",
+    "Pauses",
+    "Pause time (ms)",
+    "Collectors"
+  ],
+  "rows": [
+    {
+      "cells": [
+        "dacefbcda3b02a14",
+        "343",
+        "3",
+        "22",
+        "G1 Concurrent GC, G1 Young Generation"
+      ]
+    },
+    {
+      "cells": [
+        "093a94a31487ed31",
+        "334",
+        "3",
+        "28",
+        "G1 Concurrent GC, G1 Young Generation"
+      ]
+    }
+  ],
+  "truncated": 0
+}
