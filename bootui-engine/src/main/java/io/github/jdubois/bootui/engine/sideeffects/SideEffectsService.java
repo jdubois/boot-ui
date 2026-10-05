@@ -172,7 +172,7 @@ public final class SideEffectsService implements AutoCloseable {
     private final SideEffectsNormalizer normalizer;
     private volatile Function<Set<String>, Map<String, String>> requestRoutes = ids -> Map.of();
     private volatile Function<Set<String>, Map<String, String>> executionLabels = ids -> Map.of();
-    private volatile boolean serverEventLoops = true;
+    private volatile java.util.function.BooleanSupplier serverEventLoops = () -> true;
     private volatile NetworkCapture networkCapture = NetworkCapture.NONE;
     private volatile Set<String> exporterEndpoints = Set.of();
     private final AgentEvidence evidence;
@@ -277,7 +277,15 @@ public final class SideEffectsService implements AutoCloseable {
      * {@code blocking} sensor is not applicable until a WebClient's event loop is registered.
      */
     public void setServerEventLoops(boolean serverEventLoops) {
-        this.serverEventLoops = serverEventLoops;
+        this.serverEventLoops = () -> serverEventLoops;
+    }
+
+    /**
+     * As {@link #setServerEventLoops(boolean)}, asked on each read, as when the server starts after this service: a
+     * supplier that throws counts as event loops.
+     */
+    public void setServerEventLoops(java.util.function.BooleanSupplier serverEventLoops) {
+        this.serverEventLoops = serverEventLoops == null ? () -> true : serverEventLoops;
     }
 
     /** Names waiting keys: request ids through the routes, execution keys through the execution labels. */
@@ -832,7 +840,7 @@ public final class SideEffectsService implements AutoCloseable {
         JavaAgentService.SideEffectsCoverage covered = coverage(sensor.id(), reason);
         if (AgentSensorSettings.BLOCKING.equals(sensor.id())
                 && SideEffectsSensorDto.RECORDING.equals(covered.state())
-                && !serverEventLoops
+                && !serverEventLoops()
                 && eventLoops() == 0) {
             covered = new JavaAgentService.SideEffectsCoverage(
                     SideEffectsSensorDto.NOT_APPLICABLE, BLOCKING_NOT_APPLICABLE, covered.hooks(), covered.dropped());
@@ -886,7 +894,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_BLOCKING,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().blocking()) {
-            if (serverEventLoops && eventLoops() == 0) {
+            if (serverEventLoops() && eventLoops() == 0) {
                 limitations.add(LIMITATION_NO_EVENT_LOOP);
             }
             boolean callSitesFailed = coverage(AgentSensorSettings.BLOCKING, null).hooks().stream()
@@ -918,6 +926,15 @@ public final class SideEffectsService implements AutoCloseable {
             }
         }
         return limitations;
+    }
+
+    /** Whether this application's server handles requests on event loops, as its adapter says. */
+    private boolean serverEventLoops() {
+        try {
+            return serverEventLoops.getAsBoolean();
+        } catch (RuntimeException ex) {
+            return true;
+        }
     }
 
     /** The event loops the adapters registered with the agent for this run, from the bridge's blocking counters. */

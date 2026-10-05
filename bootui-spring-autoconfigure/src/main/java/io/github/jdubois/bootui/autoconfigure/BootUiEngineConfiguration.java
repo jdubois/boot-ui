@@ -598,12 +598,24 @@ public class BootUiEngineConfiguration {
         service.setNetworkCapture(JournalNetworkCapture.of(journal.getIfAvailable()));
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(environment::getProperty);
-        // Only Spring WebFlux on Reactor Netty serves requests on event loops: elsewhere the blocking sensor is not
-        // applicable until a WebClient's Reactor Netty loop is registered (M5-5c).
-        service.setServerEventLoops(applicationContext instanceof ReactiveWebApplicationContext
-                && org.springframework.util.ClassUtils.isPresent(
-                        "reactor.netty.http.server.HttpServer", applicationContext.getClassLoader()));
+        // Only Spring WebFlux on Reactor Netty serves requests on event loops: elsewhere (Spring MVC, WebFlux on a
+        // servlet container, no web server) the blocking sensor is not applicable until a WebClient's Reactor Netty
+        // loop
+        // is registered (M5-5c). Asked on each read, as the server starts after this lazy bean may be created.
+        service.setServerEventLoops(() -> nettyServer(applicationContext));
         return service;
+    }
+
+    /** Whether the application's web server is Reactor Netty's, which runs event loops; an unknown one counts as one. */
+    static boolean nettyServer(org.springframework.context.ApplicationContext applicationContext) {
+        if (!(applicationContext instanceof ReactiveWebApplicationContext)) {
+            return false;
+        }
+        if (applicationContext instanceof org.springframework.boot.web.server.context.WebServerApplicationContext web) {
+            org.springframework.boot.web.server.WebServer server = web.getWebServer();
+            return server == null || server.getClass().getName().contains("Netty");
+        }
+        return true;
     }
 
     /**

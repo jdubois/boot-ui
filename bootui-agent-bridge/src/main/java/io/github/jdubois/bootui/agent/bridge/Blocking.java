@@ -300,10 +300,11 @@ public final class Blocking {
      * event loop and the blocking sensor records, it is recorded too, as {@code kind}. The other sensor decides which of
      * its operations block: a socket's connect, a channel's in blocking mode, a lookup the JVM's name service answered,
      * a {@code DatagramSocket} send, a file opened, deleted, moved, or copied; never Netty's non-blocking connect or its
-     * finish, nor what class loading reads. Called inside that sensor's hook, so the thread's hook stays its own. Never
-     * throws.
+     * finish, nor what class loading reads. Called inside that sensor's hook, so the thread's hook stays its own, with
+     * the owner that sensor recorded its own record with, so both rows name the same one ({@code null}: captured here,
+     * as the files sensor would). Never throws.
      */
-    static void onLoop(long token, int kind, long frames, Throwable thrown) {
+    static void onLoop(long token, int kind, long frames, Throwable thrown, SideEffects.Owner owner) {
         try {
             if ((SideEffects.mask & SideEffects.MASK_LOOPS) == 0 || token == 0L) {
                 return;
@@ -316,13 +317,17 @@ public final class Blocking {
             long nanos = System.nanoTime() - token;
             STARTED.increment();
             SideEffects.RECORDED[SideEffects.HOOK_ON_LOOP].increment();
+            // A timeout is a failure, not an interruption, though SocketTimeoutException is an InterruptedIOException.
             int outcome = thrown == null
                     ? OUTCOME_RETURNED
-                    : thrown instanceof java.io.InterruptedIOException ? OUTCOME_INTERRUPTED : OUTCOME_ERROR;
+                    : thrown instanceof java.io.InterruptedIOException
+                                    && !(thrown instanceof java.net.SocketTimeoutException)
+                            ? OUTCOME_INTERRUPTED
+                            : OUTCOME_ERROR;
             CodePaths.Frame frame = CodePaths.FRAME.get();
             SideEffects.record(
                     frame,
-                    SideEffects.owner(frame, claim),
+                    owner != null ? owner : SideEffects.owner(frame, claim),
                     SideEffects.SENSOR_BLOCKING,
                     kind,
                     loop.name,

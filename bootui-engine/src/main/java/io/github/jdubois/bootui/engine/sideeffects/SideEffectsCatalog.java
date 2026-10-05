@@ -52,10 +52,9 @@ public final class SideEffectsCatalog {
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
 
-    /** For the blocking sensor, an interrupted call. */
     static final int OUTCOME_IO_ERROR = 2;
 
-    /** For the blocking sensor, a call that threw, as BlockHound's error from inside it. */
+    /** Also the blocking sensor's call that threw, as BlockHound's error from inside it. */
     static final int OUTCOME_ERROR = 3;
 
     static final int OUTCOME_EXITED = 4;

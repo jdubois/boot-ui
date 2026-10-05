@@ -275,6 +275,32 @@ class BlockingTests {
     }
 
     @Test
+    void aConnectThatTimedOutOnALoopIsAFailureNotAnInterruption() throws Exception {
+        long token = claim(List.of(SideEffects.NETWORK, SideEffects.BLOCKING));
+        SideEffects.enable(SideEffects.MASK_NETWORK | SideEffects.MASK_BLOCKING);
+        context.set(owner(REQUEST));
+        java.net.InetSocketAddress remote = java.net.InetSocketAddress.createUnresolved("slow.internal", 443);
+
+        onLoop("loop-io-12", () -> {
+            Blocking.registerEventLoop();
+            long connect = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+            SideEffects.connected(
+                    connect,
+                    SideEffects.HOOK_SOCKET_CONNECT,
+                    null,
+                    remote,
+                    false,
+                    new java.net.SocketTimeoutException("connect timed out"));
+            return null;
+        });
+
+        assertThat(drain(token))
+                .filteredOn(record -> record[SideEffects.R_SENSOR] == SideEffects.SENSOR_BLOCKING)
+                .singleElement()
+                .satisfies(record -> assertThat(outcome(record)).isEqualTo(Blocking.OUTCOME_ERROR));
+    }
+
+    @Test
     void aFileOpenedOnALoopIsABlockingRecordWhenTheFilesSensorRecordsIt() throws Exception {
         long token = claim(List.of(SideEffects.FILES, SideEffects.BLOCKING));
         SideEffects.enable(SideEffects.MASK_FILES | SideEffects.MASK_BLOCKING);

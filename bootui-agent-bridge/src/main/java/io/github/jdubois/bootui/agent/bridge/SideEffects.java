@@ -724,7 +724,7 @@ public final class SideEffects {
             }
             if (hook != HOOK_CHANNEL_CONNECT || blockingChannel(channel)) {
                 // A connect that blocks its thread: reported too when it started on an event loop (M5-5c).
-                Blocking.onLoop(token, KIND_BLOCKING_NETWORK, walked[0], thrown);
+                Blocking.onLoop(token, KIND_BLOCKING_NETWORK, walked[0], thrown, owner);
             }
             int outcome = thrown != null ? failure(thrown) : finished ? OUTCOME_CONNECTED : OUTCOME_PENDING;
             long startMillis = System.currentTimeMillis() - nanos / 1_000_000L;
@@ -837,7 +837,7 @@ public final class SideEffects {
             if (index >= 0) {
                 frames = table.frames[index];
                 client = table.detail[index];
-                onLoopIfBlocking(token, hook, frames, thrown);
+                onLoopIfBlocking(token, hook, frames, thrown, owner);
             } else {
                 // The call site without the request's fragment sequence, and the thread's family: the frames of a send
                 // depend on where it is made, never on which request made it.
@@ -852,7 +852,7 @@ public final class SideEffects {
                     if (state.memo.size() < MAX_DATAGRAM_MEMO) {
                         state.memo.putIfAbsent(key, walked);
                     }
-                    onLoopIfBlocking(token, hook, walked[0], thrown);
+                    onLoopIfBlocking(token, hook, walked[0], thrown, owner);
                     // A first sighting: published at once, so its row shows before the thread's table is flushed.
                     publishOne(
                             owner,
@@ -869,7 +869,7 @@ public final class SideEffects {
                 }
                 frames = known[0];
                 client = (int) known[1];
-                onLoopIfBlocking(token, hook, frames, thrown);
+                onLoopIfBlocking(token, hook, frames, thrown, owner);
             }
             if (table == null) {
                 table = new Table();
@@ -911,7 +911,7 @@ public final class SideEffects {
                 return;
             }
             // A name service lookup blocks its thread: reported too when it started on an event loop (M5-5c).
-            Blocking.onLoop(token, KIND_BLOCKING_NETWORK, walked[0], thrown);
+            Blocking.onLoop(token, KIND_BLOCKING_NETWORK, walked[0], thrown, owner);
             int outcome;
             if (thrown == null) {
                 // A statically mocked lookup may answer null.
@@ -940,9 +940,9 @@ public final class SideEffects {
     }
 
     /** A {@code DatagramSocket} send, which blocks its thread: reported too when it started on an event loop (M5-5c). */
-    private static void onLoopIfBlocking(long token, int hook, long frames, Throwable thrown) {
+    private static void onLoopIfBlocking(long token, int hook, long frames, Throwable thrown, Owner owner) {
         if (hook == HOOK_DATAGRAM_SOCKET_SEND) {
-            Blocking.onLoop(token, KIND_BLOCKING_NETWORK, frames, thrown);
+            Blocking.onLoop(token, KIND_BLOCKING_NETWORK, frames, thrown, owner);
         }
     }
 
@@ -1642,12 +1642,13 @@ public final class SideEffects {
             }
             if (second != null) {
                 long more = recordFile(frame, claim, hook, secondKind, second, outcome, nanos);
-                frames = frames != 0L ? frames : more;
+                // A frame summary over none (-1), and either over a bucket (0).
+                frames = frames > 0L ? frames : more > 0L || frames == 0L ? more : frames;
             }
             if (frames != 0L) {
                 // A file operation blocks its thread: reported too when it started on an event loop (M5-5c), once
                 // for a move or a copy, never for what class loading, archives, or the JDK read.
-                Blocking.onLoop(token, KIND_BLOCKING_FILE, frames, thrown);
+                Blocking.onLoop(token, KIND_BLOCKING_FILE, frames, thrown, null);
             }
         } catch (Throwable ex) {
             failed(SENSOR_FILES, ex);
@@ -3446,11 +3447,17 @@ public final class SideEffects {
                 }
                 claimedBits = claimed;
                 mask = value;
-            } while (value != recomputed());
+            } while (value != recomputed() || claimedBits != recomputedClaim());
             updateGate();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
+    }
+
+    /** What {@link #refresh()} would write to {@link #claimedBits} now. */
+    private static int recomputedClaim() {
+        Claim claim = AgentBridge.current();
+        return claim != null && claim.armed && claim.generation == generation && !off ? claimedMask(claim) : 0;
     }
 
     /** What {@link #refresh()} would write now. */
