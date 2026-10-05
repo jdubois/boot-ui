@@ -86,7 +86,7 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - change impact by method, and a run comparison led by code changes;
 - metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with its `processes` and `files` sensors and the opt-in `environment` sensor.
+- the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors.
 
 **Planned, may not be in 2.0:**
 

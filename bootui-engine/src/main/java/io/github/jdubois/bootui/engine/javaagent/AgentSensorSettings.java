@@ -59,8 +59,9 @@ public record AgentSensorSettings(
     public static final String NETWORK = "network";
 
     /**
-     * The Side Effects sensor recording the files the application reads and writes (M5-5d, §5.16), on by default: path
-     * patterns, never contents, with class loading, the JDK's own files, and logging appenders grouped apart.
+     * The Side Effects sensor recording the files the application reads and writes (M5-5d, §5.16), never contents: path
+     * patterns, with class loading, the JDK's own files, and logging appenders grouped apart; opt-in (D37), as its
+     * cumulative overhead on the benchmark's I/O route reached the 10 % budget.
      */
     public static final String FILES = "files";
 
@@ -86,8 +87,7 @@ public record AgentSensorSettings(
             List.of("thread-activity", "thread-locals", "resources", "blocking", "security-sinks");
 
     /** The default {@code bootui.agent.sensors}. */
-    public static final List<String> DEFAULT_SENSORS =
-            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES);
+    public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK);
 
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;

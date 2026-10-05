@@ -133,8 +133,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
-[`files`](#the-files-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor) and
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), and [`network`](#the-network-sensor),
+the defaults, and the opt-in [`threads`](#the-threads-sensor), [`files`](#the-files-sensor), and
 [`environment`](#the-environment-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
@@ -689,7 +689,7 @@ before the agent is recorded as connected.
 
 ## The files sensor
 
-The `files` sensor, on by default, records the files application code opens, deletes, moves, and copies, as path
+The `files` sensor, opt-in, records the files application code opens, deletes, moves, and copies, as path
 patterns, never their contents, for the [Side Effects](#side-effects) panel, `get_side_effects`, and
 `bootui side-effects`.
 
@@ -738,13 +738,17 @@ the temporary directory, the home, `system` (`/proc`, `/sys`, `/dev`), or elsewh
 The self-test opens, deletes, moves, and copies paths under a directory that does not exist in the temporary
 directory, so every hook runs and nothing is created. JDK retransformation of the hooked classes is checked on JDK 17,
 21, and 26 (`FilesEnvironmentBehaviorsIT`). `FileInputStream.open` and `FileOutputStream.open` are its core hooks: one
-that fails its self-test disables the sensor for the JVM's life and the other side-effect sensors are reinstalled
-without it; any other files hook that fails is left out, listed under `hooksLeftOut`, and the sensor keeps recording. A generation keeps at most 3,000 distinct path patterns;
+that fails its self-test disables this sensor alone for the JVM's life; any other files hook that fails is left out,
+listed under `hooksLeftOut`, and the sensor keeps recording. A generation keeps at most 3,000 distinct path patterns;
 beyond that a row's target is `(too many distinct paths)`.
 
 The operation's own time (opening, deleting, moving, or copying) is recorded, not the reads and writes that follow.
 `File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
 are not seen.
+
+`files` is opt-in because its overhead is at the edge of the budget (D37): on the agent overhead benchmark's I/O route
+(one outbound connect and one file read per request), the default sensors plus `files` measured 10.0 % and 10.6 % in
+two CI runs of nine pairs, against the 10 % budget. Add `files` to `bootui.agent.sensors` to record it.
 
 ## The environment sensor
 
@@ -850,7 +854,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `files`, and the opt-in `threads` and `environment`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, and `network`, and the opt-in `threads`, `files`, and `environment`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1121,7 +1125,7 @@ The panel has one tab per sensor group:
 | Tab | Sensors | State in this version |
 | --- | --- | --- |
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
-| Files and processes | `files`, `processes` | Both record, on by default. |
+| Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
 | Blocking | `blocking` | `not-available`: Not available in this version. |

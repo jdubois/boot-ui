@@ -439,8 +439,8 @@ reactive or asynchronous result, not the work that runs later.
 With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
 side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor,
 its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
-each with the recognized client and whether any panel captured the work, the files it opens, deletes, moves, and copies
-from the `files` sensor, and, opt-in, the environment variables and system properties it reads from the `environment`
+each with the recognized client and whether any panel captured the work, and, opt-in, the files it opens, deletes, moves,
+and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
 sensor. Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
 
 | Tool | CLI | Returns |

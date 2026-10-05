@@ -784,8 +784,8 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
-  `files` (M5-5d) sensors record by default and `environment` (M5-5d) when opted in. The `thread-activity`,
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a) and `network` (M5-5b)
+  sensors record by default, and `files` and `environment` (M5-5d) when opted in. The `thread-activity`,
   `thread-locals`, `resources`, `blocking`, and `security-sinks` sensors are still listed but report `not-available`
   with reason `Not available in this version.`
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
@@ -893,8 +893,8 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `files`;
-  `threads` and `environment` remain opt-in.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, and `network`; `threads`,
+  `files`, and `environment` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.
