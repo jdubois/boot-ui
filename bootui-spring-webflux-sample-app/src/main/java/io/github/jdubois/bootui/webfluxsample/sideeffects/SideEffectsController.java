@@ -20,6 +20,10 @@ import reactor.core.scheduler.Schedulers;
  * M5-5d: {@code GET /api/side-effects/report} writes a report in the working directory, outside the temporary directory,
  * and reads a system property ({@link ReportWriter}); its counterexamples {@code /scratch} and {@code /log} write a
  * temporary file and a JDK logging handler's file.
+ * M5-5c: {@code GET /api/side-effects/event-loop-sleep} calls the sample's own greeting with the WebClient, then sleeps
+ * in its {@code map}, which runs on the Reactor Netty event loop the response completed on, as the {@code
+ * event-loop-blocking} seed does: a blocking call the Blocking tab reports. Its counterexample {@code GET
+ * /api/side-effects/worker-sleep} makes the same sleep on {@code boundedElastic}, which it never reports.
  */
 @RestController
 @RequestMapping("/api/side-effects")
@@ -30,18 +34,21 @@ public class SideEffectsController {
     private final WebClient webClient;
     private final Environment environment;
     private final ReportWriter reports;
+    private final EventLoopSleeper sleeper;
 
     public SideEffectsController(
             JavaVersionReporter reporter,
             LicenseSdkClient licenses,
             WebClient webClient,
             Environment environment,
-            ReportWriter reports) {
+            ReportWriter reports,
+            EventLoopSleeper sleeper) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.webClient = webClient;
         this.environment = environment;
         this.reports = reports;
+        this.sleeper = sleeper;
     }
 
     /** Writes a report outside the temporary directory and reads a system property, on boundedElastic (M5-5d). */
@@ -87,6 +94,24 @@ public class SideEffectsController {
                 .retrieve()
                 .bodyToMono(String.class)
                 .map(body -> Map.of("body", body));
+    }
+
+    @GetMapping("/event-loop-sleep")
+    public Mono<Map<String, String>> eventLoopSleep() {
+        // Deliberately blocking on the event loop the greeting's response completed on: the seed the Blocking tab
+        // reports.
+        return webClient
+                .get()
+                .uri("http://127.0.0.1:" + port() + "/api/greetings/{name}", "sleep")
+                .retrieve()
+                .bodyToMono(String.class)
+                .map(greeting -> Map.of("thread", sleeper.sleepOnEventLoop()));
+    }
+
+    @GetMapping("/worker-sleep")
+    public Mono<Map<String, String>> workerSleep() {
+        return Mono.fromCallable(() -> Map.of("thread", sleeper.sleepOnEventLoop()))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     private int port() {

@@ -183,6 +183,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
   and the environment variables and system properties it reads, by name; never contents or values, with class loading,
   the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor), M5-5d).
+- **Blocking sensor in the BootUI agent.** A new `blocking` sensor reports `Thread.sleep`, `Object.wait`,
+  `LockSupport.park`, and the network and files sensors' blocking operations started on an event loop, reported, never
+  thrown, in Side Effects' **Blocking** tab; Spring MVC shows it `not-applicable`
+  ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -417,8 +421,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
   (PLAN-v2 M5-7a).
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, and `processes`, while `threads` remains opt-in. The Side Effects sensors this version does not ship
-  (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `blocking`, `security-sinks`)
+  `code-paths`, `processes`, `network`, and `blocking`, while `threads`, `files`, and `environment` are opt-in. The Side
+  Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`)
   are accepted with a warning and reported not available. Any other id now fails the application's start, on Spring and
   Quarkus alike, while the BootUI agent is attached, with an error naming the accepted ids.
 

@@ -28,6 +28,24 @@ public class Handlers {
         return built;
     }
 
+    /**
+     * Sleeps and waits inside a try whose handler names a type, and inside a synchronized block: the blocking sensor's
+     * call-site rewrite (M5-5c) and this sensor's visit on one method.
+     */
+    public int sleepsInTry() throws InterruptedException {
+        Object lock = new Object();
+        try {
+            Thread.sleep(1);
+            java.util.concurrent.TimeUnit.MILLISECONDS.sleep(1);
+            synchronized (lock) {
+                lock.wait(1);
+            }
+            throw new IllegalStateException("slept");
+        } catch (IllegalStateException ex) {
+            return 11;
+        }
+    }
+
     /** Caught and neither rethrown nor logged. */
     public int swallowed() {
         try {

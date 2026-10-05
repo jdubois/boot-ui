@@ -79,6 +79,13 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Test only: BlockHound, installed beside the BootUI agent's blocking sensor in the forked-JVM tests. -->
+            <groupId>io.projectreactor.tools</groupId>
+            <artifactId>blockhound</artifactId>
+            <version>${blockhound.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- Test only: reads the coverage JaCoCo wrote beside the BootUI agent. -->
             <groupId>org.jacoco</groupId>
             <artifactId>org.jacoco.core</artifactId>

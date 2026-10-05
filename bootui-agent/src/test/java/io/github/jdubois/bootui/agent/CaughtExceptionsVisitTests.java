@@ -81,6 +81,48 @@ class CaughtExceptionsVisitTests {
         assertThat(tables.get("<init>()V")).doesNotContain("leaving");
     }
 
+    /**
+     * The blocking sensor's call-site rewrite (M5-5c), applied first as in the agent, then an advice, then the visit, the
+     * outermost: the exception tables, the handler calls, and the behavior are the visit's own, and every sleep and
+     * wait calls the bridge's substitute.
+     */
+    @Test
+    void besideTheBlockingCallSiteRewriteTheVisitKeepsItsTablesAndHandlerCalls() throws Exception {
+        byte[] original = original("bootuicaughtapp.Handlers");
+        byte[] all = withBlockingAndAdvice("bootuicaughtapp.Handlers", original);
+
+        List<String> own = tables(original).get("sleepsInTry()I");
+        assertThat(own).contains("java/lang/IllegalStateException");
+        List<String> expected = new ArrayList<>(own);
+        expected.add("leaving");
+        expected.add("advice");
+        assertThat(tables(all).get("sleepsInTry()I")).containsExactlyElementsOf(expected);
+        assertThat(handlerCalls(all)).isEqualTo(handlerCalls(withAdvice("bootuicaughtapp.Handlers", original)));
+        assertThat(handlerCalls(all).get("sleepsInTry()I")).containsExactly("caught");
+
+        List<String> blocking = calls(all, "sleepsInTry()I");
+        assertThat(blocking)
+                .as("every sleep and wait calls the bridge's substitute")
+                .contains(BlockingCallSites.BRIDGE + ".sleep", BlockingCallSites.BRIDGE + ".waitOn")
+                .noneMatch(call -> call.endsWith(".sleep") && !call.startsWith(BlockingCallSites.BRIDGE))
+                .noneMatch(call -> call.equals("java/lang/Object.wait"));
+        assertThat(blocking.stream().filter(call -> call.equals(BlockingCallSites.BRIDGE + ".sleep")))
+                .as("Thread.sleep and TimeUnit.sleep")
+                .hasSize(2);
+
+        ClassLoader loader = load(bytes -> {
+            String name = new ClassReader(bytes).getClassName().replace('/', '.');
+            return withBlockingAndAdvice(name, bytes);
+        });
+        assertBehavesLikeTheOriginal(loader);
+        Object handlers = Class.forName("bootuicaughtapp.Handlers", true, loader)
+                .getConstructor()
+                .newInstance();
+        assertThat(handlers.getClass().getMethod("sleepsInTry").invoke(handlers))
+                .isEqualTo(11);
+        assertThat(new Handlers().sleepsInTry()).isEqualTo(11);
+    }
+
     @Test
     void handlerEntriesCallTheBridgeAndCatchAnyHandlersAreLeftAlone() throws Exception {
         Map<String, List<String>> calls = handlerCalls(visitAlone(original("bootuicaughtapp.Handlers")));
@@ -415,6 +457,47 @@ class CaughtExceptionsVisitTests {
                 .visit(new CaughtExceptionsVisit())
                 .make()
                 .getBytes();
+    }
+
+    /** The blocking call-site rewrite first, then the advice, then the visit, the outermost, as in the agent. */
+    static byte[] withBlockingAndAdvice(String name, byte[] original) {
+        ClassFileLocator locator = new ClassFileLocator.Compound(
+                ClassFileLocator.Simple.of(name, original),
+                ClassFileLocator.ForClassLoader.of(CaughtExceptionsVisitTests.class.getClassLoader()));
+        TypeDescription type = TypePool.Default.of(locator).describe(name).resolve();
+        return new ByteBuddy()
+                .decorate(type, locator)
+                .visit(BlockingCallSites.visitor())
+                .visit(Advice.to(ExitAdvice.class)
+                        .on(isMethod().and(not(isAbstract())).and(not(isNative()))))
+                .visit(new CaughtExceptionsVisit())
+                .make()
+                .getBytes();
+    }
+
+    /** The methods {@code method} calls, as {@code owner.name}, in order. */
+    static List<String> calls(byte[] bytes, String method) {
+        List<String> calls = new ArrayList<>();
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                if (!method.equals(name + descriptor)) {
+                                    return null;
+                                }
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public void visitMethodInsn(
+                                            int opcode, String owner, String called, String desc, boolean itf) {
+                                        calls.add(owner + "." + called);
+                                    }
+                                };
+                            }
+                        },
+                        0);
+        return calls;
     }
 
     private static byte[] withAdvice(byte[] original) {
