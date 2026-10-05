@@ -477,6 +477,19 @@ class SideEffectsServiceTests {
 
         assertThat(blockingSensor().state()).isEqualTo(SideEffectsSensorDto.RECORDING);
         assertThat(service.report().limitations()).contains(SideEffectsService.LIMITATION_NO_EVENT_LOOP);
+        assertThat(service.report().limitations()).doesNotContain(SideEffectsService.LIMITATION_LOOPS_REFUSED);
+    }
+
+    @Test
+    void saysWhenTheEventLoopTableRefusedARegistration() throws Exception {
+        start();
+        SideEffects.enable(SideEffects.MASK_BLOCKING);
+        java.lang.reflect.Field full =
+                Class.forName("io.github.jdubois.bootui.agent.bridge.Blocking").getDeclaredField("FULL");
+        full.setAccessible(true);
+        ((java.util.concurrent.atomic.LongAdder) full.get(null)).increment();
+
+        assertThat(service.report().limitations()).contains(SideEffectsService.LIMITATION_LOOPS_REFUSED);
     }
 
     /** Holds a registered loop's thread, so its weak entry outlives the test's assertions. */

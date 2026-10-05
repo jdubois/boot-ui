@@ -209,8 +209,8 @@ were already framework-neutral in practice, not just in the engine underneath th
     (M5-5b) records connects, datagrams, and lookups the same way; a WebClient's connect on a Reactor Netty event loop
     is unowned and captured by a REST client call at the same time. The opt-in `files` and `environment` sensors
     (M5-5d) capture the owner when no slot names one, too. The `blocking` sensor (M5-5c) records too: the WebFlux
-    adapter registers Reactor Netty's event loops with it from the first request each serves, and a WebClient's from the
-    first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The other
+    adapter registers Reactor Netty's event loops with it from the first request each serves, and, for a WebClient built
+    from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The other
     sensor groups are listed as not available in this version.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no

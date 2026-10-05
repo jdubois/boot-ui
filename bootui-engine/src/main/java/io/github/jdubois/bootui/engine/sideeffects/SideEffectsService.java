@@ -97,18 +97,25 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final String LIMITATION_BLOCKING = "Blocking rows are Thread.sleep, TimeUnit.sleep, Object.wait, and"
             + " LockSupport.park (a contended lock, a future's get) started on a thread the adapter identified as an event"
-            + " loop: Reactor Netty's on Spring WebFlux and for a WebClient, Vert.x's on Quarkus, each from the first"
-            + " request or response it handled; Reactor's parallel scheduler and worker threads are never event loops."
+            + " loop: Reactor Netty's on Spring WebFlux, Vert.x's on Quarkus, each from the first request it handled,"
+            + " and a WebClient's from the first response it delivered when the WebClient was built from Spring Boot's"
+            + " WebClient.Builder with REST client tracing on; Reactor's parallel scheduler and worker threads are never"
+            + " event loops."
             + " A park shorter than 1 ms is only counted. Thread.sleep and Object.wait are native on JDK 17 and end in"
             + " native methods on later JDKs, so they are seen at their call sites in the application's own classes"
             + " (bootui.agent.packages) only, on every JDK: a library's sleep or wait, a sleep through a method reference,"
             + " and Thread.join are not. A connect, a name lookup, or a DatagramSocket send the network sensor records,"
             + " and a file the files sensor records, is reported when it started on an event loop, never Netty's"
-            + " non-blocking connect. A call is reported, never refused.";
+            + " non-blocking connect; Netty's DNS resolver reads /etc/hosts and /etc/resolv.conf on its first name"
+            + " resolution, which can show once as a file read on an event loop. A call is reported, never refused.";
 
     static final String BLOCKING_NOT_APPLICABLE = "This application's server runs no event loop to block: Spring MVC,"
-            + " or Spring WebFlux on a servlet container, serves each request on a thread of its own. A WebClient's"
-            + " Reactor Netty event loop is watched once it delivered a response.";
+            + " or Spring WebFlux on a servlet container, serves each request on a thread of its own. A WebClient built"
+            + " from Spring Boot's WebClient.Builder with REST client tracing on has its Reactor Netty event loop watched"
+            + " once it delivered a response.";
+
+    static final String LIMITATION_LOOPS_REFUSED = "The blocking sensor's event-loop table was full: some event loops"
+            + " were not registered, and blocking calls on them are not reported.";
 
     static final String LIMITATION_CALL_SITES_FAILED = "The blocking sensor's Thread.sleep and Object.wait call-site"
             + " hooks failed their self-test and were removed: only parks are reported this run.";
@@ -897,6 +904,9 @@ public final class SideEffectsService implements AutoCloseable {
             if (serverEventLoops() && eventLoops() == 0) {
                 limitations.add(LIMITATION_NO_EVENT_LOOP);
             }
+            if (blockingCounter("eventLoopRegistrationsRefused") > 0) {
+                limitations.add(LIMITATION_LOOPS_REFUSED);
+            }
             boolean callSitesFailed = coverage(AgentSensorSettings.BLOCKING, null).hooks().stream()
                     .anyMatch(hook -> hook.id() != null
                             && hook.id().endsWith("call sites")
@@ -939,10 +949,15 @@ public final class SideEffectsService implements AutoCloseable {
 
     /** The event loops the adapters registered with the agent for this run, from the bridge's blocking counters. */
     private long eventLoops() {
+        return blockingCounter("eventLoops");
+    }
+
+    /** One of the bridge's blocking counters, 0 when unavailable. */
+    private long blockingCounter(String name) {
         try {
-            Object loops = AgentBridgeAccess.map(access.status(), AgentSensorSettings.BLOCKING)
-                    .get("eventLoops");
-            return loops instanceof Number number ? number.longValue() : 0L;
+            Object value = AgentBridgeAccess.map(access.status(), AgentSensorSettings.BLOCKING)
+                    .get(name);
+            return value instanceof Number number ? number.longValue() : 0L;
         } catch (RuntimeException ex) {
             return 0L;
         }

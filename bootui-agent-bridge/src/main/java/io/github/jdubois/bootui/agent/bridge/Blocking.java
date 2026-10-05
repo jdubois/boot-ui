@@ -130,9 +130,13 @@ public final class Blocking {
                         ownSlot = slot;
                         break;
                     }
-                    if (free < 0 && loop.thread.get() == null) {
-                        free = slot;
-                        freeLoop = loop;
+                    if (free < 0) {
+                        // A collected or terminated loop's slot is reused in place, keeping later probes reachable.
+                        Thread registered = loop.thread.get();
+                        if (registered == null || !registered.isAlive()) {
+                            free = slot;
+                            freeLoop = loop;
+                        }
                     }
                 }
                 if (own != null) {

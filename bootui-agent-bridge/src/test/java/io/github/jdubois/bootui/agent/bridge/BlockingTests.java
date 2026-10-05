@@ -444,6 +444,22 @@ class BlockingTests {
     }
 
     @Test
+    void terminatedLoopsStillReferencedFreeTheirSlots() throws Exception {
+        enabledClaim();
+        java.util.List<Thread> held = new java.util.ArrayList<>();
+        // More terminated loops than the table has slots, each still strongly referenced: every one must find a slot.
+        for (int i = 0; i < 1_100; i++) {
+            Thread loop = new Thread(Blocking::registerEventLoop, "loop-io-ended-" + i);
+            loop.start();
+            loop.join();
+            held.add(loop);
+        }
+        assertThat(SideEffects.status(SideEffects.BLOCKING)).containsEntry("eventLoopRegistrationsRefused", 0L);
+        assertThat(SideEffects.status(SideEffects.BLOCKING)).containsEntry("eventLoopRegistrations", 1_100L);
+        assertThat(held).hasSize(1_100);
+    }
+
+    @Test
     void indexesSpreadSequentialThreadIds() {
         java.util.Set<Integer> slots = new java.util.HashSet<>();
         for (long id = 1; id <= 64; id++) {

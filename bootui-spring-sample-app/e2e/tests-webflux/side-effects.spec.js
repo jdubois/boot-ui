@@ -211,6 +211,13 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     expect(report.rows.some((candidate) => candidate.attribution === 'GET /api/side-effects/worker-sleep')).toBe(false)
     expect(report.rows.some((candidate) => /boundedElastic/.test(candidate.target))).toBe(false)
 
+    // An idle Netty event loop waits in epoll, never in LockSupport.park: traffic and a short idle add no park row.
+    await page.waitForTimeout(2_000)
+    const idle = await (await request.get(`${baseURL}/bootui/api/side-effects/sensor?sensor=blocking`)).json()
+    expect(
+      idle.rows.filter((candidate) => candidate.kind === 'park' && /^reactor-http-/.test(candidate.target))
+    ).toEqual([])
+
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Blocking/}).click()
     await expect(page.locator('.side-effects-table')).toContainText('EventLoopSleeper#sleepOnEventLoop')

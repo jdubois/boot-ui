@@ -473,7 +473,7 @@ jobs:
   # every agent run; and, on pushes, manual runs, and pull requests labelled `agent` only, the default sensors against
   # the same agent without network, the network sensor's own share, and against the same agent without blocking, the
   # blocking sensor's own share (M5-5c), in fifteen pairs: it stays on by default only while its median increment is
-  # at most 3 % and the cumulative median at most 10 %.
+  # at most 3 % and the cumulative median at most 10 %, which a final step checks and fails the job otherwise.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
@@ -551,16 +551,41 @@ jobs:
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")
-              # The blocking sensor stays on by default only while its own increment is at most 3 % (M5-5c).
-              limit=$budget
-              if [ "$report" = spring-mvc-blocking-ab ]; then
-                limit=3
-              fi
-              if awk -v overhead="$overhead" -v limit="$limit" 'BEGIN { exit !(overhead > limit) }'; then
-                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${limit} % limit."
+              if awk -v overhead="$overhead" -v limit="$budget" 'BEGIN { exit !(overhead > limit) }'; then
+                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${budget} % limit."
               fi
             fi
           done
+
+      # The blocking sensor is on by default only while its own median increment is at most 3 % and the cumulative
+      # median of every default sensor, blocking included, at most 10 % (M5-5c): a failure here means blocking must move
+      # to opt-in. Spring MVC registers no event loop, so this increment is a lower bound: the gate read of every park.
+      - name: Check the blocking sensor's default
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          for file in summary.properties spring-mvc-blocking-ab.properties; do
+            if [ ! -f "$directory/$file" ]; then
+              echo "::error::The blocking sensor's default cannot be checked: $file is missing."
+              exit 1
+            fi
+          done
+          read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
+          increment=$(read_value spring-mvc-blocking-ab.properties overheadPercent)
+          increment_range="$(read_value spring-mvc-blocking-ab.properties minOverheadPercent) to $(read_value spring-mvc-blocking-ab.properties maxOverheadPercent)"
+          cumulative=$(read_value summary.properties overheadPercent)
+          cumulative_range="$(read_value summary.properties minOverheadPercent) to $(read_value summary.properties maxOverheadPercent)"
+          verdict=PASS
+          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+            verdict=FAIL
+          fi
+          line="Blocking sensor default: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %, a lower bound on Spring MVC); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %)."
+          echo "$line"
+          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ]; then
+            echo "::error::$line"
+            exit 1
+          fi
 
       - name: Upload the overhead report
         if: ${{ !cancelled() }}

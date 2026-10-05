@@ -791,13 +791,15 @@ for the runtime journal's thread kinds, each from the first request or response 
 | Stack | Event loops registered |
 | --- | --- |
 | Spring WebFlux | Reactor Netty's (`reactor-http-nio-N`, `reactor-http-epoll-N`): Reactor `NonBlocking` threads that are Netty `FastThreadLocalThread`s, from the first request each serves |
-| Spring MVC and WebFlux with a `WebClient` on Reactor Netty | the same loops, from the first client response each delivers |
+| Spring MVC and WebFlux with a `WebClient` on Reactor Netty | the same loops, from the first client response each delivers, for a `WebClient` built from Spring Boot's `WebClient.Builder` while REST client tracing is on |
 | Quarkus | Vert.x's (`vert.x-eventloop-thread-N`), from the first request each routes |
 | Spring MVC, Spring WebFlux on a servlet container | none: a thread per request. The tab is `not-applicable` until a WebClient's loop is registered |
 
 Reactor's `parallel` and `single` schedulers, `boundedElastic`, Vert.x workers, and virtual threads are never event
 loops. Loops are kept in a table of at most 1,024 slots, keyed by thread id, held weakly, and stamped with the claim
-generation, so a Quarkus live reload's run watches a loop again once it handles a request.
+generation, so a Quarkus live reload's run watches a loop again once it handles a request; a terminated loop's slot is
+reused, and when the table is full the panel says that some loops were not registered. Netty's DNS resolver reads
+`/etc/hosts` and `/etc/resolv.conf` on its first name resolution, which can show once as a file read on an event loop.
 
 | Hook | Role | What it covers |
 | --- | --- | --- |

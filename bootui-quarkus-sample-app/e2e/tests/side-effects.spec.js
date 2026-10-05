@@ -210,6 +210,11 @@ test.describe('Side Effects view (Quarkus)', () => {
     expect(row.maxMillis).toBeGreaterThanOrEqual(40)
     expect(report.rows.some((candidate) => candidate.attribution === 'GET /api/side-effects/worker-sleep')).toBe(false)
 
+    // An idle Vert.x event loop waits in epoll, never in LockSupport.park: traffic and a short idle add no park row.
+    await page.waitForTimeout(2_000)
+    const idle = await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()
+    expect(idle.rows.filter((candidate) => candidate.kind === 'park' && /eventloop/.test(candidate.target))).toEqual([])
+
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Blocking/}).click()
     await expect(page.locator('.side-effects-table')).toContainText('EventLoopSleeper#sleepOnEventLoop')
