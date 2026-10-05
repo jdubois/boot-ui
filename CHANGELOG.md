@@ -138,6 +138,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/side-effects/sensor`, `get_side_effects`, and `bootui side-effects` are available on Spring MVC, Spring WebFlux, and
   Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects), PLAN-v2
   §5.16, M5-5a).
+- **Network sensor in the BootUI agent.** A new `network` agent sensor, on by default, records the hosts and ports the
+  application connects to (`Socket.connect`, `SocketChannel` connects, a non-blocking connect's finish with its time),
+  the datagrams it sends, and the host names the JVM resolves on an address-cache miss, with the client recognized from
+  the calling frames (JDBC drivers, messaging and mail clients, the JDK `HttpClient`, Lettuce, MongoDB, cloud SDKs,
+  ...), never a byte sent or received. The Side Effects panel's Network tab marks a connection **Not captured by any
+  panel** when neither a REST Client Trace call of the same request or time nor, for a JDBC, messaging, or mail client,
+  an enabled SQL Trace, broker panel, or Email shows its work; `get_side_effects --query "not captured"` lists these hidden outbound calls. The runtime model gains observed
+  `OPENS` edges from routes, jobs, and beans to hosts. Each hook passes a JDK 17, 21, and 26 retransformation check
+  and an I/O-free self-test; a failing optional hook is left out and a failing sensor no longer takes the other
+  side-effect sensors down. BootUI's own JDK `HttpClient`s run on a `bootui-http-N` executor so they are never recorded
+  ([The network sensor](docs/features/java-agent.md#the-network-sensor), PLAN-v2 §5.16, M5-5b).
 - **Processes sensor in the BootUI agent.** A new `processes` agent sensor, on by default, hooks the JDK
   `ProcessBuilder.start` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and
   `Runtime.exec(...)`. It records only the sanitized command name (a started process's executable file name; for a
@@ -149,7 +160,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
 - **Blocking sensor in the BootUI agent.** A new `blocking` agent sensor, on by default, reports `Thread.sleep`,
-  `TimeUnit.sleep`, `Object.wait`, and `LockSupport.park` started on an event loop, reported, never thrown, in Side
+  `TimeUnit.sleep`, `Object.wait`, `LockSupport.park`, and the `network` sensor's blocking operations (a socket connect,
+  a name lookup) started on an event loop, reported, never thrown, in Side
   Effects' **Blocking** tab, `get_side_effects`, and `bootui side-effects`: rows by attribution, operation, event loop's
   thread family, and call site, with interrupted or failed calls, total and longest blocked time, and exemplar request
   ids. The adapters register the event loops they classify: Reactor Netty's on Spring WebFlux and for a WebClient, and
@@ -362,8 +374,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
   (PLAN-v2 M5-7a).
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, and `blocking`, while `threads` remains opt-in. The Side Effects sensors this version does
-  not ship (`network`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`)
+  `code-paths`, `processes`, `network`, and `blocking`, while `threads` remains opt-in. The Side Effects sensors this
+  version does not ship (`files`, `environment`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`)
   are accepted with a warning and reported not available. Any other id now fails the application's start, on Spring and
   Quarkus alike, while the BootUI agent is attached, with an error naming the accepted ids.
 

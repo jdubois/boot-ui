@@ -1170,8 +1170,20 @@ public final class CodePaths {
         /** The side-effect hooks open on the thread: only the outermost records. */
         int sideEffectDepth;
 
+        /**
+         * When the open side-effect hook started, from {@link System#nanoTime()}: a depth older than {@code
+         * SideEffects.STALE_DEPTH_NANOS} is stale, left by an exit that never ran, and no longer silences the thread.
+         */
+        long sideEffectSince;
+
         /** The thread's side-effect aggregation table, created at its first aggregated record. */
         SideEffects.Table sideEffects;
+
+        /** The thread name the network sensor last interned for this thread, its family's id, and that id's generation. */
+        String sideEffectThreadName;
+
+        int sideEffectThreadId;
+        long sideEffectThreadGeneration = -1L;
     }
 
     /**

@@ -27,7 +27,14 @@ import java.util.function.Function;
  * it happened inside; a sensor keeps at most {@value #MAX_ROWS_PER_SENSOR} rows and the store {@value #MAX_ROWS} by
  * default, and what does not fit is counted in the sensor's one Other row. Route attribution is HTTP Exchanges
  * evidence: while that panel is hidden, reads show every
- * route row under {@value #ROUTE_HIDDEN}, without exemplar request ids. Not thread-safe: its service serializes it.
+ * route row under {@value #ROUTE_HIDDEN}, without exemplar request ids.
+ *
+ * <p>A network connect or datagram (M5-5b) is also keyed by its client and how a panel captures it. A client whose
+ * work SQL Trace, a messaging panel, or Email shows is keyed by that category, and whether that panel captured it is
+ * decided on read, from whether that panel is visible, as a pool opens its connections before its first statement. Any other connect waits until a REST client call of the same owner, or, unowned, at the same time, names
+ * its host and port, or until it no longer can: {@value #CAPTURE_GRACE_MILLIS} ms after its owner was named (its
+ * request ended), or {@value #UNOWNED_CAPTURE_MILLIS} ms for an unowned one, when it is not captured. Not thread-safe:
+ * its service serializes it.
  */
 final class SideEffectsStore {
 
@@ -53,7 +60,35 @@ final class SideEffectsStore {
     /** Approximate bytes of one cached request route. */
     static final long ROUTE_BYTES = 96L;
 
-    /** What a store observes: a record, its strings resolved and its target normalized. */
+    /** How long an owned connect whose owner was named still waits for a REST client call to name it. */
+    static final long CAPTURE_GRACE_MILLIS = 2_000L;
+
+    /** How long an unowned connect waits for a REST client call at the same time. */
+    static final long UNOWNED_CAPTURE_MILLIS = 10_000L;
+
+    /** How a network row is captured, as rows are keyed: decided now, by category on read, or waiting. */
+    static final String CAPTURE_INFRASTRUCTURE = "infrastructure";
+
+    static final String CAPTURE_SQL = "sql";
+    static final String CAPTURE_MAIL = "mail";
+    static final String CAPTURE_MESSAGING = "messaging:";
+    static final String REST_CAPTURED = "rest:captured";
+    static final String REST_NOT_CAPTURED = "rest:not-captured";
+    static final String REST_WAITING = "rest:waiting";
+
+    /** An HTTP client's connection waiting for a REST client call, which may take long to be recorded. */
+    static final String REST_WAITING_HTTP = "rest:waiting-http";
+
+    /** How long an unowned HTTP client's connect waits: its call is recorded once it completes. */
+    static final long UNOWNED_HTTP_CAPTURE_MILLIS = 60_000L;
+
+    /** The connect decisions kept for their finish records at most. */
+    static final int MAX_CONNECT_DECISIONS = 4_096;
+
+    /**
+     * What a store observes: a record, its strings resolved and its target normalized; for a network record, its
+     * recognized client, how it is captured ({@code captureKey}), and its host and port.
+     */
     record Observation(
             SideEffectRecord record,
             String sensor,
@@ -61,7 +96,33 @@ final class SideEffectsStore {
             String target,
             String callSite,
             String insideMethod,
-            String threadFamily) {}
+            String threadFamily,
+            String client,
+            String captureKey,
+            String host,
+            int port) {
+
+        /** An observation of a sensor that is not captured by a panel. */
+        Observation(
+                SideEffectRecord record,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String threadFamily) {
+            this(record, sensor, kind, target, callSite, insideMethod, threadFamily, null, null, null, -1);
+        }
+
+        Observation withCapture(String decided) {
+            return new Observation(
+                    record, sensor, kind, target, callSite, insideMethod, threadFamily, client, decided, host, port);
+        }
+
+        boolean waiting() {
+            return REST_WAITING.equals(captureKey) || REST_WAITING_HTTP.equals(captureKey);
+        }
+    }
 
     private record Key(
             String scope,
@@ -70,7 +131,9 @@ final class SideEffectsStore {
             String kind,
             String target,
             String callSite,
-            String insideMethod) {}
+            String insideMethod,
+            String client,
+            String captureKey) {}
 
     private static final class Row {
         final Key key;
@@ -91,7 +154,9 @@ final class SideEffectsStore {
 
         void add(Observation observation, String requestId) {
             SideEffectRecord record = observation.record();
-            if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
+            if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
+                network(record);
+            } else if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
                 completed += record.count();
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_EXITED) {
                     if (record.exitStatus() != 0) {
@@ -120,6 +185,27 @@ final class SideEffectsStore {
             }
         }
 
+        /**
+         * A network record: a connect counts an attempt, established or failed, with its time when it was blocking;
+         * a non-blocking connect's finish, established or failed, with its time; a datagram or a lookup counts with
+         * its time.
+         */
+        private void network(SideEffectRecord record) {
+            boolean failure = SideEffectsCatalog.failed(record.outcome());
+            if (record.kind() != SideEffectsCatalog.KIND_CONNECT_FINISH) {
+                count += record.count();
+            }
+            if (failure) {
+                failed += record.count();
+            } else if (record.outcome() == SideEffectsCatalog.OUTCOME_CONNECTED) {
+                completed += record.count();
+            }
+            if (record.outcome() != SideEffectsCatalog.OUTCOME_PENDING) {
+                nanos += record.nanos();
+                maxNanos = Math.max(maxNanos, record.maxNanos());
+            }
+        }
+
         void merge(Row other, boolean withExemplars) {
             count += other.count;
             failed += other.failed;
@@ -141,7 +227,7 @@ final class SideEffectsStore {
             }
         }
 
-        SideEffectsRowDto dto() {
+        SideEffectsRowDto dto(String[] capture) {
             return new SideEffectsRowDto(
                     key.scope(),
                     key.attribution(),
@@ -159,18 +245,22 @@ final class SideEffectsStore {
                     maxNanos / 1_000_000L,
                     firstSeen == Long.MAX_VALUE ? 0L : firstSeen,
                     lastSeen,
-                    exemplars);
+                    exemplars,
+                    key.client(),
+                    capture == null ? null : capture[0],
+                    capture == null ? null : capture[1]);
         }
     }
 
     /**
      * An observation waiting for its owner's name: a request's route, or an execution's label, under {@code key}, the
-     * request id, or {@value #EXECUTION_KEY} and the execution id.
+     * request id, or {@value #EXECUTION_KEY} and the execution id; or, with no key, an unowned connect waiting only to
+     * know whether a REST client call captured it.
      */
     private record Pending(Observation observation, String key, long since) {
 
         boolean execution() {
-            return key.startsWith(EXECUTION_KEY);
+            return key != null && key.startsWith(EXECUTION_KEY);
         }
     }
 
@@ -197,6 +287,20 @@ final class SideEffectsStore {
 
     private long observations;
     private long folded;
+    private long version;
+
+    /**
+     * How each waiting connect was decided, by its owner, target, call site, and start, so the finish record of a
+     * non-blocking connect is decided as its connect was, never into a row of its own.
+     */
+    private final LinkedHashMap<String, String> connectDecisions = new LinkedHashMap<>(16, 0.75f, false) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_CONNECT_DECISIONS;
+        }
+    };
+
+    private NetworkCapture capture = NetworkCapture.NONE;
 
     /** @param readyAt when the application finished starting, in epoch milliseconds: earlier observations are startup's */
     SideEffectsStore(long readyAt) {
@@ -209,6 +313,11 @@ final class SideEffectsStore {
         this.maxRows = maxRows;
         this.maxRowsPerSensor = Math.min(maxRowsPerSensor, maxRows);
         this.maxPending = maxPending;
+    }
+
+    /** Installs what decides whether a REST client call captured a network observation. */
+    void setCapture(NetworkCapture capture) {
+        this.capture = capture == null ? NetworkCapture.NONE : capture;
     }
 
     /** The rows retained, Other rows included. */
@@ -235,7 +344,14 @@ final class SideEffectsStore {
         pending.clear();
         routes.clear();
         misses.clear();
+        connectDecisions.clear();
         folded = 0;
+        version++;
+    }
+
+    /** Changes whenever a row is added to or the store is cleared: a cheap fingerprint of its rows. */
+    long version() {
+        return version;
     }
 
     /** Adds one observation: a request's waits for its route, any other is attributed now. */
@@ -247,17 +363,82 @@ final class SideEffectsStore {
         String key = requestId != null ? requestId : executionId == null ? null : EXECUTION_KEY + executionId;
         if (key != null) {
             String name = routes.get(key);
-            if (name != null) {
+            if (name != null && !observation.waiting()) {
                 attribute(observation, key, name);
                 return;
             }
             if (pending.size() >= maxPending) {
-                drop(observation.sensor(), record.count());
+                if (name != null) {
+                    // Full: decided now rather than dropped.
+                    attribute(decide(observation, true), key, name);
+                } else {
+                    drop(observation.sensor(), record.count());
+                }
                 return;
             }
             pending.add(new Pending(observation, key, record.lastMillis()));
             return;
         }
+        if (observation.waiting()) {
+            if (pending.size() >= maxPending) {
+                attributeUnowned(decide(observation, true));
+            } else {
+                pending.add(new Pending(observation, null, record.lastMillis()));
+            }
+            return;
+        }
+        attributeUnowned(observation);
+    }
+
+    /**
+     * {@code observation} with its capture decided: captured when a REST client call names it, else not captured when
+     * {@code force}; {@code null} while it still waits.
+     */
+    private Observation decide(Observation observation, boolean force) {
+        if (!observation.waiting()) {
+            return observation;
+        }
+        SideEffectRecord record = observation.record();
+        String connect = connectKey(observation);
+        if (record.kind() == SideEffectsCatalog.KIND_CONNECT_FINISH) {
+            String decided = connectDecisions.get(connect);
+            if (decided != null) {
+                return observation.withCapture(decided);
+            }
+            if (!force) {
+                // Its connect, published first, is decided first.
+                return null;
+            }
+        }
+        boolean matched;
+        try {
+            matched = capture.restClient(
+                    observation.host(),
+                    observation.port(),
+                    record.requestId(),
+                    record.executionId(),
+                    record.firstMillis(),
+                    record.lastMillis());
+        } catch (RuntimeException ex) {
+            matched = false;
+        }
+        String decided = matched ? REST_CAPTURED : force ? REST_NOT_CAPTURED : null;
+        if (decided != null && record.kind() == SideEffectsCatalog.KIND_CONNECT) {
+            connectDecisions.put(connect, decided);
+        }
+        return decided == null ? null : observation.withCapture(decided);
+    }
+
+    /** What a connect and its finish record share: owner, target, call site, and start. */
+    private static String connectKey(Observation observation) {
+        SideEffectRecord record = observation.record();
+        return record.request() + "|" + record.execution() + "|" + observation.target() + "|" + observation.callSite()
+                + "|" + record.firstMillis();
+    }
+
+    /** An unowned observation: startup's, its thread family's, or unattributed. */
+    private void attributeUnowned(Observation observation) {
+        SideEffectRecord record = observation.record();
         if (record.firstMillis() < readyAt) {
             aggregate(observation, SideEffectsRowDto.STARTUP, STARTUP, null);
         } else if (observation.threadFamily() != null) {
@@ -276,7 +457,9 @@ final class SideEffectsStore {
     Set<String> pendingRequests() {
         Set<String> ids = new HashSet<>();
         for (Pending waiting : pending) {
-            ids.add(waiting.key());
+            if (waiting.key() != null) {
+                ids.add(waiting.key());
+            }
         }
         return ids;
     }
@@ -302,17 +485,46 @@ final class SideEffectsStore {
                 }
             }
         }
+        boolean refreshed = false;
         Iterator<Pending> iterator = pending.iterator();
         while (iterator.hasNext()) {
             Pending waiting = iterator.next();
+            Observation observation = waiting.observation();
+            if (observation.waiting() && !refreshed) {
+                refreshCapture();
+                refreshed = true;
+            }
+            long age = now - waiting.since();
+            if (waiting.key() == null) {
+                long wait = REST_WAITING_HTTP.equals(observation.captureKey())
+                        ? UNOWNED_HTTP_CAPTURE_MILLIS
+                        : UNOWNED_CAPTURE_MILLIS;
+                Observation decided = decide(observation, age >= wait);
+                if (decided != null) {
+                    attributeUnowned(decided);
+                    iterator.remove();
+                }
+                continue;
+            }
             String name = routes.get(waiting.key());
             if (name != null) {
-                attribute(waiting.observation(), waiting.key(), name);
-                iterator.remove();
-            } else if (now - waiting.since() >= PENDING_MILLIS) {
-                attribute(waiting.observation(), waiting.key(), waiting.execution() ? BACKGROUND : UNKNOWN_ROUTE);
+                Observation decided = decide(observation, age >= CAPTURE_GRACE_MILLIS);
+                if (decided != null) {
+                    attribute(decided, waiting.key(), name);
+                    iterator.remove();
+                }
+            } else if (age >= PENDING_MILLIS) {
+                attribute(decide(observation, true), waiting.key(), waiting.execution() ? BACKGROUND : UNKNOWN_ROUTE);
                 iterator.remove();
             }
+        }
+    }
+
+    private void refreshCapture() {
+        try {
+            capture.refresh();
+        } catch (RuntimeException ex) {
+            // Decided from what was indexed before.
         }
     }
 
@@ -350,6 +562,7 @@ final class SideEffectsStore {
     }
 
     private void aggregate(Observation observation, String scope, String attribution, String requestId) {
+        version++;
         String sensor = observation.sensor();
         Key key = new Key(
                 scope,
@@ -358,12 +571,15 @@ final class SideEffectsStore {
                 observation.kind(),
                 observation.target(),
                 observation.callSite(),
-                observation.insideMethod());
+                observation.insideMethod(),
+                observation.client(),
+                observation.captureKey());
         Row row = rows.get(key);
         if (row == null) {
             int perSensor = rowsPerSensor.getOrDefault(sensor, 0);
             if (perSensor >= maxRowsPerSensor || rows.size() >= maxRows) {
-                Key other = new Key(SideEffectsRowDto.OTHER, OTHER, sensor, observation.kind(), OTHER, null, null);
+                Key other = new Key(
+                        SideEffectsRowDto.OTHER, OTHER, sensor, observation.kind(), OTHER, null, null, null, null);
                 row = rows.get(other);
                 if (row == null) {
                     if (rows.size() >= maxRows + SideEffectsCatalog.SENSORS.size()) {
@@ -394,6 +610,15 @@ final class SideEffectsStore {
      * false, rows lose the bean method they happened inside, which is Code Paths' evidence, and merge without it.
      */
     List<SideEffectsRowDto> rows(String sensor, boolean routesVisible, boolean codePathsVisible) {
+        return rows(sensor, routesVisible, codePathsVisible, captureKey -> null);
+    }
+
+    /**
+     * {@link #rows(String, boolean, boolean)}, a network row's capture key read through {@code captures} as {@code
+     * {capture, capturedBy}}, which says on read whether a visible panel shows it.
+     */
+    List<SideEffectsRowDto> rows(
+            String sensor, boolean routesVisible, boolean codePathsVisible, Function<String, String[]> captures) {
         Map<Key, Row> merged = new LinkedHashMap<>();
         for (Row row : rows.values()) {
             if (!row.key.sensor().equals(sensor)) {
@@ -408,7 +633,9 @@ final class SideEffectsStore {
                     row.key.kind(),
                     row.key.target(),
                     row.key.callSite(),
-                    hideMethod ? null : row.key.insideMethod());
+                    hideMethod ? null : row.key.insideMethod(),
+                    row.key.client(),
+                    row.key.captureKey());
             // Always a copy: a read never changes the store's own rows.
             Row target = merged.get(shown);
             if (target == null) {
@@ -419,13 +646,38 @@ final class SideEffectsStore {
         }
         List<SideEffectsRowDto> list = new ArrayList<>();
         for (Row row : merged.values()) {
-            list.add(row.dto());
+            list.add(row.dto(row.key.captureKey() == null ? null : captures.apply(row.key.captureKey())));
         }
         list.sort(Comparator.comparing((SideEffectsRowDto row) -> SideEffectsRowDto.OTHER.equals(row.scope()))
                 .thenComparing(Comparator.comparingLong((SideEffectsRowDto row) -> row.count() + row.completed())
                         .reversed())
                 .thenComparing(SideEffectsRowDto::lastSeen, Comparator.reverseOrder()));
         return list;
+    }
+
+    /**
+     * One network row an execution or a call site opened: its scope and attribution, its target, its call site, and its
+     * count; for the runtime model's {@code OPENS} edges.
+     */
+    record Opened(String scope, String attribution, String target, String callSite, long count) {}
+
+    /** The connects and datagrams of {@code sensor}'s rows, route rows only while {@code routesVisible}. */
+    List<Opened> opened(String sensor, boolean routesVisible) {
+        List<Opened> opened = new ArrayList<>();
+        for (Row row : rows.values()) {
+            Key key = row.key;
+            if (!key.sensor().equals(sensor)
+                    || SideEffectsRowDto.OTHER.equals(key.scope())
+                    || SideEffectsCatalog.LOOKUP.equals(key.kind())
+                    || row.count + row.completed == 0) {
+                continue;
+            }
+            if (SideEffectsRowDto.ROUTE.equals(key.scope()) && !routesVisible) {
+                continue;
+            }
+            opened.add(new Opened(key.scope(), key.attribution(), key.target(), key.callSite(), row.count));
+        }
+        return opened;
     }
 
     /** {@code sensor}'s rows, the Other row included. */

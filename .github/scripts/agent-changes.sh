@@ -38,6 +38,7 @@ pattern='^('
 pattern+='bootui-agent-bridge/|bootui-agent/'
 pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(javaagent|codepaths|inventory|sideeffects|correlation)/'
 pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/journal/AgentEvidence'
+pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(model/HostOpen|support/BootUiHttpClients)'
 pattern+='|bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/(javaagent|codepaths|inventory|sideeffects)/'
 pattern+='|bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/(activity/RequestCorrelationFilter|reactive/ReactiveRequestCorrelationFilter)'
 # Where the adapters register their event loops with the blocking sensor (M5-5c).

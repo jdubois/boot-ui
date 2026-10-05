@@ -11,8 +11,11 @@ public final class SideEffectsCatalog {
     /** The bridge's sensor id of {@code processes} in records. */
     static final int RECORD_PROCESSES = 1;
 
+    /** The bridge's sensor id of {@code network} in records (M5-5b). */
+    static final int RECORD_NETWORK = 2;
+
     /** The bridge's sensor id of {@code blocking} in records ({@code Blocking}, M5-5c). */
-    static final int RECORD_BLOCKING = 2;
+    static final int RECORD_BLOCKING = 3;
 
     /** The blocking sensor's record kinds, as the bridge's {@code Blocking} numbers them. */
     static final List<String> BLOCKING_KINDS = List.of("sleep", "wait", "park", "network", "file");
@@ -21,6 +24,10 @@ public final class SideEffectsCatalog {
     static final int KIND_PROCESS_START = 1;
 
     static final int KIND_PROCESS_EXIT = 2;
+    static final int KIND_CONNECT = 3;
+    static final int KIND_CONNECT_FINISH = 4;
+    static final int KIND_DATAGRAM = 5;
+    static final int KIND_LOOKUP = 6;
 
     /** The bridge's outcomes. */
     static final int OUTCOME_STARTED = 1;
@@ -32,6 +39,20 @@ public final class SideEffectsCatalog {
     static final int OUTCOME_ERROR = 3;
 
     static final int OUTCOME_EXITED = 4;
+    static final int OUTCOME_CONNECTED = 5;
+    static final int OUTCOME_PENDING = 6;
+    static final int OUTCOME_SENT = 7;
+    static final int OUTCOME_RESOLVED = 8;
+    static final int OUTCOME_UNKNOWN_HOST = 9;
+
+    /** The network sensor's id. */
+    static final String NETWORK_ID = "network";
+
+    /** What a network row's kind says. */
+    static final String CONNECT = "connect";
+
+    static final String DATAGRAM = "datagram";
+    static final String LOOKUP = "lookup";
 
     public static final String NETWORK = "Network";
     public static final String FILES_AND_PROCESSES = "Files and processes";
@@ -60,7 +81,7 @@ public final class SideEffectsCatalog {
 
     /** Every sensor, in tab order. */
     public static final List<Sensor> SENSORS = List.of(
-            new Sensor("network", NETWORK, "Hosts the application connects to", false, 0),
+            new Sensor("network", NETWORK, "Hosts the application connects to", true, RECORD_NETWORK),
             new Sensor("files", FILES_AND_PROCESSES, "Files the application reads and writes", false, 0),
             new Sensor("processes", FILES_AND_PROCESSES, "Processes the application starts", true, RECORD_PROCESSES),
             new Sensor("environment", ENVIRONMENT, "Environment variables and system properties read", false, 0),
@@ -97,6 +118,14 @@ public final class SideEffectsCatalog {
         if (recordId == RECORD_PROCESSES) {
             return "process";
         }
+        if (recordId == RECORD_NETWORK) {
+            return switch (kind) {
+                case KIND_CONNECT, KIND_CONNECT_FINISH -> CONNECT;
+                case KIND_DATAGRAM -> DATAGRAM;
+                case KIND_LOOKUP -> LOOKUP;
+                default -> "operation";
+            };
+        }
         if (recordId == RECORD_BLOCKING && kind >= 1 && kind <= BLOCKING_KINDS.size()) {
             return BLOCKING_KINDS.get(kind - 1);
         }
@@ -106,5 +135,10 @@ public final class SideEffectsCatalog {
     /** Whether a record of {@code recordId} and {@code kind} is a process's exit, not a new occurrence. */
     static boolean processExit(int recordId, int kind) {
         return recordId == RECORD_PROCESSES && kind == KIND_PROCESS_EXIT;
+    }
+
+    /** Whether an outcome is a failure. */
+    static boolean failed(int outcome) {
+        return outcome == OUTCOME_IO_ERROR || outcome == OUTCOME_ERROR || outcome == OUTCOME_UNKNOWN_HOST;
     }
 }

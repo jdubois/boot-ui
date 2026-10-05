@@ -233,6 +233,43 @@ class BlockingTests {
     }
 
     @Test
+    void aBlockingNetworkOperationOnALoopIsABlockingRecordAndNettysNonBlockingConnectNever() throws Exception {
+        long token = claim(List.of(SideEffects.NETWORK, SideEffects.BLOCKING));
+        SideEffects.enable(SideEffects.MASK_NETWORK | SideEffects.MASK_BLOCKING);
+        context.set(owner(REQUEST));
+        java.net.InetSocketAddress remote = java.net.InetSocketAddress.createUnresolved("db.internal", 5432);
+
+        onLoop("loop-io-10", () -> {
+            Blocking.registerEventLoop();
+            long connect = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+            SideEffects.connected(connect, SideEffects.HOOK_SOCKET_CONNECT, null, remote, true, null);
+            long lookup = SideEffects.networkStarting(SideEffects.HOOK_LOOKUP);
+            SideEffects.lookedUp(lookup, "db.internal", new java.net.InetAddress[0], null);
+            try (java.nio.channels.SocketChannel channel = java.nio.channels.SocketChannel.open()) {
+                channel.configureBlocking(false);
+                long nonBlocking = SideEffects.networkStarting(SideEffects.HOOK_CHANNEL_CONNECT);
+                SideEffects.connected(nonBlocking, SideEffects.HOOK_CHANNEL_CONNECT, channel, remote, false, null);
+            }
+            return null;
+        });
+        // The same connect off event loops is the network sensor's only.
+        onLoop("worker-1", () -> {
+            long connect = SideEffects.networkStarting(SideEffects.HOOK_SOCKET_CONNECT);
+            SideEffects.connected(connect, SideEffects.HOOK_SOCKET_CONNECT, null, remote, true, null);
+            return null;
+        });
+
+        List<long[]> blocking = drain(token).stream()
+                .filter(record -> record[SideEffects.R_SENSOR] == SideEffects.SENSOR_BLOCKING)
+                .toList();
+        assertThat(blocking).hasSize(2).allSatisfy(record -> {
+            assertThat(record[SideEffects.R_KIND]).isEqualTo(Blocking.KIND_NETWORK);
+            assertThat(string(record[SideEffects.R_TARGET])).isEqualTo("loop-io-10");
+            assertThat(record[SideEffects.R_REQUEST]).isEqualTo(REQUEST_BITS);
+        });
+    }
+
+    @Test
     void registrationNeedsAClaimAskingForTheSensor() throws Exception {
         claim(List.of(SideEffects.PROCESSES));
         SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_BLOCKING);

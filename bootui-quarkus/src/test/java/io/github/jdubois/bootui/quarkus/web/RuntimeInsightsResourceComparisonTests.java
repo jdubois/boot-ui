@@ -56,6 +56,9 @@ class RuntimeInsightsResourceComparisonTests {
     Instance<CodePathsService> codePaths;
 
     @Mock
+    Instance<io.github.jdubois.bootui.engine.sideeffects.SideEffectsService> sideEffects;
+
+    @Mock
     Instance<SqlTraceRecorder> sql;
 
     @Mock
@@ -106,6 +109,7 @@ class RuntimeInsightsResourceComparisonTests {
                     agents,
                     inventory,
                     codePaths,
+                    sideEffects,
                     sql,
                     exposure,
                     new SmallRyeConfigBuilder().build());

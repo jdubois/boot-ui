@@ -117,6 +117,7 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.sideeffects.JournalExecutions;
+import io.github.jdubois.bootui.engine.sideeffects.JournalNetworkCapture;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
@@ -592,6 +593,8 @@ public class BootUiEngineConfiguration {
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         service.setExecutionLabels(JournalExecutions.of(journal.getIfAvailable()));
+        // Whether a panel shows a network connection's work (M5-5b).
+        service.setNetworkCapture(JournalNetworkCapture.of(journal.getIfAvailable()));
         // Only Spring WebFlux on Reactor Netty serves requests on event loops: elsewhere the blocking sensor is not
         // applicable until a WebClient's Reactor Netty loop is registered (M5-5c).
         service.setServerEventLoops(applicationContext instanceof ReactiveWebApplicationContext

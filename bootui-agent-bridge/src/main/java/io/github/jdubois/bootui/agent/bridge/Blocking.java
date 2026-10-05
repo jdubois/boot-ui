@@ -30,8 +30,9 @@ import java.util.concurrent.atomic.LongAdder;
  * ({@link #parking()}, {@link #parked}). {@code Thread.sleep} and {@code Object.wait} are {@code native} on JDK 17, and
  * on later JDKs end in native methods on platform threads, so the agent rewrites their call sites in the application's
  * classes to the substitutes here ({@link #sleep(long)}, {@link #waitOn(Object)}), which call the original and record
- * around it; a library's own sleep is not seen. Network and file operations will report through {@link #starting} and
- * {@link #done} from their own hooks.
+ * around it; a library's own sleep is not seen. A blocking network operation the {@code network} sensor records is
+ * reported from its hook ({@link #networkOnLoop}); file operations will report through {@link #starting} and {@link
+ * #done} from their own hooks.
  *
  * <p>The static initializer creates only JDK objects and never blocks. JDK types only; every entry point catches
  * everything but what the original call throws.
@@ -229,12 +230,13 @@ public final class Blocking {
                 return 0L;
             }
             CodePaths.Frame frame = CodePaths.frame();
-            if (frame.sideEffectDepth != 0) {
+            long now = System.nanoTime();
+            if (frame.sideEffectDepth != 0 && now - frame.sideEffectSince < SideEffects.STALE_DEPTH_NANOS) {
                 return 0L;
             }
             frame.sideEffectDepth = 1;
+            frame.sideEffectSince = now;
             STARTED.increment();
-            long now = System.nanoTime();
             return now == 0L ? 1L : now;
         } catch (Throwable ex) {
             SideEffects.failed(ex);
@@ -284,6 +286,51 @@ public final class Blocking {
             if (frame != null) {
                 frame.sideEffectDepth = 0;
             }
+        }
+    }
+
+    // ---- network operations on an event loop ------------------------------------------------------------------
+
+    /**
+     * A blocking network operation the {@code network} sensor recorded ended, its hook still open on this thread: when
+     * it started on a registered event loop and the blocking sensor records, it is recorded too, as {@link
+     * #KIND_NETWORK} with the network record's frames, so a blocking connect, a name lookup, or a blocking datagram send
+     * on an event loop is reported. The network sensor decides which of its operations block: a socket's connect, a
+     * channel's in blocking mode, a lookup the JVM's name service answered, a {@code DatagramSocket} send; never
+     * Netty's non-blocking connect or its finish. Called inside the network hook, so the thread's hook stays the
+     * network sensor's. Never throws.
+     */
+    static void networkOnLoop(long token, long frames, Throwable thrown) {
+        try {
+            int bits = SideEffects.mask;
+            if ((bits & SideEffects.MASK_LOOPS) == 0 || (bits & SideEffects.MASK_BLOCKING) == 0 || token == 0L) {
+                return;
+            }
+            Loop loop = find(Thread.currentThread().getId());
+            Claim claim = AgentBridge.current();
+            if (loop == null || claim == null || !claim.armed || loop.generation != claim.generation) {
+                return;
+            }
+            long nanos = System.nanoTime() - token;
+            STARTED.increment();
+            SideEffects.RECORDED[SideEffects.HOOK_NETWORK_ON_LOOP].increment();
+            int outcome = thrown == null
+                    ? OUTCOME_RETURNED
+                    : thrown instanceof java.io.InterruptedIOException ? OUTCOME_INTERRUPTED : OUTCOME_ERROR;
+            CodePaths.Frame frame = CodePaths.FRAME.get();
+            SideEffects.record(
+                    frame,
+                    SideEffects.owner(frame, claim),
+                    SideEffects.SENSOR_BLOCKING,
+                    KIND_NETWORK,
+                    loop.name,
+                    outcome,
+                    0,
+                    CodePaths.stamp(),
+                    frames,
+                    nanos);
+        } catch (Throwable ex) {
+            SideEffects.failed(ex);
         }
     }
 

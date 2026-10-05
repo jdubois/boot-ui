@@ -2847,7 +2847,9 @@ public class BootUiProperties {
          * {@code inventory} records which application methods ran in this run and which jars loaded classes.
          * {@code code-paths} times the application's bean methods per request, as call trees.
          * {@code processes} records the processes the application starts, for Side Effects: the command's file name,
-         * never its arguments or environment. An unknown sensor id fails the application's start.
+         * never its arguments or environment. {@code network} records the hosts the application connects to, the
+         * datagrams it sends, and the names the JVM resolves, for Side Effects: a host and port, never a byte sent or
+         * received. An unknown sensor id fails the application's start.
          * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
          * into virtual threads.
          */

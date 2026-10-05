@@ -5,7 +5,7 @@ import io.github.jdubois.bootui.core.dto.GitHubDashboardReport;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
-import java.net.http.HttpClient;
+import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
 import java.nio.file.Path;
 import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +30,7 @@ public class GitHubController {
                         Arrays.asList(properties.getGithub().getAllowedApiHosts())),
                 new GitHubApiClient(
                         properties.getGithub(),
-                        HttpClient.newBuilder()
+                        BootUiHttpClients.newBuilder()
                                 .connectTimeout(properties.getGithub().getRequestTimeout())
                                 .build(),
                         new ObjectMapper(),
