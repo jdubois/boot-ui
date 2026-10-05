@@ -65,6 +65,8 @@ function report(probes, overrides = {}) {
     windowSeconds: 60,
     probes,
     limitations: ['A probe records metadata only: never an argument or a return value.'],
+    shapesAvailable: true,
+    shapesUnavailableReason: null,
     ...overrides
   }
 }
@@ -224,5 +226,115 @@ describe('Method probes', () => {
 
     expect(wrapper.get('.code-paths-probes-unavailable').text()).toContain('code-paths sensor')
     expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeDefined()
+  })
+
+  it('records shapes only when asked, after a confirmation that says what they are', async () => {
+    const fetch = vi.fn((url, init) => {
+      if (init?.method === 'POST')
+        return Promise.resolve(json(probe({state: 'starting', hits: [], recordShapes: true})))
+      return Promise.resolve(json(report([])))
+    })
+    mountProbes(fetch, {method: QUOTE})
+    await flushPromises()
+
+    const option = wrapper.get('#code-paths-probe-shapes')
+    expect(option.element.checked).toBe(false)
+    expect(wrapper.get('label[for="code-paths-probe-shapes"]').text()).toBe('Record argument and return shapes')
+    await option.setValue(true)
+    await wrapper.get('.code-paths-probe-start').trigger('click')
+    expect(confirmState.options.message).toContain('shapes of the arguments and the return value')
+    expect(confirmState.options.message).toContain('never argument or return values')
+    settleConfirm(true)
+    await flushPromises()
+
+    const post = fetch.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(post[1].body)).toEqual({method: QUOTE, recordShapes: true})
+  })
+
+  it('disables the shapes option and says why when shapes are unavailable', async () => {
+    mountProbes(
+      vi.fn(() =>
+        Promise.resolve(
+          json(
+            report([], {
+              shapesAvailable: false,
+              shapesUnavailableReason:
+                'Argument and return shapes are hidden while bootui.expose-values is METADATA_ONLY.'
+            })
+          )
+        )
+      ),
+      {method: QUOTE}
+    )
+    await flushPromises()
+
+    const option = wrapper.get('#code-paths-probe-shapes')
+    expect(option.attributes('disabled')).toBeDefined()
+    expect(option.attributes('aria-describedby')).toBe('code-paths-probe-shapes-why')
+    expect(wrapper.get('#code-paths-probe-shapes-why').text()).toContain('METADATA_ONLY')
+  })
+
+  it('shows each invocation’s argument and return shapes, and what the exposure withholds', async () => {
+    const shaped = probe({
+      state: 'ended',
+      endReason: 'invocations',
+      recordShapes: true,
+      shapesHiddenReason: null,
+      shapesDropped: 0,
+      hits: [
+        {
+          ...probe().hits[0],
+          arguments: [
+            {kind: 'string', declaredType: 'java.lang.String', type: 'java.lang.String', size: null, withheld: true},
+            {kind: 'collection', declaredType: 'java.util.List', type: 'java.util.ArrayList', size: 3},
+            {kind: 'null', declaredType: 'shop.Basket', type: null},
+            {kind: 'primitive', declaredType: 'int', type: 'int'},
+            {kind: 'enum', declaredType: 'shop.Level', type: 'shop.Level', constant: 'HIGH'},
+            {kind: 'type', declaredType: 'shop.Card', type: 'shop.Card'}
+          ],
+          argumentsNotRecorded: 2,
+          returned: {kind: 'optional', declaredType: 'java.util.Optional', type: 'java.util.Optional', present: true},
+          shapesIncomplete: true
+        }
+      ]
+    })
+    mountProbes(vi.fn(() => Promise.resolve(json(report([shaped])))))
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-shapes-badge').text()).toBe('shapes')
+    await wrapper.get('.code-paths-probe button').trigger('click')
+
+    const row = wrapper.get('.code-paths-probe-hits tbody tr')
+    const argumentsCell = row.get('.code-paths-probe-arguments')
+    expect(argumentsCell.findAll('code').map((code) => code.text())).toEqual([
+      'String',
+      'ArrayList (size 3)',
+      'null',
+      'int',
+      'Level.HIGH',
+      'Card'
+    ])
+    expect(argumentsCell.text()).toContain('Card, +2 more')
+    expect(argumentsCell.text()).toContain('some shapes lost')
+    // What the exposure withholds is said visibly under the table, and read out beside the shape.
+    expect(argumentsCell.findAll('code')[0].attributes('title')).toContain(
+      'length shown with bootui.expose-values=FULL'
+    )
+    expect(argumentsCell.get('.visually-hidden').text()).toContain('length shown with bootui.expose-values=FULL')
+    expect(wrapper.get('.code-paths-probe-withheld').text()).toContain('bootui.expose-values=FULL')
+    expect(row.findAll('td')[2].get('code').text()).toBe('Optional (present)')
+  })
+
+  it('says why a probe’s shapes are hidden, and shows no shape column', async () => {
+    const hidden = probe({
+      state: 'ended',
+      recordShapes: true,
+      shapesHiddenReason: 'Argument and return shapes are hidden while bootui.expose-values is METADATA_ONLY.'
+    })
+    mountProbes(vi.fn(() => Promise.resolve(json(report([hidden])))))
+    await flushPromises()
+    await wrapper.get('.code-paths-probe button').trigger('click')
+
+    expect(wrapper.text()).toContain('hidden while bootui.expose-values is METADATA_ONLY')
+    expect(wrapper.find('.code-paths-probe-arguments').exists()).toBe(false)
   })
 })

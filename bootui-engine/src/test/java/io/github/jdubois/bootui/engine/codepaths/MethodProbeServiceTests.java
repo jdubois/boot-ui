@@ -6,8 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import io.github.jdubois.bootui.agent.bridge.MethodProbes;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CodePathsProbeDto;
+import io.github.jdubois.bootui.core.dto.CodePathsProbeHitDto;
 import io.github.jdubois.bootui.core.dto.CodePathsProbesReport;
+import io.github.jdubois.bootui.core.dto.CodePathsValueShapeDto;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
@@ -15,6 +18,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -22,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +42,10 @@ class MethodProbeServiceTests {
 
     private static final String REQUEST = "00000000000000ab";
     private static final String QUOTE = "shop.QuoteService#quote(I)J";
+    private static final String SHAPED_DESCRIPTOR =
+            "(Ljava/lang/String;Ljava/util/List;[CLjava/lang/Thread$State;I)Ljava/util/Optional;";
+    private static final String SHAPED = "shop.QuoteService#price" + SHAPED_DESCRIPTOR;
+    private static final String WIDE = "shop.QuoteService#wide(IIIIIIIIIII)V";
 
     private final AtomicReference<CorrelationContext> context = new AtomicReference<>(CorrelationContext.NONE);
     private final List<Map<String, Object>> agentCalls = new ArrayList<>();
@@ -57,6 +66,8 @@ class MethodProbeServiceTests {
         });
         CodeInventory.methodId(QUOTE);
         CodeInventory.methodId("shop.QuoteService#total()J");
+        CodeInventory.methodId(SHAPED);
+        CodeInventory.methodId(WIDE);
     }
 
     @AfterEach
@@ -113,6 +124,225 @@ class MethodProbeServiceTests {
                 .singleElement()
                 .satisfies(listed -> assertThat(listed.hits()).hasSize(3));
         assertThat(report.limitations()).anySatisfy(text -> assertThat(text).contains("never an argument"));
+    }
+
+    @Test
+    void aShapesProbeShowsValueFreeShapesUnderMaskedExposure() {
+        start(() -> null);
+        AtomicReference<ValueExposure> exposure = exposure(ValueExposure.MASKED, true);
+
+        long id = shapedInvocation();
+        CodePathsProbeDto probe = probes.probe(String.valueOf(id));
+
+        assertThat(exposure.get()).isEqualTo(ValueExposure.MASKED);
+        assertThat(probe.recordShapes()).isTrue();
+        assertThat(probe.shapesHiddenReason()).isNull();
+        assertThat(agentCalls).anySatisfy(call -> assertThat(call).containsEntry("shapes", Boolean.TRUE));
+        CodePathsProbeHitDto hit = probe.hits().get(0);
+        assertThat(hit.shapesIncomplete()).isFalse();
+        assertThat(hit.argumentsNotRecorded()).isZero();
+        assertThat(hit.arguments())
+                .containsExactly(
+                        new CodePathsValueShapeDto(
+                                "string", "java.lang.String", "java.lang.String", null, null, null, true),
+                        new CodePathsValueShapeDto(
+                                "collection",
+                                "java.util.List",
+                                "java.util.ImmutableCollections$List12",
+                                2,
+                                null,
+                                null,
+                                false),
+                        new CodePathsValueShapeDto("array", "char[]", "char[]", null, null, null, true),
+                        new CodePathsValueShapeDto(
+                                "enum", "java.lang.Thread$State", "java.lang.Thread$State", null, null, null, true),
+                        new CodePathsValueShapeDto("primitive", "int", "int", null, null, null, false));
+        assertThat(hit.returned())
+                .isEqualTo(new CodePathsValueShapeDto(
+                        "optional", "java.util.Optional", "java.util.Optional", null, true, null, false));
+        assertThat(probes.report().shapesAvailable()).isTrue();
+        assertThat(probes.report().limitations()).contains(MethodProbeService.LIMITATION_SHAPES);
+    }
+
+    @Test
+    void fullExposureAddsLengthsAndEnumConstants() {
+        start(() -> null);
+        exposure(ValueExposure.FULL, true);
+
+        long id = shapedInvocation();
+        CodePathsProbeHitDto hit = probes.probe(String.valueOf(id)).hits().get(0);
+
+        assertThat(hit.arguments().get(0).size()).isEqualTo(6);
+        assertThat(hit.arguments().get(0).withheld()).isFalse();
+        assertThat(hit.arguments().get(2).size()).isEqualTo(2);
+        assertThat(hit.arguments().get(3).constant()).isEqualTo("NEW");
+
+        // MASKED without secret masking shows as much, as the other panels do.
+        exposure(ValueExposure.MASKED, false);
+        assertThat(probes.probe(String.valueOf(id))
+                        .hits()
+                        .get(0)
+                        .arguments()
+                        .get(3)
+                        .constant())
+                .isEqualTo("NEW");
+    }
+
+    @Test
+    void metadataOnlyExposureHidesShapesAndRefusesThem() {
+        start(() -> null);
+        exposure(ValueExposure.FULL, true);
+        long id = shapedInvocation();
+
+        exposure(ValueExposure.METADATA_ONLY, true);
+        CodePathsProbeDto probe = probes.probe(String.valueOf(id));
+
+        assertThat(probe.recordShapes()).isTrue();
+        assertThat(probe.shapesHiddenReason()).isEqualTo(MethodProbeService.SHAPES_HIDDEN_METADATA);
+        assertThat(probe.hits().get(0).arguments()).isEmpty();
+        assertThat(probe.hits().get(0).returned()).isNull();
+        assertThat(probes.report().shapesAvailable()).isFalse();
+        assertThat(probes.report().shapesUnavailableReason()).isEqualTo(MethodProbeService.SHAPES_HIDDEN_METADATA);
+        assertThatThrownBy(() -> probes.start("shop.QuoteService#total()J", true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("METADATA_ONLY");
+        // A failing policy hides them too.
+        codePaths.setExposure(new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                throw new IllegalStateException("broken");
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
+        assertThat(probes.probe(String.valueOf(id)).hits().get(0).arguments()).isEmpty();
+    }
+
+    @Test
+    void agentReadsNeverShowAShapeEvenUnderFullExposure() {
+        start(() -> null);
+        exposure(ValueExposure.FULL, false);
+        long id = shapedInvocation();
+
+        CodePathsProbeDto forAgents = probes.probeForAgents(String.valueOf(id));
+
+        assertThat(forAgents.recordShapes()).isTrue();
+        assertThat(forAgents.shapesHiddenReason()).isEqualTo(MethodProbeService.SHAPES_HIDDEN_AGENTS);
+        assertThat(forAgents.hits()).singleElement().satisfies(hit -> {
+            assertThat(hit.arguments()).isEmpty();
+            assertThat(hit.returned()).isNull();
+            assertThat(hit.argumentsNotRecorded()).isZero();
+        });
+
+        agentCalls.clear();
+        CodePathsProbeDto started = probes.startForAgents("shop.QuoteService#total()J");
+        assertThat(started.recordShapes()).isFalse();
+        assertThat(agentCalls)
+                .singleElement()
+                .satisfies(call -> assertThat(call).containsEntry("shapes", false));
+    }
+
+    @Test
+    void aMetadataProbeShowsNoShape() {
+        start(() -> null);
+        exposure(ValueExposure.FULL, true);
+        long id = Long.parseLong(probes.start(QUOTE).id());
+        MethodProbes.activate(0, id);
+        MethodProbes.advised(0, id, "(I)J");
+        MethodProbes.exit(0, id, MethodProbes.enter(0, id), null);
+
+        CodePathsProbeDto probe = probes.probe(String.valueOf(id));
+
+        assertThat(probe.recordShapes()).isFalse();
+        assertThat(probe.shapesHiddenReason()).isNull();
+        assertThat(probe.hits().get(0).arguments()).isEmpty();
+        assertThat(agentCalls).anySatisfy(call -> assertThat(call).containsEntry("shapes", false));
+    }
+
+    @Test
+    void argumentsPastTheNinthAreCountedAndAThrowHasNoReturnShape() {
+        start(() -> null);
+        long id = Long.parseLong(probes.start(WIDE, true).id());
+        MethodProbes.activate(0, id);
+        MethodProbes.advised(0, id, "(IIIIIIIIIII)V");
+        long started = MethodProbes.enter(0, id);
+        MethodProbes.arguments(0, id, started, new Object[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+        MethodProbes.exit(0, id, started, new IllegalStateException(), null);
+
+        CodePathsProbeHitDto hit = probes.probe(String.valueOf(id)).hits().get(0);
+
+        assertThat(hit.arguments())
+                .hasSize(9)
+                .allSatisfy(shape -> assertThat(shape.kind()).isEqualTo("primitive"));
+        assertThat(hit.argumentsNotRecorded()).isEqualTo(2);
+        assertThat(hit.returned()).isNull();
+        assertThat(hit.shapesIncomplete()).isFalse();
+    }
+
+    @Test
+    void aClearDropsShapesWithTheirInvocationsAndFlagsOneRunningAcrossIt() throws Exception {
+        start(() -> null);
+        long id = shapedInvocation();
+        long running = MethodProbes.enter(0, id);
+        MethodProbes.arguments(0, id, running, new Object[] {"x", List.of(), new char[0], Thread.State.NEW, 1});
+        probes.report();
+        Thread.sleep(5);
+
+        evidence.clear();
+        MethodProbes.exit(0, id, running, null, Optional.empty());
+
+        CodePathsProbeDto probe = probes.probe(String.valueOf(id));
+        assertThat(probe.hits()).singleElement().satisfies(hit -> {
+            assertThat(hit.shapesIncomplete()).isTrue();
+            assertThat(hit.arguments())
+                    .allSatisfy(shape -> assertThat(shape.kind()).isEqualTo("unknown"));
+            assertThat(hit.returned().kind()).isEqualTo("optional");
+        });
+    }
+
+    @Test
+    void typeNamesReadAsJavaSourceNamesThem() {
+        assertThat(MethodProbeService.typeName("I")).isEqualTo("int");
+        assertThat(MethodProbeService.typeName("[[J")).isEqualTo("long[][]");
+        assertThat(MethodProbeService.typeName("Ljava/lang/String;")).isEqualTo("java.lang.String");
+        assertThat(MethodProbeService.typeName("[Ljava.lang.String;")).isEqualTo("java.lang.String[]");
+        assertThat(MethodProbeService.typeName("shop.Order$Line")).isEqualTo("shop.Order$Line");
+        assertThat(MethodProbeService.typeName(null)).isNull();
+        assertThat(MethodProbeService.parameterTypes(SHAPED_DESCRIPTOR))
+                .containsExactly("Ljava/lang/String;", "Ljava/util/List;", "[C", "Ljava/lang/Thread$State;", "I");
+        assertThat(MethodProbeService.parameterTypes("()V")).isEmpty();
+        assertThat(MethodProbeService.returnType(SHAPED_DESCRIPTOR)).isEqualTo("Ljava/util/Optional;");
+    }
+
+    /** Starts a shapes probe on {@link #SHAPED} and records one invocation through the bridge, as its advice would. */
+    private long shapedInvocation() {
+        long id = Long.parseLong(probes.start(SHAPED, true).id());
+        MethodProbes.activate(0, id);
+        MethodProbes.advised(0, id, SHAPED_DESCRIPTOR);
+        long started = MethodProbes.enter(0, id);
+        MethodProbes.arguments(
+                0, id, started, new Object[] {"secret", List.of(1, 2), "pw".toCharArray(), Thread.State.NEW, 7});
+        MethodProbes.exit(0, id, started, null, Optional.of("x"));
+        return id;
+    }
+
+    private AtomicReference<ValueExposure> exposure(ValueExposure value, boolean maskSecrets) {
+        AtomicReference<ValueExposure> current = new AtomicReference<>(value);
+        codePaths.setExposure(new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return current.get();
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return maskSecrets;
+            }
+        });
+        return current;
     }
 
     @Test

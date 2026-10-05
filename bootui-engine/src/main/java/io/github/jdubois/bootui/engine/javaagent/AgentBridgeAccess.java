@@ -640,6 +640,14 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Whether the bridge's method probes can record argument and return shapes ({@code docs/PLAN-v2.md} M5-8, D44): an
+     * agent from before them starts every probe metadata-only.
+     */
+    public boolean methodProbeShapesSupported() {
+        return methodProbesSupported() && methodProbes.shapes();
+    }
+
+    /**
      * Starts a method probe for the claim {@code token} ({@code MethodProbes.start}): the answer's {@code status} is
      * {@code started} with the {@code probe}, or {@code invalid}, {@code refused}, {@code stale}, {@code unavailable}, or
      * {@code failed} with a {@code reason}.
@@ -689,7 +697,7 @@ public final class AgentBridgeAccess {
     }
 
     /** Method probes' bridge entry points, bound once; {@code null} when the bridge has none. */
-    private record MethodProbesHandles(MethodHandle start, MethodHandle stop, MethodHandle list) {
+    private record MethodProbesHandles(MethodHandle start, MethodHandle stop, MethodHandle list, boolean shapes) {
 
         static MethodProbesHandles bind(Class<?> bridge) {
             try {
@@ -698,10 +706,22 @@ public final class AgentBridgeAccess {
                 return new MethodProbesHandles(
                         lookup.findStatic(probes, "start", MethodType.methodType(Map.class, long.class, Map.class)),
                         lookup.findStatic(probes, "stop", MethodType.methodType(Map.class, long.class, long.class)),
-                        lookup.findStatic(probes, "list", MethodType.methodType(List.class)));
+                        lookup.findStatic(probes, "list", MethodType.methodType(List.class)),
+                        shapes(lookup, probes));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-8: no method probes.
                 return null;
+            }
+        }
+
+        /** Whether the bridge records argument and return shapes: an agent from before D44 has no such constant. */
+        private static boolean shapes(MethodHandles.Lookup lookup, Class<?> probes) {
+            try {
+                Object protocol = lookup.findStaticGetter(probes, "SHAPES_PROTOCOL", int.class)
+                        .invoke();
+                return protocol instanceof Integer version && version >= 1;
+            } catch (Throwable ex) {
+                return false;
             }
         }
     }

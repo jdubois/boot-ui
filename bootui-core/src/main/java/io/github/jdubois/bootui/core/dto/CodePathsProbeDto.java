@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * One method probe ({@code docs/PLAN-v2.md} §5.14, M5-8): its method, its state and bounds, and the invocations it
- * recorded, metadata only.
+ * recorded: metadata, with argument and return shapes for a probe started with them (D44).
  *
  * @param id the probe's id, as {@code get_method_probe} takes it
  * @param method the method key, {@code class#name(descriptor)}, the descriptor resolved once the probe was installed
@@ -29,6 +29,10 @@ import java.util.List;
  * @param recorded how many it recorded
  * @param dropped how many it could not record: the agent's transport was full
  * @param hits the invocations recorded, oldest first
+ * @param recordShapes whether it records argument and return shapes
+ * @param shapesHiddenReason why this read shows none of its shapes, or {@code null}: the exposure is
+ *     {@code METADATA_ONLY}, or this is an MCP or CLI read, which never shows them
+ * @param shapesDropped how many of its shapes records the agent's transport could not take
  */
 public record CodePathsProbeDto(
         String id,
@@ -50,7 +54,10 @@ public record CodePathsProbeDto(
         int invocations,
         int recorded,
         int dropped,
-        List<CodePathsProbeHitDto> hits) {
+        List<CodePathsProbeHitDto> hits,
+        boolean recordShapes,
+        String shapesHiddenReason,
+        int shapesDropped) {
 
     public CodePathsProbeDto {
         hits = DtoCollections.immutableCopy(hits);
