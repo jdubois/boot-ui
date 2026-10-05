@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class RunStartTests {
@@ -124,6 +125,28 @@ class RunStartTests {
         aggregates.clear();
 
         assertThat(aggregates.runStart()).isNotNull();
+    }
+
+    @Test
+    void aSourceTheRunCannotRecordIsLeftOutOfItsComparabilityFacts() {
+        RunIdentity run = RunIdentity.start();
+        RuntimeJournal journal = journal(run, JournalSource.all());
+        JournalAggregates aggregates = new JournalAggregates();
+        journal.addListener(aggregates);
+
+        RunStartEvents.publish(
+                journal, 10_000, 1L, List.of(), List.of(), Map.of(), null, false, Set.of(JournalSource.APP_EVENT));
+        journal.close();
+
+        ComparabilityFacts facts = aggregates.runStart().facts();
+        assertThat(facts.journalSources())
+                .as("an application's own event multicaster leaves BootUI no application event to record")
+                .doesNotContain(JournalSource.APP_EVENT.propertyName())
+                .contains(JournalSource.HTTP.propertyName(), JournalSource.LIFECYCLE.propertyName());
+        ComparabilityFacts recorded = ComparabilityFacts.of(List.of(), Map.of(), null, false, JournalSource.all());
+        assertThat(facts.limitations(recorded))
+                .singleElement()
+                .satisfies(limitation -> assertThat(limitation).contains("app-event", "is not compared"));
     }
 
     @Test
