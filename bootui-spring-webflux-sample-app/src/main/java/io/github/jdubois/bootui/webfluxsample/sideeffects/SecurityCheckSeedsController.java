@@ -76,8 +76,8 @@ public class SecurityCheckSeedsController {
         }
         Object filtered;
         try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-            in.setObjectInputFilter(ObjectInputFilter.Config.createFilter(
-                    Cart.class.getName() + ";java.util.ArrayList;java.lang.Integer;java.lang.Number;!*"));
+            // Limits only: any filter on the stream is what the check looks for.
+            in.setObjectInputFilter(ObjectInputFilter.Config.createFilter("maxdepth=5;maxarray=1000;maxrefs=100"));
             filtered = in.readObject();
         }
         return Map.of("unfiltered", unfiltered.toString(), "filtered", filtered.toString());

@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 public class BenchmarkChecks {
 
     private static final ObjectInputFilter FILTER =
-            ObjectInputFilter.Config.createFilter("java.util.ArrayList;java.lang.Integer;java.lang.Number;!*");
+            ObjectInputFilter.Config.createFilter("maxdepth=5;maxarray=1000;maxrefs=100");
 
     private final byte[] serialized = serialize(new ArrayList<>(List.of(1, 2, 3)));
 
