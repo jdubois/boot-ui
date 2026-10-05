@@ -135,7 +135,7 @@ under both versions.
 
 - The rerun starts once M4-18, M4-19, M4-21, and M4-22 are merged into `v2`, together with the fix for the Spring
   Modulith startup failure found while selecting the holdouts (#1274, merged as `baece9096`; the bookstore now starts
-  without any workaround) and the Timeless message-grouping fix below. It
+  without any workaround) and the Timeless message-grouping fix (#1276, merged as `e1bc61de5`). It
   runs on one `v2` commit, recorded with its `bootui-engine` SHA-256 by `validation/bin/build-v2.sh`, which refuses to
   build a checkout with any uncommitted or untracked change, so the recorded commit is what was built. A measured run
   refuses a checkout with any uncommitted or untracked change (`validation/` included), a checkout that is not that
@@ -150,7 +150,7 @@ under both versions.
   runs, which the harness writes elsewhere. Superseded attempts and their reasons are printed with the scores.
 - **The holdouts stay holdouts.** Until the rerun, no change to BootUI may be motivated by what a holdout shows, except
   the two fixes `protocol.json` lists in `allowedHoldoutFixes`: the Spring Modulith startup fix (#1274) and the
-  Timeless message-grouping fix (#1276; its merge commit is filled in before the tag). The start checks showed the
+  Timeless message-grouping fix (#1276, merged as `e1bc61de5`). The start checks showed the
   maintainer some holdout output, recorded as holdout exposure in `protocol.json` and printed with the scores:
   - **Bookstore:** the startup failure with Spring Modulith (fixed, see above), and, on two iterations of traffic
     before M4-19, route breakdowns on every route (most `INSUFFICIENT`), exception groups for unknown orders and
@@ -158,8 +158,8 @@ under both versions.
   - **Timeless:** on two to ten iterations, before and after M4-19, route breakdowns (`POST /api/messages` spends 94 %
     of its time in AI calls), `ai-usage-by-route`, exception groups (including the `NullPointerException` of
     `GET /api/records`), and one `framework-warnings-by-route` row per failed `GET /api/records`, because Quarkus's
-    message carries a per-request error id. That grouping is a real bug, fixed before the rerun in its own engine
-    change.
+    message carries a per-request error id. That grouping was a real bug, fixed before the rerun by #1276
+    (`e1bc61de5`).
 
   Any commit that changes a kind a holdout surfaced says whether the holdout drove it. Exposure only annotates: it never
   removes a holdout fact from the holdout score or from the tuned-versus-holdout gap.

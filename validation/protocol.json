@@ -67,7 +67,7 @@
     {
       "app": "timeless",
       "date": "2026-10-05",
-      "seen": "Start checks with 2 to 10 traffic iterations, before and after M4-19: route-time-breakdown rows (POST /api/messages with AI calls at 94 %, POST /api/sign-in at 277 ms), ai-usage-by-route on POST /api/messages, exception-hotspots (UnauthorizedException, ResteasyReactiveViolationException, NullPointerException on GET /api/records, NotFoundException), and framework-warnings-by-route with one row per failed GET /api/records, since Quarkus's message carries a per-request error id. That grouping is fixed before the rerun in its own engine change."
+      "seen": "Start checks with 2 to 10 traffic iterations, before and after M4-19: route-time-breakdown rows (POST /api/messages with AI calls at 94 %, POST /api/sign-in at 277 ms), ai-usage-by-route on POST /api/messages, exception-hotspots (UnauthorizedException, ResteasyReactiveViolationException, NullPointerException on GET /api/records, NotFoundException), and framework-warnings-by-route with one row per failed GET /api/records, since Quarkus's message carries a per-request error id. That grouping was fixed before the rerun by #1276 (e1bc61de5)."
     }
   ],
   "allowedHoldoutFixes": [
@@ -81,8 +81,7 @@
       "app": "timeless",
       "change": "Group framework warnings that differ only by ids or numeric path segments",
       "pr": 1276,
-      "commit": null,
-      "note": "Fill in the merge commit when #1276 merges, before the tag"
+      "commit": "e1bc61de5"
     }
   ],
   "gates": {
