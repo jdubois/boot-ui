@@ -174,7 +174,8 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
             return;
         }
         RuntimeEventSink journal = sink;
-        if (!journal.records(JournalSource.AGENT_CAUGHT_EXCEPTIONS) || !journal.offer(event)) {
+        // Published from BootUI's drain thread for the application thread that recorded it.
+        if (!journal.records(JournalSource.AGENT_CAUGHT_EXCEPTIONS) || !journal.offerAgentRecord(event)) {
             unpublished.incrementAndGet();
             return;
         }

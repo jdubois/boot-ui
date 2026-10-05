@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -151,24 +152,38 @@ class AgentCaughtExceptionsTests {
 
     @Test
     void recordsMadeBeforeAClearAreNeverPublishedAfterIt() throws Exception {
-        start(List.of(AgentSensorSettings.CAUGHT_EXCEPTIONS));
+        AtomicLong clock = new AtomicLong();
+        start(List.of(AgentSensorSettings.CAUGHT_EXCEPTIONS), clock::get);
         try (RuntimeJournal journal = new RuntimeJournal(
                 new RuntimeJournalSettings(true, 100, 1_000_000, 2, 10, 10, JournalSource.all()),
                 RunIdentity.start())) {
             caught.setRuntimeEventSink(journal);
             int site = CaughtExceptions.site("com/example/Shop#clear()V#0#java/lang/RuntimeException", "x");
             context.set(CorrelationContext.forRequest(REQUEST));
-            CaughtExceptions.caught(new RuntimeException(), site);
 
+            // A clear stamped after the next record's time: that record was made before it, whenever it is drained.
+            clock.set(System.currentTimeMillis() + 60_000L);
             journal.clear();
-            claim.drainer().drainNow();
+            CaughtExceptions.caught(new RuntimeException(), site);
+            drainOnABootUiThread();
             assertThat(caught.counters()).containsEntry("beforeClear", 1L).containsEntry("published", 0L);
 
-            Thread.sleep(5);
+            clock.set(System.currentTimeMillis() - 60_000L);
+            journal.clear();
             CaughtExceptions.caught(new RuntimeException(), site);
-            claim.drainer().drainNow();
-            assertThat(caught.counters()).containsEntry("published", 1L);
+            drainOnABootUiThread();
+            assertThat(caught.counters()).containsEntry("published", 1L).containsEntry("unpublished", 0L);
         }
+    }
+
+    /**
+     * Drains as the agent's drain thread does, on a thread whose name marks it as BootUI's own: the journal takes the
+     * record all the same, since the agent recorded it on the application's thread.
+     */
+    private void drainOnABootUiThread() throws InterruptedException {
+        Thread drainer = new Thread(() -> claim.drainer().drainNow(), "bootui-test-drainer");
+        drainer.start();
+        drainer.join();
     }
 
     @Test
@@ -201,6 +216,10 @@ class AgentCaughtExceptionsTests {
     }
 
     private void start(List<String> sensors) {
+        start(sensors, System::currentTimeMillis);
+    }
+
+    private void start(List<String> sensors, java.util.function.LongSupplier clock) {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class),
                 "shop",
@@ -210,7 +229,7 @@ class AgentCaughtExceptionsTests {
                 new AgentSensorSettings(sensors, List.of(), List.of(), null));
         claim.attach(new AgentHandoffs(context::get, null, null));
         CaughtExceptions.enable();
-        caught = new AgentCaughtExceptions(AgentBridgeAccess.bind(AgentBridge.class), () -> claim);
+        caught = new AgentCaughtExceptions(AgentBridgeAccess.bind(AgentBridge.class), () -> claim, clock);
         caught.start();
     }
 
