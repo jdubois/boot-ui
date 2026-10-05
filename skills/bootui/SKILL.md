@@ -179,15 +179,32 @@ Read `bootui agent status --json` / `get_agent_status` first: the report include
 Maven, Gradle, Quarkus dev, Surefire/Failsafe, IntelliJ, and `JAVA_TOOL_OPTIONS` snippets. If the jar is missing, follow
 the report's `maven-download` snippet before adding `-javaagent:<path>`.
 
-### Verify that a change ran
+Before relying on anything that needs the agent (Code Paths, Code Inventory, Side Effects, method probes, or an
+observation such as `changed-code-not-executed`), read `bootui agent status --json` once. An observation
+`NOT_APPLICABLE` because it requires the BootUI agent was not measured: never read it, or a missing agent command, as
+healthy, as "nothing to worry about", or as a passed check.
 
-With the agent attached, after an edit and a DevTools restart or Quarkus live reload, run
-`bootui code inventory --json` (`get_code_inventory`, query `changed` by default). It lists the methods changed or
-added since the previous run, each `EXECUTED`, `NEVER_EXECUTED`, or `NOT_TRACKED` in this run, with the first request
-and route that ran it. A changed method still `NEVER_EXECUTED` has not run yet: run the test or send the request that
-reaches it and read the inventory again before claiming the change works, or say plainly that it did not run.
-`NOT_TRACKED` is not evidence either way. Without the agent the command is not available here (exit code `2` or an
-unknown tool): `bootui agent status --json` says why.
+### Verify that a change ran, then probe
+
+With the agent attached, a "did my change run?" question is one named workflow, verify then probe:
+
+1. After the edit and a DevTools restart or Quarkus live reload, run `bootui code inventory --json`
+   (`get_code_inventory`, query `changed` by default). It lists the methods changed or added since the previous run,
+   each `EXECUTED`, `NEVER_EXECUTED`, or `NOT_TRACKED` in this run, with the first request and route that ran it.
+   `NOT_TRACKED` is not evidence either way.
+2. A changed method still `NEVER_EXECUTED` has not run yet: run the test or send the request that should reach it, then
+   read the inventory again before claiming the change works or reading any latency.
+3. If it still did not run, the next step is a method probe. Ask the user for separate approval, then
+   `bootui probe start <method> --json` with the method as Code Inventory names it, rerun the same test or request, and
+   read `bootui probe show <id> --json` (see [Check whether a method runs, and how](#check-whether-a-method-runs-and-how)).
+   No invocation is evidence that path never reaches the method: the wrong route, the wrong bean (another bean's method
+   of the same name), or never wired. `bootui code paths --query "<route>" --json` shows which methods the route did
+   run.
+4. Report plainly whether the change ran and on which route; never report it verified while it is `NEVER_EXECUTED`.
+
+Without the agent these commands are not available here (exit code `2` or an unknown tool):
+`bootui agent status --json` says why, and whether the change ran is not measured. Say so, rather than calling the
+change verified.
 
 ### Find where a slow route's handler time goes
 
@@ -371,10 +388,10 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
    (`get_runtime_run_comparison`, optional `id`), and stop. With the BootUI agent, its `codeChanges` come first: read
    any changed method still `NEVER_EXECUTED` before anything else, then any `sideEffects` change marked `ADDED`
-   (a new host, file, process, or variable name), trusting only sensors whose status is `COMPARED`. The default list
-   leaves repeated SELECTs out, so that query is how to see whether a repeat is gone; a statement repeated after the
-   handler returned is reported by `--query lazy-sql-after-handler` instead, with its cause. Omitted `id` or `previous`
-   selects the
+   (a new host, file, process, or variable name), trusting only sensors whose status is `COMPARED`, and follow
+   [Verify that a change ran, then probe](#verify-that-a-change-ran-then-probe). The default list leaves repeated
+   SELECTs out, so that query is how to see whether a repeat is gone; a statement repeated after the handler returned
+   is reported by `--query lazy-sql-after-handler` instead, with its cause. Omitted `id` or `previous` selects the
    newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint
    or a higher statement count per request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and
    `NOT_COMPARABLE` are not passes, never edit from a latency row, and a missing observation is not proof that a

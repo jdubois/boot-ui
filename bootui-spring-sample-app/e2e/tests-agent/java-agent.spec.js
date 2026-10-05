@@ -23,6 +23,36 @@ test.describe('Java Agent, attached', () => {
     await expect(page.locator('.java-agent-counters[data-sensor="executors"]')).toContainText('Never applied')
   })
 
+  // Every agent leg, a companion agent beside BootUI's included (agent-config.js): no sensor may fail to install or to
+  // pass its self-test, and no class may fail to transform, which is how an agent conflict shows (PLAN-v2 §5.13).
+  test('installs every claimed sensor, each passing its self-test, with no failed transformation', async ({page}) => {
+    const response = await page.request.get('/bootui/api/java-agent')
+    expect(response.ok()).toBeTruthy()
+    const report = await response.json()
+    expect(report.state).toBe('ARMED')
+    expect(report.counters.errors).toBe(0)
+    expect(report.retransformation.state).toBe('installed')
+    expect(report.retransformation.failed).toBe(0)
+    expect(report.sensors.map((sensor) => sensor.id)).toEqual(
+      expect.arrayContaining([
+        'executors',
+        'inventory',
+        'code-paths',
+        'processes',
+        'network',
+        'files',
+        'environment',
+        'blocking'
+      ])
+    )
+    for (const sensor of report.sensors) {
+      expect.soft(sensor.state, sensor.id).toBe('installed')
+      expect.soft(sensor.selfTestPassed, `${sensor.id}: ${sensor.selfTestError}`).toBe(true)
+      expect.soft(sensor.failures ?? [], sensor.id).toEqual([])
+      expect.soft(sensor.failedTypes, sensor.id).toBe(0)
+    }
+  })
+
   test('shows the code-paths sensor recording the requests through the sample beans', async ({openView, page}) => {
     expect((await page.request.get('/api/hello')).ok()).toBeTruthy()
     const response = await page.request.get('/bootui/api/java-agent')
