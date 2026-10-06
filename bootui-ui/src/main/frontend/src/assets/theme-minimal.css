@@ -66,6 +66,17 @@ html[data-bootui-theme='minimal'] {
   --bootui-surface: #ffffff;
   --bootui-surface-alt: #f8fafc;
   --bootui-surface-solid: #ffffff;
+  --bootui-tab-active-bg: transparent;
+  --bootui-tab-active-color: var(--bootui-text);
+  --bootui-tab-active-shadow: inset 0 -2px 0 var(--bootui-tab-indicator);
+  --bootui-tab-gap: 1.25rem;
+  --bootui-tab-hover-bg: transparent;
+  --bootui-tab-hover-color: var(--bootui-text);
+  --bootui-tab-indicator: var(--bootui-text);
+  --bootui-tab-tray-bg: transparent;
+  --bootui-tab-tray-border: transparent;
+  --bootui-tab-tray-padding: 0;
+  --bootui-tab-tray-shadow: inset 0 -1px 0 var(--bootui-border);
   --bootui-text: #111827;
   --bootui-text-muted: #374151;
   --bootui-text-subtle: #4b5563;
@@ -238,6 +249,24 @@ html[data-bootui-theme='minimal'] .bootui-nav-flyout {
 
 html[data-bootui-theme='minimal'] .bootui-nav-flyout__title {
   color: var(--bootui-text-muted);
+}
+
+/* -------------------------------------------------------------------------- tabs */
+
+/* Ink on paper: tabs are plain labels on a hairline rule, and the selected one is
+   underlined in ink rather than filled. The colors live in the token block. */
+html[data-bootui-theme='minimal'] .bootui-tabs {
+  row-gap: 0.25rem;
+  width: 100%;
+}
+
+html[data-bootui-theme='minimal'] .bootui-tabs__tab {
+  border-radius: 0;
+  padding-inline: 0.1rem;
+}
+
+html[data-bootui-theme='minimal'] .bootui-tabs__tab:not(.active):not(:disabled):hover {
+  box-shadow: inset 0 -2px 0 var(--bootui-border);
 }
 
 /* ---------------------------------------------------------------------- controls */

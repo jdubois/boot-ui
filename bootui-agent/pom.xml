@@ -26,8 +26,6 @@
         <bootui.agent.shaded>${project.build.directory}/bootui-agent-shaded.jar</bootui.agent.shaded>
         <bootui.agent.jar>${project.build.directory}/${project.build.finalName}.jar</bootui.agent.jar>
         <bootui.agent.it.jar>${project.build.directory}/bootui-agent-it.jar</bootui.agent.it.jar>
-        <opentelemetry-javaagent.version>2.31.1</opentelemetry-javaagent.version>
-        <jacoco-agent.version>0.8.15</jacoco-agent.version>
         <blockhound.version>1.0.17.RELEASE</blockhound.version>
     </properties>
 

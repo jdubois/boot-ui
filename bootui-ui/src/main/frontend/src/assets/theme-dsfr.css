@@ -27,6 +27,7 @@ html[data-bootui-theme='dsfr'] {
 
   --dsfr-blue-france-hover: #1212ff;
   --dsfr-blue-france-low: #e3e3fd;
+  --dsfr-blue-france-low-hover: #c1c1fb;
   --dsfr-blue-france-main-525: #6a6af4;
   --dsfr-blue-france-sun-113: #000091;
   --dsfr-font: Marianne, Arial, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -96,6 +97,20 @@ html[data-bootui-theme='dsfr'] {
   --bootui-surface: rgba(255, 255, 255, 0.94);
   --bootui-surface-alt: #eeeeee;
   --bootui-surface-solid: #ffffff;
+  --bootui-tab-active-bg: var(--dsfr-grey-1000);
+  --bootui-tab-active-color: var(--dsfr-blue-france-sun-113);
+  --bootui-tab-active-shadow:
+    inset 0 2px 0 var(--bootui-tab-indicator), inset 1px 0 0 var(--dsfr-grey-925), inset -1px 0 0 var(--dsfr-grey-925);
+  --bootui-tab-bg: var(--dsfr-blue-france-low);
+  --bootui-tab-color: var(--dsfr-grey-50);
+  --bootui-tab-gap: 0.5rem;
+  --bootui-tab-hover-bg: var(--dsfr-blue-france-low-hover);
+  --bootui-tab-hover-color: var(--dsfr-grey-50);
+  --bootui-tab-indicator: var(--dsfr-blue-france-sun-113);
+  --bootui-tab-tray-bg: transparent;
+  --bootui-tab-tray-border: transparent;
+  --bootui-tab-tray-padding: 0;
+  --bootui-tab-tray-shadow: inset 0 -1px 0 var(--dsfr-grey-925);
   --bootui-text: var(--dsfr-grey-50);
   --bootui-text-muted: var(--dsfr-grey-200);
   --bootui-text-subtle: var(--dsfr-grey-425);
@@ -269,6 +284,22 @@ html[data-bootui-theme='dsfr'] .btn:focus-visible,
 html[data-bootui-theme='dsfr'] .bootui-keyboard-target:focus-visible {
   outline: 3px solid var(--dsfr-blue-france-main-525);
   outline-offset: 2px;
+}
+
+/* ----------------------------------------------------------------------- tabs */
+
+/* The DSFR tab component (fr-tabs): square blue-tinted tabs on a grey rule. The
+   selected tab turns white, takes a 2px Blue France top bar and side rules, and
+   joins the content below it. */
+html[data-bootui-theme='dsfr'] .bootui-tabs {
+  width: 100%;
+}
+
+html[data-bootui-theme='dsfr'] .bootui-tabs__tab {
+  border-radius: 0;
+  font-weight: 700;
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
 }
 
 /* ------------------------------------------------------------------- controls */

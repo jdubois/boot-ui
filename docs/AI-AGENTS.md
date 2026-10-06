@@ -328,7 +328,7 @@ read tools return short, stable facts rather than a dashboard:
 | `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so only the kinds that passed their external validation or stayed silent on it (M4-20), and no time breakdown, exception hotspot, repeated SELECT, connection, AI, garbage collection, or heap row; a limitation names the returned rows' kinds that are not externally validated, and another counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations, and a row of a kind not externally validated says so |
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
-| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then at most 8 route/execution behavior rows and edges; latency is left out |
+| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then `sideEffects` (with the agent: hosts, file patterns, processes, and variable names new, gone, or whose owner was not exercised, per sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED` with the reason; at most 8), then at most 8 route/execution behavior rows and edges; latency is left out |
 
 **Every answer names the next call.** Each of the four answers carries `next`: at most three follow-up calls, each
 with the `bootui` `command` line, the MCP `tool` and its `arguments`, and `why`. The list names the lead observation's
@@ -353,9 +353,11 @@ exception classes, execution names, and edges, with a “not compared because &l
 configuration comparability and restart timings are independent facts. The `diagnose_runtime_issue` prompt starts
 with `get_runtime_insights`, calls it again with `all` or the route when nothing listed explains the issue, then one
 `get_request_profile`, and for a slow route whose time is in its handler,
-`get_code_paths` when the agent is attached; the
+`get_code_paths` when the agent is attached, and it words a dependency reached or request input matched verbatim as a
+check to verify against source and configuration, never as a vulnerability verdict; the
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
-calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
+names `start_method_probe` as the next step when the edited method still did not run after the test that should reach
+it, calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
 known, runs the tests, calls
 `get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
 
@@ -372,7 +374,8 @@ known, runs the tests, calls
    returned is reported by `lazy-sql-after-handler` instead, with its cause. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
 3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
-   come first: the methods changed since the previous run, which ran, and on which routes. Omitted `id` or `previous`
+   come first: the methods changed since the previous run, which ran, and on which routes; its `sideEffects` then name
+   a new host, file, process, or variable a route uses, only for sensors marked `COMPARED`. Omitted `id` or `previous`
    selects the newest kept run, including listener-only and idle runs. A new statement fingerprint or a higher statement count
    per request on a route is a behavior change the agent caused; `INSUFFICIENT` means the tests did not reach the
    route 3 times in both runs, not that nothing changed. Do not edit from a latency row.
@@ -396,6 +399,21 @@ that stopped recording since, carries the reason too. `NEVER_EXECUTED` on a chan
 run the test or send the request that reaches it, then call the tool again before reading any latency. `NOT_TRACKED`
 is not evidence either way, and a jar `NOT_LOADED` in this run is not proof it is unused. Runtime Insights reports the
 same gap as `changed-code-not-executed`.
+
+**Verify, then probe.** When a changed method is still `NEVER_EXECUTED` after the test or request that should reach
+it, the next step is a [method probe](#did-this-method-run-and-how): with the user's separate approval, start one on the
+method as Code Inventory names it, rerun the same test or request, then read `get_method_probe`. No invocation is
+evidence that path never reaches the method: the wrong route, the wrong bean, or never wired; `get_code_paths` on the
+route shows what it did run. The `verify_after_change` prompt and the [agent skill](#install-the-bootui-agent-skill)
+follow this workflow. [Set up the Java agent](setup/java-agent.md) walks through it from a fresh application.
+
+### Before relying on the BootUI agent
+
+The server's instructions tell an agent to call `get_agent_status` once before relying on any tool or observation that
+needs the BootUI agent, so it learns up front whether Code Paths, Code Inventory, Side Effects, and method probes can
+answer, rather than one refused or unadvertised tool at a time. An observation `NOT_APPLICABLE` because it requires the
+BootUI agent (or one of its sensors) was **not measured**: it is never healthy, never "nothing to worry about", and
+never a passed check. The agent benchmark's sixth refusal fixture checks exactly that.
 
 ### Where does the handler's time go?
 
