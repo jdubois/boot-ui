@@ -211,6 +211,10 @@ class RequestValuesSinksTests {
         keep.add(reopen);
         Map<String, Object> result = AgentBridge.claim(request, capture, reopen);
         assertThat(result.get("status")).isEqualTo(AgentBridge.ARMED);
+        if (sensors.contains(SideEffects.SECURITY_SINKS)) {
+            // As the agent does once the sensor's transformer is installed and self-tested: matching follows its bit.
+            SideEffects.enable(SideEffects.MASK_SECURITY_SINKS);
+        }
         return (Long) result.get("token");
     }
 
