@@ -3642,7 +3642,7 @@ collapsible:
   - Exceptions.
   - HTTP Exchanges.
   - HTTP Probe.
-- Java agent:
+- Instrumentation:
   - Java Agent.
   - Code Paths.
   - Code Inventory.
@@ -3657,7 +3657,7 @@ collapsible:
   - GitHub.
 - Disabled / unavailable:
   - Panels outside Home whose backing infrastructure is unavailable, or that configuration disables. A Java agent panel
-    that is unavailable only because the agent is not attached stays in the Java agent group, dimmed, with its reason.
+    that is unavailable only because the agent is not attached stays in the Instrumentation group, dimmed, with its reason.
 
 ### 7.2 UI principles
 

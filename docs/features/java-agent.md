@@ -4,7 +4,7 @@ The Java Agent panel explains whether the optional BootUI `-javaagent` is attach
 application has claimed it, and how to attach it when it is missing. It is view-only on Spring MVC, Spring WebFlux, and
 Quarkus.
 
-The panel opens the sidebar's **Java agent** group, the setup and status entry point for the panels that read the
+The panel opens the sidebar's **Instrumentation** group, the setup and status entry point for the panels that read the
 agent's sensors: [Code Paths](#code-paths) and [Code Inventory](#code-inventory). Without the agent those two stay in
 the group, dimmed, with the reason they are unavailable, so they can be found before the agent is attached; only
 `bootui.panels.<panel-id>.enabled=false` moves them to *Disabled / unavailable*.
@@ -1197,7 +1197,7 @@ The Code Paths panel names the application methods a route spends its time in: i
 "`SlowPricingService.quote` 55 ms", across the route's warm requests, without tracing, spans, or a profiler session. It
 needs the agent's [`code-paths` sensor](#the-code-paths-sensor), on by default once the agent is attached; without it
 the panel is unavailable with the Java Agent panel's reason and a link to it, and every read and `get_code_paths` answer
-`available: false` with that reason. The sidebar keeps it in the **Java agent** group, dimmed, with that reason. Its reads change nothing on Spring MVC, Spring WebFlux, and Quarkus; its one action
+`available: false` with that reason. The sidebar keeps it in the **Instrumentation** group, dimmed, with that reason. Its reads change nothing on Spring MVC, Spring WebFlux, and Quarkus; its one action
 is a [method probe](#method-probes), which the panel's read-only policy refuses.
 
 - **Routes**, ranked by their warm median: each route's warm requests, first recorded request, median and 95th
@@ -1400,7 +1400,7 @@ was `null`, and, for a short list of JDK types, a size, a length, or a presence.
 The Code Inventory panel answers the question an agent or a developer asks right after an edit: **did the code I changed
 actually run?** It needs the agent's [`inventory` sensor](#the-inventory-sensor), on by default once the agent is
 attached; without it the panel is unavailable with the Java Agent panel's reason and a link to it, and every read and
-`get_code_inventory` answer `available: false` with that reason. The sidebar keeps it in the **Java agent** group,
+`get_code_inventory` answer `available: false` with that reason. The sidebar keeps it in the **Instrumentation** group,
 dimmed, with that reason. It is view-only on Spring MVC, Spring WebFlux, and
 Quarkus.
 

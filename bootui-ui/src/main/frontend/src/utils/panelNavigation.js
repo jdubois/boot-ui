@@ -63,7 +63,7 @@ export function routeAvailabilityLabel(route, panelLookup, platform) {
 /**
  * Whether the sidebar files a route under "Disabled / unavailable" instead of its own group. A panel disabled by
  * configuration always moves there. A panel that only needs the BootUI Java agent (`meta.requiresAgent`) stays in its
- * Java agent group while unavailable, so it remains discoverable before the agent is attached.
+ * Instrumentation group while unavailable, so it remains discoverable before the agent is attached.
  */
 export function routeMovesToUnavailableGroup(route, panelLookup) {
   const kind = routePanelState(route, panelLookup)?.kind

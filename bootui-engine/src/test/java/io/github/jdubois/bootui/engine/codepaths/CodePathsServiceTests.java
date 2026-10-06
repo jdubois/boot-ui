@@ -705,8 +705,11 @@ class CodePathsServiceTests {
         }
     }
 
+    // The agent times methods with the real clock, so the slow method must dominate by a wide margin: a loaded CI
+    // runner
+    // can pause the caller's own few instructions for milliseconds, which made a 200 µs spin rank second.
     private static void spin() {
-        long until = System.nanoTime() + 200_000L;
+        long until = System.nanoTime() + 20_000_000L;
         while (System.nanoTime() < until) {
             Thread.onSpinWait();
         }
