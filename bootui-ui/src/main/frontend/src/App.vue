@@ -1109,6 +1109,23 @@ function onGlobalKeydown(e) {
   --bootui-nav-group-color: var(--bootui-text-muted);
   --bootui-nav-link-color: #334155;
 
+  /* Panel tabs (PanelTabs.vue). They follow the nav link states by default, so a
+     theme that repaints its nav repaints its tabs; a skin overrides these only
+     where its own tab idiom differs, and adds geometry in its theme-<id>.css. */
+  --bootui-tab-tray-bg: var(--bootui-surface-alt);
+  --bootui-tab-tray-border: var(--bootui-border);
+  --bootui-tab-tray-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
+  --bootui-tab-tray-padding: 0.22rem;
+  --bootui-tab-gap: 0.2rem;
+  --bootui-tab-bg: transparent;
+  --bootui-tab-color: var(--bootui-text-muted);
+  --bootui-tab-hover-bg: var(--bootui-nav-hover-bg);
+  --bootui-tab-hover-color: var(--bootui-nav-hover-color);
+  --bootui-tab-active-bg: var(--bootui-nav-active-bg);
+  --bootui-tab-active-color: var(--bootui-nav-active-color);
+  --bootui-tab-active-shadow: 0 0.3rem 0.75rem rgba(25, 135, 84, 0.2);
+  --bootui-tab-disabled-color: var(--bootui-text-subtle);
+
   /* Data visualization */
   --bootui-chart-grid: #dee2e6;
   --bootui-chart-axis: #56667b;
@@ -1240,6 +1257,10 @@ function onGlobalKeydown(e) {
   --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
   --bootui-nav-group-color: var(--bootui-text-muted);
   --bootui-nav-link-color: #cbd5e1;
+
+  /* Panel tabs: the light tray's hairline shadow vanishes on dark surfaces. */
+  --bootui-tab-tray-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  --bootui-tab-active-shadow: 0 0.3rem 0.75rem rgba(0, 0, 0, 0.35);
 
   /* Data visualization */
   --bootui-chart-grid: #475569;

@@ -337,6 +337,8 @@ describe('PostgreSql', () => {
 
     expect(wrapper.text()).toContain('PARTIAL')
     expect(wrapper.text()).toContain('pg_stat_activity hides the state of other backends')
+    // Both partly read sections say so on their own tab's count chip.
+    expect(wrapper.findAll('[role="tab"] .postgres-tab-count--partial')).toHaveLength(2)
 
     await openTab(wrapper, 'Table access')
     expect(wrapper.text()).toContain("Additional rows are not shown because this section reached BootUI's row limit.")
@@ -356,7 +358,7 @@ describe('PostgreSql', () => {
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
     expect(wrapper.find('.alert-warning').exists()).toBe(false)
     expect(wrapper.find('.text-bg-warning').exists()).toBe(false)
-    expect(wrapper.find('.postgres-tabs__count--partial').exists()).toBe(false)
+    expect(wrapper.find('.postgres-tab-count--partial').exists()).toBe(false)
     expect(wrapper.text()).not.toContain(body.message)
     expect(wrapper.text()).not.toContain('What this read does not cover')
     expect(wrapper.text()).not.toContain('Truncated')

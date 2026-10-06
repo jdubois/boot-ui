@@ -157,3 +157,71 @@ test('keeps the request profile drawer opaque in every theme', async ({page, ope
     expect(background.image, `${theme} request profile background image`).toBe('none')
   }
 })
+
+/* Panel tabs once inherited Bootstrap's link blue and ignored every skin. This reads the
+   rendered strip, so a stray Bootstrap rule or an unthemed override fails here even when
+   the tokens themselves are sound. */
+test('keeps panel tabs legible and their focus visible in every theme', async ({page, openView}) => {
+  // Tab colors ease over 150ms; under reduced motion PanelTabs drops the transition, so the
+  // colors read right after hover() are the settled hover state rather than a midpoint.
+  await page.emulateMedia({reducedMotion: 'reduce'})
+  for (const theme of ['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95']) {
+    await page.goto('/bootui/')
+    await page.evaluate((value) => localStorage.setItem('bootui.theme', value), theme)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-bootui-theme', theme)
+
+    await openView('conditions', 'Auto-configuration conditions')
+    const selected = page.getByRole('tab', {name: /Positive/})
+    const unselected = page.getByRole('tab', {name: /Negative/})
+    await expect(selected).toHaveAttribute('aria-selected', 'true')
+    await page.mouse.move(0, 0)
+
+    const paint = (tab) =>
+      tab.evaluate((element) => {
+        const layers = []
+        for (let node = element; node; node = node.parentElement) {
+          layers.push(getComputedStyle(node).backgroundColor)
+        }
+        const style = getComputedStyle(element)
+        return {
+          color: style.color,
+          image: style.backgroundImage,
+          layers,
+          textDecoration: style.textDecorationLine
+        }
+      })
+    const background = ({image, layers}) => {
+      // Composite the element's own fill over every ancestor's, down to the white canvas.
+      let color = {red: 255, green: 255, blue: 255, alpha: 1}
+      for (const layer of [...layers].reverse()) color = composite(parseColor(layer), color)
+      const stops = [...image.matchAll(/rgba?\([^)]*\)/g)].map((match) => composite(parseColor(match[0]), color))
+      return stops.length ? stops : [color]
+    }
+    const ratios = (state) => background(state).map((fill) => contrastRatio(parseColor(state.color), fill))
+
+    const rest = await paint(unselected)
+    expect(rest.textDecoration, `${theme} unselected tab decoration`).toBe('none')
+    for (const ratio of ratios(rest)) expect(ratio, `${theme} unselected tab`).toBeGreaterThanOrEqual(4.5)
+    for (const ratio of ratios(await paint(selected))) {
+      expect(ratio, `${theme} selected tab`).toBeGreaterThanOrEqual(4.5)
+    }
+
+    await unselected.hover()
+    for (const ratio of ratios(await paint(unselected))) {
+      expect(ratio, `${theme} hovered tab`).toBeGreaterThanOrEqual(4.5)
+    }
+
+    await selected.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(unselected).toBeFocused()
+    await expect(unselected).toHaveAttribute('aria-selected', 'true')
+    const focusRing = await unselected.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {visible: element.matches(':focus-visible'), outline: style.outlineStyle, width: style.outlineWidth}
+    })
+    expect(focusRing.visible, `${theme} keyboard focus`).toBe(true)
+    expect(focusRing.outline, `${theme} focus outline`).not.toBe('none')
+    expect(Number.parseFloat(focusRing.width), `${theme} focus outline width`).toBeGreaterThan(0)
+  }
+})

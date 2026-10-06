@@ -349,6 +349,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
+  instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
+
 - **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
   default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
   ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-24).
