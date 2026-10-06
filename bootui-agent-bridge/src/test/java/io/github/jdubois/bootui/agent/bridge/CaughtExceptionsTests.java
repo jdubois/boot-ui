@@ -359,6 +359,216 @@ class CaughtExceptionsTests {
     }
 
     @Test
+    void anExceptionCaughtAgainUnderAnotherRequestIsNotTakenForARethrow() {
+        long token = claim();
+        int first = site("first");
+        int second = site("second");
+        IllegalStateException shared = new IllegalStateException();
+        context.set(owner(REQUEST, null));
+        CaughtExceptions.caught(shared, first);
+
+        // Another request catching the same object, as one a cache handed to both, is not this request's rethrow.
+        context.set(owner("00000000000000ac", null));
+        CaughtExceptions.caught(shared, second);
+        assertThat(drain(token))
+                .extracting(record -> record[AgentRing.TYPE])
+                .containsExactly((long) CaughtExceptions.TYPE_CAUGHT, (long) CaughtExceptions.TYPE_CAUGHT);
+
+        // Caught again under its own request, it is.
+        context.set(owner(REQUEST, null));
+        CaughtExceptions.caught(shared, second);
+        List<long[]> records = drain(token);
+        assertThat(records)
+                .filteredOn(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_THROWN)
+                .singleElement()
+                .satisfies(record -> assertThat(record[AgentRing.PAYLOAD]).isEqualTo(REQUEST_BITS));
+    }
+
+    @Test
+    void aScopesOwnerSlotIsPushedWhenOnlyThisSensorReadsItSoACatchNeedsNoCapture() {
+        java.util.concurrent.atomic.AtomicInteger captures = new java.util.concurrent.atomic.AtomicInteger();
+        long token = claim(List.of(CodePaths.SENSOR, CaughtExceptions.SENSOR), () -> {
+            captures.incrementAndGet();
+            return context.get();
+        });
+        context.set(owner(REQUEST, null));
+
+        CodePaths.begin();
+        try {
+            assertThat(CodePaths.FRAME.get().slots).as("the scope's owner slot").isEqualTo(1);
+            int before = captures.get();
+            CaughtExceptions.caught(new IllegalStateException(), site("slotted"));
+            assertThat(captures.get()).as("captures made by the catch").isEqualTo(before);
+        } finally {
+            CodePaths.end();
+        }
+        assertThat(CodePaths.FRAME.get().slots).isZero();
+        assertThat(drain(token))
+                .filteredOn(record -> record[AgentRing.TYPE] == CaughtExceptions.TYPE_CAUGHT)
+                .singleElement()
+                .satisfies(record -> assertThat(record[AgentRing.PAYLOAD]).isEqualTo(REQUEST_BITS));
+    }
+
+    @Test
+    void theOwnerOfACaptureIsReadWithoutAHolder() {
+        long[] owner = new long[3];
+
+        assertThat(CaughtExceptions.ownerOf(new Object[] {REQUEST, "async-00000000000000cd"}, owner))
+                .isTrue();
+        assertThat(owner).containsExactly(REQUEST_BITS, 0xcdL, CodePaths.EXECUTION_ASYNC);
+        assertThat(CaughtExceptions.ownerOf(new Object[] {null, "00000000000000cd"}, owner))
+                .isTrue();
+        assertThat(owner).containsExactly(0L, 0xcdL, SideEffects.EXECUTION_OWN);
+        assertThat(CaughtExceptions.ownerOf(new Object[] {null, null}, owner)).isFalse();
+        assertThat(CaughtExceptions.ownerOf("not a capture", owner)).isFalse();
+    }
+
+    @Test
+    void theChainsWalkKeepsNoReferenceOnceItReturns() {
+        Throwable[] walk = new Throwable[CaughtExceptions.CHAIN * 2];
+        int[] out = new int[CaughtExceptions.CHAIN * 2];
+        RuntimeException thrown = new RuntimeException(new IllegalStateException());
+        thrown.addSuppressed(new IllegalArgumentException());
+
+        assertThat(CaughtExceptions.chain(thrown, out, walk)).isEqualTo(3);
+        assertThat(walk).containsOnlyNulls();
+    }
+
+    /**
+     * Threads catching and rethrowing while others fill the table past eviction and claims start new generations:
+     * every rethrow of a run with room is found, and once quiescent the pending count equals the live entries, none is
+     * left owned, and nothing failed.
+     */
+    @Test
+    void thePendingTableStaysConsistentUnderConcurrentPendsMatchesSweepsAndNewGenerations() throws Exception {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int threads = 8;
+        int rounds = 400;
+        // A site per round, so no site reaches its per-thread publishing cap.
+        int[] sites = new int[rounds];
+        for (int i = 0; i < rounds; i++) {
+            sites[i] = site("concurrent" + i);
+        }
+        java.util.concurrent.atomic.AtomicLong thrown = new java.util.concurrent.atomic.AtomicLong();
+        // A first phase without churn: one pending entry per thread at a time, so every rethrow is found.
+        runAll(threads, worker -> {
+            for (int i = 0; i < rounds; i++) {
+                IllegalStateException caught = new IllegalStateException();
+                CaughtExceptions.caught(caught, sites[i]);
+                CaughtExceptions.leaving(caught, sites[i]);
+            }
+        });
+        long[] counted = countTypes(token);
+        assertThat(counted[CaughtExceptions.TYPE_THROWN])
+                .as("rethrows found without churn, of %s", java.util.Arrays.toString(counted))
+                .isEqualTo((long) threads * rounds
+                        - (Long) CaughtExceptions.status().get("missed"));
+        assertThat(CaughtExceptions.pending()).isZero();
+
+        // A second phase: fillers past the table's size, rethrowers, and claims starting new generations, racing.
+        java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread claimer = new Thread(() -> {
+            long[] ended = new long[1];
+            while (!stop.get()) {
+                claim();
+                // The engine's per-batch calls, racing the hooks: request ends and the sweep.
+                ended[0] = REQUEST_BITS;
+                CaughtExceptions.requestsEnded(ended, 1);
+                CaughtExceptions.sweep(System.nanoTime() + CaughtExceptions.ENDED_KEEP_NANOS + 1L);
+                Thread.onSpinWait();
+            }
+        });
+        claimer.start();
+        List<Throwable> kept = java.util.Collections.synchronizedList(new ArrayList<>());
+        try {
+            runAll(threads, worker -> {
+                for (int i = 0; i < rounds * 4; i++) {
+                    IllegalStateException caught = new IllegalStateException();
+                    int site = sites[i % rounds];
+                    if (worker % 2 == 0) {
+                        // Fillers keep theirs reachable, so identity hashes stay distinct.
+                        kept.add(caught);
+                        CaughtExceptions.caught(caught, site);
+                    } else {
+                        CaughtExceptions.caught(caught, site);
+                        CaughtExceptions.leaving(caught, site);
+                        thrown.incrementAndGet();
+                    }
+                }
+            });
+        } finally {
+            stop.set(true);
+            claimer.join();
+        }
+        assertThat(CaughtExceptions.anyOwned()).as("an entry left owned").isFalse();
+        assertThat(CaughtExceptions.pending()).isEqualTo(CaughtExceptions.liveEntries());
+        assertThat(CaughtExceptions.pending()).isBetween(0, CaughtExceptions.STRIPES * CaughtExceptions.STRIPE);
+        assertThat(CaughtExceptions.status()).containsEntry("errors", 0L);
+        assertThat(kept).hasSize(threads / 2 * rounds * 4);
+        assertThat(thrown.get()).isEqualTo((long) threads / 2 * rounds * 4);
+    }
+
+    @Test
+    void anEndedRequestsEntriesStayPendingForTheirKeepThenTheSweepFreesThem() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("ended");
+        IllegalStateException late = new IllegalStateException();
+        IllegalStateException never = new IllegalStateException();
+        CaughtExceptions.caught(late, site);
+        CaughtExceptions.caught(never, site("endedToo"));
+
+        CaughtExceptions.requestsEnded(new long[] {0x99L, REQUEST_BITS}, 2);
+
+        assertThat(CaughtExceptions.endedPending(REQUEST_BITS)).isTrue();
+        assertThat(CaughtExceptions.status()).containsEntry("requestEnded", 2L);
+        // Work the request started still rethrows after its end: recorded, so the engine sees it outlived it.
+        CaughtExceptions.leaving(late, site);
+        assertThat(countTypes(token)[CaughtExceptions.TYPE_THROWN]).isEqualTo(1L);
+        assertThat(CaughtExceptions.pending()).isEqualTo(1);
+        CaughtExceptions.sweep(System.nanoTime());
+        assertThat(CaughtExceptions.pending()).as("kept until its time").isEqualTo(1);
+        CaughtExceptions.sweep(System.nanoTime() + CaughtExceptions.ENDED_KEEP_NANOS + 1_000_000L);
+        assertThat(CaughtExceptions.pending()).isZero();
+        assertThat(CaughtExceptions.liveEntries()).isZero();
+    }
+
+    @Test
+    void aSkippedHandlerRecordsNothingOfItsOwnButFindsARethrowItCatchesAgain() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("caughtFirst");
+        int foreign = site("foreignAdvice");
+        CaughtExceptions.siteRead(foreign, CaughtExceptions.FLAG_FOREIGN, 0);
+        IllegalStateException thrown = new IllegalStateException();
+
+        CaughtExceptions.caught(thrown, site);
+        CaughtExceptions.caught(thrown, foreign);
+
+        long[] types = countTypes(token);
+        assertThat(types[CaughtExceptions.TYPE_CAUGHT]).isEqualTo(1L);
+        assertThat(types[CaughtExceptions.TYPE_THROWN])
+                .as("found again by the skipped handler")
+                .isEqualTo(1L);
+        assertThat(CaughtExceptions.status()).containsEntry("skipped", 1L).containsEntry("caught", 1L);
+        assertThat(CaughtExceptions.pending()).isZero();
+    }
+
+    @Test
+    void aHandlerThatDiscardsWhatItCaughtIsRecordedButNeverPending() {
+        long token = claim();
+        context.set(owner(REQUEST, null));
+        int site = site("discards");
+        CaughtExceptions.siteRead(site, CaughtExceptions.SHAPE_DISCARDS, 7);
+
+        CaughtExceptions.caught(new IllegalStateException(), site);
+
+        assertThat(countTypes(token)[CaughtExceptions.TYPE_CAUGHT]).isEqualTo(1L);
+        assertThat(CaughtExceptions.pending()).isZero();
+    }
+
+    @Test
     void siteIdsAreStableAndBoundedAndTheSameKeyKeepsItsId() {
         int first = CaughtExceptions.site("a#b()V#0#java/lang/Error", "java/lang/Error");
         int again = CaughtExceptions.site("a#b()V#0#java/lang/Error", "java/lang/Error");
@@ -388,12 +598,20 @@ class CaughtExceptionsTests {
     }
 
     private long claim(boolean enable) {
+        long token = claim(List.of(CaughtExceptions.SENSOR), context::get, enable);
+        return token;
+    }
+
+    private long claim(List<String> sensors, Supplier<Object> capture) {
+        return claim(sensors, capture, true);
+    }
+
+    private long claim(List<String> sensors, Supplier<Object> capture, boolean enable) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("application", "shop");
         request.put("mode", "dev");
         request.put("packages", List.of("com.example"));
-        request.put("sensors", List.of(CaughtExceptions.SENSOR));
-        Supplier<Object> capture = context::get;
+        request.put("sensors", sensors);
         Function<Object, AutoCloseable> reopen = snapshot -> null;
         keep.add(capture);
         keep.add(reopen);
@@ -403,6 +621,39 @@ class CaughtExceptionsTests {
             CaughtExceptions.enable();
         }
         return (Long) result.get("token");
+    }
+
+    /** Runs {@code work} on {@code threads} threads at once, each given its index, and rethrows the first failure. */
+    private static void runAll(int threads, java.util.function.IntConsumer work) throws Exception {
+        java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(threads);
+        List<Thread> started = new ArrayList<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        for (int t = 0; t < threads; t++) {
+            int index = t;
+            Thread thread = new Thread(() -> {
+                try {
+                    start.await();
+                    work.accept(index);
+                } catch (Throwable ex) {
+                    failure.compareAndSet(null, ex);
+                }
+            });
+            thread.start();
+            started.add(thread);
+        }
+        for (Thread thread : started) {
+            thread.join();
+        }
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
+    }
+
+    /** Drains and counts the records per type. */
+    private static long[] countTypes(long token) {
+        long[] counts = new long[8];
+        AgentRing.drain(token, record -> counts[(int) record[AgentRing.TYPE]]++);
+        return counts;
     }
 
     private static List<long[]> drain(long token) {

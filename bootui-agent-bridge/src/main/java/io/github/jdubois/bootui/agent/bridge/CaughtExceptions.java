@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.agent.bridge;
 
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,6 +74,27 @@ public final class CaughtExceptions {
     /** The flags set once the agent read the whole method. */
     public static final int FLAG_COMPLETE = 16;
 
+    /**
+     * Handler shapes, read from the handler's own code (its label to its first {@code athrow}, return, or {@code goto}):
+     * it never reads the exception it caught.
+     */
+    public static final int SHAPE_DISCARDS = 32;
+
+    /** It prints the exception's stack trace. */
+    public static final int SHAPE_PRINTS_STACK_TRACE = 64;
+
+    /** It interrupts the current thread again, as for an {@code InterruptedException}. */
+    public static final int SHAPE_REINTERRUPTS = 128;
+
+    /** It hands the exception on as an error value: a failed future, an error signal, a failed response. */
+    public static final int SHAPE_PASSES_AS_VALUE = 256;
+
+    /**
+     * Site shape: the handler's straight-line code ends by throwing, with no branch on the way, so the caught exception
+     * is replaced by another one (one that keeps it as its cause is seen as a rethrow).
+     */
+    public static final int SHAPE_THROWS_NEW = 512;
+
     /** Class families ({@code CAUGHT} records, payload long 3, bits 0–1). */
     public static final int FAMILY_NONE = 0;
 
@@ -93,8 +115,21 @@ public final class CaughtExceptions {
 
     public static final long PENDING_MILLIS = 60_000L;
 
+    /** {@link #PENDING_MILLIS} on the monotonic clock pending entries are aged by. */
+    static final long PENDING_NANOS = PENDING_MILLIS * 1_000_000L;
+
     /** How often the hooks free stale pending entries at most. */
     static final long SWEEP_MILLIS = 1_000L;
+
+    static final long SWEEP_NANOS = SWEEP_MILLIS * 1_000_000L;
+
+    /**
+     * How long an entry stays pending once its request ended: work the request started may still rethrow it, and
+     * that rethrow tells the engine the request's work outlived it.
+     */
+    public static final long ENDED_KEEP_MILLIS = 30_000L;
+
+    static final long ENDED_KEEP_NANOS = ENDED_KEEP_MILLIS * 1_000_000L;
 
     /** Attempts to claim a pending entry another thread briefly owns. */
     static final int OWN_ATTEMPTS = 64;
@@ -145,14 +180,20 @@ public final class CaughtExceptions {
     private static final long[] P_EXECUTION = new long[STRIPES * STRIPE];
     private static final int[] P_KIND = new int[STRIPES * STRIPE];
     private static final long[] P_GENERATION = new long[STRIPES * STRIPE];
-    /** When the entry was made, in epoch milliseconds. */
-    private static final long[] P_MILLIS = new long[STRIPES * STRIPE];
+    /**
+     * When the entry was made, from {@link System#nanoTime()}: a wall clock stepped back or forward neither keeps an
+     * entry pending nor expires it early.
+     */
+    private static final long[] P_NANOS = new long[STRIPES * STRIPE];
+    /** When the entry's request ended, from {@link System#nanoTime()}; {@code 0} while it has not. */
+    private static final long[] P_ENDED = new long[STRIPES * STRIPE];
 
     /** Entries in use: read first by {@link #leaving}, so a throw with nothing pending costs one volatile read. */
     private static final AtomicInteger PENDING = new AtomicInteger();
 
     private static final AtomicBoolean SWEEPING = new AtomicBoolean();
-    private static volatile long lastSweep;
+    /** When the last sweep ran, from {@link System#nanoTime()}; {@link Long#MIN_VALUE} before the first. */
+    private static volatile long lastSweep = Long.MIN_VALUE;
 
     // ---- per thread ------------------------------------------------------------------------------------------------
 
@@ -171,6 +212,17 @@ public final class CaughtExceptions {
     private static final int C_SITES = 6;
     private static final int C_ENTRY = 3;
 
+    /**
+     * A thread's scratch, so a caught exception allocates nothing on its path: {@code [int[] chain identities,
+     * Throwable[] walk, long[] owner]}. JDK types, so the thread-local pins no class loader; the walk's references to
+     * the application's throwables are cleared once each walk ends, so it never retains one.
+     */
+    private static final ThreadLocal<Object[]> SCRATCH = new ThreadLocal<Object[]>();
+
+    private static final int S_CHAIN = 0;
+    private static final int S_WALK = 1;
+    private static final int S_OWNER = 2;
+
     // ---- counters --------------------------------------------------------------------------------------------------
 
     private static final LongAdder CAUGHT = new LongAdder();
@@ -184,6 +236,9 @@ public final class CaughtExceptions {
     private static final LongAdder LEAVING = new LongAdder();
     private static final LongAdder APPLICATION_ERRORS = new LongAdder();
     private static final LongAdder SITES_OVER_LIMIT = new LongAdder();
+    /** Pending entries marked as their request ended. */
+    private static final LongAdder ENDED = new LongAdder();
+
     /** Pending matches given up on because another thread held the entry: a rethrow possibly unrecorded. */
     private static final LongAdder MISSED = new LongAdder();
 
@@ -233,7 +288,10 @@ public final class CaughtExceptions {
             if (thrown == null || site < 0 || site >= MAX_SITES) {
                 return;
             }
-            if ((SITE_FLAGS[site] & (FLAG_FOREIGN | FLAG_SHARED)) != 0) {
+            // A skipped handler records nothing of its own, but still finds what it catches again below: a rethrow it
+            // catches in the same method never leaves that method.
+            boolean skipped = (SITE_FLAGS[site] & (FLAG_FOREIGN | FLAG_SHARED)) != 0;
+            if (skipped && PENDING.get() == 0) {
                 SKIPPED.increment();
                 return;
             }
@@ -244,29 +302,39 @@ public final class CaughtExceptions {
             if (claim == null || !claim.armed || claim.generation != generation) {
                 return;
             }
-            CAUGHT.increment();
-            long now = System.currentTimeMillis();
-            sweep(now);
-            // The chain, under the guard: an overridden getCause() catching its own exception records nothing.
-            int[] chain = new int[CHAIN * 2];
+            if (!skipped) {
+                CAUGHT.increment();
+            }
+            long nanos = System.nanoTime();
+            Object[] scratch = scratch();
+            int[] chain = (int[]) scratch[S_CHAIN];
+            long[] owner = (long[]) scratch[S_OWNER];
+            // The chain, under the guard: an overridden getCause() catching its own exception records nothing. Only
+            // the caught exception itself is needed unless something is pending, which a cause or a suppressed one
+            // could be.
             int links;
             int family;
             if (!Reentrancy.enter()) {
                 return;
             }
             try {
-                links = chain(thrown, chain);
+                links = PENDING.get() == 0 ? self(thrown, chain) : chain(thrown, chain, (Throwable[]) scratch[S_WALK]);
                 family = family(thrown.getClass());
             } finally {
                 Reentrancy.exit();
             }
-            long[] owner = owner(claim);
-            if (owner == null) {
+            boolean owned = owner(claim, owner);
+            if (!owned && !skipped) {
                 UNOWNED.increment();
             }
-            // Found again: a pending identity in the chain was rethrown, wrapped or not, and caught here.
-            found(chain, links, THROWN_CAUGHT_AGAIN, site, now);
-            if (owner == null) {
+            // Found again: a pending identity in the chain was rethrown, wrapped or not, and caught here, under the
+            // same request when both name one.
+            found(chain, links, THROWN_CAUGHT_AGAIN, site, nanos, owned ? owner[0] : 0L);
+            if (skipped) {
+                SKIPPED.increment();
+                return;
+            }
+            if (!owned) {
                 return;
             }
             long[] counts = counts(claim.generation, owner);
@@ -276,12 +344,15 @@ public final class CaughtExceptions {
             long className = intern(thrown.getClass().getName());
             long threadName = counts[C_THREAD_NAME];
             int identity = chain[0];
-            pend(identity, chain[1], site, owner, claim.generation, now);
+            if ((SITE_FLAGS[site] & SHAPE_DISCARDS) == 0) {
+                // A handler that never loads what it caught cannot throw it again: nothing to wait for.
+                pend(identity, chain[1], site, owner, claim.generation, nanos);
+            }
             boolean published = AgentRing.publish(
                     AgentRing.SENSOR_CAUGHT_EXCEPTIONS,
                     TYPE_CAUGHT,
                     claim.generation,
-                    now,
+                    System.currentTimeMillis(),
                     owner[0],
                     owner[1],
                     ((long) site << 32) | (identity & 0xFFFFFFFFL),
@@ -313,66 +384,94 @@ public final class CaughtExceptions {
             if (!active || PENDING.get() == 0 || thrown == null || Reentrancy.sideEffectsSkipped()) {
                 return;
             }
-            long now = System.currentTimeMillis();
-            sweep(now);
+            long nanos = System.nanoTime();
             LEAVING.increment();
-            int[] chain = new int[CHAIN * 2];
+            Object[] scratch = scratch();
+            int[] chain = (int[]) scratch[S_CHAIN];
             int links;
             if (!Reentrancy.enter()) {
                 return;
             }
             try {
-                links = chain(thrown, chain);
+                links = chain(thrown, chain, (Throwable[]) scratch[S_WALK]);
             } finally {
                 Reentrancy.exit();
             }
-            found(chain, links, THROWN_EXIT, site, now);
+            found(chain, links, THROWN_EXIT, site, nanos, 0L);
         } catch (Throwable ex) {
             failed(ex);
         }
     }
 
+    /** The calling thread's scratch, allocated on its first caught exception. */
+    private static Object[] scratch() {
+        Object[] scratch = SCRATCH.get();
+        if (scratch == null) {
+            scratch = new Object[] {new int[CHAIN * 2], new Throwable[CHAIN * 2], new long[3]};
+            SCRATCH.set(scratch);
+        }
+        return scratch;
+    }
+
+    /** The identity of {@code thrown} and of its class, in {@code out}: one link. */
+    static int self(Throwable thrown, int[] out) {
+        out[0] = System.identityHashCode(thrown);
+        out[1] = System.identityHashCode(thrown.getClass());
+        return 1;
+    }
+
+    /** {@link #chain(Throwable, int[], Throwable[])} with a walk array of its own, for tests and warming. */
+    static int chain(Throwable thrown, int[] out) {
+        return chain(thrown, out, new Throwable[CHAIN * 2]);
+    }
+
     /**
      * The identities of {@code thrown}, its causes, and their suppressed throwables, at most {@value #CHAIN}, each with
      * its class's identity, in {@code out}: returns how many. Cycles are cut by identity; a throwable whose
-     * {@code getCause()} or {@code getSuppressed()} throws ends its branch.
+     * {@code getCause()} or {@code getSuppressed()} throws ends its branch. {@code walk} ({@code 2 * CHAIN} long) holds
+     * the throwables seen, then those queued, and is cleared before returning. {@code getSuppressed()} allocates only
+     * when a throwable has suppressed ones: the JDK answers a shared empty array otherwise.
      */
-    static int chain(Throwable thrown, int[] out) {
-        Throwable[] seen = new Throwable[CHAIN];
-        Throwable[] queue = new Throwable[CHAIN];
+    static int chain(Throwable thrown, int[] out, Throwable[] walk) {
         int count = 0;
         int head = 0;
         int tail = 0;
-        queue[tail++] = thrown;
-        while (head < tail && count < CHAIN) {
-            Throwable next = queue[head++];
-            boolean known = false;
-            for (int i = 0; i < count; i++) {
-                known |= seen[i] == next;
-            }
-            if (known) {
-                continue;
-            }
-            seen[count] = next;
-            out[count * 2] = System.identityHashCode(next);
-            out[count * 2 + 1] = System.identityHashCode(next.getClass());
-            count++;
-            try {
-                Throwable cause = next.getCause();
-                if (cause != null && cause != next && tail < CHAIN) {
-                    queue[tail++] = cause;
+        try {
+            walk[CHAIN + tail++] = thrown;
+            while (head < tail && count < CHAIN) {
+                Throwable next = walk[CHAIN + head++];
+                boolean known = false;
+                for (int i = 0; i < count; i++) {
+                    known |= walk[i] == next;
                 }
-                Throwable[] suppressed = next.getSuppressed();
-                for (int i = 0; suppressed != null && i < suppressed.length && tail < CHAIN; i++) {
-                    if (suppressed[i] != null) {
-                        queue[tail++] = suppressed[i];
+                if (known) {
+                    continue;
+                }
+                walk[count] = next;
+                out[count * 2] = System.identityHashCode(next);
+                out[count * 2 + 1] = System.identityHashCode(next.getClass());
+                count++;
+                try {
+                    Throwable cause = next.getCause();
+                    if (cause != null && cause != next && tail < CHAIN) {
+                        walk[CHAIN + tail++] = cause;
                     }
+                    Throwable[] suppressed = next.getSuppressed();
+                    for (int i = 0; suppressed != null && i < suppressed.length && tail < CHAIN; i++) {
+                        if (suppressed[i] != null) {
+                            walk[CHAIN + tail++] = suppressed[i];
+                        }
+                    }
+                } catch (Throwable ex) {
+                    APPLICATION_ERRORS.increment();
                 }
-            } catch (Throwable ex) {
-                APPLICATION_ERRORS.increment();
+            }
+            return count;
+        } finally {
+            for (int i = 0; i < walk.length; i++) {
+                walk[i] = null;
             }
         }
-        return count;
     }
 
     /** {@code type}'s family: SQL, I/O, Spring data access, or none, by name, at most {@value #FAMILY_DEPTH} levels. */
@@ -394,8 +493,11 @@ public final class CaughtExceptions {
         return FAMILY_NONE;
     }
 
-    /** The owner {@code {request, execution, executionKind}}: the thread's owner slot, else a capture, or {@code null}. */
-    private static long[] owner(Claim claim) {
+    /**
+     * The owner {@code {request, execution, executionKind}} into {@code out}: the thread's owner slot, else a capture
+     * (which allocates the engine's snapshot, on the slow path only). Returns whether there is one.
+     */
+    private static boolean owner(Claim claim, long[] out) {
         CodePaths.Frame frame = CodePaths.FRAME.get();
         if (frame != null && frame.slotSource != null) {
             int index = frame.slots - 1;
@@ -403,15 +505,49 @@ public final class CaughtExceptions {
                     && index < SideEffects.SLOTS
                     && frame.slotGeneration[index] == claim.generation
                     && (frame.slotRequest[index] != 0L || frame.slotExecution[index] != 0L)) {
-                return new long[] {frame.slotRequest[index], frame.slotExecution[index], frame.slotKind[index]};
+                out[0] = frame.slotRequest[index];
+                out[1] = frame.slotExecution[index];
+                out[2] = frame.slotKind[index];
+                return true;
             }
         }
         // A request's, a request's task's, or an execution no request owns, as a scheduled run or a consumed message.
-        SideEffects.Owner captured = new SideEffects.Owner();
-        if (!SideEffects.ownerOf(CodePaths.capture(claim), captured)) {
-            return null;
+        return ownerOf(CodePaths.capture(claim), out);
+    }
+
+    /**
+     * Reads a capture's request and execution into {@code out}, as {@code SideEffects.ownerOf} does, without its
+     * holder: an execution id prefixed {@code async-} or {@code task-} is a request's, a bare one an execution no
+     * request owns. Returns whether the capture named either.
+     */
+    static boolean ownerOf(Object payload, long[] out) {
+        out[0] = 0L;
+        out[1] = 0L;
+        out[2] = CodePaths.EXECUTION_NONE;
+        if (!(payload instanceof Object[])) {
+            return false;
         }
-        return new long[] {captured.request, captured.execution, captured.executionKind};
+        Object[] values = (Object[]) payload;
+        if (values.length > 0 && values[0] instanceof String) {
+            out[0] = CodeInventory.parseRequestId((String) values[0]);
+        }
+        if (values.length > 1 && values[1] instanceof String) {
+            String id = (String) values[1];
+            if (id.startsWith("async-")) {
+                out[1] = CodeInventory.parseRequestId(id.substring(6));
+                out[2] = CodePaths.EXECUTION_ASYNC;
+            } else if (id.startsWith("task-")) {
+                out[1] = CodeInventory.parseRequestId(id.substring(5));
+                out[2] = CodePaths.EXECUTION_TASK;
+            } else {
+                out[1] = CodeInventory.parseRequestId(id);
+                out[2] = SideEffects.EXECUTION_OWN;
+            }
+            if (out[1] == 0L) {
+                out[2] = CodePaths.EXECUTION_NONE;
+            }
+        }
+        return out[0] != 0L || out[1] != 0L;
     }
 
     /** The thread's counts, started over when its owner changed, the previous owner's untracked counts published. */
@@ -507,11 +643,14 @@ public final class CaughtExceptions {
     }
 
     /**
-     * Publishes the counts the calling thread holds for its current owner, as when its work for that owner ends.
-     * Never throws.
+     * Publishes the counts the calling thread holds for its current owner, as when its work for that owner ends: the
+     * end of an adapter's scope or of a propagated task ({@code SideEffects}). Never throws.
      */
     public static void flushThread() {
         try {
+            if (!active) {
+                return;
+            }
             long[] counts = COUNTS.get();
             if (counts != null) {
                 flushUntracked(counts);
@@ -524,7 +663,7 @@ public final class CaughtExceptions {
     // ---- the pending table -----------------------------------------------------------------------------------------
 
     /** Keeps the caught identity pending; an entry evicted for room, the stripe's oldest, publishes {@code EVICTED}. */
-    private static void pend(int identity, int classIdentity, int site, long[] owner, long current, long now) {
+    private static void pend(int identity, int classIdentity, int site, long[] owner, long current, long nanos) {
         int base = ((identity & 0x7FFFFFFF) % STRIPES) * STRIPE;
         int slot = -1;
         boolean evicted = false;
@@ -537,8 +676,8 @@ public final class CaughtExceptions {
             // Expired entries, or those of an older claim generation, are freed first: their fate stays unknown.
             for (int i = base; i < base + STRIPE && slot < 0; i++) {
                 // Read before claiming: an entry that is still pending is never taken away from a concurrent match.
-                if (P_STATE.get(i) == LIVE && stale(i, current, now) && P_STATE.compareAndSet(i, LIVE, OWNED)) {
-                    if (stale(i, current, now)) {
+                if (P_STATE.get(i) == LIVE && stale(i, current, nanos) && P_STATE.compareAndSet(i, LIVE, OWNED)) {
+                    if (stale(i, current, nanos)) {
                         EXPIRED.increment();
                         PENDING.decrementAndGet();
                         slot = i;
@@ -550,18 +689,18 @@ public final class CaughtExceptions {
         }
         if (slot < 0) {
             int oldest = -1;
-            long oldestMillis = Long.MAX_VALUE;
+            long oldestAge = -1L;
             for (int i = base; i < base + STRIPE; i++) {
-                long millis = P_MILLIS[i];
-                if (P_STATE.get(i) == LIVE && millis < oldestMillis) {
+                long age = nanos - P_NANOS[i];
+                if (P_STATE.get(i) == LIVE && age > oldestAge) {
                     oldest = i;
-                    oldestMillis = millis;
+                    oldestAge = age;
                 }
             }
             if (oldest < 0 || !P_STATE.compareAndSet(oldest, LIVE, OWNED)) {
                 // Every entry changed hands meanwhile: this one is not kept, so its fate is unknown.
                 EVICTED.increment();
-                publishEvicted(owner[0], owner[1], (int) owner[2], site, identity, current, now);
+                publishEvicted(owner[0], owner[1], (int) owner[2], site, identity, current);
                 return;
             }
             slot = oldest;
@@ -573,8 +712,7 @@ public final class CaughtExceptions {
                     P_KIND[slot],
                     P_SITE[slot],
                     P_IDENTITY[slot],
-                    P_GENERATION[slot],
-                    now);
+                    P_GENERATION[slot]);
         }
         P_IDENTITY[slot] = identity;
         P_CLASS[slot] = classIdentity;
@@ -583,7 +721,8 @@ public final class CaughtExceptions {
         P_EXECUTION[slot] = owner[1];
         P_KIND[slot] = (int) owner[2];
         P_GENERATION[slot] = current;
-        P_MILLIS[slot] = now;
+        P_NANOS[slot] = nanos;
+        P_ENDED[slot] = 0L;
         if (!evicted) {
             PENDING.incrementAndGet();
         }
@@ -591,12 +730,12 @@ public final class CaughtExceptions {
     }
 
     private static void publishEvicted(
-            long request, long execution, int kind, int site, int identity, long caughtGeneration, long now) {
+            long request, long execution, int kind, int site, int identity, long caughtGeneration) {
         AgentRing.publish(
                 AgentRing.SENSOR_CAUGHT_EXCEPTIONS,
                 TYPE_EVICTED,
                 caughtGeneration,
-                now,
+                System.currentTimeMillis(),
                 request,
                 execution,
                 ((long) site << 32) | (identity & 0xFFFFFFFFL),
@@ -605,9 +744,10 @@ public final class CaughtExceptions {
 
     /**
      * Frees the pending entries whose identity and class identity are in {@code chain}, publishing a {@code THROWN}
-     * record for each, with the owner it was caught under.
+     * record for each, with the owner it was caught under. With {@code request} non-zero, an entry another request
+     * caught is left alone: an identity hash two requests' exceptions share is never taken for a rethrow across them.
      */
-    private static void found(int[] chain, int links, int how, int site, long now) {
+    private static void found(int[] chain, int links, int how, int site, long nanos, long request) {
         if (PENDING.get() == 0) {
             return;
         }
@@ -617,7 +757,7 @@ public final class CaughtExceptions {
             int classIdentity = chain[link * 2 + 1];
             int base = ((identity & 0x7FFFFFFF) % STRIPES) * STRIPE;
             for (int i = base; i < base + STRIPE; i++) {
-                if (!candidate(i, identity, classIdentity)) {
+                if (!candidate(i, identity, classIdentity) || otherRequest(i, request)) {
                     continue;
                 }
                 if (!own(i)) {
@@ -627,17 +767,17 @@ public final class CaughtExceptions {
                     }
                     continue;
                 }
-                if (P_IDENTITY[i] != identity || P_CLASS[i] != classIdentity) {
+                if (P_IDENTITY[i] != identity || P_CLASS[i] != classIdentity || otherRequest(i, request)) {
                     // Another entry took the place meanwhile.
                     P_STATE.set(i, LIVE);
                     continue;
                 }
-                long request = P_REQUEST[i];
+                long caughtRequest = P_REQUEST[i];
                 long execution = P_EXECUTION[i];
                 int kind = P_KIND[i];
                 int caughtSite = P_SITE[i];
                 long caughtGeneration = P_GENERATION[i];
-                boolean expired = stale(i, current, now);
+                boolean expired = stale(i, current, nanos);
                 PENDING.decrementAndGet();
                 P_STATE.set(i, FREE);
                 if (expired) {
@@ -650,14 +790,19 @@ public final class CaughtExceptions {
                         AgentRing.SENSOR_CAUGHT_EXCEPTIONS,
                         TYPE_THROWN,
                         caughtGeneration,
-                        now,
-                        request,
+                        System.currentTimeMillis(),
+                        caughtRequest,
                         execution,
                         ((long) caughtSite << 32) | (identity & 0xFFFFFFFFL),
                         ((long) site << 32) | ((kind & 0xFL) << 8) | (how & 0xFFL));
                 break;
             }
         }
+    }
+
+    /** Whether entry {@code i} was caught under another request than {@code request}, when both name one. */
+    private static boolean otherRequest(int i, long request) {
+        return request != 0L && P_REQUEST[i] != 0L && P_REQUEST[i] != request;
     }
 
     /** Whether entry {@code i} looks like a live entry of this identity: read without claiming it. */
@@ -682,32 +827,46 @@ public final class CaughtExceptions {
     }
 
     /** Whether entry {@code i} is of another claim generation than {@code current}, or pending past its time. */
-    private static boolean stale(int i, long current, long now) {
-        return P_GENERATION[i] != current || now - P_MILLIS[i] > PENDING_MILLIS;
+    private static boolean stale(int i, long current, long nanos) {
+        long ended = P_ENDED[i];
+        return P_GENERATION[i] != current
+                || nanos - P_NANOS[i] > PENDING_NANOS
+                || (ended != 0L && nanos - ended > ENDED_KEEP_NANOS);
     }
 
     /**
-     * At most once a second, from the hooks: frees every entry of another generation or pending past its time, so a
-     * handled exception does not stay pending, keeping {@link #leaving} on its one-read fast path once nothing is.
+     * At most once a second, called by the engine as it reads the journal: frees every entry of another generation,
+     * pending past its time, or kept past its request's end, so a handled exception does not stay pending, keeping
+     * {@link #leaving} on its one-read fast path once nothing is. Never throws.
      */
-    private static void sweep(long now) {
+    public static void sweep() {
+        try {
+            if (PENDING.get() != 0) {
+                sweep(System.nanoTime());
+            }
+        } catch (Throwable ex) {
+            failed(ex);
+        }
+    }
+
+    static void sweep(long nanos) {
         long last = lastSweep;
-        if (now - last < SWEEP_MILLIS || !SWEEPING.compareAndSet(false, true)) {
+        if ((last != Long.MIN_VALUE && nanos - last < SWEEP_NANOS) || !SWEEPING.compareAndSet(false, true)) {
             return;
         }
         try {
-            lastSweep = now;
-            freeStale(generation, now);
+            lastSweep = nanos;
+            freeStale(generation, nanos);
         } finally {
             SWEEPING.set(false);
         }
     }
 
     /** Frees the entries of another generation than {@code current} or pending past their time. */
-    private static void freeStale(long current, long now) {
+    private static void freeStale(long current, long nanos) {
         for (int i = 0; i < STRIPES * STRIPE; i++) {
-            if (P_STATE.get(i) == LIVE && stale(i, current, now) && P_STATE.compareAndSet(i, LIVE, OWNED)) {
-                if (stale(i, current, now)) {
+            if (P_STATE.get(i) == LIVE && stale(i, current, nanos) && P_STATE.compareAndSet(i, LIVE, OWNED)) {
+                if (stale(i, current, nanos)) {
                     EXPIRED.increment();
                     PENDING.decrementAndGet();
                     P_STATE.set(i, FREE);
@@ -718,9 +877,93 @@ public final class CaughtExceptions {
         }
     }
 
+    /**
+     * The first {@code count} requests of {@code requests} ended, as their adapters published their outcome: their
+     * pending entries are marked, and freed {@value #ENDED_KEEP_MILLIS} ms later by {@link #sweep()}. Until then a
+     * rethrow is still recorded, which tells the engine the request's work outlived it. Called by the engine once
+     * per batch of journal events; sorts the array. Scans the table only while something is pending. Never throws.
+     */
+    public static void requestsEnded(long[] requests, int count) {
+        try {
+            if (requests == null || count <= 0 || PENDING.get() == 0) {
+                return;
+            }
+            int n = Math.min(count, requests.length);
+            Arrays.sort(requests, 0, n);
+            long nanos = System.nanoTime();
+            long stamp = nanos == 0L ? 1L : nanos;
+            for (int i = 0; i < STRIPES * STRIPE; i++) {
+                if (P_STATE.get(i) != LIVE || P_ENDED[i] != 0L) {
+                    continue;
+                }
+                long request = P_REQUEST[i];
+                if (request == 0L || Arrays.binarySearch(requests, 0, n, request) < 0) {
+                    continue;
+                }
+                if (P_STATE.compareAndSet(i, LIVE, OWNED)) {
+                    if (P_REQUEST[i] == request && P_ENDED[i] == 0L) {
+                        ENDED.increment();
+                        P_ENDED[i] = stamp;
+                    }
+                    P_STATE.set(i, LIVE);
+                }
+            }
+        } catch (Throwable ex) {
+            failed(ex);
+        }
+    }
+
+    /** Tests only: whether a live entry of {@code request} is marked as ended. */
+    static boolean endedPending(long request) {
+        for (int i = 0; i < STRIPES * STRIPE; i++) {
+            if (P_STATE.get(i) == LIVE && P_REQUEST[i] == request && P_ENDED[i] != 0L) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Every loss the sensor's evidence can suffer, summed, so the engine notices any growth between two reads: records
+     * the ring dropped for this sensor or lost (any sensor's, as a torn record cannot be told apart), matches given up
+     * on, and handlers left uninstrumented past {@value #MAX_SITES} sites, whose catches of a rethrow go unseen. A
+     * string the intern table had no room for is not a loss: the engine judges a record without its thread or class
+     * name unknown on its own. Never throws.
+     */
+    public static long losses() {
+        try {
+            return AgentRing.dropped(AgentRing.SENSOR_CAUGHT_EXCEPTIONS)
+                    + AgentRing.lost()
+                    + MISSED.sum()
+                    + SITES_OVER_LIMIT.sum();
+        } catch (Throwable ex) {
+            failed(ex);
+            return -1L;
+        }
+    }
+
     /** Pending entries, for tests and the status. */
     static int pending() {
         return PENDING.get();
+    }
+
+    /** Tests only: the entries in the {@code LIVE} state, which once quiescent must equal {@link #pending()}. */
+    static int liveEntries() {
+        int live = 0;
+        for (int i = 0; i < STRIPES * STRIPE; i++) {
+            live += P_STATE.get(i) == LIVE ? 1 : 0;
+        }
+        return live;
+    }
+
+    /** Tests only: whether any entry is left {@code OWNED}, which once quiescent none may be. */
+    static boolean anyOwned() {
+        for (int i = 0; i < STRIPES * STRIPE; i++) {
+            if (P_STATE.get(i) == OWNED) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---- sites -----------------------------------------------------------------------------------------------------
@@ -811,7 +1054,7 @@ public final class CaughtExceptions {
             AgentRing.newGeneration(claim.generation, claim.ringCapacity);
             generation = claim.generation;
             // A newer run: the previous run's pending identities are never its rethrows.
-            freeStale(claim.generation, System.currentTimeMillis());
+            freeStale(claim.generation, System.nanoTime());
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -829,6 +1072,8 @@ public final class CaughtExceptions {
                     && disabledGeneration != Long.MAX_VALUE
                     && disabledGeneration != claim.generation
                     && enabledOnce;
+            // The owner slots adapters and handoffs push are read by this sensor too (PLAN-v2 M5-6a).
+            SideEffects.slotReaders(active, generation);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -886,6 +1131,8 @@ public final class CaughtExceptions {
         try {
             int[] chain = new int[CHAIN * 2];
             chain(new IllegalStateException("warm", new RuntimeException()), chain);
+            self(new IllegalStateException("warm"), chain);
+            ownerOf(new Object[] {"0000000000000001", "async-0000000000000002"}, new long[3]);
             family(IllegalStateException.class);
             SITE_IDS.get("warm");
             SITE_LINES.get(0);
@@ -936,6 +1183,7 @@ public final class CaughtExceptions {
             map.put("sites", Integer.valueOf(siteCount()));
             map.put("sitesOverLimit", Long.valueOf(SITES_OVER_LIMIT.sum()));
             map.put("missed", Long.valueOf(MISSED.sum()));
+            map.put("requestEnded", Long.valueOf(ENDED.sum()));
             map.put("dropped", Long.valueOf(AgentRing.dropped(AgentRing.SENSOR_CAUGHT_EXCEPTIONS)));
             map.put("errors", Long.valueOf(ERROR_COUNT.get()));
             map.put("applicationErrors", Long.valueOf(APPLICATION_ERRORS.sum()));
@@ -970,9 +1218,11 @@ public final class CaughtExceptions {
             SITE_FLAGS[i] = 0;
         }
         NEXT_SITE.set(0);
-        lastSweep = 0L;
-        for (int i = 0; i < P_MILLIS.length; i++) {
+        lastSweep = Long.MIN_VALUE;
+        SCRATCH.remove();
+        for (int i = 0; i < P_NANOS.length; i++) {
             P_STATE.set(i, FREE);
+            P_ENDED[i] = 0L;
         }
         PENDING.set(0);
         COUNTS.remove();
@@ -988,7 +1238,8 @@ public final class CaughtExceptions {
             LEAVING,
             APPLICATION_ERRORS,
             SITES_OVER_LIMIT,
-            MISSED
+            MISSED,
+            ENDED
         }) {
             adder.reset();
         }

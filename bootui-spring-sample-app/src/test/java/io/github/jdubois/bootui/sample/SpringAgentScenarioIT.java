@@ -66,8 +66,9 @@ class SpringAgentScenarioIT {
                 "--bootui.overrides-file=" + directory.resolve("overrides.properties"),
                 "--bootui.activity.feed-source=journal",
                 // The default sensors, the opt-in files and environment sensors, and blocking, for the Side Effects
-                // seeds.
-                "--bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking",
+                // seeds, and the opt-in caught-exceptions sensor, for the Exceptions panel's caught-in-code seeds.
+                "--bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,"
+                        + "caught-exceptions",
                 "--management.tracing.export.enabled=false"));
         process = new ProcessBuilder(command)
                 .redirectErrorStream(true)
@@ -103,6 +104,82 @@ class SpringAgentScenarioIT {
                 process.waitFor(10, TimeUnit.SECONDS);
             }
         }
+    }
+
+    /**
+     * The Exceptions panel's caught-in-code seeds (M5-6a2): the {@code IOException} {@code StockLookup.stockOrDefault}
+     * drops is a finding, not seen rethrown or logged at {@code WARN} or above, once its request settled; the same
+     * exception logged, logged by its message, wrapped and rethrown, or handed on as a failed future is not.
+     */
+    @Test
+    void theSwallowedSeedIsAFindingAndItsCounterexamplesAreNot() throws Exception {
+        Map<String, String> seeds = Map.of(
+                "swallowed", "stockOrDefault",
+                "logged", "stockLogged",
+                "logged-message", "stockLoggedMessage",
+                "rethrown", "stockOrFail",
+                "handed-on", "stockLater");
+        for (String route : seeds.keySet()) {
+            assertThat(probe.get("/api/caught/" + route).status())
+                    .as(route)
+                    .isEqualTo(route.equals("rethrown") ? 404 : 200);
+        }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        JsonNode report;
+        while (true) {
+            report = probe.get("/bootui/api/exceptions/caught").json();
+            assertThat(report.path("available").asBoolean())
+                    .as(report.toString())
+                    .isTrue();
+            boolean settled = true;
+            for (String method : seeds.values()) {
+                JsonNode row = stockRow(report, method);
+                settled &= row != null && row.path("pending").asLong() == 0;
+            }
+            if (settled) {
+                break;
+            }
+            assertThat(System.nanoTime()).as("the seeds settled: %s", report).isLessThan(deadline);
+            Thread.sleep(500);
+        }
+        JsonNode swallowed = stockRow(report, "stockOrDefault");
+        assertThat(swallowed.path("finding").asBoolean()).as(report.toString()).isTrue();
+        assertThat(swallowed.path("notRethrownOrLogged").asLong()).isPositive();
+        assertThat(swallowed.path("family").asText()).isEqualTo("io");
+        assertThat(swallowed.path("route").asText()).isEqualTo("/api/caught/swallowed");
+        assertThat(stockRow(report, "stockLogged").path("logged").asLong())
+                .as(report.toString())
+                .isPositive();
+        assertThat(stockRow(report, "stockLoggedMessage").path("logged").asLong())
+                .as(report.toString())
+                .isPositive();
+        assertThat(stockRow(report, "stockOrFail").path("rethrown").asLong())
+                .as(report.toString())
+                .isPositive();
+        assertThat(stockRow(report, "stockLater").path("handedOn").asLong())
+                .as(report.toString())
+                .isPositive();
+        for (String method : List.of("stockLogged", "stockLoggedMessage", "stockOrFail", "stockLater")) {
+            JsonNode row = stockRow(report, method);
+            assertThat(row.path("finding").asBoolean()).as(row.toString()).isFalse();
+            assertThat(row.path("notRethrownOrLogged").asLong())
+                    .as(row.toString())
+                    .isZero();
+        }
+        JsonNode summary = probe.get("/bootui/api/exceptions").json().path("caughtInCode");
+        assertThat(summary.path("findings").asInt()).as(summary.toString()).isPositive();
+        // Never a message, a stack trace, or an identity.
+        assertThat(report.toString()).doesNotContain("unavailable for console").doesNotContain("identity");
+    }
+
+    private static JsonNode stockRow(JsonNode report, String method) {
+        for (JsonNode row : report.path("rows")) {
+            if (row.path("siteClass").asText().endsWith(".StockLookup")
+                    && method.equals(row.path("method").asText())) {
+                return row;
+            }
+        }
+        return null;
     }
 
     @Test

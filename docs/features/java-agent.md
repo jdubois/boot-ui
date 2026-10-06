@@ -975,10 +975,12 @@ leaves a creation recorded. A thread that ends within 250 ms of its request's en
 ## The caught-exceptions sensor
 
 `bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
-sensor, which reports the exceptions application code catches and which of them are thrown again. It stays off by
-default until its overhead is measured against the default sensors' 10 % budget. This version records the events in
-the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel; the panel's **Caught in
-application code** section and the `exceptions-caught-in-code` rows follow.
+sensor, which reports the exceptions application code catches and which of them are thrown again. It records the
+events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel, whose
+[**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one.
+It stays off by default until its overhead fits the default sensors' budget: CI measures its own share on a route
+that catches one exception per request (at most 3 %) and the cumulative overhead with it (at most 10 %). The first run
+measured 2.9 % and 5.9 % (15 pairs each); the second measured a 5.0 % own share, over its budget, so it stays opt-in.
 
 | Hook | Role | What it covers |
 | --- | --- | --- |
@@ -997,14 +999,19 @@ calls (`ExceptionUtils.rethrow`, Lombok's `@SneakyThrows`) is seen. That handler
 declared parameters, as Byte Buddy's advice requires; a parameter the method stores a value of another verification
 kind into is left unknown (`TOP`). Nothing computes frames or resolves a type inside the transformer, so no class is
 loaded there. Classes older than Java 7 are left alone. A handler another agent's inlined advice added (it has no line
-number in its first instructions while its method has some), or that is also a jump target, is skipped at run time.
+number in its first instructions while its method has some, catches exactly `Throwable`, and does not store it in a
+named local), or that is also a jump target, is skipped at run time. The visit also reads each handler's own code,
+without resolving a type: whether it never reads what it caught, prints its stack trace, restores the thread's
+interrupt, passes it on as an error value (a call such as `completeExceptionally`, `Mono.error`, or `onError` taking a
+`Throwable`), or ends by throwing on a straight line.
 
 **What is recorded.** The caught exception's class, its handler's site (class, method, line, and declared types), its
 owner (the request, a request's task, or an execution no request owns, as a scheduled run), its thread, and its
 identity hash, which only joins a later throw to its catch inside BootUI; never its message, stack trace, or fields.
 The identities of the exception and of up to 8 throwables of its cause and suppressed chain stay pending for at most
-60 seconds, in a table of 4,096: a pending one leaving an instrumented method by a throw, wrapped or not, or caught
-again by an instrumented handler, is recorded as thrown, with the owner it was caught under. An entry evicted for room
+60 seconds, in a table of 4,096, and for 30 seconds after their request ended: a pending one leaving an instrumented
+method by a throw, wrapped or not, or caught again by an instrumented handler under the same request, is recorded as
+thrown, with the owner it was caught under. A handler that never reads what it caught keeps nothing pending. An entry evicted for room
 is recorded as such, so its fate is never taken as known. On one thread, a site caught more than 16 times for one owner
 is only counted after that, and the count is recorded when the thread's next caught exception has another owner.
 Nothing is recorded without an owner, on BootUI's own threads or work, or before the sensor's self-test passed, which
@@ -1023,7 +1030,8 @@ fail to load with a `VerifyError` naming `CaughtExceptions`, remove `caught-exce
 and report the class.
 
 **Cost.** None on the normal path: the inserted code runs only when an exception is caught, or leaves a method that
-catches some, where a bridge call is added to the exception's own cost.
+catches some, where a bridge call is added to the exception's own cost, allocating nothing. A logged or reported
+throwable's identity marks are taken only while the sensor records.
 
 ## HotSwap
 

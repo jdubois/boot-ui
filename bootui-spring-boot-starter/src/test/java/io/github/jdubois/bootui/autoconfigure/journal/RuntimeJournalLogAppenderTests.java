@@ -63,11 +63,16 @@ class RuntimeJournalLogAppenderTests {
         appender = RuntimeJournalLogAppender.install(published::add);
 
         LoggerFactory.getLogger("io.github.jdubois.bootui.engine.Something").warn("BootUI internal warning");
+        // The samples live under BootUI's group but are application code: their warnings are recorded.
+        LoggerFactory.getLogger("io.github.jdubois.bootui.sample.Shop").warn("Sample warning");
         appender.destroy();
         LoggerFactory.getLogger("com.example.Late").warn("After the context closed");
         appender = null;
 
-        assertThat(published).isEmpty();
+        assertThat(published)
+                .singleElement()
+                .satisfies(event -> assertThat(((LogPayload) event.payload()).logger())
+                        .isEqualTo("io.github.jdubois.bootui.sample.Shop"));
         LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
         assertThat(context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME)
                         .getAppender(RuntimeJournalLogAppender.APPENDER_NAME))

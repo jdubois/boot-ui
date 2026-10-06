@@ -2,10 +2,12 @@ package io.github.jdubois.bootui.engine.journal;
 
 /**
  * A {@code WARN} or {@code ERROR} log event's payload: its logger, its level, its unformatted message template, such as
- * {@code "Connection {} timed out after {} ms"}, and the class of the exception it logged. Never the formatted message
- * or its arguments, so warnings group exactly without storing values ({@code docs/PLAN-v2.md} §5.2, §8).
+ * {@code "Connection {} timed out after {} ms"}, the class of the exception it logged, and that exception's identity
+ * marks ({@link ThrowableMarks}, M5-6a), which only tell the engine that an exception application code caught was
+ * logged and are never rendered, exported, or persisted. Never the formatted message or its arguments, so warnings
+ * group exactly without storing values ({@code docs/PLAN-v2.md} §5.2, §8).
  */
-public record LogPayload(String logger, String level, String template, String exceptionClass)
+public record LogPayload(String logger, String level, String template, String exceptionClass, ThrowableMarks marks)
         implements RuntimeEventPayload {
 
     /** The longest template kept; a longer one is truncated. */
@@ -15,6 +17,11 @@ public record LogPayload(String logger, String level, String template, String ex
         if (template != null && template.length() > MAX_TEMPLATE_LENGTH) {
             template = template.substring(0, MAX_TEMPLATE_LENGTH);
         }
+    }
+
+    /** A log event without the logged exception's marks. */
+    public LogPayload(String logger, String level, String template, String exceptionClass) {
+        this(logger, level, template, exceptionClass, null);
     }
 
     /** Whether a level, as Logback or {@code java.util.logging} names it, is recorded: {@code WARN} and above. */
@@ -37,7 +44,8 @@ public record LogPayload(String logger, String level, String template, String ex
                 dictionary.shared(logger),
                 dictionary.shared(level),
                 shareable(template) ? dictionary.shared(template) : template,
-                dictionary.shared(exceptionClass));
+                dictionary.shared(exceptionClass),
+                marks);
     }
 
     /** Whether the dictionary should share {@code template}: it has no digit, which a concatenated value would add. */
@@ -58,6 +66,7 @@ public record LogPayload(String logger, String level, String template, String ex
                 + JournalDictionary.retained(dictionary, logger)
                 + JournalDictionary.retained(dictionary, level)
                 + JournalDictionary.retained(dictionary, template)
-                + JournalDictionary.retained(dictionary, exceptionClass);
+                + JournalDictionary.retained(dictionary, exceptionClass)
+                + (marks == null ? 0 : marks.estimatedBytes());
     }
 }

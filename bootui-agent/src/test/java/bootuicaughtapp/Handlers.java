@@ -183,6 +183,147 @@ public class Handlers {
         return new Defaults() {}.parse("10");
     }
 
+    /** Prints the stack trace: not a log. */
+    public int printed() {
+        try {
+            throw new IllegalStateException("printed");
+        } catch (IllegalStateException ex) {
+            ex.printStackTrace(new java.io.PrintStream(java.io.OutputStream.nullOutputStream()));
+            ex.printStackTrace();
+            return 11;
+        }
+    }
+
+    /** Restores the interrupt, as an InterruptedException's handler should. */
+    public int interrupted() {
+        try {
+            throw new InterruptedException("interrupted");
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return 12;
+        }
+    }
+
+    /** Hands the exception on as a failed future. */
+    public java.util.concurrent.CompletableFuture<Integer> handedOn() {
+        java.util.concurrent.CompletableFuture<Integer> result = new java.util.concurrent.CompletableFuture<>();
+        try {
+            throw new IOException("handed on");
+        } catch (IOException ex) {
+            result.completeExceptionally(ex);
+        }
+        return result;
+    }
+
+    /** Reads the exception after the handler's own code jumped back: the slot is loaded, so it is not discarded. */
+    public int readsLater() {
+        Exception kept;
+        try {
+            throw new IOException("kept");
+        } catch (IOException ex) {
+            kept = ex;
+        }
+        return kept.getMessage().length();
+    }
+
+    /** Replaced by another exception that does not keep it as its cause. */
+    public int replaced() {
+        try {
+            throw new IOException("replaced");
+        } catch (IOException ex) {
+            throw new IllegalStateException("replaced by another");
+        }
+    }
+
+    /** Replaced only on one branch: the other returns, so the handler is not read as replacing it. */
+    public int replacedSometimes(boolean strict) {
+        try {
+            throw new IOException("sometimes");
+        } catch (IOException ex) {
+            if (strict) {
+                throw new IllegalStateException("strict");
+            }
+            return 13;
+        }
+    }
+
+    /** A nested try inside the handler jumps over its own handler before handing the exception on. */
+    public java.util.concurrent.CompletableFuture<Integer> nestedThenHandsOn() {
+        java.util.concurrent.CompletableFuture<Integer> result = new java.util.concurrent.CompletableFuture<>();
+        try {
+            throw new IOException("nested then handed on");
+        } catch (IOException ex) {
+            try {
+                counter++;
+            } catch (RuntimeException ignored) {
+                counter--;
+            }
+            result.completeExceptionally(ex);
+        }
+        return result;
+    }
+
+    /** Hands the exception on through an emitter of the application's own, matched by its method's name. */
+    public int emitted(Emitter emitter) {
+        try {
+            throw new IOException("emitted");
+        } catch (IOException ex) {
+            emitter.completeWithError(ex);
+            return 14;
+        }
+    }
+
+    /** Logs through a logger-like type: logging is never read as handing the exception on. */
+    public int logged(AuditLogger audit) {
+        try {
+            throw new IOException("logged");
+        } catch (IOException ex) {
+            audit.error("failed", ex);
+            return 15;
+        }
+    }
+
+    /**
+     * Code after the handler's {@code goto} hands on another exception and restores the interrupt: neither is the
+     * handler's own, so the caught exception is still discarded.
+     */
+    public java.util.concurrent.CompletableFuture<Integer> afterTheHandler(String text) {
+        int n;
+        try {
+            n = Integer.parseInt(text);
+        } catch (NumberFormatException ex) {
+            n = -1;
+        }
+        if (n < 0) {
+            Thread.currentThread().interrupt();
+            return java.util.concurrent.CompletableFuture.failedFuture(new IllegalArgumentException("negative"));
+        }
+        return java.util.concurrent.CompletableFuture.completedFuture(n);
+    }
+
+    /** The handler's slot is reused by a later variable, which is handed on: not the caught exception. */
+    public java.util.concurrent.CompletableFuture<Integer> slotReused(String text) {
+        java.util.concurrent.CompletableFuture<Integer> result = new java.util.concurrent.CompletableFuture<>();
+        try {
+            result.complete(Integer.parseInt(text));
+        } catch (NumberFormatException ex) {
+            counter++;
+        }
+        RuntimeException other = new IllegalStateException("other");
+        result.completeExceptionally(other);
+        return result;
+    }
+
+    /** An application emitter. */
+    public static class Emitter {
+        public void completeWithError(Throwable failure) {}
+    }
+
+    /** An application logger. */
+    public static class AuditLogger {
+        public void error(String message, Throwable failure) {}
+    }
+
     static void fail(String message) {
         throw new IllegalStateException(message);
     }

@@ -82,6 +82,10 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final List<JournalListener> listeners = new CopyOnWriteArrayList<>();
     private final LongAdder[] accepted = adders();
     private final LongAdder[] dropped = adders();
+    /** Per source, when the journal last dropped one of its offered events, by the wall clock; 0 while it dropped none. */
+    private final java.util.concurrent.atomic.AtomicLongArray droppedAt =
+            new java.util.concurrent.atomic.AtomicLongArray(JournalSource.values().length);
+
     private final LongAdder acceptedTotal = new LongAdder();
     private final AtomicLong processed = new AtomicLong();
     private final AtomicLong lastSequence = new AtomicLong();
@@ -269,6 +273,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             // Fall through: the event is dropped and counted, never propagated to the application.
         }
         dropped[source].increment();
+        droppedAt.set(source, System.currentTimeMillis());
         return false;
     }
 
@@ -562,6 +567,21 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     public boolean lostARequestOn(String thread) {
         return ring.lostARequestOn(thread);
+    }
+
+    /**
+     * The latest time an event of {@code source} was lost, by the wall clock: the latest start of one the journal
+     * evicted, could not fit, or cleared, or the latest time it dropped one it was offered; {@code null} while it lost
+     * none. A reader that judges that something did <em>not</em> happen after a time, as a caught exception that was
+     * not logged, knows its evidence is complete only when this is earlier.
+     */
+    public Long lostMillis(JournalSource source) {
+        Long evicted = ring.lostMillis(source);
+        long drop = droppedAt.get(source.ordinal());
+        if (drop == 0L) {
+            return evicted;
+        }
+        return evicted == null ? Long.valueOf(drop) : Long.valueOf(Math.max(evicted, drop));
     }
 
     /** Whether {@code listener} is told of each batch and of each clear. */
