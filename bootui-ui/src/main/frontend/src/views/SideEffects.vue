@@ -1,12 +1,14 @@
 <script setup>
-import {computed, onBeforeUnmount, ref} from 'vue'
+import {computed, inject, onBeforeUnmount, ref} from 'vue'
 import {getJson} from '../api.js'
 import {formatMillis, formatNumber, formatRelative} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
+import AgentSensorToggle from './components/AgentSensorToggle.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
@@ -35,7 +37,7 @@ const SENSOR_ORDER = [
   'security-sinks'
 ]
 
-/** The opt-in sensors, with what each records once added to bootui.agent.sensors. */
+/** The opt-in sensors, with what each records once added to bootui.agent.sensors or switched on (M5-14). */
 const OPT_IN = {
   files: 'the path patterns of the files the application opens, deletes, moves, and copies',
   environment: 'the names read',
@@ -134,6 +136,34 @@ const sensorLoading = ref({})
 const now = ref(Date.now())
 
 const available = computed(() => summary.value?.available === true)
+// The opt-in sensors' switches belong to the Java Agent panel, shown only while it is enabled and available (M5-14).
+const panels = inject('panels', ref(null))
+const canSwitch = computed(() => {
+  const owner = (panels.value?.panels ?? []).find((panel) => panel.id === 'java-agent')
+  return Boolean(owner) && owner.enabled !== false && owner.available !== false && owner.readOnly !== true
+})
+
+/** The switch answered the Java Agent report: its toggles show at once, then the summary is read again. */
+function onSensorSwitched(report) {
+  const toggles = new Map((report?.toggles ?? []).map((toggle) => [toggle.id, toggle]))
+  if (summary.value?.sensors) {
+    summary.value = {
+      ...summary.value,
+      sensors: summary.value.sensors.map((sensor) =>
+        toggles.has(sensor.id) ? {...sensor, toggle: toggles.get(sensor.id)} : sensor
+      )
+    }
+  }
+  refreshAfterSwitch()
+}
+
+/** Reads the summary again once any refresh in flight ended, so a switch is never skipped by one. */
+async function refreshAfterSwitch() {
+  for (let attempt = 0; attempt < 20 && loading.value; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  await load()
+}
 const activeGroup = computed(() => GROUPS.find((group) => group.id === activeTab.value) ?? GROUPS[0])
 
 const sensorsByGroup = computed(() => {
@@ -246,19 +276,6 @@ function selectTab(id) {
   if (activeTab.value === id) return
   activeTab.value = id
   loadGroupSensors(id)
-}
-
-function onTabKeydown(event, index) {
-  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
-  event.preventDefault()
-  const count = GROUPS.length
-  let next = index
-  if (event.key === 'ArrowRight') next = (index + 1) % count
-  if (event.key === 'ArrowLeft') next = (index - 1 + count) % count
-  if (event.key === 'Home') next = 0
-  if (event.key === 'End') next = count - 1
-  selectTab(GROUPS[next].id)
-  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus()
 }
 
 function stateOf(sensor) {
@@ -451,24 +468,14 @@ function hookStatus(value, label) {
         </div>
       </section>
 
-      <ul class="nav nav-tabs mb-3" role="tablist" aria-label="Side Effects sensor groups">
-        <li v-for="(group, index) in GROUPS" :key="group.id" class="nav-item" role="presentation">
-          <button
-            :id="`side-effects-tab-${group.id}`"
-            :aria-controls="`side-effects-panel-${group.id}`"
-            :aria-selected="activeTab === group.id"
-            :class="{active: activeTab === group.id}"
-            :tabindex="activeTab === group.id ? 0 : -1"
-            class="nav-link"
-            role="tab"
-            type="button"
-            @click="selectTab(group.id)"
-            @keydown="onTabKeydown($event, index)"
-          >
-            <i :class="['bi', group.icon, 'me-1']" aria-hidden="true"></i>{{ group.label }}
-          </button>
-        </li>
-      </ul>
+      <PanelTabs
+        class="mb-3"
+        :tabs="GROUPS"
+        :selected="activeTab"
+        id-prefix="side-effects"
+        label="Side Effects sensor groups"
+        @select="selectTab"
+      />
 
       <section
         :id="`side-effects-panel-${activeGroup.id}`"
@@ -509,12 +516,21 @@ function hookStatus(value, label) {
               </li>
             </ul>
 
+            <AgentSensorToggle
+              v-if="sensor.toggle"
+              :toggle="sensor.toggle"
+              class="side-effects-toggle mb-2"
+              @switched="onSensorSwitched"
+              @stale="refreshAfterSwitch"
+            />
+
             <div v-if="sensor.state !== 'recording'" class="alert alert-secondary small py-2 side-effects-state-note">
               <strong>{{ stateOf(sensor).label }}.</strong>
               {{ sensor.reason || 'This sensor is not recording rows right now.' }}
               <template v-if="OPT_IN[sensor.id] && sensor.state === 'not-claimed'">
                 It is opt-in: add <code>{{ sensor.id }}</code> to <code>bootui.agent.sensors</code> to record
-                {{ OPT_IN[sensor.id] }}.
+                {{ OPT_IN[sensor.id]
+                }}<template v-if="sensor.toggle && canSwitch">, or switch it on above for this JVM</template>.
               </template>
             </div>
 
@@ -733,6 +749,12 @@ function hookStatus(value, label) {
 
 .side-effects-detail {
   overflow-wrap: break-word;
+}
+
+.side-effects-toggle {
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bootui-radius-md);
+  padding: 0.75rem 1rem;
 }
 
 .side-effects-hooks .badge {

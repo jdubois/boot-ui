@@ -35,11 +35,13 @@ export function agentConfig({companion} = {}) {
   const webServerTimeout = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
   const suffix = companion ? `agent-${companion}` : 'agent'
 
-  // The default sensors, the opt-in files, environment, and security-sinks sensors with request-value matching, and
+  // The default sensors, the opt-in files sensor, the opt-in security-sinks sensor with request-value matching, and
   // blocking, named whatever its default, whose Side Effects seeds the side-effects spec asserts (M5-5c, M5-5d, M5-6b).
+  // The opt-in environment sensor is left out on purpose: the sensor-switch spec and the side-effects spec switch it on at
+  // run time (M5-14), and back off.
   const bootUi = [
     `-javaagent:${agentJar()}`,
-    '-Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,security-sinks',
+    '-Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,security-sinks',
     '-Dbootui.agent.security-sinks.request-values=true'
   ]
   const companionOptions = companionAgent(companion, baseUrl)

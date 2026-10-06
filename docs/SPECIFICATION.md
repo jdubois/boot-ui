@@ -643,7 +643,9 @@ Features:
 
 Acceptance criteria:
 
-- The panel is always available and view-only on Spring MVC, Spring WebFlux, and Quarkus.
+- The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
+  (`threads`, `files`, `environment`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
   refresh, disarms on close or startup failure, and releases the agent when BootUI or `bootui.agent.enabled` is off.
@@ -3180,6 +3182,7 @@ Initial endpoints:
 | `/bootui/api/cli`                            | GET    | Command-line endpoint status and the tool catalog this instance exposes                 |
 | `/bootui/api/cli/tools/{name}`               | POST   | Invoke one tool by name and return its payload directly, with the outcome in the HTTP status |
 | `/bootui/api/java-agent`                     | GET    | BootUI Java agent attachment, claim, setup, and sensor status                            |
+| `/bootui/api/java-agent/sensors/{id}`        | POST   | Switch an opt-in agent sensor on or off at run time (`{"enabled": true}`), until the JVM ends |
 | `/bootui/api/code-inventory`                 | GET    | Code Inventory summary: methods executed of tracked, changes since the previous run, dependency counts |
 | `/bootui/api/code-inventory/changes`         | GET    | Paged methods changed or added since the previous run, each executed or not in this run  |
 | `/bootui/api/code-inventory/methods`         | GET    | Paged application methods by `package`, `class`, and `status`, with package and class counts |

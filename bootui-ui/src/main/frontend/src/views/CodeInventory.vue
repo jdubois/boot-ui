@@ -7,6 +7,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
@@ -199,19 +200,6 @@ function selectTab(id) {
   loadTab(id)
 }
 
-function onTabKeydown(event, index) {
-  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
-  event.preventDefault()
-  const count = tabs.value.length
-  let next = index
-  if (event.key === 'ArrowRight') next = (index + 1) % count
-  if (event.key === 'ArrowLeft') next = (index - 1 + count) % count
-  if (event.key === 'Home') next = 0
-  if (event.key === 'End') next = count - 1
-  selectTab(tabs.value[next].id)
-  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus()
-}
-
 /** The methods of the selected package, grouped by class, in the classes' order. */
 const packageClasses = computed(() => {
   const report = packageMethods.value
@@ -348,24 +336,14 @@ function moreRows(report) {
         </div>
       </section>
 
-      <ul class="nav nav-tabs mb-3" role="tablist" aria-label="Code Inventory views">
-        <li v-for="(tab, index) in tabs" :key="tab.id" class="nav-item" role="presentation">
-          <button
-            :id="`code-inventory-tab-${tab.id}`"
-            :aria-controls="`code-inventory-panel-${tab.id}`"
-            :aria-selected="activeTab === tab.id"
-            :class="{active: activeTab === tab.id}"
-            :tabindex="activeTab === tab.id ? 0 : -1"
-            class="nav-link"
-            role="tab"
-            type="button"
-            @click="selectTab(tab.id)"
-            @keydown="onTabKeydown($event, index)"
-          >
-            <i :class="['bi', tab.icon, 'me-1']" aria-hidden="true"></i>{{ tab.label }}
-          </button>
-        </li>
-      </ul>
+      <PanelTabs
+        class="mb-3"
+        :tabs="tabs"
+        :selected="activeTab"
+        id-prefix="code-inventory"
+        label="Code Inventory views"
+        @select="selectTab"
+      />
 
       <section
         v-if="activeTab === 'changes'"

@@ -7,7 +7,9 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import PanelHeader from './components/PanelHeader.vue'
+import AgentSensorToggle from './components/AgentSensorToggle.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
@@ -237,6 +239,13 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport,
   enabled: manifestAvailable
 })
 
+const toggles = computed(() => report.value?.toggles ?? [])
+
+function onSensorSwitched(updated) {
+  report.value = updated
+  lastFetched.value = Date.now()
+}
+
 const snippets = computed(() => report.value?.setup?.snippets ?? [])
 const activeSnippet = computed(() => snippets.value.find((snippet) => snippet.id === activeSnippetId.value) ?? null)
 const copiedActiveSnippet = computed(() => copiedKey.value === copyKey(activeSnippet.value))
@@ -319,24 +328,9 @@ async function copyActiveSnippet() {
   copyBlocked.value = !copied
 }
 
-function selectSnippet(snippet) {
-  activeSnippetId.value = snippet.id
+function selectSnippet(id) {
+  activeSnippetId.value = id
   copyBlocked.value = false
-}
-
-function onSnippetKeydown(event, index) {
-  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
-  event.preventDefault()
-  const count = snippets.value.length
-  if (!count) return
-  let next = index
-  if (event.key === 'ArrowRight') next = (index + 1) % count
-  if (event.key === 'ArrowLeft') next = (index - 1 + count) % count
-  if (event.key === 'Home') next = 0
-  if (event.key === 'End') next = count - 1
-  const snippet = snippets.value[next]
-  activeSnippetId.value = snippet.id
-  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus()
 }
 
 function formatTimestamp(epochMillis) {
@@ -465,6 +459,26 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
           </section>
         </div>
       </div>
+
+      <section class="card mb-4" aria-labelledby="java-agent-opt-in-title">
+        <div class="card-body p-4">
+          <h3 id="java-agent-opt-in-title" class="h6 fw-bold mb-1">
+            <i class="bi bi-toggles me-2" aria-hidden="true"></i>Opt-in sensors
+          </h3>
+          <p class="small text-muted mb-3">
+            Sensors off by default, switched on or off here for this application without a restart. A switch overrides
+            <code>bootui.agent.sensors</code> until this JVM ends, across DevTools restarts and Quarkus live reloads.
+          </p>
+          <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
+            <li v-for="toggle in toggles" :key="toggle.id">
+              <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="load" />
+            </li>
+          </ul>
+          <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">
+            The opt-in sensors can be switched once the BootUI agent is attached and this application holds its claim.
+          </p>
+        </div>
+      </section>
 
       <section class="card mb-4" aria-labelledby="java-agent-sensors-title">
         <div class="card-body p-4">
@@ -671,24 +685,14 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
           </div>
 
           <div v-if="snippets.length" class="java-agent-snippets">
-            <div class="java-agent-tabs" role="tablist" aria-label="Java agent setup snippets">
-              <button
-                v-for="(snippet, index) in snippets"
-                :id="`java-agent-tab-${snippet.id}`"
-                :key="snippet.id"
-                type="button"
-                role="tab"
-                class="java-agent-tab"
-                :class="{'java-agent-tab--active': snippet.id === activeSnippetId}"
-                :aria-controls="`java-agent-panel-${snippet.id}`"
-                :aria-selected="snippet.id === activeSnippetId ? 'true' : 'false'"
-                :tabindex="snippet.id === activeSnippetId ? 0 : -1"
-                @click="selectSnippet(snippet)"
-                @keydown="onSnippetKeydown($event, index)"
-              >
-                {{ snippet.label }}
-              </button>
-            </div>
+            <PanelTabs
+              class="mb-3"
+              :tabs="snippets"
+              :selected="activeSnippetId"
+              id-prefix="java-agent"
+              label="Java agent setup snippets"
+              @select="selectSnippet"
+            />
             <div
               v-for="snippet in snippets"
               v-show="snippet.id === activeSnippetId"
@@ -719,6 +723,11 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
 </template>
 
 <style scoped>
+.java-agent-toggles {
+  display: grid;
+  gap: 1rem;
+}
+
 .java-agent-banner {
   align-items: flex-start;
   border: 1px solid var(--java-agent-banner-border);
@@ -834,43 +843,6 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
 .java-agent-stat__label {
   color: var(--bootui-text-muted);
   font-size: 0.78rem;
-}
-
-.java-agent-tabs {
-  border-bottom: 1px solid var(--bootui-border-subtle);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-}
-
-.java-agent-tab {
-  background: transparent;
-  border: 0;
-  border-radius: var(--bootui-radius-sm) var(--bootui-radius-sm) 0 0;
-  color: var(--bootui-text-muted);
-  font-size: 0.875rem;
-  font-weight: 700;
-  margin-bottom: -1px;
-  padding: 0.55rem 0.75rem;
-}
-
-.java-agent-tab:hover {
-  color: var(--bootui-green-dark);
-}
-
-.java-agent-tab:focus-visible {
-  outline: 0.18rem solid color-mix(in srgb, var(--bootui-green) 38%, transparent);
-  outline-offset: 0.12rem;
-}
-
-.java-agent-tab--active {
-  background: linear-gradient(135deg, var(--bootui-green), var(--bootui-blue));
-  color: #fff;
-}
-
-.java-agent-tab--active:hover {
-  color: #fff;
 }
 
 .java-agent-snippet-panel:focus-visible {
