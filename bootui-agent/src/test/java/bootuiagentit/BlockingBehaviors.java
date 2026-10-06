@@ -217,7 +217,10 @@ public final class BlockingBehaviors {
             return null;
         });
         holder.join();
-        long[] record = await(kind(Blocking.KIND_PARK));
+        // A loaded runner can overshoot the short parks past the threshold, so wait for the lock's own park.
+        long[] record = await(records -> records.stream()
+                .anyMatch(park -> park[SideEffects.R_KIND] == Blocking.KIND_PARK
+                        && "bootuiblockingapp.LoopWork#lockBriefly".equals(string((int) park[SideEffects.R_FRAMES]))));
         Map<String, Object> blocking = blockingStatus();
         check(
                 "a contended lock parks the event loop and is recorded; a short park is only counted ("

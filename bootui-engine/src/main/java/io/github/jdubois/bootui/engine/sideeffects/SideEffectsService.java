@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.SideEffectsRowDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorReport;
 import io.github.jdubois.bootui.engine.codepaths.CodePathStamps;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
@@ -77,9 +78,23 @@ public final class SideEffectsService implements AutoCloseable {
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
             + " the host names the JVM resolves; the blocking calls started on an event loop; and, opt-in, the files it"
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
-            + " methods, and FileChannel.open, the environment variables and system properties it reads by name"
-            + " through System.getenv and System.getProperty, and request input reaching SQL text, a command, a file"
-            + " path, or an outbound URL unchanged (security sinks). Threads are not available in this version.";
+            + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
+            + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
+            + " creates, and request input reaching SQL text, a command, a file path, or an outbound URL unchanged"
+            + " (security sinks). Thread locals and resources left open are not available in this version.";
+
+    static final String LIMITATION_THREADS =
+            "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
+                    + " ForkJoinPool, and thread-per-task executors' constructors, and their shutdown, shutdownNow, and close."
+                    + " A pool's own workers are its executor's row, never threads of their own. A thread or an executor is the"
+                    + " application's when the first frame outside the JDK that started or created it is in the application's"
+                    + " packages, else a library's (a framework's pool, a client, an @Async executor), or the JDK's when the JDK"
+                    + " created it, or in a static initializer; only the application's, started or created for a request, are"
+                    + " reported left running: still alive, or not shut down, 250 ms after the request's response completed,"
+                    + " checked once. An executor nothing references is reclaimed by the collector, or by the JDK's cleaner"
+                    + " for newSingleThreadExecutor, without a shutdown. A start no request owns is counted under its starting"
+                    + " thread's family with the call site of its first sighting. Never a thread-local, a task, or anything a"
+                    + " thread holds.";
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -229,6 +244,12 @@ public final class SideEffectsService implements AutoCloseable {
     private long lastClearedAt = Long.MIN_VALUE;
 
     private boolean closed;
+
+    /** The current run's claim while it asks for the thread-activity sensor, read on every request's end. */
+    private volatile AgentClaim threadActivityClaim;
+
+    private RequestPhases phases;
+    private final Consumer<String> requestEnd = this::requestEnded;
 
     /** This application run's side effects, frozen by {@link #endRun()}; {@code null} before. */
     private RunSideEffects ended;
@@ -418,7 +439,12 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 // The thread that finished starting may hold the end of startup's records in its table (M5-7b).
                 access.sideEffectsFlushThread();
+                // Whatever the claim asked for: thread-activity can be switched on at run time, and the bridge
+                // ignores a request's end while the sensor is off, with one volatile read.
+                threadActivityClaim = access.threadActivitySupported() ? claim : null;
                 run = new Run(claim, clock.getAsLong());
+                // The bridge's thread-activity counters last for the JVM: the panel reports this run's increase.
+                run.threadBaseline = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
                 publish(run);
                 run.start();
             }
@@ -434,6 +460,11 @@ public final class SideEffectsService implements AutoCloseable {
         endRun();
         synchronized (lock) {
             closed = true;
+            threadActivityClaim = null;
+            if (phases != null) {
+                phases.removeEndListener(requestEnd);
+                phases = null;
+            }
             if (run != null) {
                 run.close();
                 run = null;
@@ -472,6 +503,40 @@ public final class SideEffectsService implements AutoCloseable {
             }
         } catch (RuntimeException ex) {
             log.log(Level.WARNING, "BootUI could not end the run's side effects", ex);
+        }
+    }
+
+    /**
+     * Hears each request's end from {@code requestPhases}, where the adapters mark it once the response is complete,
+     * so the thread-activity sensor checks what the request left running (M5-5e). Idempotent; {@link #close()} stops
+     * listening.
+     */
+    public void listenToRequestEnds(RequestPhases requestPhases) {
+        synchronized (lock) {
+            if (closed || requestPhases == null || phases == requestPhases) {
+                return;
+            }
+            if (phases != null) {
+                phases.removeEndListener(requestEnd);
+            }
+            phases = requestPhases;
+            requestPhases.addEndListener(requestEnd);
+        }
+    }
+
+    /**
+     * A request ended: when this run claimed the thread-activity sensor, the bridge notes it without a lock. Called on
+     * the thread that ended the request, an event loop on Spring WebFlux and Quarkus: one volatile read otherwise.
+     */
+    void requestEnded(String requestId) {
+        AgentClaim claim = threadActivityClaim;
+        if (claim == null || requestId == null || requestId.length() != 16) {
+            return;
+        }
+        try {
+            claim.threadActivityRequestEnded(Long.parseUnsignedLong(requestId, 16));
+        } catch (RuntimeException ex) {
+            // Not a BootUI request id: nothing to check.
         }
     }
 
@@ -900,7 +965,9 @@ public final class SideEffectsService implements AutoCloseable {
                     List.of(),
                     null,
                     null,
-                    null));
+                    null,
+                    0,
+                    0));
         }
         return rows;
     }
@@ -1229,6 +1296,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_FILES,
                 LIMITATION_ENVIRONMENT,
                 LIMITATION_BLOCKING,
+                LIMITATION_THREADS,
                 LIMITATION_SECURITY_SINKS,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().blocking()) {
@@ -1245,6 +1313,38 @@ public final class SideEffectsService implements AutoCloseable {
                             && hook.selfTest().startsWith("failed"));
             if (callSitesFailed) {
                 limitations.add(LIMITATION_CALL_SITES_FAILED);
+            }
+        }
+        if (current != null
+                && (current.claim.uses(AgentSensorSettings.THREAD_ACTIVITY)
+                        || current.claim.sensorOverrides().containsKey(AgentSensorSettings.THREAD_ACTIVITY))) {
+            // Also once switched off at run time, when what it dropped is reported.
+            Map<String, Object> counters = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
+            Map<String, Object> baseline = current.threadBaseline;
+            long untracked = increase(counters, baseline, "untracked");
+            if (untracked > 0) {
+                limitations.add(untracked + (untracked == 1 ? " thread or executor was" : " threads or executors were")
+                        + " not tracked: the sensor tracks at most 1,024 threads waiting for their request's end and"
+                        + " 1,024 executors at a time, so what they left running is not reported.");
+            }
+            long unresolved = increase(counters, baseline, "unresolved");
+            if (unresolved > 0) {
+                limitations.add(
+                        unresolved + (unresolved == 1 ? " thread or executor was" : " threads or executors were")
+                                + " not checked: their request's end never reached the sensor within 10 minutes, so whether"
+                                + " they outlived it is unknown.");
+            }
+            long endsLost = increase(counters, baseline, "requestEndsLost");
+            if (endsLost > 0) {
+                limitations.add(endsLost + (endsLost == 1 ? " request's end was" : " requests' ends were")
+                        + " lost: more requests ended at once than the sensor holds, so what they started waits 10"
+                        + " minutes, then is counted not checked.");
+            }
+            long dropped = increase(counters, baseline, "dropped");
+            if (dropped > 0) {
+                limitations.add(dropped + (dropped == 1 ? " thread or executor was" : " threads or executors were")
+                        + " never checked: they still waited for their request's end when the thread-activity sensor"
+                        + " was switched off.");
             }
         }
         if (read.shown() && !read.requests()) {
@@ -1331,9 +1431,32 @@ public final class SideEffectsService implements AutoCloseable {
 
     /** One of the bridge's blocking counters, 0 when unavailable. */
     private long blockingCounter(String name) {
+        return sensorCounter(AgentSensorSettings.BLOCKING, name);
+    }
+
+    /** A side-effect sensor's counter in the bridge's status, 0 when absent. */
+    /** The bridge's counters of {@code sensor}, read once; empty when it reports none. */
+    private Map<String, Object> sensorCounters(String sensor) {
         try {
-            Object value = AgentBridgeAccess.map(access.status(), AgentSensorSettings.BLOCKING)
-                    .get(name);
+            return AgentBridgeAccess.map(access.status(), sensor);
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+    }
+
+    /** How much counter {@code name} grew since {@code baseline}. */
+    private static long increase(Map<String, Object> counters, Map<String, Object> baseline, String name) {
+        return Math.max(0L, counter(counters, name) - counter(baseline, name));
+    }
+
+    private static long counter(Map<String, Object> counters, String name) {
+        Object value = counters.get(name);
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private long sensorCounter(String sensor, String name) {
+        try {
+            Object value = AgentBridgeAccess.map(access.status(), sensor).get(name);
             return value instanceof Number number ? number.longValue() : 0L;
         } catch (RuntimeException ex) {
             return 0L;
@@ -1544,6 +1667,7 @@ public final class SideEffectsService implements AutoCloseable {
         long stale;
         long malformed;
         long bootUi;
+        Map<String, Object> threadBaseline = Map.of();
         long clears;
         long cleared;
         long clearedAt = lastClearedAt;
@@ -1670,6 +1794,8 @@ public final class SideEffectsService implements AutoCloseable {
                             application != null ? application : outside,
                             insideMethod(record.stamp()),
                             normalizer.threadFamily(string(record.threadName()))));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
+                    store.add(threads(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
                     // The target is the event loop's thread name: shown as its family, as a thread row's is.
                     String loop = normalizer.threadFamily(target);
@@ -1707,6 +1833,44 @@ public final class SideEffectsService implements AutoCloseable {
                 resolve(false);
                 publish(this);
             }
+        }
+
+        /**
+         * A thread-activity record's observation: a thread's or an executor's, its target the started thread's family
+         * or the executor's class, its origin from the bridge's walk, and its call site the first application frame,
+         * else the first frame outside the JDK. A follow-up carries its creation's target, frames, and detail, so it
+         * lands on its creation's row.
+         */
+        private SideEffectsStore.Observation threads(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            int detail = record.exitStatus();
+            String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
+            if (SideEffectsCatalog.THREAD.equals(kind) && (detail & SideEffectsCatalog.DETAIL_VIRTUAL) != 0) {
+                kind = SideEffectsCatalog.VIRTUAL_THREAD;
+            }
+            String origin =
+                    switch (detail & SideEffectsCatalog.DETAIL_ORIGIN) {
+                        case SideEffectsCatalog.ORIGIN_APPLICATION -> SideEffectOrigins.APPLICATION;
+                        case SideEffectsCatalog.ORIGIN_JDK -> SideEffectOrigins.JDK;
+                        default -> SideEffectOrigins.LIBRARY;
+                    };
+            String shown = target == null
+                    ? "(unknown)"
+                    : SideEffectsCatalog.EXECUTOR.equals(kind) ? target : normalizer.target(target);
+            return new SideEffectsStore.Observation(
+                    record,
+                    sensor.id(),
+                    kind,
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    origin,
+                    null);
         }
 
         /**

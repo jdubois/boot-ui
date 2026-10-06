@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -83,6 +84,18 @@ final class SideEffectsStore {
 
     /** How long an unowned HTTP client's connect waits: its call is recorded once it completes. */
     static final long UNOWNED_HTTP_CAPTURE_MILLIS = 60_000L;
+
+    /** The distinct requests a thread-activity row remembers, to count each request once. */
+    static final int RECENT_REQUESTS = 64;
+
+    /** Approximate bytes of one remembered request id. */
+    static final long REQUEST_ID_BYTES = 72L;
+
+    /**
+     * The routes of requests that started a thread or created an executor, kept apart from the route cache, so a
+     * shutdown or a reclaim minutes later still lands on its creation's row.
+     */
+    static final int THREAD_ROUTES = 1_024;
 
     /** The connect decisions kept for their finish records at most. */
     static final int MAX_CONNECT_DECISIONS = 4_096;
@@ -367,7 +380,11 @@ final class SideEffectsStore {
         long maxNanos;
         long firstSeen = Long.MAX_VALUE;
         long lastSeen;
+        long leftRunning;
+        long requests;
         final List<String> exemplars = new ArrayList<>(EXEMPLARS);
+        /** The latest distinct requests a thread-activity row counted, at most {@value #RECENT_REQUESTS}. */
+        LinkedHashSet<String> recentRequests;
 
         /**
          * Security sinks only: up to {@value #CONFIRMATIONS} keyed hashes of distinct raw sink texts with the request
@@ -399,6 +416,8 @@ final class SideEffectsStore {
             }
             if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                 network(record);
+            } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
+                threads(record, requestId);
             } else if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
                 completed += record.count();
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_EXITED) {
@@ -504,12 +523,52 @@ final class SideEffectsStore {
             return standalone || confirmed();
         }
 
+        /**
+         * A thread-activity record: a start or a creation counts, with its distinct request; a follow-up lands on its
+         * creation's row: left running when its request ended, an executor shut down with its lifetime, or reclaimed by
+         * the collector without a shutdown.
+         */
+        private void threads(SideEffectRecord record, String requestId) {
+            switch (record.kind()) {
+                case SideEffectsCatalog.KIND_THREAD_START, SideEffectsCatalog.KIND_EXECUTOR_CREATE -> {
+                    count += record.count();
+                    String request = record.requestId();
+                    if (request != null) {
+                        if (recentRequests == null) {
+                            recentRequests = new LinkedHashSet<>();
+                        }
+                        if (recentRequests.add(request)) {
+                            requests++;
+                            if (recentRequests.size() > RECENT_REQUESTS) {
+                                Iterator<String> oldest = recentRequests.iterator();
+                                oldest.next();
+                                oldest.remove();
+                            }
+                        }
+                    }
+                }
+                case SideEffectsCatalog.KIND_THREAD_LEFT_RUNNING, SideEffectsCatalog.KIND_EXECUTOR_LEFT_RUNNING ->
+                    leftRunning += record.count();
+                case SideEffectsCatalog.KIND_EXECUTOR_SHUTDOWN -> {
+                    completed += record.count();
+                    nanos += record.nanos();
+                    maxNanos = Math.max(maxNanos, record.maxNanos());
+                }
+                case SideEffectsCatalog.KIND_EXECUTOR_RECLAIMED -> failed += record.count();
+                default -> {
+                    // A kind of a later bridge: counted nowhere.
+                }
+            }
+        }
+
         void merge(Row other, boolean withExemplars) {
             standalone |= other.standalone;
             for (int i = 0; i < other.raw; i++) {
                 remember(other.rawHashes[i], other.redactedHashes[i], other.rawRequests[i]);
             }
             count += other.count;
+            leftRunning += other.leftRunning;
+            requests += other.requests;
             failed += other.failed;
             completed += other.completed;
             nonZeroExits += other.nonZeroExits;
@@ -553,6 +612,8 @@ final class SideEffectsStore {
                     key.client(),
                     capture == null ? null : capture[0],
                     capture == null ? null : capture[1],
+                    leftRunning,
+                    requests,
                     key.parameter(),
                     SideEffectsCatalog.SECURITY_SINKS_ID.equals(key.sensor())
                             ? SideEffectsRowDto.OTHER.equals(key.scope())
@@ -587,6 +648,15 @@ final class SideEffectsStore {
     private final Map<String, Long> droppedPerSensor = new HashMap<>();
     private final Map<String, Long> foldedPerSensor = new HashMap<>();
     private final ArrayDeque<Pending> pending = new ArrayDeque<>();
+    /** The request ids thread-activity rows remember, for the memory accounting. */
+    private long recentRequestEntries;
+
+    private final LinkedHashMap<String, String> threadRoutes = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > THREAD_ROUTES;
+        }
+    };
     private final LinkedHashMap<String, String> routes = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
@@ -646,16 +716,23 @@ final class SideEffectsStore {
         return rows.size();
     }
 
-    /** The estimated bytes retained: rows, waiting observations, and the route cache. */
+    /**
+     * The estimated bytes retained: rows, the distinct requests thread-activity rows remember, waiting observations, and
+     * the route caches.
+     */
     long retainedBytes() {
-        return rows.size() * ROW_BYTES + pending.size() * PENDING_BYTES + routes.size() * ROUTE_BYTES;
+        return rows.size() * ROW_BYTES
+                + recentRequestEntries * REQUEST_ID_BYTES
+                + pending.size() * PENDING_BYTES
+                + (routes.size() + threadRoutes.size()) * ROUTE_BYTES;
     }
 
     /** The most bytes this store holds under its bounds. */
     long maxBytes() {
         return (maxRows + SideEffectsCatalog.SENSORS.size()) * ROW_BYTES
+                + (long) maxRowsPerSensor * RECENT_REQUESTS * REQUEST_ID_BYTES
                 + (long) maxPending * PENDING_BYTES
-                + ROUTE_CACHE * ROUTE_BYTES;
+                + (ROUTE_CACHE + THREAD_ROUTES) * ROUTE_BYTES;
     }
 
     /** Drops every row and waiting observation, and the routes it named: <b>Clear recording</b>. */
@@ -664,6 +741,8 @@ final class SideEffectsStore {
         rowsPerSensor.clear();
         pending.clear();
         routes.clear();
+        threadRoutes.clear();
+        recentRequestEntries = 0;
         misses.clear();
         namedAt.clear();
         connectDecisions.clear();
@@ -699,7 +778,18 @@ final class SideEffectsStore {
         String executionId = requestId == null ? record.executionId() : null;
         String key = requestId != null ? requestId : executionId == null ? null : EXECUTION_KEY + executionId;
         if (key != null) {
-            String name = routes.get(key);
+            String name;
+            if (record.sensor() == SideEffectsCatalog.RECORD_THREADS
+                    && !SideEffectsCatalog.threadCreation(record.kind())) {
+                // A follow-up lands where its creation did: a creation a long request made before its route was named
+                // counted under the unknown route, and so does its follow-up.
+                name = threadRoutes.get(key);
+                if (name == null) {
+                    name = routes.get(key);
+                }
+            } else {
+                name = routes.get(key);
+            }
             if (name != null && !observation.waiting()) {
                 attribute(observation, key, name);
                 return;
@@ -803,6 +893,11 @@ final class SideEffectsStore {
 
     /** A named observation: a request's under its route, an execution's under its label. */
     private void attribute(Observation observation, String key, String name) {
+        if (observation.record().sensor() == SideEffectsCatalog.RECORD_THREADS
+                && SideEffectsCatalog.threadCreation(observation.record().kind())) {
+            // The first name a creation of this request landed under, kept for its follow-ups.
+            threadRoutes.putIfAbsent(key, name);
+        }
         if (key.startsWith(EXECUTION_KEY)) {
             aggregate(observation, SideEffectsRowDto.EXECUTION, name, null);
         } else {
@@ -963,7 +1058,9 @@ final class SideEffectsStore {
             rows.put(key, row);
             rowsPerSensor.put(sensor, perSensor + 1);
         }
+        int remembered = row.recentRequests == null ? 0 : row.recentRequests.size();
         row.add(observation, requestId);
+        recentRequestEntries += (row.recentRequests == null ? 0 : row.recentRequests.size()) - remembered;
     }
 
     private void drop(String sensor, long count) {

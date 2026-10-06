@@ -551,4 +551,41 @@ class SideEffectsTests {
         String[] strings = SideEffects.interned(generation(), (int) id);
         return strings == null || strings.length == 0 ? null : strings[0];
     }
+
+    @Test
+    void anotherSensorsReinstallKeepsWhatThreadActivityWaitsToCheck() {
+        ThreadActivity.reset();
+        Object executor = new Object();
+        SideEffects.enable(SideEffects.MASK_THREADS | SideEffects.MASK_FILES);
+        try {
+            assertThat(ThreadActivity.TRACKER.track(
+                            executor,
+                            false,
+                            1L,
+                            0x42L,
+                            0L,
+                            0,
+                            1,
+                            0,
+                            3,
+                            5L,
+                            9L,
+                            0,
+                            System.currentTimeMillis(),
+                            new ArrayList<>()))
+                    .isTrue();
+
+            SideEffects.disable(SideEffects.MASK_FILES, null);
+            assertThat(ThreadActivity.TRACKER.size())
+                    .as("a files switch never drops thread-activity's pending checks")
+                    .isEqualTo(1);
+
+            SideEffects.disable(SideEffects.MASK_THREADS, null);
+            assertThat(ThreadActivity.TRACKER.size()).isZero();
+            assertThat(ThreadActivity.TRACKER.dropped.sum()).isEqualTo(1L);
+        } finally {
+            SideEffects.disable(-1, null);
+            ThreadActivity.reset();
+        }
+    }
 }

@@ -16,31 +16,34 @@ import java.util.List;
  * @param kind what was done: {@code process}; for network {@code connect}, {@code datagram}, or {@code lookup}; for
  *     files {@code read}, {@code write}, {@code delete}, {@code move from}, {@code move to}, {@code copy from}, or
  *     {@code copy to}; for environment {@code environment variable} or {@code system property}; for blocking
- *     {@code sleep}, {@code wait}, {@code park}, {@code network}, or {@code file}
+ *     {@code sleep}, {@code wait}, {@code park}, {@code network}, or {@code file}; for thread activity {@code thread},
+ *     {@code virtual thread}, or {@code executor}
  * @param target the normalized target: a command's file name, a {@code host:port}, a {@code unix:} path, or a
  *     looked-up host name, a file's path pattern ({@code ./reports/report-{n}.csv}, {@code $TMPDIR/…}, {@code ~/…}), a
- *     variable's or property's name, or for blocking the event loop's thread family ({@code reactor-http-nio-{n}})
+ *     variable's or property's name, for blocking the event loop's thread family ({@code reactor-http-nio-{n}}), or for
+ *     thread activity the started thread's family ({@code report-refresher-{n}}) or the executor's class
  * @param callSite the first application frame, else the first frame outside the JDK, as {@code Class#method}, or
  *     {@code null} when unknown
  * @param insideMethod the innermost application bean method open when it happened, from Code Paths, or {@code null}
  * @param origin for files and environment, who did it: {@code application}, {@code library} (no application frame),
- *     {@code class-path}, {@code jdk}, {@code logging}, or {@code unknown}; the last three are grouped apart; {@code null}
- *     otherwise
+ *     {@code class-path}, {@code jdk}, {@code logging}, or {@code unknown}; the last three are grouped apart; for thread
+ *     activity, who started or created it: {@code application} (the first frame outside the JDK is the application's),
+ *     {@code library}, or {@code jdk}; {@code null} otherwise
  * @param location for files, where the file is: {@code working-directory}, {@code temporary-directory}, {@code home},
  *     {@code system}, {@code java-home}, or {@code elsewhere}; {@code null} otherwise
  * @param count how many times it happened: for processes, how many starts were attempted; for network, connects
  *     attempted, datagrams sent, or names the JVM resolved; for files, operations; for environment, first reads per
- *     request and thread
+ *     request and thread; for thread activity, threads started or executors created
  * @param failed how many of them failed: for processes, starts that threw; for network, connects refused or failed,
  *     sends that threw, or names not resolved; for files, operations that threw; for blocking, calls interrupted or
- *     that threw
+ *     that threw; for thread activity, executors reclaimed by the collector without a shutdown
  * @param completed for processes, how many of the started processes exited; for network connects, how many were
- *     established
+ *     established; for thread activity, executors shut down
  * @param nonZeroExits for processes, how many exited with a non-zero status
  * @param lastExitStatus for processes, the last exit status seen, or {@code null}
  * @param totalMillis the time they took: for processes, the started processes' lifetime until they exited; for network,
  *     the connect time of the connects whose time is known, the send time, or the name service's resolution time; for
- *     blocking, how long they blocked the event loop
+ *     blocking, how long they blocked the event loop; for thread activity, the shut-down executors' lifetime
  * @param maxMillis the longest of them
  * @param firstSeen when it was first seen, in epoch milliseconds
  * @param lastSeen when it was last seen, in epoch milliseconds
@@ -52,6 +55,10 @@ import java.util.List;
  *     infrastructure client, such as a DNS resolver or a telemetry exporter, which no panel is meant to show); {@code
  *     null} for lookups and other sensors
  * @param capturedBy the id of the panel that captured it, such as {@code rest-client-trace}, or {@code null}
+ * @param leftRunning for thread activity, the threads or executors the application's code started or created for a
+ *     request and still running when it ended, its response complete; 0 otherwise
+ * @param requests for thread activity, how many distinct requests started or created them, so {@code count / requests}
+ *     is how many a request does; 0 otherwise
  * @param parameter for security sinks, the name of the request parameter whose value reached the sink, as
  *     {@code @RequestParam}, a path variable, or the query names it, or {@code param#} and four hexadecimal digits when
  *     its name is not safe to show; never its value; {@code null} for other sensors
@@ -82,6 +89,8 @@ public record SideEffectsRowDto(
         String client,
         String capture,
         String capturedBy,
+        long leftRunning,
+        long requests,
         String parameter,
         String detail) {
 
@@ -108,7 +117,9 @@ public record SideEffectsRowDto(
             List<String> exemplarRequestIds,
             String client,
             String capture,
-            String capturedBy) {
+            String capturedBy,
+            long leftRunning,
+            long requests) {
         this(
                 scope,
                 attribution,
@@ -132,6 +143,8 @@ public record SideEffectsRowDto(
                 client,
                 capture,
                 capturedBy,
+                leftRunning,
+                requests,
                 null,
                 null);
     }

@@ -243,8 +243,12 @@ recognized from the calling frames, never a byte sent or received; the opt-in `f
 directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
 opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
 `Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
-Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC. Pass `--query not-captured` to list the
-outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`, a route, target,
+Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC; the opt-in
+`thread-activity` records the threads the application starts and the executors it creates per route, how many a request
+starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
+pools apart, never what a thread holds. Pass `--query not-captured` to list the
+outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`,
+`thread-activity`, a route, target,
 client, or call site to narrow it. The other sensor groups are listed as not available in this version.
 
 ### Read MySQL operational evidence

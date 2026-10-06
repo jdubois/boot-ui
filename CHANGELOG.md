@@ -196,6 +196,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `LockSupport.park`, and the network and files sensors' blocking operations started on an event loop, reported, never
   thrown, in Side Effects' **Blocking** tab; Spring MVC shows it `not-applicable`
   ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
+- **Thread activity sensor in the BootUI agent.** The opt-in `thread-activity` sensor shows, per route, the threads
+  application code starts and the executors it creates, and those still running when the request ended, in Side Effects'
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e). An async
+  Spring MVC request now ends when its async context completes, so work it handed over can be marked after response.
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their

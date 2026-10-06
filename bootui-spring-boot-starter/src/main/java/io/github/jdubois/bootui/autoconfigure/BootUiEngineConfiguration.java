@@ -617,7 +617,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<RuntimeJournal> journal,
             AgentEvidence evidence,
             org.springframework.core.env.Environment environment,
-            org.springframework.context.ApplicationContext applicationContext) {
+            org.springframework.context.ApplicationContext applicationContext,
+            ObjectProvider<RequestPhases> requestPhases) {
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -648,6 +649,8 @@ public class BootUiEngineConfiguration {
         // loop
         // is registered (M5-5c). Asked on each read, as the server starts after this lazy bean may be created.
         service.setServerEventLoops(() -> nettyServer(applicationContext));
+        // Each request's end, as both web stacks mark it, so the thread-activity sensor checks what it left running.
+        service.listenToRequestEnds(requestPhases.getIfAvailable());
         if (journalAggregates != null) {
             // The run's side-effect keys go into its summary, for the next run's comparison (M5-7b).
             journalAggregates.setRunSideEffects(service::runSideEffects);

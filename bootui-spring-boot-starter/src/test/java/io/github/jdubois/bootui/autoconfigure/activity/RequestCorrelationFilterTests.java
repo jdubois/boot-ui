@@ -153,8 +153,11 @@ class RequestCorrelationFilterTests {
     }
 
     @Test
-    void marksTheEndOfARequestButNotOfOneThatAnswersOnALaterAsyncDispatch() throws Exception {
+    void marksTheEndOfARequestAndOfOneThatAnswersOnALaterAsyncDispatchOnlyOnceItsAsyncContextCompletes()
+            throws Exception {
         RequestPhases phases = new RequestPhases();
+        List<String> ended = new ArrayList<>();
+        phases.addEndListener(ended::add);
         RequestCorrelationFilter filter = new RequestCorrelationFilter(
                 new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui", null, 1_000, phases);
         List<String> requestIds = new ArrayList<>();
@@ -173,6 +176,14 @@ class RequestCorrelationFilterTests {
         assertThat(phases.markers(requestIds.get(1)).endedAt())
                 .as("its handler is still running")
                 .isNull();
+        assertThat(ended).containsExactly(requestIds.get(0));
+
+        async.getAsyncContext().complete();
+
+        assertThat(phases.markers(requestIds.get(1)).endedAt())
+                .as("its async context completed: its response was written")
+                .isNotNull();
+        assertThat(ended).containsExactly(requestIds.get(0), requestIds.get(1));
     }
 
     /** The payload without its measured resources, which every published request carries (docs/PLAN-v2.md §5.11). */

@@ -45,8 +45,8 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatchers;
 
 /**
- * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook, installed with the
- * hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
+ * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook but thread-activity's,
+ * which has its own, installed with the hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
  * in the bridge saying which sensors record ({@link SideEffects#enable}). {@value SideEffects#PROCESSES} hooks {@code
  * ProcessBuilder.start(Redirect[])}; {@value SideEffects#NETWORK} (M5-5b) hooks {@code Socket.connect}, {@code
  * SocketChannelImpl.connect}, {@code blockingConnect}, and {@code finishConnect}, {@code DatagramChannelImpl.send},
@@ -86,6 +86,14 @@ final class SideEffectsSensor {
     static final String FILE_CHANNEL = "java.nio.channels.FileChannel";
     static final String SYSTEM = "java.lang.System";
     static final String LOCK_SUPPORT = "java.util.concurrent.locks.LockSupport";
+    static final String THREAD = "java.lang.Thread";
+    static final String VIRTUAL_THREAD = "java.lang.VirtualThread";
+    static final String THREAD_POOL = "java.util.concurrent.ThreadPoolExecutor";
+    static final String FORK_JOIN_POOL = "java.util.concurrent.ForkJoinPool";
+    static final String PER_TASK = "java.util.concurrent.ThreadPerTaskExecutor";
+
+    /** The feature release a hook's type first exists in: below it, the hook is unsupported, never failed. */
+    static final String SINCE_21 = "21";
 
     static final String CORE = "core";
     static final String OPTIONAL = "optional";
@@ -114,12 +122,28 @@ final class SideEffectsSensor {
         {"System.getenv", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getenvAll", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
         {"System.getProperty", SYSTEM, "record", SideEffects.ENVIRONMENT, CORE},
-        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE}
+        {"LockSupport.park", LOCK_SUPPORT, "record", SideEffects.BLOCKING, CORE},
+        {"Thread.start", THREAD, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"VirtualThread.start", VIRTUAL_THREAD, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        {"ThreadPoolExecutor.addWorker", THREAD_POOL, "pool", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ThreadPerTaskExecutor.start", PER_TASK, "pool", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        {"ThreadPoolExecutor.<init>", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ForkJoinPool.<init>", FORK_JOIN_POOL, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL},
+        {"ThreadPerTaskExecutor.<init>", PER_TASK, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        {"ThreadPoolExecutor.shutdown", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ThreadPoolExecutor.shutdownNow", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
+        {"ForkJoinPool.shutdown", FORK_JOIN_POOL, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL},
+        {"ThreadPerTaskExecutor.shutdown", PER_TASK, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21}
     };
 
     /** The side-effect sensors, in status order. */
     static final String[] SENSORS = {
-        SideEffects.PROCESSES, SideEffects.NETWORK, SideEffects.FILES, SideEffects.ENVIRONMENT, SideEffects.BLOCKING
+        SideEffects.PROCESSES,
+        SideEffects.NETWORK,
+        SideEffects.FILES,
+        SideEffects.ENVIRONMENT,
+        SideEffects.BLOCKING,
+        SideEffects.THREAD_ACTIVITY
     };
 
     /** The variable and property the environment self-test reads, which no one sets. */
@@ -148,8 +172,14 @@ final class SideEffectsSensor {
     private final Set<String> omitted;
 
     private final TransformStats stats = new TransformStats();
+    /** The transformer of every side-effect sensor but thread-activity. */
     private volatile ResettableClassFileTransformer transformer;
-    /** The sensors the installed transformer carries the hooks of. */
+    /**
+     * The thread-activity sensor's own transformer (M5-5e), so switching another sensor never retransforms {@code
+     * java.lang.Thread} and the executors again, nor drops what the sensor waits to check.
+     */
+    private volatile ResettableClassFileTransformer threadTransformer;
+    /** The sensors the installed transformers carry the hooks of. */
     private volatile int installedMask;
     /** The sensors the current claim asks for. */
     private volatile int wantedMask;
@@ -189,11 +219,11 @@ final class SideEffectsSensor {
         }
         int effective = mask & ~failedSensors;
         // Only while no job runs: a release the worker is running would remove the hooks after this enabled them.
-        if (transformer != null && installedMask == effective && selfTestPassed && worker == null) {
+        if (installed() && installedMask == effective && selfTestPassed && worker == null) {
             SideEffects.enable(effective);
             return;
         }
-        if (effective == 0 && transformer == null) {
+        if (effective == 0 && !installed()) {
             return;
         }
         schedule(INSTALL);
@@ -225,6 +255,24 @@ final class SideEffectsSensor {
     /** Whether the worker has no job left. */
     synchronized boolean idle() {
         return worker == null && pending == 0;
+    }
+
+    /** Whether either transformer is installed. */
+    private boolean installed() {
+        return transformer != null || threadTransformer != null;
+    }
+
+    /** The groups whose installed transformer carries other hooks than {@code mask} asks for: reinstalled. */
+    private int stale(int mask) {
+        int stale = 0;
+        if (transformer != null && (installedMask & ~SideEffects.MASK_THREADS) != (mask & ~SideEffects.MASK_THREADS)) {
+            stale |= ~SideEffects.MASK_THREADS;
+        }
+        if (threadTransformer != null
+                && (installedMask & SideEffects.MASK_THREADS) != (mask & SideEffects.MASK_THREADS)) {
+            stale |= SideEffects.MASK_THREADS;
+        }
+        return stale;
     }
 
     /** The sensors the current claim asks for that have not failed. */
@@ -259,15 +307,17 @@ final class SideEffectsSensor {
             while ((job = nextJob()) != 0) {
                 int mask = effective();
                 try {
-                    if ((job & RELEASE) != 0 || (job & INSTALL) != 0 && transformer != null && installedMask != mask) {
-                        SideEffects.disable(installedMask, null);
-                        reset();
+                    // Only the transformer whose sensors changed is removed: switching files never retransforms
+                    // java.lang.Thread, nor switching thread-activity the files' classes.
+                    int stale = (job & RELEASE) != 0 ? -1 : (job & INSTALL) != 0 ? stale(mask) : 0;
+                    if (stale != 0) {
+                        SideEffects.disable(installedMask & stale, null);
+                        reset(stale);
                     }
                     if ((job & INSTALL) != 0 && !stuck && mask != 0) {
-                        if (transformer == null) {
-                            install(mask);
-                        }
-                        selfTest(mask, 1);
+                        // Only the groups installed now are self-tested: the other keeps its verdict and stays on.
+                        int fresh = install(mask);
+                        selfTest(fresh != 0 ? fresh : mask, 1);
                     }
                 } catch (Throwable ex) {
                     selfTestPassed = false;
@@ -281,53 +331,109 @@ final class SideEffectsSensor {
         }
     }
 
-    void install(int mask) {
+    /** Installs the transformer of each group of {@code mask} not installed yet; returns their sensors. */
+    int install(int mask) {
+        int rest = mask & ~SideEffects.MASK_THREADS;
+        int threads = mask & SideEffects.MASK_THREADS;
+        if ((rest == 0 || transformer != null) && (threads == 0 || threadTransformer != null)) {
+            return 0;
+        }
+        int fresh = 0;
         long started = System.nanoTime();
         state = "installing";
         selfTestMillis = -1;
         SideEffects.warm();
         startExitWorker();
-        InstallAction action = new InstallAction(mask, leftOut());
+        Set<String> left = leftOut();
         try {
-            transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
-            installedMask = mask;
+            if (rest != 0 && transformer == null) {
+                transformer = installed(new InstallAction(rest, left));
+                installedMask |= rest;
+                fresh |= rest;
+            }
+            if (threads != 0 && threadTransformer == null) {
+                threadTransformer = installed(new InstallAction(threads, left));
+                installedMask |= threads;
+                fresh |= threads;
+            }
         } finally {
             long elapsed = System.nanoTime() - started;
             stats.retransformedFor(elapsed);
             installMillis = elapsed / 1_000_000L;
         }
         state = "testing";
+        return fresh;
+    }
+
+    /**
+     * {@code current} with the entries of {@code previous} that belong to the installed sensors outside {@code
+     * tested}, whose earlier self-test still stands: a hook id, or a step keyed by a hook or a sensor id.
+     */
+    private Map<String, String> merged(Map<String, String> previous, Map<String, String> current, int tested) {
+        int kept = installedMask & ~tested & ~failedSensors;
+        Map<String, String> merged = new LinkedHashMap<String, String>(current);
+        for (Map.Entry<String, String> entry : previous.entrySet()) {
+            if ((owner(entry.getKey()) & kept) != 0) {
+                merged.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return merged;
+    }
+
+    /** The bit of the sensor a self-test key belongs to: a sensor id, or a hook id; 0 for none. */
+    private static int owner(String key) {
+        int bit = SideEffects.bit(key);
+        if (bit != 0) {
+            return bit;
+        }
+        for (String[] hook : HOOKS) {
+            if (hook[0].equals(key)) {
+                return SideEffects.bit(hook[3]);
+            }
+        }
+        return 0;
     }
 
     /** The hooks the transformer leaves out: the mutation tests' omissions and the hooks that failed. */
     private synchronized Set<String> leftOut() {
         Set<String> left = new LinkedHashSet<String>(omitted);
         left.addAll(failedHooks);
+        if (left.contains("ThreadPerTaskExecutor.start")) {
+            // Without it, every task of a virtual-thread-per-task executor would read as a thread of its own.
+            left.add("VirtualThread.start");
+        }
         return left;
     }
 
-    void reset() {
-        ResettableClassFileTransformer installed;
+    private ResettableClassFileTransformer installed(InstallAction action) {
+        return privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
+    }
+
+    /** Removes the transformers of the groups in {@code groups}, restoring the classes they transformed. */
+    void reset(int groups) {
+        ResettableClassFileTransformer rest = null;
+        ResettableClassFileTransformer threads = null;
         synchronized (this) {
-            installed = transformer;
-            transformer = null;
-            installedMask = 0;
+            if ((groups & ~SideEffects.MASK_THREADS) != 0) {
+                rest = transformer;
+                transformer = null;
+                installedMask &= SideEffects.MASK_THREADS;
+            }
+            if ((groups & SideEffects.MASK_THREADS) != 0) {
+                threads = threadTransformer;
+                threadTransformer = null;
+                installedMask &= ~SideEffects.MASK_THREADS;
+            }
             selfTestPassed = false;
         }
-        if (installed == null) {
+        if (rest == null && threads == null) {
             state = stuck ? "release-failed" : "released";
             return;
         }
         long started = System.nanoTime();
         boolean restored;
         try {
-            restored = installed.reset(
-                    instrumentation,
-                    AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
-                    AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
-                    new AgentBuilder.RedefinitionStrategy.Listener.Compound(
-                            AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
-                            stats.redefinitionFailures()));
+            restored = restore(rest) & restore(threads);
         } finally {
             stats.retransformedFor(System.nanoTime() - started);
         }
@@ -337,6 +443,17 @@ final class SideEffectsSensor {
             SideEffects.disable(-1, "the side-effect sensors' transformer could not be removed");
         }
         state = restored ? "released" : "release-failed";
+    }
+
+    private boolean restore(ResettableClassFileTransformer installed) {
+        return installed == null
+                || installed.reset(
+                        instrumentation,
+                        AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
+                        AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
+                        new AgentBuilder.RedefinitionStrategy.Listener.Compound(
+                                AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
+                                stats.redefinitionFailures()));
     }
 
     final class InstallAction implements PrivilegedAction<ResettableClassFileTransformer> {
@@ -537,6 +654,9 @@ final class SideEffectsSensor {
                                             .and(ElementMatchers.isPublic())
                                             .and(ElementMatchers.isStatic()))));
         }
+        if ((mask & SideEffects.MASK_THREADS) != 0) {
+            threadActivity(types, visits, left);
+        }
         AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
@@ -544,6 +664,74 @@ final class SideEffectsSensor {
             builder = builder.type(ElementMatchers.named(types.get(i))).transform(visits.get(i));
         }
         return builder;
+    }
+
+    /**
+     * The thread-activity sensor's visits (M5-5e): {@code Thread.start()} and {@code start(ThreadContainer)}, {@code
+     * VirtualThread.start(ThreadContainer)}, the pool marks, the executors' canonical constructors, and their shutdowns.
+     */
+    private static void threadActivity(List<String> types, List<ExecutorSensor.Visit> visits, Set<String> left) {
+        types.add(THREAD);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "Thread.start",
+                        Advice.to(ThreadActivityAdvice.Start.class)
+                                .on(ElementMatchers.named("start")
+                                        .and(ElementMatchers.takesArguments(0)
+                                                .or(ElementMatchers.takesArguments(1))))));
+        types.add(VIRTUAL_THREAD);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "VirtualThread.start",
+                        Advice.to(ThreadActivityAdvice.VirtualStart.class)
+                                .on(ElementMatchers.named("start").and(ElementMatchers.takesArguments(1)))));
+        types.add(THREAD_POOL);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ThreadPoolExecutor.addWorker",
+                        Advice.to(ThreadActivityAdvice.AddWorker.class)
+                                .on(ElementMatchers.named("addWorker").and(ElementMatchers.takesArguments(2))))
+                .and(
+                        "ThreadPoolExecutor.<init>",
+                        Advice.to(ThreadActivityAdvice.ThreadPoolCreated.class)
+                                .on(ElementMatchers.isConstructor().and(ElementMatchers.takesArguments(7))))
+                .and(
+                        "ThreadPoolExecutor.shutdown",
+                        Advice.to(ThreadActivityAdvice.ThreadPoolShutdown.class)
+                                .on(ElementMatchers.named("shutdown").and(ElementMatchers.takesArguments(0))))
+                .and(
+                        "ThreadPoolExecutor.shutdownNow",
+                        Advice.to(ThreadActivityAdvice.ThreadPoolShutdownNow.class)
+                                .on(ElementMatchers.named("shutdownNow").and(ElementMatchers.takesArguments(0)))));
+        types.add(FORK_JOIN_POOL);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ForkJoinPool.<init>",
+                        Advice.to(ThreadActivityAdvice.ForkJoinCreated.class)
+                                .on(ElementMatchers.isConstructor()
+                                        .and(ElementMatchers.isPublic())
+                                        .and(ElementMatchers.takesArguments(10))))
+                .and(
+                        "ForkJoinPool.shutdown",
+                        Advice.to(ThreadActivityAdvice.ForkJoinShutdown.class)
+                                .on(ElementMatchers.namedOneOf("shutdown", "shutdownNow", "close")
+                                        .and(ElementMatchers.takesArguments(0)))));
+        types.add(PER_TASK);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ThreadPerTaskExecutor.start",
+                        Advice.to(ThreadActivityAdvice.PerTaskStart.class)
+                                .on(ElementMatchers.named("start")
+                                        .and(ElementMatchers.takesArguments(1))
+                                        .and(ElementMatchers.takesArgument(0, Thread.class))))
+                .and(
+                        "ThreadPerTaskExecutor.<init>",
+                        Advice.to(ThreadActivityAdvice.PerTaskCreated.class).on(ElementMatchers.isConstructor()))
+                .and(
+                        "ThreadPerTaskExecutor.shutdown",
+                        Advice.to(ThreadActivityAdvice.PerTaskShutdown.class)
+                                .on(ElementMatchers.namedOneOf("shutdown", "shutdownNow", "close")
+                                        .and(ElementMatchers.takesArguments(0)))));
     }
 
     // ---- self-test -----------------------------------------------------------------------------------------------
@@ -572,18 +760,24 @@ final class SideEffectsSensor {
             if ((mask & SideEffects.MASK_BLOCKING) != 0) {
                 steps.put(SideEffects.BLOCKING, parkStep());
             }
+            if ((mask & SideEffects.MASK_THREADS) != 0) {
+                threadActivitySteps(steps, privileged);
+            }
         } finally {
             hits = SideEffects.endSelfTest();
         }
         selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
         Set<String> left = leftOut();
-        Map<String, String> results = evaluate(mask, hits, steps, left);
-        selfTestSteps = steps;
+        Map<String, String> results = merged(selfTest, evaluate(mask, hits, steps, left), mask);
+        selfTestSteps = merged(selfTestSteps, steps, mask);
         List<String> failed = new ArrayList<String>();
         int failedNow = 0;
+        int hit = 0;
         for (String[] hook : HOOKS) {
             int bit = SideEffects.bit(hook[3]);
-            if ((mask & bit) == 0 || "passed".equals(results.get(hook[0]))) {
+            if ((mask & bit) == 0
+                    || "passed".equals(results.get(hook[0]))
+                    || "unsupported".equals(results.get(hook[0]))) {
                 continue;
             }
             if (left.contains(hook[0]) && !CORE.equals(hook[4])) {
@@ -591,6 +785,7 @@ final class SideEffectsSensor {
                 continue;
             }
             failed.add(hook[0]);
+            hit |= bit;
             if (CORE.equals(hook[4])) {
                 failedNow |= bit;
             }
@@ -624,29 +819,43 @@ final class SideEffectsSensor {
         state = "self-test-failed";
         selfTestError = error;
         selfTest = results;
-        SideEffects.disable(mask & ~failedNow, null);
-        reset();
+        // Only the transformer carrying a failed hook is reinstalled; the other group tested now passed.
+        int groups = ((hit & SideEffects.MASK_THREADS) != 0 ? SideEffects.MASK_THREADS : 0)
+                | ((hit & ~SideEffects.MASK_THREADS) != 0 ? ~SideEffects.MASK_THREADS : 0);
+        SideEffects.disable(mask & ~failedNow & groups, null);
+        if ((mask & ~groups) != 0) {
+            SideEffects.enable(mask & ~groups);
+        }
+        reset(groups);
         int remaining = effective();
         if (stuck) {
             state = "self-test-failed (release-failed)";
             return;
         }
-        if (remaining != 0 && round < MAX_ROUNDS) {
-            // The other sensors, and this one without the hooks that failed, are installed and self-tested again.
-            install(remaining);
-            selfTest(remaining, round + 1);
+        int lost = remaining & groups;
+        if (lost != 0 && round < MAX_ROUNDS) {
+            // The removed group's other sensors, and this one without the hooks that failed, are installed and
+            // self-tested again.
+            int fresh = install(remaining);
+            selfTest(fresh != 0 ? fresh : lost, round + 1);
             return;
         }
-        if (remaining != 0) {
+        // Out of rounds: only the groups still failing are off for good; the other group keeps recording.
+        if (lost != 0) {
             synchronized (this) {
-                failedSensors |= remaining;
+                failedSensors |= lost;
                 for (String id : SENSORS) {
-                    if ((remaining & SideEffects.bit(id)) != 0) {
+                    if ((lost & SideEffects.bit(id)) != 0) {
                         sensorErrors.put(id, error);
                     }
                 }
             }
-            SideEffects.disable(remaining, error);
+            SideEffects.disable(lost, error);
+        }
+        if (installed()) {
+            selfTestPassed = true;
+            state = "installed";
+            return;
         }
         state = "self-test-failed";
     }
@@ -920,7 +1129,9 @@ final class SideEffectsSensor {
             }
             Object count = hits == null ? null : hits.get(hook[0]);
             String outcome = steps.containsKey(hook[0]) ? steps.get(hook[0]) : steps.get(hook[3]);
-            if (count instanceof Long && (Long) count > 0) {
+            if (unsupported(hook)) {
+                results.put(hook[0], "unsupported");
+            } else if (count instanceof Long && (Long) count > 0) {
                 results.put(hook[0], "passed");
             } else if (left.contains(hook[0])) {
                 results.put(hook[0], "failed");
@@ -929,6 +1140,79 @@ final class SideEffectsSensor {
             }
         }
         return results;
+    }
+
+    /** Whether {@code hook}'s type first exists in a later feature release than this JDK's. */
+    static boolean unsupported(String[] hook) {
+        return hook.length > 5 && Runtime.version().feature() < Integer.parseInt(hook[5]);
+    }
+
+    /**
+     * Runs each thread-activity hook once, its outcome by hook id, on this agent thread, whose threads, executors, and
+     * shutdowns the bridge counts and never records: a platform thread started and joined; from JDK 21, a virtual thread;
+     * a {@code ThreadPoolExecutor} running one task, then shut down, and another shut down at once; a {@code
+     * ForkJoinPool}; and, from JDK 21, a thread-per-task executor running one task, then closed. Every thread is the
+     * agent's own, named {@code bootui-agent-self-test-…}, and joined.
+     */
+    static void threadActivitySteps(Map<String, String> steps, boolean privileged) {
+        steps.put("Thread.start", ExecutorSensor.step(new ThreadSensor.PlatformStep(), 5));
+        steps.put(
+                "VirtualThread.start",
+                Runtime.version().feature() < 21
+                        ? "unsupported"
+                        : ExecutorSensor.step(new ThreadSensor.VirtualStep(), 5));
+        String pool = ExecutorSensor.step(
+                seconds -> {
+                    java.util.concurrent.ThreadPoolExecutor executor = new java.util.concurrent.ThreadPoolExecutor(
+                            1,
+                            1,
+                            1,
+                            java.util.concurrent.TimeUnit.SECONDS,
+                            new java.util.concurrent.LinkedBlockingQueue<Runnable>(),
+                            task -> AgentThreads.newThread("bootui-agent-self-test-pool", task, privileged));
+                    try {
+                        executor.submit(new ExecutorSensor.Noop()).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+                    } finally {
+                        executor.shutdown();
+                    }
+                    executor.awaitTermination(seconds, java.util.concurrent.TimeUnit.SECONDS);
+                    new java.util.concurrent.ThreadPoolExecutor(
+                                    0,
+                                    1,
+                                    1,
+                                    java.util.concurrent.TimeUnit.SECONDS,
+                                    new java.util.concurrent.LinkedBlockingQueue<Runnable>())
+                            .shutdownNow();
+                },
+                5);
+        steps.put("ThreadPoolExecutor.addWorker", pool);
+        steps.put("ThreadPoolExecutor.<init>", pool);
+        steps.put("ThreadPoolExecutor.shutdown", pool);
+        steps.put("ThreadPoolExecutor.shutdownNow", pool);
+        String forkJoin = ExecutorSensor.step(seconds -> new java.util.concurrent.ForkJoinPool(1).shutdownNow(), 5);
+        steps.put("ForkJoinPool.<init>", forkJoin);
+        steps.put("ForkJoinPool.shutdown", forkJoin);
+        String perTask = Runtime.version().feature() < 21
+                ? "unsupported"
+                : ExecutorSensor.step(seconds -> perTaskStep(privileged, seconds), 5);
+        steps.put("ThreadPerTaskExecutor.start", perTask);
+        steps.put("ThreadPerTaskExecutor.<init>", perTask);
+        steps.put("ThreadPerTaskExecutor.shutdown", perTask);
+    }
+
+    /** JDK 21+: a thread-per-task executor of the agent's own threads runs one task, then is closed, by reflection. */
+    private static void perTaskStep(boolean privileged, int seconds) throws Exception {
+        java.util.concurrent.ThreadFactory factory =
+                task -> AgentThreads.newThread("bootui-agent-self-test-per-task", task, privileged);
+        java.util.concurrent.ExecutorService executor =
+                (java.util.concurrent.ExecutorService) java.util.concurrent.Executors.class
+                        .getMethod("newThreadPerTaskExecutor", java.util.concurrent.ThreadFactory.class)
+                        .invoke(null, factory);
+        try {
+            executor.submit(new ExecutorSensor.Noop()).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            java.util.concurrent.ExecutorService.class.getMethod("close").invoke(executor);
+        }
     }
 
     // ---- status ----------------------------------------------------------------------------------------------------
