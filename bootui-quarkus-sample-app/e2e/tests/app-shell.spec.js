@@ -199,12 +199,9 @@ test.describe('BootUI app shell (Quarkus)', () => {
     // Code Paths, Code Inventory, and Side Effects need the BootUI agent. Without it they are unavailable, but they
     // stay in the Instrumentation group, dimmed with their reason, instead of moving into "Disabled / unavailable".
     await page.getByRole('button', {name: /Instrumentation\s+4/}).click()
-    await expect(page.getByRole('group', {name: 'Instrumentation panels'}).locator('.bootui-nav-link__label')).toHaveText([
-      'Java Agent',
-      'Code Paths',
-      'Code Inventory',
-      'Side Effects'
-    ])
+    await expect(
+      page.getByRole('group', {name: 'Instrumentation panels'}).locator('.bootui-nav-link__label')
+    ).toHaveText(['Java Agent', 'Code Paths', 'Code Inventory', 'Side Effects'])
     await expect(
       page
         .getByRole('group', {name: 'Disabled / unavailable panels'})

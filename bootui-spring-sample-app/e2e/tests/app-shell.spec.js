@@ -495,12 +495,9 @@ test.describe('BootUI app shell', () => {
     ])
 
     await page.getByRole('button', {name: /Instrumentation\s+4/}).click()
-    await expect(page.getByRole('group', {name: 'Instrumentation panels'}).locator('.bootui-nav-link__label')).toHaveText([
-      'Java Agent',
-      'Code Paths',
-      'Code Inventory',
-      'Side Effects'
-    ])
+    await expect(
+      page.getByRole('group', {name: 'Instrumentation panels'}).locator('.bootui-nav-link__label')
+    ).toHaveText(['Java Agent', 'Code Paths', 'Code Inventory', 'Side Effects'])
 
     await page.getByRole('button', {name: /Developer tools\s+7/}).click()
     await expect(
