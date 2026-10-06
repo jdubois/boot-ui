@@ -601,7 +601,8 @@ public final class ThreadLocals {
         if (key == CodePaths.FRAME
                 || key == Reentrancy.STATE
                 || key == TaskPropagation.ACTIVE
-                || key == CaughtExceptions.COUNTS) {
+                || key == CaughtExceptions.COUNTS
+                || key == CaughtExceptions.SCRATCH) {
             BRIDGE_KEYS.increment();
             return true;
         }

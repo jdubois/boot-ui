@@ -31,7 +31,8 @@ class ThreadLocalsBehaviorsIT {
             "a request's pool task leaving a thread local set on its worker is reported, one clearing it in finally"
                     + " never is",
             "the JDK's own thread locals, as a read lock's hold counter, are never reported",
-            "no value set in a thread local ever reaches a string the bridge interned");
+            "no value set in a thread local ever reaches a string the bridge interned",
+            "switched off at run time, the sensor scans nothing; switched on again, it reports a leak");
 
     private static final String VIRTUAL = "a virtual thread, never pooled, is never scanned";
 

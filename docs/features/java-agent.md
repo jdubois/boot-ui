@@ -72,7 +72,7 @@ best-effort.
 
 ## Switching opt-in sensors at run time
 
-The opt-in sensors, `threads`, `files`, `environment`, and `thread-activity`, can be switched on and off for the running application
+The opt-in sensors, `threads`, `files`, `environment`, `thread-activity`, and `thread-locals`, can be switched on and off for the running application
 without a restart, from the panel's **Opt-in sensors** card or from each opt-in sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
@@ -84,6 +84,7 @@ switched at run time: its visit of the application's classes is installed with t
 | `threads` | It retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
 | `files` | With the default sensors, the agent's overhead on the benchmark's I/O route measured about 10.6 %, over the 10 % budget. |
 | `environment` | It advises `System.getProperty`, which frameworks call often: about 23–28 ns per read instead of 5–6 ns. |
+| `thread-locals` | It scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
 
 `POST /bootui/api/java-agent/sensors/{id}` with `{"enabled": true}` or `{"enabled": false}` switches one and returns
 the updated report. It is the panel's only action, so `bootui.panels.java-agent.read-only` and `bootui.read-only`
@@ -91,7 +92,7 @@ refuse it with the canonical 403, and it carries the same localhost, Host, and c
 BootUI action. Another sensor id, or a body without `enabled`, answers 400; a switch the agent cannot make answers 409
 with the reason: the agent is not attached or not armed for this application, an older agent predates switches, the
 claim changed meanwhile, `threads` already failed in this run, or `files` or `environment` already failed its
-self-test in this JVM. There is no MCP tool or CLI command for it, and only these three sensors are ever switched: the
+self-test in this JVM. There is no MCP tool or CLI command for it, and only these sensors are ever switched: the
 bridge refuses any other, the default sensors, `blocking`, and `caught-exceptions` included. The report lists `toggles`
 only while this application's claim is armed.
 
@@ -100,7 +101,8 @@ it, and off restores `java.lang.Thread`. Switching `files` or `environment` stop
 reinstalls the side-effect transformer that `processes`, `network`, and `blocking` share with them, and runs the
 self-test of every side-effect sensor the claim uses again: those sensors pause for the reinstall, and one whose core
 hook fails that self-test stays off for the JVM's life, as at startup. After a switch, both panels read the sensors'
-states again. When the agent fails a switch the bridge already kept, the switch shows **Failed** with the agent's reason
+states again. Switching `thread-locals` transforms nothing: it enables or disables its scan, and a scope opened before
+the switch is closed without a report. When the agent fails a switch the bridge already kept, the switch shows **Failed** with the agent's reason
 rather than installing.
 
 A switch is a runtime override, never written to any file. The bootstrap bridge keeps it for the application's slot
@@ -1035,8 +1037,9 @@ table larger than 16,384 slots or with more than 4,096 thread locals set is skip
 scope are reported, and the bridge remembers at most 1,024 thread locals per run, weakly. With the sensor off, a scope
 costs one volatile read; on Spring WebFlux, while the agent is attached, each Reactor task also runs through a small
 wrapper. The sensor is opt-in (D37) whatever its overhead: the `agent-overhead-thread-locals` job of
-`build.yml` measures its own increment and the cumulative overhead on the default route. Add `thread-locals` to
-`bootui.agent.sensors` to record it.
+`build.yml` measures its own increment and the cumulative overhead on the default route: about 0.5 % over the default
+sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to `bootui.agent.sensors` to
+record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time).
 
 Its self-test, on the sensor's own thread, opens a scope, leaves a plain, an inheritable, and a read `withInitial`
 thread local set, removes one, sets one to `null`, and expects exactly the three left set, never one set before the

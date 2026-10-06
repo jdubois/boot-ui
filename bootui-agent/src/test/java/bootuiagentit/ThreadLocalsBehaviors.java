@@ -72,6 +72,7 @@ public final class ThreadLocalsBehaviors {
             jdkThreadLocals();
             virtualThreads();
             noValue();
+            switchedAtRunTime();
         }
         Map<String, Object> status = AgentBridge.status();
         System.out.println("THREAD_LOCALS=" + status.get(SideEffects.THREAD_LOCALS));
@@ -350,6 +351,38 @@ public final class ThreadLocalsBehaviors {
         long request = nextRequest++;
         CONTEXT.set(String.format("%016x", request));
         return request;
+    }
+
+    static void switchedAtRunTime() {
+        RECORDS.clear();
+        Map<String, Object> off = AgentBridge.switchSensor(token, SideEffects.THREAD_LOCALS, false);
+        request();
+        long closed = ThreadLocals.open();
+        TENANT.set(SECRET);
+        ThreadLocals.close(closed);
+        TENANT.remove();
+        endRequest();
+        drain();
+        boolean silent = RECORDS.isEmpty();
+        Map<String, Object> on = AgentBridge.switchSensor(token, SideEffects.THREAD_LOCALS, true);
+        long request = request();
+        long scope = ThreadLocals.open();
+        TENANT.set(SECRET);
+        ThreadLocals.close(scope);
+        TENANT.remove();
+        endRequest();
+        drain();
+        long[] record = RECORDS.size() == 1 ? RECORDS.get(0) : null;
+        check(
+                "switched off at run time, the sensor scans nothing; switched on again, it reports a leak ("
+                        + off.get("status") + ", " + on.get("status") + ", " + describe() + ")",
+                "armed".equals(off.get("status"))
+                        && "armed".equals(on.get("status"))
+                        && closed == 0L
+                        && silent
+                        && scope != 0L
+                        && record != null
+                        && record[SideEffects.R_REQUEST] == request);
     }
 
     static void endRequest() {

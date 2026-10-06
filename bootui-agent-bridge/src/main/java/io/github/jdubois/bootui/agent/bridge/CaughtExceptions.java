@@ -217,7 +217,7 @@ public final class CaughtExceptions {
      * Throwable[] walk, long[] owner]}. JDK types, so the thread-local pins no class loader; the walk's references to
      * the application's throwables are cleared once each walk ends, so it never retains one.
      */
-    private static final ThreadLocal<Object[]> SCRATCH = new ThreadLocal<Object[]>();
+    static final ThreadLocal<Object[]> SCRATCH = new ThreadLocal<Object[]>();
 
     private static final int S_CHAIN = 0;
     private static final int S_WALK = 1;

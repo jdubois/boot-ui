@@ -200,7 +200,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Spring MVC request now ends when its async context completes, so work it handed over can be marked after response.
 - **Thread locals sensor in the BootUI agent.** The opt-in `thread-locals` sensor shows the thread locals a request or a
   job left set on its pooled thread, by the static field that holds them, never their values, in Side Effects'
-  **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-thread-locals-sensor), M5-5f).
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-locals-sensor), M5-5f).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their

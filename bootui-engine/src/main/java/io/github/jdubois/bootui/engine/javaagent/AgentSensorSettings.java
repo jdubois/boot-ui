@@ -136,7 +136,8 @@ public record AgentSensorSettings(
      * run time ({@code docs/PLAN-v2.md} M5-14). {@code caught-exceptions} (M5-6a), also off by default, is not switched at
      * run time: its visit of every application class is installed with the claim only.
      */
-    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY);
+    public static final List<String> OPT_IN_SENSORS =
+            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
 
     /**
      * Why {@code id}, one of {@link #OPT_IN_SENSORS}, is off by default, as the panels show it beside its switch; or
@@ -159,6 +160,9 @@ public record AgentSensorSettings(
             case THREAD_ACTIVITY ->
                 "Off by default: on a route that starts a thread per request, it added about 11.5 % to the agent's"
                         + " overhead, 16.6 % with the default sensors, over the 3 % and 10 % budgets.";
+            case THREAD_LOCALS ->
+                "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
+                        + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
             default -> null;
         };
     }

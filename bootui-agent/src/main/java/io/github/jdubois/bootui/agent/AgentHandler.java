@@ -221,8 +221,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     }
 
     /**
-     * A runtime switch of the current claim's sensors (PLAN-v2 M5-14): installs or removes the {@code threads} sensor, and
-     * reinstalls the side-effect sensors' transformer for their new mask, or removes it. Applied to the current claim's
+     * A runtime switch of the current claim's sensors (PLAN-v2 M5-14): installs or removes the {@code threads} sensor,
+     * reinstalls the side-effect sensors' transformer for their new mask, or removes it, and enables or disables the
+     * {@code thread-locals} scan, which transforms nothing. Applied to the current claim's
      * generation even once it is disarmed, so a sensor switched off just before the run ended is still removed; ignored
      * for another generation or after a later switch, since calls can arrive out of order.
      */
@@ -251,6 +252,13 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             threads().claimed(generation, packages);
         } else if (!wantsThreads && hadThreads && threads != null) {
             threads.release();
+        }
+        boolean hadThreadLocals = previous.contains(SideEffects.THREAD_LOCALS);
+        boolean wantsThreadLocals = next.contains(SideEffects.THREAD_LOCALS);
+        if (wantsThreadLocals && !hadThreadLocals) {
+            threadLocals().claimed();
+        } else if (!wantsThreadLocals && hadThreadLocals && threadLocals != null) {
+            threadLocals.release();
         }
         int before = sideEffectsMask(previous);
         int after = sideEffectsMask(next);
