@@ -85,6 +85,9 @@ public final class SideEffects {
     /** The blocking sensor's id ({@link Blocking}, M5-5c). */
     public static final String BLOCKING = "blocking";
 
+    /** The thread-activity sensor's id ({@link ThreadActivity}, M5-5e), opt-in until its overhead A/B passes. */
+    public static final String THREAD_ACTIVITY = "thread-activity";
+
     /** Sensor ids in records and bit positions in the mask: 0 is unused. */
     public static final int SENSOR_PROCESSES = 1;
 
@@ -92,14 +95,16 @@ public final class SideEffects {
     public static final int SENSOR_FILES = 3;
     public static final int SENSOR_ENVIRONMENT = 4;
     public static final int SENSOR_BLOCKING = 5;
+    public static final int SENSOR_THREADS = 6;
 
-    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING};
+    static final String[] SENSOR_NAMES = {"other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY};
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
     public static final int MASK_NETWORK = 1 << SENSOR_NETWORK;
     public static final int MASK_FILES = 1 << SENSOR_FILES;
     public static final int MASK_ENVIRONMENT = 1 << SENSOR_ENVIRONMENT;
     public static final int MASK_BLOCKING = 1 << SENSOR_BLOCKING;
+    public static final int MASK_THREADS = 1 << SENSOR_THREADS;
 
     /**
      * Set in {@link #mask} with {@link #MASK_BLOCKING} once an adapter registered an event loop for the current claim
@@ -145,6 +150,20 @@ public final class SideEffects {
     /** Not advised: a network or file operation another sensor's hook records, started on an event loop. */
     public static final int HOOK_ON_LOOP = 25;
 
+    /** The thread-activity sensor's hooks ({@link ThreadActivity}, M5-5e). */
+    public static final int HOOK_THREAD_START = 26;
+
+    public static final int HOOK_VIRTUAL_THREAD_START = 27;
+    public static final int HOOK_ADD_WORKER = 28;
+    public static final int HOOK_PER_TASK_START = 29;
+    public static final int HOOK_TPE_CREATED = 30;
+    public static final int HOOK_FJP_CREATED = 31;
+    public static final int HOOK_PER_TASK_CREATED = 32;
+    public static final int HOOK_TPE_SHUTDOWN = 33;
+    public static final int HOOK_TPE_SHUTDOWN_NOW = 34;
+    public static final int HOOK_FJP_SHUTDOWN = 35;
+    public static final int HOOK_PER_TASK_SHUTDOWN = 36;
+
     static final String[] HOOKS = {
         "ProcessBuilder.start",
         "Socket.connect",
@@ -171,7 +190,18 @@ public final class SideEffects {
         "LockSupport.park",
         "Thread.sleep call sites",
         "Object.wait call sites",
-        "network and file operations"
+        "network and file operations",
+        "Thread.start",
+        "VirtualThread.start",
+        "ThreadPoolExecutor.addWorker",
+        "ThreadPerTaskExecutor.start",
+        "ThreadPoolExecutor.<init>",
+        "ForkJoinPool.<init>",
+        "ThreadPerTaskExecutor.<init>",
+        "ThreadPoolExecutor.shutdown",
+        "ThreadPoolExecutor.shutdownNow",
+        "ForkJoinPool.shutdown",
+        "ThreadPerTaskExecutor.shutdown"
     };
     static final int[] HOOK_SENSORS = {
         SENSOR_PROCESSES,
@@ -199,7 +229,18 @@ public final class SideEffects {
         SENSOR_BLOCKING,
         SENSOR_BLOCKING,
         SENSOR_BLOCKING,
-        SENSOR_BLOCKING
+        SENSOR_BLOCKING,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS
     };
 
     /** Record kinds. */
@@ -243,6 +284,15 @@ public final class SideEffects {
     public static final int KIND_PARK = 18;
     public static final int KIND_BLOCKING_NETWORK = 19;
     public static final int KIND_BLOCKING_FILE = 20;
+
+    /** The thread-activity sensor's kinds ({@link ThreadActivity}). */
+    public static final int KIND_THREAD_START = 21;
+
+    public static final int KIND_THREAD_LEFT_RUNNING = 22;
+    public static final int KIND_EXECUTOR_CREATE = 23;
+    public static final int KIND_EXECUTOR_SHUTDOWN = 24;
+    public static final int KIND_EXECUTOR_LEFT_RUNNING = 25;
+    public static final int KIND_EXECUTOR_RECLAIMED = 26;
 
     /** Outcomes. */
     public static final int OUTCOME_STARTED = 1;
@@ -1007,7 +1057,7 @@ public final class SideEffects {
                 && ((java.nio.channels.SelectableChannel) channel).isBlocking();
     }
 
-    private static boolean recording(Claim claim, int bit) {
+    static boolean recording(Claim claim, int bit) {
         return claim != null && claim.armed && claim.generation == generation && (mask & bit) != 0;
     }
 
@@ -1028,7 +1078,7 @@ public final class SideEffects {
     }
 
     /** The calling thread's family, digit runs folded, interned once per thread name and generation. */
-    private static int threadFamilyId(CodePaths.Frame frame, long current) {
+    static int threadFamilyId(CodePaths.Frame frame, long current) {
         Thread thread = Thread.currentThread();
         String name = thread.getName();
         if (frame != null && frame.sideEffectThreadGeneration == current && name.equals(frame.sideEffectThreadName)) {
@@ -2091,8 +2141,17 @@ public final class SideEffects {
     }
 
     /** As {@link #owner(CodePaths.Frame, Claim, boolean)}, capturing an owner the slot does not name only when asked. */
-    private static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
-        Owner owner = new Owner();
+    static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
+        return owner(new Owner(), frame, claim, threadName, capture);
+    }
+
+    /** As {@link #owner(CodePaths.Frame, Claim, boolean, boolean)}, into {@code owner}, every field rewritten. */
+    static Owner owner(Owner owner, CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
+        owner.request = 0L;
+        owner.execution = 0L;
+        owner.executionKind = 0;
+        owner.threadName = 0;
+        owner.slot = false;
         Thread thread = Thread.currentThread();
         owner.threadKind = ThreadPropagation.isVirtual(thread) ? THREAD_VIRTUAL : THREAD_PLATFORM;
         owner.generation = claim.generation;
@@ -3070,7 +3129,7 @@ public final class SideEffects {
     }
 
     /** Publishes one occurrence at once, first seen at {@code firstMillis}. */
-    private static void publishOne(
+    static void publishOne(
             Owner owner,
             int sensor,
             int kind,
@@ -3525,6 +3584,8 @@ public final class SideEffects {
                 return 0;
             }
             try {
+                // On the drain thread: what requests left running, unowned starts counted, executors reclaimed.
+                ThreadActivity.sweep(claim);
                 return ring.drain(claim.generation, sink);
             } finally {
                 ring.draining.set(false);
@@ -3671,7 +3732,12 @@ public final class SideEffects {
 
     /** The agent disables the sensors of {@code bits}: their self-test failed, or their transformer was removed. */
     public static void disable(int bits, String reason) {
+        boolean threadsLeave = (bits & enabled & MASK_THREADS) != 0;
         enabled &= ~bits;
+        if (threadsLeave) {
+            // Only when thread-activity itself stops: another sensor's reinstall keeps its pending checks.
+            ThreadActivity.disabled();
+        }
         if ((bits & MASK_NETWORK) != 0) {
             // Never kept past the sensor's life: the channels still waiting and the datagram frames remembered.
             Network network = NETWORK_STATE.get();
@@ -3804,6 +3870,8 @@ public final class SideEffects {
             status(ENVIRONMENT);
             Blocking.warm();
             status(BLOCKING);
+            ThreadActivity.warm();
+            status(THREAD_ACTIVITY);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -3945,6 +4013,9 @@ public final class SideEffects {
             if (sensor == SENSOR_BLOCKING) {
                 Blocking.putStatus(map, generation);
             }
+            if (sensor == SENSOR_THREADS) {
+                ThreadActivity.putStatus(map);
+            }
             if (sensor == SENSOR_ENVIRONMENT) {
                 map.put("jdkReads", Long.valueOf(JDK_READS.sum()));
                 map.put("frameworkReads", Long.valueOf(FRAMEWORK_READS.sum()));
@@ -4046,6 +4117,7 @@ public final class SideEffects {
         enabled = 0;
         generation = -1L;
         Blocking.reset();
+        ThreadActivity.reset();
         off = false;
         offReason = null;
         selfTestThread = null;
@@ -4059,6 +4131,7 @@ public final class SideEffects {
             frame.sideEffectThreadName = null;
             frame.sideEffectThreadGeneration = -1L;
             frame.environmentSeen = null;
+            frame.poolStarts = 0;
         }
     }
 

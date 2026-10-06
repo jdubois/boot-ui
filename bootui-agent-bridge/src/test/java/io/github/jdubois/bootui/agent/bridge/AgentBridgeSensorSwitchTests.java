@@ -114,6 +114,7 @@ class AgentBridgeSensorSwitchTests {
         assertThat(AgentBridge.switchable("threads")).isTrue();
         assertThat(AgentBridge.switchable("files")).isTrue();
         assertThat(AgentBridge.switchable("environment")).isTrue();
+        assertThat(AgentBridge.switchable("thread-activity")).isTrue();
         assertThat(claimNow().get("sensorOverrides")).isEqualTo(Map.of());
     }
 

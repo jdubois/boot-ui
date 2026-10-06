@@ -664,6 +664,13 @@ public final class JavaAgentService {
             state = reported == null || "released".equals(reported) ? "installing" : reported;
         }
         String unavailable = access.sensorSwitchSupported() ? null : switchUnsupportedReason();
+        if (unavailable == null
+                && AgentSensorSettings.THREAD_ACTIVITY.equals(id)
+                && !access.threadActivitySupported()) {
+            unavailable =
+                    "The attached BootUI agent predates the thread-activity sensor: attach the bootui-agent jar of"
+                            + " BootUI " + settings.bootUiVersion() + ".";
+        }
         if (unavailable == null && !enabled && AgentSensorSettings.THREADS.equals(id) && threadsFailedThisRun(ours)) {
             unavailable = "The threads sensor failed in this run: it stays off until the application restarts.";
         }

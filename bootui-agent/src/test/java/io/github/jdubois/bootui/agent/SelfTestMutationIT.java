@@ -237,6 +237,55 @@ class SelfTestMutationIT {
         return run(omitted, "executors,threads");
     }
 
+    /** M5-5e: a core thread-activity hook that fails takes the thread-activity sensor down alone. */
+    @Test
+    void aMissingCoreThreadActivityHookFailsThatSensorAloneAndProcessesKeepsRecording() throws Exception {
+        ChildJvm.Output output = run("ThreadPoolExecutor.<init>", "processes,thread-activity");
+
+        assertThat(selfTest(output, "ThreadPoolExecutor.<init>"))
+                .as(output.toString())
+                .isEqualTo("failed");
+        assertThat(output.value("SENSOR_thread-activity"))
+                .as(output.toString())
+                .contains("state=self-test-failed")
+                .contains("selfTestPassed=false")
+                .contains("self-test failed for [ThreadPoolExecutor.<init>]");
+        assertThat(output.value("SENSOR_processes"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true");
+    }
+
+    /**
+     * M5-5e: an optional thread-activity hook that fails is left out, and the sensor keeps recording with the others;
+     * from JDK 21, leaving {@code ThreadPerTaskExecutor.start} out leaves {@code VirtualThread.start} out too, or every
+     * task of a virtual-thread-per-task executor would read as a thread of its own.
+     */
+    @Test
+    void aMissingOptionalThreadActivityHookIsLeftOutAndTheSensorKeepsRecording() throws Exception {
+        ChildJvm.Output output = run("ForkJoinPool.shutdown", "thread-activity");
+
+        assertThat(selfTest(output, "ForkJoinPool.shutdown"))
+                .as(output.toString())
+                .isEqualTo("failed");
+        assertThat(selfTest(output, "ThreadPoolExecutor.shutdown"))
+                .as(output.toString())
+                .isEqualTo("passed");
+        assertThat(output.value("SENSOR_thread-activity"))
+                .as(output.toString())
+                .contains("state=installed")
+                .contains("selfTestPassed=true")
+                .contains("hooksLeftOut=[ForkJoinPool.shutdown]");
+        if (Runtime.version().feature() >= 21) {
+            ChildJvm.Output perTask = run("ThreadPerTaskExecutor.start", "thread-activity");
+            assertThat(perTask.value("SENSOR_thread-activity"))
+                    .as(perTask.toString())
+                    .contains("state=installed")
+                    .contains("selfTestPassed=true")
+                    .contains("hooksLeftOut=[VirtualThread.start, ThreadPerTaskExecutor.start]");
+        }
+    }
+
     private static ChildJvm.Output run(String omitted, String sensors) throws Exception {
         ChildJvm.Output output = ChildJvm.run(
                 List.of(ChildJvm.javaAgent(ChildJvm.TEST_AGENT), "-Dbootui.agent.it.omit=" + omitted),

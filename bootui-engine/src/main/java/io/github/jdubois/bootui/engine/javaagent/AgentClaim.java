@@ -422,6 +422,14 @@ public final class AgentClaim {
         }
     }
 
+    /** Request {@code request} of this claim ended: the thread-activity sensor checks what it left running (M5-5e). */
+    public void threadActivityRequestEnded(long request) {
+        Long current = generation;
+        if (current != null && !ended.get()) {
+            access.threadActivityRequestEnded(current, request);
+        }
+    }
+
     /**
      * The strings this claim's side-effect records refer to, from id {@code from}, or {@code null} when the bridge's
      * table belongs to another claim generation.

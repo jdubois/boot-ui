@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  (`threads`, `files`, `environment`, `thread-activity`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -793,9 +793,12 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
-  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d) when opted in. The `thread-activity`,
-  `thread-locals`, `resources`, and `security-sinks` sensors are still listed but report `not-available`
-  with reason `Not available in this version.`
+  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d) and `thread-activity` (M5-5e)
+  when opted in. The `thread-locals`, `resources`, and `security-sinks` sensors are still listed but report
+  `not-available` with reason `Not available in this version.`
+- Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
+  context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
+  `thread-activity` sensor to check what the request left running.
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
 - The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
@@ -914,9 +917,19 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
+- The opt-in `thread-activity` sensor (M5-5e) records `Thread.start`, `VirtualThread.start`, the `ThreadPoolExecutor`,
+  `ForkJoinPool`, and thread-per-task executors' creations and shutdowns, a pool's own workers being its executor's
+  row. The **Threads and leaks** tab shows rows by attribution, kind (`thread`, `virtual thread`, `executor`), target
+  (the started thread's family or the executor's class), call site, and origin (`application`, `library`, `jdk`, the
+  last two grouped apart), with how many were started per request, how many a request's application code left running
+  when its response completed (checked 250 ms after it, once), and executors shut down or reclaimed without a
+  shutdown. With the agent and `thread-activity` opted in, the three samples' `GET /api/thread-activity/left-running`
+  shows a `report-refresher-{n}` thread left running and `GET /api/thread-activity/own-pool` an executor left running;
+  the counterexamples `GET /api/thread-activity/joined` (a thread joined before the response) and
+  `GET /api/thread-activity/closed-pool` (an executor shut down in `finally`) are never left running, and neither is a
+  library's or the server's own pool.
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`,
-  `files`, and `environment` remain opt-in.
+  `threads`, `files`, `environment`, and `thread-activity` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

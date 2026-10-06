@@ -81,6 +81,58 @@ test.describe('Side Effects view', () => {
     await expect(page.locator('.side-effects-state')).toHaveText('Not applicable')
     await expect(page.locator('.side-effects-state-note')).toContainText('no event loop to block')
   })
+
+  test('shows the threads and executors a request left running, never those it joined or shut down', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the thread-activity sensor needs the BootUI agent')
+    // The thread-activity seeds (M5-5e): a thread a request leaves running and an executor it never shuts down, with a
+    // thread joined and an executor shut down in finally as counterexamples, and the server's own pools never the
+    // application's.
+    for (const path of ['left-running', 'joined', 'own-pool', 'closed-pool']) {
+      expect((await page.request.get(`/api/thread-activity/${path}`)).ok()).toBeTruthy()
+    }
+    const rows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=thread-activity&limit=500')).json())
+        .rows ?? []
+    const find = (list, path, kind) =>
+      list.find(
+        (candidate) =>
+          candidate.attribution === `GET /api/thread-activity/${path}` &&
+          candidate.kind === kind &&
+          candidate.origin === 'application'
+      )
+    await expect
+      .poll(async () => find(await rows(), 'left-running', 'thread')?.leftRunning ?? 0, {timeout: 30_000})
+      .toBeGreaterThan(0)
+    await expect
+      .poll(async () => find(await rows(), 'own-pool', 'executor')?.leftRunning ?? 0, {timeout: 30_000})
+      .toBeGreaterThan(0)
+    await expect
+      .poll(async () => find(await rows(), 'closed-pool', 'executor')?.completed ?? 0, {timeout: 30_000})
+      .toBeGreaterThan(0)
+    const all = await rows()
+    const left = find(all, 'left-running', 'thread')
+    expect(left.target).toBe('report-refresher-{n}')
+    expect(left.callSite).toMatch(/BackgroundWork#startRefresher$/)
+    expect(left.requests).toBeGreaterThan(0)
+    expect(find(all, 'own-pool', 'executor').target).toBe('java.util.concurrent.ThreadPoolExecutor')
+    const joined = find(all, 'joined', 'thread')
+    expect(joined).toBeTruthy()
+    expect(joined.leftRunning).toBe(0)
+    expect(find(all, 'closed-pool', 'executor').leftRunning).toBe(0)
+    for (const candidate of all) {
+      if (candidate.origin !== 'application') expect(candidate.leftRunning).toBe(0)
+    }
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Threads and leaks/}).click()
+    const row = page.locator('.side-effects-table tbody tr').filter({hasText: 'report-refresher-{n}'})
+    await expect(row.first()).toContainText('BackgroundWork#startRefresher')
+    await expect(row.first().locator('.side-effects-left-running')).toBeVisible()
+  })
 })
 
 /**

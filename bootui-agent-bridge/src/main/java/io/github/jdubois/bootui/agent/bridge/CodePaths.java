@@ -1229,6 +1229,17 @@ public final class CodePaths {
         int sideEffectPort;
         int sideEffectTarget;
         long sideEffectTargetGeneration = -1L;
+
+        /**
+         * The executors starting their own threads on this thread ({@code ThreadActivity.poolStarting}), nested: the
+         * thread-activity sensor never records a thread started meanwhile, which is the executor's.
+         */
+        int poolStarts;
+
+        /** The thread-activity sensor's owner and sighting probe, reused by its hooks on this thread. */
+        SideEffects.Owner threadOwner;
+
+        ThreadActivity.Key threadProbe;
     }
 
     /**
