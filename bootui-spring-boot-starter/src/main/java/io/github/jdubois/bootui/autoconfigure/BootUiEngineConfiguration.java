@@ -625,6 +625,10 @@ public class BootUiEngineConfiguration {
         service.setServerEventLoops(() -> nettyServer(applicationContext));
         // Each request's end, as both web stacks mark it, so the thread-activity sensor checks what it left running.
         service.listenToRequestEnds(requestPhases.getIfAvailable());
+        if (journalAggregates != null) {
+            // The run's side-effect keys go into its summary, for the next run's comparison (M5-7b).
+            journalAggregates.setRunSideEffects(service::runSideEffects);
+        }
         return service;
     }
 

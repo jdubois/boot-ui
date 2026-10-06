@@ -411,6 +411,10 @@ public class BootUiEngineProducer {
         // Each request's end, as the capture filter marks it, so the thread-activity sensor checks what it left
         // running.
         service.listenToRequestEnds(requestPhases);
+        if (journalAggregates != null) {
+            // The run's side-effect keys go into its summary, for the next start's comparison (M5-7b).
+            journalAggregates.setRunSideEffects(service::runSideEffects);
+        }
         return service;
     }
 

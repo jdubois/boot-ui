@@ -42,6 +42,52 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void verificationNamesAMethodProbeAsTheNextStepWhenTheEditedMethodStillDidNotRun(String framework) {
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("verify_after_change"))
+                .singleElement()
+                .satisfies(prompt -> {
+                    String text = prompt.text();
+                    assertThat(text)
+                            .contains(
+                                    "the next step is a method probe",
+                                    "separate approval",
+                                    "get_method_probe",
+                                    "no invocations is evidence that path never reaches the method");
+                    assertThat(text.indexOf("if it still did not run"))
+                            .isGreaterThanOrEqualTo(0)
+                            .isLessThan(text.indexOf("start_method_probe"));
+                    assertThat(text.indexOf("start_method_probe")).isLessThan(text.indexOf("get_method_probe"));
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void instructionsCheckTheAgentFirstAndNeverReadAnAgentGatedNotApplicableAsHealthy(String framework) {
+        String instructions = McpGuidance.instructions(framework);
+        assertThat(instructions)
+                .contains(
+                        "call get_agent_status once",
+                        "NOT_APPLICABLE because it requires the BootUI agent means not measured, never healthy");
+        assertThat(instructions.indexOf("get_agent_status")).isLessThan(instructions.indexOf("get_code_inventory"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void diagnosisWordsReachAndVerbatimMatchesAsChecksNotVerdicts(String framework) {
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains(
+                                "loaded or reached",
+                                "appeared verbatim",
+                                "check to perform, never as a vulnerability verdict",
+                                "verify against source"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void diagnosisNamesTheHandlersMethodsOfASlowRouteThroughCodePaths(String framework) {
         assertThat(McpGuidance.prompts(framework))
                 .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))

@@ -87,6 +87,8 @@ html[data-bootui-theme='cyberpunk'] {
   --bootui-surface: rgba(16, 19, 38, 0.88);
   --bootui-surface-alt: #080d19;
   --bootui-surface-solid: #101326;
+  --bootui-tab-active-shadow: 0 0.45rem 1.1rem rgba(255, 45, 247, 0.32), 0 0.2rem 0.9rem rgba(0, 229, 255, 0.26);
+  --bootui-tab-tray-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.06);
   --bootui-text: #f4f7ff;
   --bootui-text-muted: #c9d8ea;
   --bootui-text-subtle: #b7c7df;
@@ -569,6 +571,14 @@ html[data-bootui-theme='cyberpunk'] .bootui-code-pane {
     0 0 1.6rem rgba(57, 255, 136, 0.16);
   color: var(--bootui-code-pane-text);
   text-shadow: 0 0 0.6rem rgba(57, 255, 136, 0.45);
+}
+
+/* -------------------------------------------------------------------- tabs */
+
+/* Tabs take the nav's neon fill when selected; an unselected tab answers the
+   pointer with a cyan scanline along its base instead of a soft tint. */
+html[data-bootui-theme='cyberpunk'] .bootui-tabs__tab:not(.active):not(:disabled):hover {
+  box-shadow: inset 0 -2px 0 var(--cyber-cyan);
 }
 
 /* ---------------------------------------------------------------- controls */

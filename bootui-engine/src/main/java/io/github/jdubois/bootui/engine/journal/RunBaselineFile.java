@@ -17,8 +17,10 @@ import java.util.Objects;
  * The opt-in baseline file ({@code docs/PLAN-v2.md} §5.8, D9): one run summary written at the end of a run, read back at
  * the next start as the previous run when the JVM's run history keeps none, so a comparison survives a full JVM
  * restart. It holds the encoded {@link RunSummary} only, which carries route templates, statement fingerprints, call
- * sites, exception-group ids and signatures, thread families, observed edges, counts, and histograms, and never
- * principals, literals, SQL text, or values.
+ * sites, exception-group ids and signatures, thread families, observed edges, counts, and histograms, and, with the
+ * BootUI agent, the run's side-effect keys (M5-7b, D45): hosts and ports, masked path patterns, process file names, and
+ * variable names, each with its route, execution, or startup; never principals, literals, SQL text, values, arguments,
+ * or file contents.
  *
  * <p>It is written atomically, through a temporary file in the same directory, and only into a directory that exists,
  * such as the build output directory ({@code target/} or {@code build/}): a mistyped path creates nothing. It is read
@@ -32,7 +34,8 @@ public final class RunBaselineFile {
 
     private static final int MAGIC = 0x42554246;
 
-    private static final int FORMAT = 1;
+    /** Format 2 carries side-effect keys (M5-7b): a format 1 file is ignored with its reason, never misread. */
+    static final int FORMAT = 2;
 
     private final Path path;
     private final String application;
@@ -117,8 +120,13 @@ public final class RunBaselineFile {
             return ignored("it cannot be read: " + ex.getClass().getSimpleName());
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
-            if (in.readInt() != MAGIC || in.readUnsignedByte() != FORMAT) {
-                return ignored("it is not a BootUI baseline file of this format");
+            if (in.readInt() != MAGIC) {
+                return ignored("it is not a BootUI baseline file");
+            }
+            int format = in.readUnsignedByte();
+            if (format != FORMAT) {
+                return ignored("it was written in baseline format " + format + ", and this BootUI reads format "
+                        + FORMAT + (format < FORMAT ? ", which adds side effects" : ""));
             }
             String writtenBy = in.readUTF();
             String writtenFor = in.readUTF();

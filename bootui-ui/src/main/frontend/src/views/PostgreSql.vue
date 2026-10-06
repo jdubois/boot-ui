@@ -6,6 +6,7 @@ import {formatBytes, formatClockTime, formatNumber, formatRelative} from '../uti
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
@@ -256,27 +257,6 @@ function isActiveSection(database, candidate) {
 
 function selectSection(database, id) {
   activeSections.value = {...activeSections.value, [database.name]: id}
-}
-
-function handleTabKeydown(event, database, index) {
-  const sections = tabSections(database)
-  let nextIndex
-  if (event.key === 'ArrowRight') {
-    nextIndex = (index + 1) % sections.length
-  } else if (event.key === 'ArrowLeft') {
-    nextIndex = (index - 1 + sections.length) % sections.length
-  } else if (event.key === 'Home') {
-    nextIndex = 0
-  } else if (event.key === 'End') {
-    nextIndex = sections.length - 1
-  } else {
-    return
-  }
-  event.preventDefault()
-  selectSection(database, sections[nextIndex].id)
-  // Each datasource renders its own tablist, so the next button is taken from the list the event
-  // came from rather than from a shared ref array.
-  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[nextIndex]?.focus()
 }
 
 function sessionBusy(session) {
@@ -537,44 +517,32 @@ onMounted(async () => {
           </div>
 
           <div v-if="tabSections(database).length > 0" class="card-body pb-0">
-            <ul class="postgres-tabs" role="tablist" :aria-label="`${database.name} sections`">
-              <li
-                v-for="(part, partIndex) in tabSections(database)"
-                :key="part.id"
-                class="postgres-tabs__item"
-                role="presentation"
-              >
-                <button
-                  :id="`postgresql-${databaseIndex}-tab-${part.id}`"
-                  type="button"
-                  class="postgres-tabs__button"
-                  :class="{active: isActiveSection(database, part)}"
-                  role="tab"
-                  :aria-selected="isActiveSection(database, part)"
-                  :aria-controls="`postgresql-${databaseIndex}-panel-${part.id}`"
-                  :tabindex="isActiveSection(database, part) ? 0 : -1"
-                  @click="selectSection(database, part.id)"
-                  @keydown="handleTabKeydown($event, database, partIndex)"
+            <PanelTabs
+              :tabs="tabSections(database)"
+              :selected="activeSection(database)?.id"
+              :id-prefix="`postgresql-${databaseIndex}`"
+              :label="`${database.name} sections`"
+              @select="selectSection(database, $event)"
+            >
+              <template #tab="{tab: part}">
+                <span>{{ part.title }}</span>
+                <span
+                  v-if="sectionReadable(part)"
+                  class="bootui-tabs__count"
+                  :class="{'postgres-tab-count--partial': sectionPartial(part)}"
+                  >{{ formatNumber(part.rowCount) }}</span
                 >
-                  <span>{{ part.title }}</span>
-                  <span
-                    v-if="sectionReadable(part)"
-                    class="postgres-tabs__count"
-                    :class="{'postgres-tabs__count--partial': sectionPartial(part)}"
-                    >{{ formatNumber(part.rowCount) }}</span
-                  >
-                  <i
-                    v-else
-                    class="bi"
-                    :class="part.status === 'FAILED' ? 'bi-exclamation-octagon' : 'bi-slash-circle'"
-                    aria-hidden="true"
-                  ></i>
-                  <span v-if="!sectionReadable(part)" class="visually-hidden">{{
-                    part.status === 'FAILED' ? 'failed' : 'skipped'
-                  }}</span>
-                </button>
-              </li>
-            </ul>
+                <i
+                  v-else
+                  class="bi"
+                  :class="part.status === 'FAILED' ? 'bi-exclamation-octagon' : 'bi-slash-circle'"
+                  aria-hidden="true"
+                ></i>
+                <span v-if="!sectionReadable(part)" class="visually-hidden">{{
+                  part.status === 'FAILED' ? 'failed' : 'skipped'
+                }}</span>
+              </template>
+            </PanelTabs>
           </div>
 
           <template v-for="part in tabSections(database)" :key="part.id">
@@ -933,101 +901,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.postgres-tabs {
-  align-items: center;
-  background: var(--bootui-surface-alt);
-  border: 1px solid var(--bootui-border);
-  border-radius: var(--bootui-radius-md);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
-  display: flex;
-  /* Eight sections with descriptive titles do not fit one row on a laptop, and a horizontally
-     scrolled strip would hide the very sections the tabs exist to expose. */
-  flex-wrap: wrap;
-  gap: 0.2rem;
-  list-style: none;
-  margin-bottom: 0;
-  max-width: 100%;
-  padding: 0.22rem;
-  width: 100%;
-}
-
-.postgres-tabs__item {
-  flex: 0 0 auto;
-}
-
-.postgres-tabs__button {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: var(--bootui-radius-sm);
-  color: var(--bootui-text-muted);
-  display: inline-flex;
-  font-size: 0.875rem;
-  font-weight: 700;
-  gap: 0.45rem;
-  justify-content: center;
-  min-height: 2.25rem;
-  padding: 0.4rem 0.75rem;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.postgres-tabs__button:hover:not(.active) {
-  background: var(--bootui-nav-hover-bg);
-  color: var(--bootui-nav-hover-color);
-}
-
-.postgres-tabs__button.active {
-  background: var(--bootui-nav-active-bg);
-  box-shadow: 0 0.35rem 0.8rem rgba(25, 135, 84, 0.2);
-  color: var(--bootui-nav-active-color);
-}
-
-.postgres-tabs__button:focus-visible {
-  outline: 2px solid var(--bootui-blue);
-  outline-offset: 2px;
-}
-
-.postgres-tabs__count {
-  align-items: center;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  border-radius: var(--bootui-radius-pill);
-  display: inline-flex;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  height: 1.4rem;
-  justify-content: center;
-  min-width: 1.4rem;
-  padding: 0 0.3rem;
-}
-
 /* A partly read section keeps its row count, so the count itself has to say that the rows it
    carries are not all of them. */
-.postgres-tabs__count--partial {
-  background: var(--bs-warning-bg-subtle);
+.postgres-tab-count--partial {
+  --bootui-tab-count-bg: var(--bs-warning-bg-subtle);
   color: var(--bs-warning-text-emphasis);
-}
-
-.postgres-tabs__button.active .postgres-tabs__count {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-@media (max-width: 575.98px) {
-  .postgres-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .postgres-tabs__button {
-    width: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .postgres-tabs__button {
-    transition: none;
-  }
 }
 </style>

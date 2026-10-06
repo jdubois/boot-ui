@@ -79,7 +79,7 @@ describe('Conditions', () => {
     const wrapper = mount(Conditions)
     await flushPromises()
 
-    await wrapper.findAll('button.nav-link')[1].trigger('click')
+    await wrapper.findAll('button[role="tab"]')[1].trigger('click')
     await flushPromises() // flush Vue watcher so the debounce timer is set
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
@@ -109,7 +109,7 @@ describe('Conditions', () => {
     expect(capturedSignal?.aborted).toBe(false)
 
     // Changing the tab calls scheduleReload via a Vue watcher.
-    await wrapper.findAll('button.nav-link')[1].trigger('click')
+    await wrapper.findAll('button[role="tab"]')[1].trigger('click')
     await flushPromises() // flush Vue watcher so scheduleReload() runs
     expect(capturedSignal?.aborted).toBe(true)
 
@@ -132,7 +132,7 @@ describe('Conditions', () => {
     await flushPromises()
     expect(wrapper.findComponent({name: 'ServerListFooter'}).exists()).toBe(true)
 
-    await wrapper.findAll('button.nav-link')[1].trigger('click')
+    await wrapper.findAll('button[role="tab"]')[1].trigger('click')
     await flushPromises()
 
     expect(wrapper.findComponent({name: 'ServerListFooter'}).exists()).toBe(false)
@@ -155,7 +155,7 @@ describe('Conditions', () => {
     vi.stubGlobal('fetch', staleFetch)
     const wrapper = mount(Conditions)
 
-    await wrapper.findAll('button.nav-link')[1].trigger('click')
+    await wrapper.findAll('button[role="tab"]')[1].trigger('click')
     await flushPromises()
     vi.stubGlobal(
       'fetch',
@@ -229,7 +229,7 @@ describe('Conditions', () => {
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(Conditions)
 
-    await wrapper.findAll('button.nav-link')[1].trigger('click')
+    await wrapper.findAll('button[role="tab"]')[1].trigger('click')
     await flushPromises()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(null, false, 500)))
     await vi.advanceTimersByTimeAsync(250)
@@ -264,7 +264,7 @@ describe('Conditions', () => {
     expect(appendSignal?.aborted).toBe(false)
 
     // A tab change causes scheduleReload which aborts the append.
-    await wrapper.findAll('button.nav-link')[1].trigger('click')
+    await wrapper.findAll('button[role="tab"]')[1].trigger('click')
     await flushPromises() // flush Vue watcher so scheduleReload() runs
     expect(appendSignal?.aborted).toBe(true)
 
@@ -361,13 +361,33 @@ describe('Conditions', () => {
     const wrapper = mount(Conditions)
     await flushPromises()
 
-    const tabs = wrapper.findAll('button.nav-link')
+    const tabs = wrapper.findAll('button[role="tab"]')
 
     expect(tabs).toHaveLength(2)
-    expect(wrapper.findAll('a.nav-link')).toHaveLength(0)
+    expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
     expect(tabs[0].attributes('role')).toBe('tab')
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     expect(tabs[1].attributes('aria-selected')).toBe('false')
+  })
+
+  it('moves between outcome tabs with the arrow keys and labels the panel by its tab', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(conditionsResponse())))
+
+    const wrapper = mount(Conditions, {attachTo: document.body})
+    await flushPromises()
+
+    expect(wrapper.get('[role="tablist"]').attributes('aria-label')).toBe('Condition outcomes')
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.attributes('tabindex'))).toEqual(['0', '-1'])
+    await wrapper.get('#conditions-tab-positive').trigger('keydown', {key: 'ArrowRight'})
+    await flushPromises()
+
+    expect(wrapper.get('#conditions-tab-negative').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(wrapper.get('#conditions-tab-negative').element)
+    expect(wrapper.get('[role="tabpanel"]').attributes()).toMatchObject({
+      id: 'conditions-panel-negative',
+      'aria-labelledby': 'conditions-tab-negative'
+    })
+    wrapper.unmount()
   })
 
   it('renders auto-configuration classes and conditions in the monospace stack', async () => {

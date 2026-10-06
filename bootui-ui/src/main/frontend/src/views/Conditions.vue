@@ -4,6 +4,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {describeLoadError, isAbortError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 
@@ -26,6 +27,10 @@ const counts = computed(() => data.value?.counts || {})
 const matchedCount = computed(() =>
   tab.value === 'positive' ? counts.value.positiveMatched || 0 : counts.value.negativeMatched || 0
 )
+const conditionTabs = computed(() => [
+  {id: 'positive', label: `Positive (${counts.value.positiveMatched || 0})`},
+  {id: 'negative', label: `Negative (${counts.value.negativeMatched || 0})`}
+])
 const totalCount = computed(() =>
   tab.value === 'positive' ? counts.value.positiveTotal || 0 : counts.value.negativeTotal || 0
 )
@@ -167,67 +172,51 @@ onBeforeUnmount(() => {
       :loading="loading"
       @refresh="load"
     />
-    <ul class="nav nav-tabs mb-3" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button
-          :aria-selected="tab === 'positive'"
-          :class="{active: tab === 'positive'}"
-          class="nav-link"
-          role="tab"
-          type="button"
-          @click="tab = 'positive'"
-        >
-          Positive ({{ counts.positiveMatched || 0 }})
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          :aria-selected="tab === 'negative'"
-          :class="{active: tab === 'negative'}"
-          class="nav-link"
-          role="tab"
-          type="button"
-          @click="tab = 'negative'"
-        >
-          Negative ({{ counts.negativeMatched || 0 }})
-        </button>
-      </li>
-    </ul>
-    <input v-model="filter" aria-label="Filter conditions" class="form-control mb-3" placeholder="Filter…" />
-    <PanelSkeleton v-if="loading && !hasLoaded" :rows="6" />
-    <template v-else>
-      <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} {{ tab }} entries matched</p>
-      <div v-for="e in entries" :key="e.autoConfigurationClass + e.condition + e.message" class="mb-2">
-        <div class="d-flex gap-2">
-          <span
-            :class="tab === 'positive' ? 'bg-success' : 'bg-secondary'"
-            class="badge align-self-start flex-shrink-0"
-            >{{ e.outcome }}</span
-          >
-          <div class="min-w-0">
-            <code class="fw-semibold bootui-break-anywhere">{{ e.autoConfigurationClass }}</code>
-            <div class="small text-muted font-monospace bootui-break-anywhere">{{ e.condition }}</div>
-            <div class="small bootui-break-anywhere">{{ e.message }}</div>
+    <PanelTabs
+      class="mb-3"
+      :tabs="conditionTabs"
+      :selected="tab"
+      id-prefix="conditions"
+      label="Condition outcomes"
+      @select="tab = $event"
+    />
+    <div :id="`conditions-panel-${tab}`" :aria-labelledby="`conditions-tab-${tab}`" role="tabpanel">
+      <input v-model="filter" aria-label="Filter conditions" class="form-control mb-3" placeholder="Filter…" />
+      <PanelSkeleton v-if="loading && !hasLoaded" :rows="6" />
+      <template v-else>
+        <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} {{ tab }} entries matched</p>
+        <div v-for="e in entries" :key="e.autoConfigurationClass + e.condition + e.message" class="mb-2">
+          <div class="d-flex gap-2">
+            <span
+              :class="tab === 'positive' ? 'bg-success' : 'bg-secondary'"
+              class="badge align-self-start flex-shrink-0"
+              >{{ e.outcome }}</span
+            >
+            <div class="min-w-0">
+              <code class="fw-semibold bootui-break-anywhere">{{ e.autoConfigurationClass }}</code>
+              <div class="small text-muted font-monospace bootui-break-anywhere">{{ e.condition }}</div>
+              <div class="small bootui-break-anywhere">{{ e.message }}</div>
+            </div>
           </div>
         </div>
-      </div>
-      <div v-if="matchedCount === 0 && totalCount === 0" class="text-muted py-3">
-        No {{ tab }} condition entries were reported.
-      </div>
-      <div v-else-if="!loading && matchedCount === 0" class="text-muted py-3">
-        No {{ tab }} entries match your filter.
-      </div>
-    </template>
-    <ServerListFooter
-      v-if="!loading"
-      :loading="loadingMore"
-      :matched="matchedCount"
-      :page-size="SERVER_PAGE_SIZE"
-      :shown="shownCount"
-      :total="totalCount"
-      item-label="condition entries"
-      @load-more="loadMore"
-    />
+        <div v-if="matchedCount === 0 && totalCount === 0" class="text-muted py-3">
+          No {{ tab }} condition entries were reported.
+        </div>
+        <div v-else-if="!loading && matchedCount === 0" class="text-muted py-3">
+          No {{ tab }} entries match your filter.
+        </div>
+      </template>
+      <ServerListFooter
+        v-if="!loading"
+        :loading="loadingMore"
+        :matched="matchedCount"
+        :page-size="SERVER_PAGE_SIZE"
+        :shown="shownCount"
+        :total="totalCount"
+        item-label="condition entries"
+        @load-more="loadMore"
+      />
+    </div>
   </div>
 </template>
 

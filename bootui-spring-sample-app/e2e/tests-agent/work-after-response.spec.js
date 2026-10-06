@@ -13,23 +13,25 @@ test.describe('Work after the response', () => {
     expect((await page.request.get(SEED)).ok()).toBeTruthy()
     expect((await page.request.get(`${SEED}/waits`)).ok()).toBeTruthy()
 
+    // This test's own seed request, the newest, once its handoff ended: other specs (the Runtime Insights demo) may
+    // have run the seed earlier in the same sample, so a finished AFTER_RESPONSE entry alone proves nothing here.
+    let journal = null
     await expect
       .poll(
         async () => {
-          const feed = await (await page.request.get('/bootui/api/activity?source=journal&type=ASYNC&limit=50')).json()
-          // Its handoff once it ended: while it runs, the feed shows it as a RUNNING entry.
-          return feed.entries.some(
-            (entry) => (entry.badges ?? []).includes('AFTER_RESPONSE') && !(entry.badges ?? []).includes('RUNNING')
-          )
+          const requests = await (
+            await page.request.get('/bootui/api/activity?source=journal&type=REQUEST&limit=200')
+          ).json()
+          const seed = requests.entries.find((entry) => entry.path === SEED)
+          if (!seed) return 0
+          journal = await (await page.request.get(`/bootui/api/activity/request/${seed.id}/journal`)).json()
+          journal.requestId = seed.id
+          return journal.handoffs?.length ?? 0
         },
         {timeout: 15_000}
       )
-      .toBe(true)
-
-    const requests = await (await page.request.get('/bootui/api/activity?source=journal&type=REQUEST&limit=200')).json()
-    const seed = requests.entries.find((entry) => entry.path === SEED)
-    const journal = await (await page.request.get(`/bootui/api/activity/request/${seed.id}/journal`)).json()
-    expect(journal.handoffs).toHaveLength(1)
+      .toBe(1)
+    const seed = {id: journal.requestId}
     expect(journal.handoffs[0]).toMatchObject({afterResponse: true, sqlCount: 1, failed: false})
     const profile = await (await page.request.get(`/bootui/api/activity/request/${seed.id}`)).json()
     expect(profile.correlationTiers.find((tier) => tier.tier === 'PROPAGATED')).toMatchObject({available: true})

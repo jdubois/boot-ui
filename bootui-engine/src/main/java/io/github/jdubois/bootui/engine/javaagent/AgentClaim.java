@@ -71,6 +71,7 @@ public final class AgentClaim {
     private volatile AgentHandoffs handoffs;
     private final Set<String> beanClasses = ConcurrentHashMap.newKeySet();
     private AgentRecordDrainer drainer;
+    private volatile Map<String, SideEffectsSample> armedSamples = Map.of();
 
     private AgentClaim(
             AgentBridgeAccess access,
@@ -159,6 +160,16 @@ public final class AgentClaim {
         claim.generation = AgentBridgeAccess.number(answer, "generation");
         if (ARMED.equals(answer.get("status")) && answer.get("token") instanceof Long granted) {
             claim.token = granted;
+            if (claim.sensors.sideEffects()) {
+                // Whether each claimed sensor already recorded when this run began: on a JVM's first claim the agent
+                // installs the hooks in the background, so the run's early startup may go unrecorded (M5-7b).
+                Map<String, Object> status = claim.access.status();
+                Map<String, SideEffectsSample> samples = new LinkedHashMap<>();
+                for (String id : claim.sensors.sensors()) {
+                    samples.put(id, SideEffectsSample.read(status, id));
+                }
+                claim.armedSamples = Map.copyOf(samples);
+            }
             // Only once the agent accepted them: Beans at runtime says a call would be observed only for these.
             if (beanClasses != null) {
                 claim.beanClasses.addAll(clean(beanClasses));
@@ -407,6 +418,15 @@ public final class AgentClaim {
     /** Whether this run's claim ended: disarmed, or never armed. */
     public boolean ended() {
         return ended.get();
+    }
+
+    /**
+     * Side-effect sensor {@code id}'s state when this claim was armed ({@code docs/PLAN-v2.md} M5-7b), or
+     * {@link SideEffectsSample#NONE} when it was not sampled.
+     */
+    public SideEffectsSample armedSideEffects(String id) {
+        SideEffectsSample sample = id == null ? null : armedSamples.get(id);
+        return sample == null ? SideEffectsSample.NONE : sample;
     }
 
     /** The claim's generation, or {@code null} when it was never granted. */
