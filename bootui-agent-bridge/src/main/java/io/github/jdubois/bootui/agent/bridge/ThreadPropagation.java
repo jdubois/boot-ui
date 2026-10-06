@@ -404,6 +404,10 @@ public final class ThreadPropagation {
         map.put("libraryThreadsSkipped", Long.valueOf(LIBRARY_THREADS.sum()));
         map.put("poolWorkersSkipped", Long.valueOf(POOL_WORKERS.sum()));
         map.put("failures", Long.valueOf(FAILURES.sum()));
+        // The generation the sensor failed in, -1 when none, or every generation: a runtime switch cannot turn it
+        // back on in that run (PLAN-v2 M5-14).
+        long disabled = disabledGeneration;
+        map.put("disabledGeneration", Long.valueOf(disabled == NONE ? -1L : disabled));
         return map;
     }
 

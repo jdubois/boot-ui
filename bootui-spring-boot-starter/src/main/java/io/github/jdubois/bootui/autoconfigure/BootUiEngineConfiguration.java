@@ -626,6 +626,15 @@ public class BootUiEngineConfiguration {
             // The run's side-effect keys go into its summary, for the next run's comparison (M5-7b).
             journalAggregates.setRunSideEffects(service::runSideEffects);
         }
+        // A sensor switched at run time (M5-14): the run is not compared for it (M5-7b), and a side-effect sensor
+        // switched on records from now on, even before the panel is read.
+        JavaAgentService agent = javaAgent.getIfUnique();
+        if (agent != null) {
+            agent.onSensorSwitched(id -> {
+                service.sensorSwitched(id);
+                service.start();
+            });
+        }
         return service;
     }
 

@@ -150,7 +150,7 @@ public final class BootUiPanels {
             // toggle here would refuse action tools whose own panel is perfectly writable. The panel id
             // therefore drives only the sidebar entry and its enable/read-only toggles.
             new Panel(CLI, "Command Line", false, List.of()),
-            new Panel(JAVA_AGENT, "Java Agent", false, "/java-agent"),
+            new Panel(JAVA_AGENT, "Java Agent", true, "/java-agent"),
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
             new Panel(RUNTIME_INSIGHTS, "Runtime Insights", true, "/runtime-insights"),
             new Panel(CODE_INVENTORY, "Code Inventory", false, "/code-inventory"),

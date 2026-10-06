@@ -334,6 +334,7 @@ public final class BootUiApiContractCatalog {
                             "claim", JsonType.NULLABLE_OBJECT,
                             "heldBy", JsonType.NULLABLE_STRING,
                             "sensors", JsonType.ARRAY,
+                            "toggles", JsonType.ARRAY,
                             "retransformation", JsonType.NULLABLE_OBJECT,
                             "counters", JsonType.NULLABLE_OBJECT,
                             "messages", JsonType.ARRAY,
@@ -849,6 +850,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "code-paths.probe.start", "code-paths", "POST", "/code-paths/probes");
         all(actions, "code-paths.probe.stop", "code-paths", "POST", "/code-paths/probes/0/stop");
         all(actions, "code-paths.probe.delete", "code-paths", "DELETE", "/code-paths/probes/0");
+        all(actions, "java-agent.sensor.switch", "java-agent", "POST", "/java-agent/sensors/environment");
         all(actions, "http-probe.execute", "http-probe", "POST", "/http-probe");
         all(actions, "architecture.scan", "architecture", "POST", "/architecture/scan");
         all(actions, "vulnerabilities.scan", "vulnerabilities", "POST", "/vulnerabilities/scan");

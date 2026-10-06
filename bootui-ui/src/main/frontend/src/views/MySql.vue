@@ -8,6 +8,7 @@ import {mysqlColumns} from '../utils/mysqlColumns.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import MySqlTable from './components/MySqlTable.vue'
@@ -164,20 +165,6 @@ function activeSection(source) {
 function selectSection(source, id) {
   activeSections.value = {...activeSections.value, [source.name]: id}
 }
-function handleTabKeydown(event, source, index) {
-  const parts = tabSections(source)
-  const next = {
-    ArrowRight: (index + 1) % parts.length,
-    ArrowLeft: (index - 1 + parts.length) % parts.length,
-    Home: 0,
-    End: parts.length - 1
-  }[event.key]
-  if (next === undefined) return
-  event.preventDefault()
-  selectSection(source, parts[next].id)
-  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus()
-}
-
 async function runRead() {
   if (
     initialLoading.value ||
@@ -364,25 +351,18 @@ onMounted(async () => {
             </p>
           </div>
           <div v-if="tabSections(source).length" class="card-body pb-0">
-            <div class="mysql-tabs" role="tablist" :aria-label="`${source.name} sections`">
-              <button
-                v-for="(part, index) in tabSections(source)"
-                :id="`mysql-${sourceIndex}-tab-${part.id}`"
-                :key="part.id"
-                class="mysql-tabs__button"
-                :class="{active: activeSection(source)?.id === part.id}"
-                type="button"
-                role="tab"
-                :aria-selected="activeSection(source)?.id === part.id"
-                :aria-controls="`mysql-${sourceIndex}-panel-${part.id}`"
-                :tabindex="activeSection(source)?.id === part.id ? 0 : -1"
-                @click="selectSection(source, part.id)"
-                @keydown="handleTabKeydown($event, source, index)"
-              >
-                {{ part.title }}
+            <PanelTabs
+              :tabs="tabSections(source)"
+              :selected="activeSection(source)?.id"
+              :id-prefix="`mysql-${sourceIndex}`"
+              :label="`${source.name} sections`"
+              @select="selectSection(source, $event)"
+            >
+              <template #tab="{tab: part}">
+                <span>{{ part.title }}</span>
                 <span
                   v-if="part.status === 'AVAILABLE'"
-                  class="mysql-tabs__count"
+                  class="bootui-tabs__count"
                   :title="part.id === 'sessions' ? 'Retained sessions and lock waits' : 'Retained rows'"
                   :aria-label="
                     part.id === 'sessions'
@@ -394,8 +374,8 @@ onMounted(async () => {
                 <span v-if="sectionStatus(part) !== 'AVAILABLE'" class="small">{{
                   statusLabels[sectionStatus(part)] || part.status
                 }}</span>
-              </button>
-            </div>
+              </template>
+            </PanelTabs>
           </div>
           <div
             v-if="activeSection(source)"
@@ -506,65 +486,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.mysql-tabs {
-  background: var(--bootui-surface-alt);
-  border: 1px solid var(--bootui-border);
-  border-radius: var(--bootui-radius-md);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem;
-  padding: 0.22rem;
-}
-.mysql-tabs__button {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: var(--bootui-radius-sm);
-  color: var(--bootui-text-muted);
-  display: inline-flex;
-  flex-wrap: wrap;
-  font-size: 0.875rem;
-  font-weight: 700;
-  gap: 0.4rem;
-  min-height: 2.25rem;
-  padding: 0.4rem 0.75rem;
-}
-.mysql-tabs__button:hover:not(.active) {
-  background: var(--bootui-nav-hover-bg);
-  color: var(--bootui-nav-hover-color);
-}
-.mysql-tabs__button.active {
-  background: var(--bootui-nav-active-bg);
-  color: var(--bootui-nav-active-color);
-}
-.mysql-tabs__button:focus-visible,
 [role='tabpanel']:focus-visible {
   outline: 2px solid var(--bootui-blue);
   outline-offset: 2px;
-}
-.mysql-tabs__count {
-  border: 1px solid currentColor;
-  border-radius: var(--bootui-radius-pill);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  min-width: 1.4rem;
-  padding: 0 0.3rem;
-  text-align: center;
 }
 .mysql-metric-scope {
   font-size: 0.75rem;
 }
 dd {
   overflow-wrap: anywhere;
-}
-@media (max-width: 575.98px) {
-  .mysql-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .mysql-tabs__button {
-    justify-content: center;
-    min-width: 0;
-  }
 }
 </style>

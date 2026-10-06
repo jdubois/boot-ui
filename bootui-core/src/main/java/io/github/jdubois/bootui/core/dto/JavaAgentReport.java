@@ -20,6 +20,8 @@ import java.util.List;
  * @param claim the current claim in the JVM, this application's or another's, or {@code null} when none
  * @param heldBy the owner holding the agent when it is {@link #HELD}, otherwise {@code null}
  * @param sensors the agent's sensors, empty before the first sensor ships
+ * @param toggles the runtime switches of the opt-in sensors, while this application's claim is {@link #ARMED}; empty
+ *     otherwise
  * @param retransformation the last retransformation, or {@code null} when the agent never installed
  * @param counters the bridge's claim counters, or {@code null} when none is attached
  * @param messages the agent's recent messages, oldest first
@@ -40,6 +42,7 @@ public record JavaAgentReport(
         JavaAgentClaimDto claim,
         String heldBy,
         List<JavaAgentSensorDto> sensors,
+        List<JavaAgentSensorToggleDto> toggles,
         JavaAgentRetransformationDto retransformation,
         JavaAgentCountersDto counters,
         List<String> messages,
@@ -72,6 +75,7 @@ public record JavaAgentReport(
 
     public JavaAgentReport {
         sensors = DtoCollections.immutableCopy(sensors);
+        toggles = DtoCollections.immutableCopy(toggles);
         messages = DtoCollections.immutableCopy(messages);
         warnings = DtoCollections.immutableCopy(warnings);
     }

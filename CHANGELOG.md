@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`, and
+  `environment` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
 - **Side effects in the run comparison (M5-7b).** With the BootUI agent, Runtime Insights' comparison lists the hosts,
   files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
   both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
@@ -350,6 +352,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compared with the previous one after a full restart.
 
 ### Changed
+
+- **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
+  instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
 - **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
   default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed

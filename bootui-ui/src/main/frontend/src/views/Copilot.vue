@@ -1,12 +1,13 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, nextTick, ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import ProgressBar from './components/ProgressBar.vue'
 
 const route = useRoute()
@@ -69,7 +70,11 @@ const categories = [
   'FALLBACK',
   'OTHER'
 ]
-const detailTabs = ['activity', 'turns', 'failures']
+const detailTabItems = [
+  {id: 'activity', label: 'Activity feed'},
+  {id: 'turns', label: 'Turn story'},
+  {id: 'failures', label: 'Failures'}
+]
 
 const sessions = computed(() => sessionList.value?.sessions ?? [])
 const available = computed(() => sessionList.value?.available !== false)
@@ -461,22 +466,6 @@ function activateDetailTab(tab) {
   if (tab === 'activity') showActivity(categoryFilter.value)
   if (tab === 'turns') showTurns()
   if (tab === 'failures') showFailures()
-}
-
-async function onDetailTabKeydown(event, currentTab) {
-  const currentIndex = detailTabs.indexOf(currentTab)
-  let targetIndex
-  if (event.key === 'ArrowRight') targetIndex = (currentIndex + 1) % detailTabs.length
-  else if (event.key === 'ArrowLeft') targetIndex = (currentIndex - 1 + detailTabs.length) % detailTabs.length
-  else if (event.key === 'Home') targetIndex = 0
-  else if (event.key === 'End') targetIndex = detailTabs.length - 1
-  else return
-
-  event.preventDefault()
-  const targetTab = detailTabs[targetIndex]
-  activateDetailTab(targetTab)
-  await nextTick()
-  document.getElementById(detailTabId(targetTab))?.focus()
 }
 
 async function revealRaw(event) {
@@ -1066,59 +1055,22 @@ watch(
                   </div>
                 </div>
 
-                <ul class="nav nav-tabs mb-3" role="tablist">
-                  <li class="nav-item">
-                    <button
-                      :id="detailTabId('activity')"
-                      :aria-controls="detailPanelId('activity')"
-                      :aria-selected="activeDetailTab === 'activity'"
-                      :class="{active: activeDetailTab === 'activity'}"
-                      :tabindex="activeDetailTab === 'activity' ? 0 : -1"
-                      class="nav-link"
-                      role="tab"
-                      type="button"
-                      @click="activateDetailTab('activity')"
-                      @keydown="onDetailTabKeydown($event, 'activity')"
-                    >
-                      Activity feed
-                    </button>
-                  </li>
-                  <li class="nav-item">
-                    <button
-                      :id="detailTabId('turns')"
-                      :aria-controls="detailPanelId('turns')"
-                      :aria-selected="activeDetailTab === 'turns'"
-                      :class="{active: activeDetailTab === 'turns'}"
-                      :tabindex="activeDetailTab === 'turns' ? 0 : -1"
-                      class="nav-link"
-                      role="tab"
-                      type="button"
-                      @click="activateDetailTab('turns')"
-                      @keydown="onDetailTabKeydown($event, 'turns')"
-                    >
-                      Turn story
-                    </button>
-                  </li>
-                  <li class="nav-item">
-                    <button
-                      :id="detailTabId('failures')"
-                      :aria-controls="detailPanelId('failures')"
-                      :aria-selected="activeDetailTab === 'failures'"
-                      :class="{active: activeDetailTab === 'failures'}"
-                      :tabindex="activeDetailTab === 'failures' ? 0 : -1"
-                      class="nav-link"
-                      role="tab"
-                      type="button"
-                      @click="activateDetailTab('failures')"
-                      @keydown="onDetailTabKeydown($event, 'failures')"
-                    >
-                      Failures
-                      <span v-if="detail.counts.errors" class="badge text-bg-danger ms-1">{{
-                        detail.counts.errors
-                      }}</span>
-                    </button>
-                  </li>
-                </ul>
+                <PanelTabs
+                  class="mb-3"
+                  :tabs="detailTabItems"
+                  :selected="activeDetailTab"
+                  :tab-id="detailTabId"
+                  :panel-id="detailPanelId"
+                  label="Session detail views"
+                  @select="activateDetailTab"
+                >
+                  <template #tab="{tab}">
+                    <span>{{ tab.label }}</span>
+                    <span v-if="tab.id === 'failures' && detail.counts.errors" class="badge text-bg-danger">{{
+                      detail.counts.errors
+                    }}</span>
+                  </template>
+                </PanelTabs>
 
                 <div class="tab-content">
                   <div
