@@ -341,7 +341,7 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST C
 | Transactions  | `ReactiveTransactionsController` over `ReactiveBootUiChangeStream`, feeding the same `TransactionRecorder`. See the fidelity note below. |
 | Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`.                |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is framework-neutral, so no reactive-specific capture code was needed). |
-| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. |
+| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`, PLAN-v2 M5-6) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
 | Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                      |
 | Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                   |
 | REST Client   | `ReactiveRestClientTraceController` — same `RestClientTraceRecorder`, SSE via `ReactiveBootUiChangeStream`. See the fidelity note below. |

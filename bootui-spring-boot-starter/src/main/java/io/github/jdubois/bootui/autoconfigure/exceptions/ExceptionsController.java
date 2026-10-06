@@ -3,12 +3,14 @@ package io.github.jdubois.bootui.autoconfigure.exceptions;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
+import io.github.jdubois.bootui.core.dto.CaughtExceptionsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionStatusUpdateRequest;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractLinkResolver;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractService;
+import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import java.util.Map;
@@ -53,6 +55,8 @@ public class ExceptionsController {
 
     private final ExceptionsService service;
 
+    private final ObjectProvider<CaughtExceptionsReader> caught;
+
     private final BootUiChangeStream changeStream;
 
     private Runnable storeUnsubscribe;
@@ -62,9 +66,11 @@ public class ExceptionsController {
             ObjectProvider<ExceptionStore> storeProvider,
             BootUiProperties properties,
             BootUiExposure exposure,
-            ObjectProvider<ErrorContractService> errorContract) {
+            ObjectProvider<ErrorContractService> errorContract,
+            ObjectProvider<CaughtExceptionsReader> caught) {
         this.storeProvider = storeProvider;
         this.properties = properties;
+        this.caught = caught;
         this.service = new ExceptionsService(exposure, errorContractLinks(errorContract));
         this.changeStream = new BootUiChangeStream("exceptions");
         ExceptionStore store = storeProvider.getIfAvailable();
@@ -93,12 +99,21 @@ public class ExceptionsController {
     }
 
     ExceptionsController(ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties) {
-        this(storeProvider, properties, new BootUiExposure(properties), null);
+        this(storeProvider, properties, new BootUiExposure(properties), null, null);
     }
 
     @GetMapping
     public ExceptionsReport list() {
-        return ExceptionsControllerSupport.list(storeProvider, properties, service);
+        return ExceptionsControllerSupport.list(storeProvider, properties, service, caught);
+    }
+
+    /**
+     * The <b>Caught in application code</b> section: what became of the exceptions application code caught, from the
+     * BootUI agent's {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6).
+     */
+    @GetMapping("/caught")
+    public CaughtExceptionsReport caught() {
+        return ExceptionsControllerSupport.caught(caught, properties);
     }
 
     @GetMapping("/{id}")

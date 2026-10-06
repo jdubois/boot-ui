@@ -1,11 +1,14 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.CaughtExceptionsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionStatusUpdateRequest;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
+import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -40,18 +43,49 @@ public class ExceptionsResource {
 
     private final ExceptionStore store;
     private final ExceptionsService service;
+    private final CaughtExceptionsReader caught;
+    private final QuarkusPanelAvailability panels;
     private final AtomicInteger openStreams = new AtomicInteger();
 
-    @Inject
     public ExceptionsResource(ExceptionStore store, ExceptionsService service) {
+        this(store, service, null, null);
+    }
+
+    @Inject
+    public ExceptionsResource(
+            ExceptionStore store,
+            ExceptionsService service,
+            CaughtExceptionsReader caught,
+            QuarkusPanelAvailability panels) {
         this.store = store;
         this.service = service;
+        this.caught = caught;
+        this.panels = panels;
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public ExceptionsReport list() {
-        return service.report(store);
+        ExceptionsReport report = service.report(store);
+        return caught == null ? report : report.withCaughtInCode(caught.summary(this::panelEnabled));
+    }
+
+    /**
+     * The <b>Caught in application code</b> section: what became of the exceptions application code caught, from the
+     * BootUI agent's {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6).
+     */
+    @GET
+    @Path("/caught")
+    @Produces(MediaType.APPLICATION_JSON)
+    public CaughtExceptionsReport caught() {
+        return caught == null
+                ? CaughtExceptionsReport.unavailable(
+                        "The BootUI agent's caught-exceptions sensor is not wired in this application")
+                : caught.report(this::panelEnabled);
+    }
+
+    private boolean panelEnabled(String panel) {
+        return panels == null || (panels.isPanelAvailable(panel) && panels.isPanelEnabled(panel));
     }
 
     @GET

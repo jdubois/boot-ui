@@ -68,7 +68,7 @@ public final class AgentBridgeAccess {
     private final ClassEvidenceHandles classEvidence;
     private final MethodProbesHandles methodProbes;
     private final SideEffectsHandles sideEffects;
-    private final MethodHandle caughtSites;
+    private final CaughtHandles caught;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -130,19 +130,7 @@ public final class AgentBridgeAccess {
         this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
         this.methodProbes = this.inventory == null ? null : MethodProbesHandles.bind(bridge);
         this.sideEffects = this.inventory == null ? null : SideEffectsHandles.bind(bridge);
-        this.caughtSites = this.inventory == null ? null : bindCaughtSites(bridge);
-    }
-
-    /** The caught-exceptions sensor's site names, bound once; {@code null} when the bridge has none. */
-    private static MethodHandle bindCaughtSites(Class<?> bridge) {
-        try {
-            Class<?> caught = Class.forName(CAUGHT_EXCEPTIONS_CLASS, false, bridge.getClassLoader());
-            return MethodHandles.publicLookup()
-                    .findStatic(caught, "sites", MethodType.methodType(String[].class, int.class));
-        } catch (Throwable ex) {
-            // An agent of this protocol from before M5-6a: no caught-exceptions sensor.
-            return null;
-        }
+        this.caught = this.inventory == null ? null : CaughtHandles.bind(bridge);
     }
 
     /**
@@ -150,7 +138,7 @@ public final class AgentBridgeAccess {
      * from before M5-6a does not.
      */
     public boolean caughtExceptionsSupported() {
-        return inventorySupported() && caughtSites != null;
+        return inventorySupported() && caught != null;
     }
 
     /**
@@ -162,10 +150,88 @@ public final class AgentBridgeAccess {
             return new String[0];
         }
         try {
-            Object value = caughtSites.invoke(from);
+            Object value = caught.sites().invoke(from);
             return value instanceof String[] strings ? strings : new String[0];
         } catch (Throwable ex) {
             return new String[0];
+        }
+    }
+
+    /**
+     * Tells the caught-exceptions sensor that the first {@code count} requests of {@code requests}, as the agent's
+     * request bits, ended ({@code CaughtExceptions.requestsEnded}); sorts the array. Does nothing without the sensor or
+     * with a bridge from before M5-6a2.
+     */
+    public void caughtRequestsEnded(long[] requests, int count) {
+        if (!caughtExceptionsSupported() || caught.requestsEnded() == null || count <= 0) {
+            return;
+        }
+        try {
+            caught.requestsEnded().invoke(requests, count);
+        } catch (Throwable ex) {
+            // The bridge never throws; a failure here only leaves entries pending until they expire.
+        }
+    }
+
+    /** Frees the caught-exceptions sensor's stale pending entries ({@code CaughtExceptions.sweep}), at most once a second. */
+    public void caughtSweep() {
+        if (!caughtExceptionsSupported() || caught.sweep() == null) {
+            return;
+        }
+        try {
+            caught.sweep().invoke();
+        } catch (Throwable ex) {
+            // As above.
+        }
+    }
+
+    /**
+     * The caught-exceptions sensor's losses so far ({@code CaughtExceptions.losses}), summed, or {@code -1} when
+     * unknown: without the sensor, with a bridge from before M5-6a2, or when the bridge failed to count them.
+     */
+    public long caughtLosses() {
+        if (!caughtExceptionsSupported() || caught.losses() == null) {
+            return -1L;
+        }
+        try {
+            Object value = caught.losses().invoke();
+            return value instanceof Long losses ? losses : -1L;
+        } catch (Throwable ex) {
+            return -1L;
+        }
+    }
+
+    /**
+     * The caught-exceptions sensor's entry points, bound once: its site names, and, from M5-6a2, the request ends, the
+     * sweep, and the loss count, each {@code null} when the bridge predates it.
+     */
+    private record CaughtHandles(
+            MethodHandle sites, MethodHandle requestsEnded, MethodHandle sweep, MethodHandle losses) {
+
+        static CaughtHandles bind(Class<?> bridge) {
+            MethodHandle sites;
+            Class<?> caught;
+            try {
+                caught = Class.forName(CAUGHT_EXCEPTIONS_CLASS, false, bridge.getClassLoader());
+                sites = MethodHandles.publicLookup()
+                        .findStatic(caught, "sites", MethodType.methodType(String[].class, int.class));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-6a: no caught-exceptions sensor.
+                return null;
+            }
+            return new CaughtHandles(
+                    sites,
+                    optional(caught, "requestsEnded", MethodType.methodType(void.class, long[].class, int.class)),
+                    optional(caught, "sweep", MethodType.methodType(void.class)),
+                    optional(caught, "losses", MethodType.methodType(long.class)));
+        }
+
+        private static MethodHandle optional(Class<?> caught, String name, MethodType type) {
+            try {
+                return MethodHandles.publicLookup().findStatic(caught, name, type);
+            } catch (Throwable ex) {
+                return null;
+            }
         }
     }
 

@@ -36,12 +36,19 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * {@code bootui.benchmark.report} names the report, {@code spring-mvc-agent} by default, whose summary is {@code
  * summary.properties}; any other name writes {@code <name>.md} and {@code <name>.properties}.
  *
+ * <p>{@code bootui.benchmark.route=caught} drives {@value #CAUGHT_ROUTE}: the same search plus one exception caught
+ * per request, half where thrown, half after unwinding through twenty application frames with handlers, then wrapped,
+ * rethrown, and caught (M5-6a2), so the caught-exceptions sensor's handler-entry and exit hooks are measured.
+ *
+ * <p>{@code bootui.benchmark.agent.budget-percent} sets the run's budget, 10 % by default: the report prints
+ * {@code PASS} or {@code FAIL} against it. {@code bootui.benchmark.agent.enforce-when-default} names a sensor: while
+ * it is one of {@link AgentSensorSettings#DEFAULT_SENSORS}, a {@code FAIL} fails the run, so a sensor that ships on by
+ * default can never exceed its budget unnoticed; while it is opt-in, only {@code fail-above-percent} fails it.
+ *
  * <p>{@code bootui.benchmark.route=sinks} drives {@value #SINKS_ROUTE}: two query parameters, the search's SQL
  * statement, and one file read, for the security-sinks sensor's request-value matching (M5-6b). {@code
  * bootui.benchmark.agent.extra} and {@code bootui.benchmark.agent.baseline-extra} add comma-separated application
  * arguments to the agent arm and to the other arm, so an A/B can claim the same sensors with matching on and off.
- * {@code bootui.benchmark.agent.rule-percent} prints whether the median met a rule (PASS or FAIL) without failing on it;
- * {@code fail-above-percent} prints the same and fails.
  *
  * <p>The budget is 10 %. Timings depend on the machine, so this is opt-in. It fails only when
  * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it. CI sets it to 30,
@@ -58,6 +65,9 @@ class AgentOverheadBenchmarkIT {
 
     /** The I/O variant's route: the search, one outbound connect, and one file read. */
     static final String IO_ROUTE = "/api/side-effects/benchmark-io?term=console";
+
+    /** The caught-exceptions variant's route: the search and one caught exception. */
+    static final String CAUGHT_ROUTE = "/api/caught/benchmark?term=console";
 
     /** The security-sinks variant's route (M5-6b): two query parameters, one SQL statement, and one file read. */
     static final String SINKS_ROUTE = "/api/side-effects/benchmark-sinks?term=console&tag=sample-tag";
@@ -85,10 +95,16 @@ class AgentOverheadBenchmarkIT {
         String failAbove = System.getProperty("bootui.benchmark.agent.fail-above-percent", "");
         String routeName = System.getProperty("bootui.benchmark.route", "");
         boolean io = "io".equals(routeName);
-        String route = io ? IO_ROUTE : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        String route = io
+                ? IO_ROUTE
+                : "caught".equals(routeName)
+                        ? CAUGHT_ROUTE
+                        : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
         List<String> agentExtra = arguments(System.getProperty("bootui.benchmark.agent.extra", ""));
         List<String> baselineExtra = arguments(System.getProperty("bootui.benchmark.agent.baseline-extra", ""));
-        String rule = System.getProperty("bootui.benchmark.agent.rule-percent", "");
+        double budget = Double.parseDouble(
+                System.getProperty("bootui.benchmark.agent.budget-percent", String.valueOf(BUDGET_PERCENT)));
+        String enforced = System.getProperty("bootui.benchmark.agent.enforce-when-default", "");
         String baseline = System.getProperty("bootui.benchmark.agent.baseline-sensors", "");
         String reportName = System.getProperty("bootui.benchmark.report", "spring-mvc-agent");
         String baselineLabel = baseline.isBlank() ? "No agent" : "Agent, sensors " + baseline;
@@ -106,7 +122,8 @@ class AgentOverheadBenchmarkIT {
                     extra,
                     agentExtra,
                     baselineExtra,
-                    rule);
+                    budget,
+                    enforced);
         }
     }
 
@@ -122,7 +139,8 @@ class AgentOverheadBenchmarkIT {
             List<String> extra,
             List<String> agentExtra,
             List<String> baselineExtra,
-            String rule)
+            double budget,
+            String enforced)
             throws Exception {
         List<String> agentArguments = new ArrayList<>(extra);
         agentArguments.addAll(agentExtra);
@@ -169,6 +187,8 @@ class AgentOverheadBenchmarkIT {
         }
         double medianRatio = median(ratios);
         double overheadPercent = (1 - medianRatio) * 100;
+        String verdict = overheadPercent <= budget ? "PASS" : "FAIL";
+        boolean enforcing = !enforced.isBlank() && AgentSensorSettings.DEFAULT_SENSORS.contains(enforced);
 
         StringBuilder report = new StringBuilder("# Agent overhead: spring-mvc executable jar")
                 .append(reportName.equals("spring-mvc-agent") ? "" : " (" + reportName + ")")
@@ -214,11 +234,12 @@ class AgentOverheadBenchmarkIT {
                 .append(String.format(
                         Locale.ROOT,
                         "%n**Median paired throughput with the agent is %.1f %% of the other run's: %.1f %%"
-                                + " overhead, against a %.0f %% budget.** Median p99 latency: %.2f ms with the agent,"
-                                + " %.2f ms in the other run.%n",
+                                + " overhead, against a %.0f %% budget: %s.** Median p99 latency: %.2f ms with the"
+                                + " agent, %.2f ms in the other run.%n",
                         medianRatio * 100,
                         overheadPercent,
-                        BUDGET_PERCENT,
+                        budget,
+                        verdict,
                         CaptureOverheadBenchmarkTest.median(with, result -> result.percentileMillis(99)),
                         CaptureOverheadBenchmarkTest.median(without, result -> result.percentileMillis(99))));
 
@@ -228,17 +249,6 @@ class AgentOverheadBenchmarkIT {
                     "%nThe agent run also passes %s; the other run %s.%n",
                     agentExtra.isEmpty() ? "nothing more" : String.join(" ", agentExtra),
                     baselineExtra.isEmpty() ? "nothing more" : "passes " + String.join(" ", baselineExtra)));
-        }
-        String limit = !rule.isBlank() ? rule : failAbove;
-        if (!limit.isBlank()) {
-            boolean pass = overheadPercent <= Double.parseDouble(limit);
-            report.append(String.format(
-                    Locale.ROOT,
-                    "%n**%s**: %.1f %% against a rule of at most %s %% over %d pairs.%n",
-                    pass ? "PASS" : "FAIL",
-                    overheadPercent,
-                    limit,
-                    passes));
         }
 
         Path directory = Path.of("target", "agent-overhead");
@@ -250,17 +260,34 @@ class AgentOverheadBenchmarkIT {
                 String.format(
                         Locale.ROOT,
                         "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n"
-                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%n",
+                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%nverdict=%s%nenforced=%s%n",
                         overheadPercent,
-                        BUDGET_PERCENT,
+                        budget,
                         medianRatio,
                         passes,
                         (1 - Arrays.stream(ratios).max().orElse(1)) * 100,
-                        (1 - Arrays.stream(ratios).min().orElse(1)) * 100),
+                        (1 - Arrays.stream(ratios).min().orElse(1)) * 100,
+                        verdict,
+                        enforcing),
                 StandardCharsets.UTF_8);
         System.out.println(report);
+        System.out.printf(
+                Locale.ROOT,
+                "%s: %s median overhead %.1f %% against a %.0f %% budget%s%n",
+                verdict,
+                reportName,
+                overheadPercent,
+                budget,
+                enforcing ? ", enforced: " + enforced + " is on by default" : "");
 
         assertThat(results).allSatisfy(result -> assertThat(result.requests()).isPositive());
+        if (enforcing) {
+            assertThat(overheadPercent)
+                    .as(
+                            "%s is on by default, so its median paired overhead must stay within its %.0f %% budget:%n%s",
+                            enforced, budget, report)
+                    .isLessThanOrEqualTo(budget);
+        }
         if (!failAbove.isBlank()) {
             assertThat(overheadPercent)
                     .as("the agent's median paired overhead, failing above %s %%:%n%s", failAbove, report)
