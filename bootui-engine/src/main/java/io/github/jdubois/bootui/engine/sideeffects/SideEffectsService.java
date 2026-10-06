@@ -425,6 +425,8 @@ public final class SideEffectsService implements AutoCloseable {
                 // ignores a request's end while the sensor is off, with one volatile read.
                 threadActivityClaim = access.threadActivitySupported() ? claim : null;
                 run = new Run(claim, clock.getAsLong());
+                // The bridge's thread-activity counters last for the JVM: the panel reports this run's increase.
+                run.threadBaseline = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
                 publish(run);
                 run.start();
             }
@@ -1292,30 +1294,36 @@ public final class SideEffectsService implements AutoCloseable {
                 limitations.add(LIMITATION_CALL_SITES_FAILED);
             }
         }
-        if (current != null && current.claim.uses(AgentSensorSettings.THREAD_ACTIVITY)) {
+        if (current != null
+                && (current.claim.uses(AgentSensorSettings.THREAD_ACTIVITY)
+                        || current.claim.sensorOverrides().containsKey(AgentSensorSettings.THREAD_ACTIVITY))) {
+            // Also once switched off at run time, when what it dropped is reported.
             Map<String, Object> counters = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
-            long untracked = counter(counters, "untracked");
+            Map<String, Object> baseline = current.threadBaseline;
+            long untracked = increase(counters, baseline, "untracked");
             if (untracked > 0) {
                 limitations.add(untracked + (untracked == 1 ? " thread or executor was" : " threads or executors were")
                         + " not tracked: the sensor tracks at most 1,024 threads waiting for their request's end and"
                         + " 1,024 executors at a time, so what they left running is not reported.");
             }
-            long unresolved = counter(counters, "unresolved");
+            long unresolved = increase(counters, baseline, "unresolved");
             if (unresolved > 0) {
-                limitations.add(unresolved + (unresolved == 1 ? " thread was" : " threads were")
-                        + " not checked: their request's end never reached the sensor within 10 minutes, so whether"
-                        + " they outlived it is unknown.");
+                limitations.add(
+                        unresolved + (unresolved == 1 ? " thread or executor was" : " threads or executors were")
+                                + " not checked: their request's end never reached the sensor within 10 minutes, so whether"
+                                + " they outlived it is unknown.");
             }
-            long endsLost = counter(counters, "requestEndsLost");
+            long endsLost = increase(counters, baseline, "requestEndsLost");
             if (endsLost > 0) {
                 limitations.add(endsLost + (endsLost == 1 ? " request's end was" : " requests' ends were")
-                        + " lost: more requests ended at once than the sensor holds, so their threads are checked"
-                        + " only at their timeout.");
+                        + " lost: more requests ended at once than the sensor holds, so what they started waits 10"
+                        + " minutes, then is counted not checked.");
             }
-            long dropped = counter(counters, "dropped");
+            long dropped = increase(counters, baseline, "dropped");
             if (dropped > 0) {
                 limitations.add(dropped + (dropped == 1 ? " thread or executor was" : " threads or executors were")
-                        + " dropped unchecked when the thread-activity sensor was switched off or released.");
+                        + " never checked: they still waited for their request's end when the thread-activity sensor"
+                        + " was switched off.");
             }
         }
         if (read.shown() && !read.requests()) {
@@ -1367,6 +1375,11 @@ public final class SideEffectsService implements AutoCloseable {
         } catch (RuntimeException ex) {
             return Map.of();
         }
+    }
+
+    /** How much counter {@code name} grew since {@code baseline}. */
+    private static long increase(Map<String, Object> counters, Map<String, Object> baseline, String name) {
+        return Math.max(0L, counter(counters, name) - counter(baseline, name));
     }
 
     private static long counter(Map<String, Object> counters, String name) {
@@ -1587,6 +1600,7 @@ public final class SideEffectsService implements AutoCloseable {
         long stale;
         long malformed;
         long bootUi;
+        Map<String, Object> threadBaseline = Map.of();
         long clears;
         long cleared;
         long clearedAt = lastClearedAt;

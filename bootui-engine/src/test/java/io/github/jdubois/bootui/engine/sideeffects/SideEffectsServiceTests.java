@@ -511,7 +511,7 @@ class SideEffectsServiceTests {
         }
         try {
             assertThat(service.report().limitations())
-                    .anyMatch(line -> line.startsWith("2 threads were not checked"))
+                    .anyMatch(line -> line.startsWith("2 threads or executors were not checked"))
                     .anyMatch(line -> line.startsWith("2 requests' ends were lost"));
         } finally {
             for (String counter : List.of("unresolved", "endsLost")) {

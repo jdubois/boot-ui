@@ -37,7 +37,8 @@ class ThreadActivityBehaviorsIT {
             "an ArC singleton bean's executor created on first use inside a request is a singleton's",
             "starts no request owns are counted under the starting thread's family",
             "the sensor never keeps an executor",
-            "BootUI's own threads and executors are never recorded");
+            "BootUI's own threads and executors are never recorded",
+            "switching another side-effect sensor at run time keeps what thread-activity waits to check");
 
     /**
      * Spring's bean factory and ArC, from this test's class path, for the lazy singleton counterexamples: the child's

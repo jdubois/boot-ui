@@ -315,8 +315,9 @@ final class SideEffectsSensor {
                         reset(stale);
                     }
                     if ((job & INSTALL) != 0 && !stuck && mask != 0) {
-                        install(mask);
-                        selfTest(mask, 1);
+                        // Only the groups installed now are self-tested: the other keeps its verdict and stays on.
+                        int fresh = install(mask);
+                        selfTest(fresh != 0 ? fresh : mask, 1);
                     }
                 } catch (Throwable ex) {
                     selfTestPassed = false;
@@ -330,13 +331,14 @@ final class SideEffectsSensor {
         }
     }
 
-    /** Installs the transformer of each group of {@code mask} not installed yet. */
-    void install(int mask) {
+    /** Installs the transformer of each group of {@code mask} not installed yet; returns their sensors. */
+    int install(int mask) {
         int rest = mask & ~SideEffects.MASK_THREADS;
         int threads = mask & SideEffects.MASK_THREADS;
         if ((rest == 0 || transformer != null) && (threads == 0 || threadTransformer != null)) {
-            return;
+            return 0;
         }
+        int fresh = 0;
         long started = System.nanoTime();
         state = "installing";
         selfTestMillis = -1;
@@ -347,10 +349,12 @@ final class SideEffectsSensor {
             if (rest != 0 && transformer == null) {
                 transformer = installed(new InstallAction(rest, left));
                 installedMask |= rest;
+                fresh |= rest;
             }
             if (threads != 0 && threadTransformer == null) {
                 threadTransformer = installed(new InstallAction(threads, left));
                 installedMask |= threads;
+                fresh |= threads;
             }
         } finally {
             long elapsed = System.nanoTime() - started;
@@ -358,6 +362,36 @@ final class SideEffectsSensor {
             installMillis = elapsed / 1_000_000L;
         }
         state = "testing";
+        return fresh;
+    }
+
+    /**
+     * {@code current} with the entries of {@code previous} that belong to the installed sensors outside {@code
+     * tested}, whose earlier self-test still stands: a hook id, or a step keyed by a hook or a sensor id.
+     */
+    private Map<String, String> merged(Map<String, String> previous, Map<String, String> current, int tested) {
+        int kept = installedMask & ~tested & ~failedSensors;
+        Map<String, String> merged = new LinkedHashMap<String, String>(current);
+        for (Map.Entry<String, String> entry : previous.entrySet()) {
+            if ((owner(entry.getKey()) & kept) != 0) {
+                merged.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return merged;
+    }
+
+    /** The bit of the sensor a self-test key belongs to: a sensor id, or a hook id; 0 for none. */
+    private static int owner(String key) {
+        int bit = SideEffects.bit(key);
+        if (bit != 0) {
+            return bit;
+        }
+        for (String[] hook : HOOKS) {
+            if (hook[0].equals(key)) {
+                return SideEffects.bit(hook[3]);
+            }
+        }
+        return 0;
     }
 
     /** The hooks the transformer leaves out: the mutation tests' omissions and the hooks that failed. */
@@ -373,11 +407,6 @@ final class SideEffectsSensor {
 
     private ResettableClassFileTransformer installed(InstallAction action) {
         return privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
-    }
-
-    /** Removes both transformers. */
-    void reset() {
-        reset(-1);
     }
 
     /** Removes the transformers of the groups in {@code groups}, restoring the classes they transformed. */
@@ -739,8 +768,8 @@ final class SideEffectsSensor {
         }
         selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
         Set<String> left = leftOut();
-        Map<String, String> results = evaluate(mask, hits, steps, left);
-        selfTestSteps = steps;
+        Map<String, String> results = merged(selfTest, evaluate(mask, hits, steps, left), mask);
+        selfTestSteps = merged(selfTestSteps, steps, mask);
         List<String> failed = new ArrayList<String>();
         int failedNow = 0;
         int hit = 0;
@@ -790,34 +819,43 @@ final class SideEffectsSensor {
         state = "self-test-failed";
         selfTestError = error;
         selfTest = results;
-        // Only the transformer carrying a failed hook is reinstalled.
+        // Only the transformer carrying a failed hook is reinstalled; the other group tested now passed.
         int groups = ((hit & SideEffects.MASK_THREADS) != 0 ? SideEffects.MASK_THREADS : 0)
                 | ((hit & ~SideEffects.MASK_THREADS) != 0 ? ~SideEffects.MASK_THREADS : 0);
         SideEffects.disable(mask & ~failedNow & groups, null);
+        if ((mask & ~groups) != 0) {
+            SideEffects.enable(mask & ~groups);
+        }
         reset(groups);
         int remaining = effective();
         if (stuck) {
             state = "self-test-failed (release-failed)";
             return;
         }
-        if (remaining != 0 && round < MAX_ROUNDS) {
-            // The other sensors, and this one without the hooks that failed, are installed and self-tested again.
-            install(remaining);
-            selfTest(remaining, round + 1);
+        int lost = remaining & groups;
+        if (lost != 0 && round < MAX_ROUNDS) {
+            // The removed group's other sensors, and this one without the hooks that failed, are installed and
+            // self-tested again.
+            int fresh = install(remaining);
+            selfTest(fresh != 0 ? fresh : lost, round + 1);
             return;
         }
-        if (remaining != 0) {
+        // Out of rounds: only the groups still failing are off for good; the other group keeps recording.
+        if (lost != 0) {
             synchronized (this) {
-                failedSensors |= remaining;
+                failedSensors |= lost;
                 for (String id : SENSORS) {
-                    if ((remaining & SideEffects.bit(id)) != 0) {
+                    if ((lost & SideEffects.bit(id)) != 0) {
                         sensorErrors.put(id, error);
                     }
                 }
             }
-            SideEffects.disable(remaining, error);
-            // Every sensor is off for good now: the transformer a failed hook did not touch is removed too.
-            reset();
+            SideEffects.disable(lost, error);
+        }
+        if (installed()) {
+            selfTestPassed = true;
+            state = "installed";
+            return;
         }
         state = "self-test-failed";
     }

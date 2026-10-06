@@ -70,6 +70,7 @@ public final class ThreadActivityBehaviors {
             virtualThreads();
             reclaimed();
             bootUiWork();
+            anotherSwitchKeepsPendingChecks();
             if (!"beside-propagation".equals(mode)) {
                 releaseRestores();
             }
@@ -316,6 +317,32 @@ public final class ThreadActivityBehaviors {
                 "an ArC singleton bean's executor created on first use inside a request is a singleton's, never left"
                         + " running (" + describe(RECORDS) + ")",
                 created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
+    static void anotherSwitchKeepsPendingChecks() throws Exception {
+        RECORDS.clear();
+        long request = request();
+        CountDownLatch release = new CountDownLatch(1);
+        Thread thread = new Thread(() -> await(release), "switch-survivor-1");
+        thread.setDaemon(true);
+        thread.start();
+        Map<String, Object> on = AgentBridge.switchSensor(token, SideEffects.FILES, true);
+        Map<String, Object> files = SensorWait.awaitSettled(SideEffects.FILES);
+        endRequest(request);
+        long[] left = await(kind(SideEffects.KIND_THREAD_LEFT_RUNNING));
+        Map<String, Object> off = AgentBridge.switchSensor(token, SideEffects.FILES, false);
+        Object released = SideEffectsBehaviors.awaitState(SideEffects.FILES, "released");
+        release.countDown();
+        thread.join();
+        check(
+                "switching another side-effect sensor at run time keeps what thread-activity waits to check (" + on
+                        + " " + files.get("state") + " " + off + " " + released + " " + describe(RECORDS) + ")",
+                AgentBridge.ARMED.equals(on.get("status"))
+                        && "installed".equals(files.get("state"))
+                        && "released".equals(released)
+                        && left != null
+                        && left[SideEffects.R_REQUEST] == request
+                        && "switch-survivor-{n}".equals(string(left[SideEffects.R_TARGET])));
     }
 
     static void libraryThread() throws Exception {
