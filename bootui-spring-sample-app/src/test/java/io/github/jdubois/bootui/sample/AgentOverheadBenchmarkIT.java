@@ -96,7 +96,9 @@ class AgentOverheadBenchmarkIT {
         String failAbove = System.getProperty("bootui.benchmark.agent.fail-above-percent", "");
         String routeName = System.getProperty("bootui.benchmark.route", "");
         boolean io = "io".equals(routeName);
-        String route = io ? IO_ROUTE : "caught".equals(routeName)
+        String route = io
+                ? IO_ROUTE
+                : "caught".equals(routeName)
                         ? CAUGHT_ROUTE
                         : "threads".equals(routeName) ? THREADS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
         double budget = Double.parseDouble(
