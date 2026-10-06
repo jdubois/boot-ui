@@ -18,6 +18,8 @@ import java.util.List;
  * @param dropped operations it saw that no row counts: the agent's transport was full, or this run's store was at its
  *     cap even for the Other row
  * @param hooks its hooks, empty for a sensor not in this version
+ * @param toggle its runtime switch, for an opt-in sensor while the agent is armed for this application; otherwise
+ *     {@code null}
  */
 public record SideEffectsSensorDto(
         String id,
@@ -28,7 +30,8 @@ public record SideEffectsSensorDto(
         long rows,
         long occurrences,
         long dropped,
-        List<SideEffectsHookDto> hooks) {
+        List<SideEffectsHookDto> hooks,
+        JavaAgentSensorToggleDto toggle) {
 
     /** The sensor records this run. */
     public static final String RECORDING = "recording";
@@ -42,7 +45,10 @@ public record SideEffectsSensorDto(
     /** The agent disabled the sensor, as after too many internal errors. */
     public static final String DISABLED = "disabled";
 
-    /** This application's {@code bootui.agent.sensors} does not ask for it. */
+    /**
+     * This application's claim does not use it: {@code bootui.agent.sensors} does not ask for it, or it was switched off
+     * at run time.
+     */
     public static final String NOT_CLAIMED = "not-claimed";
 
     /** The BootUI agent is not attached or not armed for this application. */
@@ -59,5 +65,19 @@ public record SideEffectsSensorDto(
 
     public SideEffectsSensorDto {
         hooks = DtoCollections.immutableCopy(hooks);
+    }
+
+    /** A sensor without a runtime switch. */
+    public SideEffectsSensorDto(
+            String id,
+            String group,
+            String label,
+            String state,
+            String reason,
+            long rows,
+            long occurrences,
+            long dropped,
+            List<SideEffectsHookDto> hooks) {
+        this(id, group, label, state, reason, rows, occurrences, dropped, hooks, null);
     }
 }

@@ -114,6 +114,35 @@ public record AgentSensorSettings(
     public static final List<String> DEFAULT_SENSORS =
             List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
 
+    /**
+     * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
+     * run time ({@code docs/PLAN-v2.md} M5-14). {@code caught-exceptions} (M5-6a), also off by default, is not switched at
+     * run time: its visit of every application class is installed with the claim only.
+     */
+    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, FILES, ENVIRONMENT);
+
+    /**
+     * Why {@code id}, one of {@link #OPT_IN_SENSORS}, is off by default, as the panels show it beside its switch; or
+     * {@code null} for any other sensor.
+     */
+    public static String optInReason(String id) {
+        if (id == null) {
+            return null;
+        }
+        return switch (id) {
+            case THREADS ->
+                "Off by default: it retransforms java.lang.Thread, the riskiest JDK class to instrument, and a failed"
+                        + " self-test leaves it off until the application restarts.";
+            case FILES ->
+                "Off by default: with the default sensors, the agent's overhead on the benchmark's I/O route measured"
+                        + " about 10.6 %, over its 10 % budget.";
+            case ENVIRONMENT ->
+                "Off by default: it advises System.getProperty, which frameworks call often; a read takes about 23–28 ns"
+                        + " with it instead of 5–6 ns.";
+            default -> null;
+        };
+    }
+
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;
 
