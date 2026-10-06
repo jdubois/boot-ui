@@ -62,6 +62,10 @@ public final class ThreadActivityBehaviors {
             jdkThread();
             timer();
             libraryThread();
+            lazyHolder();
+            lazySpringSingleton();
+            springPrototype();
+            lazyArcSingleton();
             unowned();
             virtualThreads();
             reclaimed();
@@ -230,6 +234,88 @@ public final class ThreadActivityBehaviors {
                 "a java.util.Timer the application starts for a request is its own thread, left running ("
                         + describe(RECORDS) + ")",
                 left != null && origin(left) == ThreadActivity.ORIGIN_APPLICATION);
+    }
+
+    /** A lazy holder's executor, created by its static initializer on first use inside a request. */
+    static final class LazyHolder {
+        static final ExecutorService POOL = Executors.newSingleThreadExecutor();
+
+        private LazyHolder() {}
+    }
+
+    /** A bean whose constructor creates an executor and keeps it: a singleton's for the application's life. */
+    public static final class PoolBean {
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+
+        public PoolBean() {}
+    }
+
+    static void lazyHolder() throws Exception {
+        RECORDS.clear();
+        long request = request();
+        LazyHolder.POOL.submit(() -> 1).get();
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        LazyHolder.POOL.shutdown();
+        check(
+                "a lazy holder's executor created in its static initializer inside a request is a singleton's, never"
+                        + " left running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
+    static void lazySpringSingleton() throws Exception {
+        RECORDS.clear();
+        org.springframework.beans.factory.support.DefaultListableBeanFactory factory =
+                new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        org.springframework.beans.factory.support.RootBeanDefinition definition =
+                new org.springframework.beans.factory.support.RootBeanDefinition(PoolBean.class);
+        definition.setLazyInit(true);
+        factory.registerBeanDefinition("poolBean", definition);
+        long request = request();
+        PoolBean bean = factory.getBean(PoolBean.class);
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        bean.pool.shutdown();
+        check(
+                "a lazy Spring singleton bean's executor created on first use inside a request is a singleton's, never"
+                        + " left running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
+    static void springPrototype() throws Exception {
+        RECORDS.clear();
+        org.springframework.beans.factory.support.DefaultListableBeanFactory factory =
+                new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        org.springframework.beans.factory.support.RootBeanDefinition definition =
+                new org.springframework.beans.factory.support.RootBeanDefinition(PoolBean.class);
+        definition.setScope(org.springframework.beans.factory.config.BeanDefinition.SCOPE_PROTOTYPE);
+        factory.registerBeanDefinition("poolBean", definition);
+        long request = request();
+        PoolBean bean = factory.getBean(PoolBean.class);
+        endRequest(request);
+        long[] left = await(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING));
+        bean.pool.shutdown();
+        check(
+                "a Spring prototype bean's executor created for a request and never shut down is still left running ("
+                        + describe(RECORDS) + ")",
+                left != null && !isStatic(left) && left[SideEffects.R_REQUEST] == request);
+    }
+
+    static void lazyArcSingleton() throws Exception {
+        RECORDS.clear();
+        io.quarkus.arc.impl.ItSingletonContext context = new io.quarkus.arc.impl.ItSingletonContext();
+        long request = request();
+        PoolBean bean = context.get("pool-bean", PoolBean.class, PoolBean::new);
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        bean.pool.shutdown();
+        check(
+                "an ArC singleton bean's executor created on first use inside a request is a singleton's, never left"
+                        + " running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
     }
 
     static void libraryThread() throws Exception {
@@ -436,6 +522,10 @@ public final class ThreadActivityBehaviors {
 
     static int detail(long[] record) {
         return (int) (record[SideEffects.R_FLAGS] >>> 32);
+    }
+
+    static boolean isStatic(long[] record) {
+        return (detail(record) & ThreadActivity.DETAIL_STATIC) != 0;
     }
 
     static int origin(long[] record) {

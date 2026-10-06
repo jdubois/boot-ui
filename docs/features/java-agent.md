@@ -72,7 +72,7 @@ best-effort.
 
 ## Switching opt-in sensors at run time
 
-The opt-in sensors, `threads`, `files`, and `environment`, can be switched on and off for the running application
+The opt-in sensors, `threads`, `files`, `environment`, and `thread-activity`, can be switched on and off for the running application
 without a restart, from the panel's **Opt-in sensors** card or from each opt-in sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
@@ -919,10 +919,10 @@ whose starting frame is in `java.util.concurrent` (the per-task threads `Complet
 common pool has fewer than two threads) are pool workers too.
 
 **Origin.** One bounded walk of at most 64 frames skips the threading API's own frames (`Thread`, its builders,
-`kotlin.concurrent`, and for an executor its constructors and the `Executors` factories) to find who started or
-created it. When that is the JDK, as for a `java.util.Timer`, an `HttpClient`, or the executors `CompletableFuture`
-and virtual threads create lazily, or when a static initializer created it, the row's origin is `jdk` or a static
-singleton's, and it is never tracked. Otherwise the first frame outside the JDK decides, as for the `threads` sensor:
+`java.util.Timer`, `kotlin.concurrent`, and for an executor its constructors and the `Executors` factories) to find who
+started or created it, so a `java.util.Timer` is its caller's: the application's when the application created it. When
+the creator is the JDK, as for an `HttpClient`, or the executors `CompletableFuture` and virtual threads create lazily,
+the row's origin is `jdk`; when a singleton is being created, it is marked a singleton's. Neither is ever tracked. Otherwise the first frame outside the JDK decides, as for the `threads` sensor:
 in the application's packages, `application`; else `library`, as a framework's pool, a client, a Hikari pool started
 lazily inside a repository call, Tomcat's `AsyncContext.start`, or Spring's `@Async` executor. Library and JDK rows are
 grouped apart in the panel. The JDK's own singletons (an innocuous thread, `process reaper`, `Keep-Alive-Timer`,
@@ -937,8 +937,13 @@ never ends: what it started stops waiting after 10 minutes, counted), so a
 thread still unwinding as the response completes is not reported: a thread still alive then, or an executor not shut
 down, was so when the response was complete, and is reported once as **left running**. A thread started after its
 request ended is not waited for, when that end was written; one whose request's end never comes stops waiting after
-10 minutes, counted. A static initializer anywhere on the starting stack, as a lazily created singleton's first use
-inside a request, makes it a singleton, never tracked. An
+10 minutes, counted. A singleton's creation anywhere on the starting stack makes it a singleton's, never tracked: a
+static initializer, as a lazy holder's first use inside a request, Spring's `DefaultSingletonBeanRegistry.getSingleton`,
+as a `@Lazy` singleton or an `ObjectProvider` lookup creating its bean on first use, and ArC's shared contexts, which
+create `@ApplicationScoped` and `@Singleton` beans on first use, again after each Quarkus live reload. Request-scoped and
+prototype beans are created through neither, so what they start is still tracked. The panel says when threads were not
+checked because their request's end never came or was lost, and when tracked threads or executors were dropped because
+the sensor was switched off. An
 executor's shutdown lands on its creation's row with its lifetime; one the collector reclaims without a shutdown, or
 that the JDK's cleaner shuts down because nothing references it (`newSingleThreadExecutor`), is counted as reclaimed.
 
@@ -950,7 +955,10 @@ and published by the drain thread. The sensor is opt-in until a same-runner A/B 
 route that starts a thread and creates an executor per request shows its own median increment at most 3 % and the
 cumulative median at most 10 % (the `agent-overhead-thread-activity` job of `build.yml`). The first run measured 11.5 %
 for its own increment and 16.6 % cumulative, on a route that starts a thread and creates an executor on every request,
-so it stays opt-in. Add `thread-activity` to `bootui.agent.sensors` to record it.
+so it stays opt-in. Add `thread-activity` to `bootui.agent.sensors` to record it, or switch it on at run time from the
+Java Agent or Side Effects panel, as `files` and `environment` are: it has its own transformer, so switching it
+retransforms only `Thread` and the executors, and switching another side-effect sensor neither retransforms them nor
+drops what it waits to check. A thread started or an executor created before it was switched on is not tracked.
 
 Each hook is self-tested on the sensor's own thread: a platform thread started and joined, from JDK 21 a virtual thread,
 a `ThreadPoolExecutor` running one task then shut down and another shut down at once, a `ForkJoinPool` shut down, and,
@@ -1396,7 +1404,7 @@ The Side Effects panel shows what application code starts outside the JVM or tou
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus, except
-that an opt-in sensor's section (`files`, `environment`) carries its [runtime
+that an opt-in sensor's section (`files`, `environment`, `thread-activity`) carries its [runtime
 switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
 with `bootui.agent.sensors` as the other way to turn it on.
 
@@ -1411,7 +1419,7 @@ The panel has one tab per sensor group:
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
 | Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in or it is switched on. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
-| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` records when `bootui.agent.sensors` opts in (see [the thread-activity sensor](#the-thread-activity-sensor)); `thread-locals` and `resources` are `not-available`: Not available in this version. |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` records when `bootui.agent.sensors` opts in or it is switched on (see [the thread-activity sensor](#the-thread-activity-sensor)); `thread-locals` and `resources` are `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |
 

@@ -70,6 +70,24 @@ class ThreadTrackerTests {
     }
 
     @Test
+    void clearingCountsWhatWasStillTrackedAsDropped() {
+        ExecutorService executor = Executors.newFixedThreadPool(1);
+        try {
+            assertThat(track(executor, false, REQUEST)).isTrue();
+            assertThat(track(new Object(), false, REQUEST)).isTrue();
+
+            tracker.clear();
+
+            assertThat(tracker.size()).isZero();
+            assertThat(tracker.dropped.sum()).isEqualTo(2L);
+            tracker.clear();
+            assertThat(tracker.dropped.sum()).as("nothing left to drop").isEqualTo(2L);
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
     void anExecutorNotShutDownWhenItsRequestEndsIsReportedThenItsShutdownLandsOnItsCreation() {
         ExecutorService leaked = Executors.newFixedThreadPool(1);
         ExecutorService closed = Executors.newFixedThreadPool(1);

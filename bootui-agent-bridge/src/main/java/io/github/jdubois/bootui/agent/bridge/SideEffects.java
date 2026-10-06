@@ -2117,7 +2117,16 @@ public final class SideEffects {
 
     /** As {@link #owner(CodePaths.Frame, Claim, boolean)}, capturing an owner the slot does not name only when asked. */
     static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
-        Owner owner = new Owner();
+        return owner(new Owner(), frame, claim, threadName, capture);
+    }
+
+    /** As {@link #owner(CodePaths.Frame, Claim, boolean, boolean)}, into {@code owner}, every field rewritten. */
+    static Owner owner(Owner owner, CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
+        owner.request = 0L;
+        owner.execution = 0L;
+        owner.executionKind = 0;
+        owner.threadName = 0;
+        owner.slot = false;
         Thread thread = Thread.currentThread();
         owner.threadKind = ThreadPropagation.isVirtual(thread) ? THREAD_VIRTUAL : THREAD_PLATFORM;
         owner.generation = claim.generation;
@@ -3698,8 +3707,10 @@ public final class SideEffects {
 
     /** The agent disables the sensors of {@code bits}: their self-test failed, or their transformer was removed. */
     public static void disable(int bits, String reason) {
+        boolean threadsLeave = (bits & enabled & MASK_THREADS) != 0;
         enabled &= ~bits;
-        if ((bits & MASK_THREADS) != 0) {
+        if (threadsLeave) {
+            // Only when thread-activity itself stops: another sensor's reinstall keeps its pending checks.
             ThreadActivity.disabled();
         }
         if ((bits & MASK_NETWORK) != 0) {

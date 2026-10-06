@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  (`threads`, `files`, `environment`, `thread-activity`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context

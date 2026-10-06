@@ -421,7 +421,9 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 // The thread that finished starting may hold the end of startup's records in its table (M5-7b).
                 access.sideEffectsFlushThread();
-                threadActivityClaim = claim.sensors().threadActivity() ? claim : null;
+                // Whatever the claim asked for: thread-activity can be switched on at run time, and the bridge
+                // ignores a request's end while the sensor is off, with one volatile read.
+                threadActivityClaim = access.threadActivitySupported() ? claim : null;
                 run = new Run(claim, clock.getAsLong());
                 publish(run);
                 run.start();
@@ -1290,12 +1292,30 @@ public final class SideEffectsService implements AutoCloseable {
                 limitations.add(LIMITATION_CALL_SITES_FAILED);
             }
         }
-        if (current != null && current.claim.sensors().threadActivity()) {
-            long untracked = sensorCounter(AgentSensorSettings.THREAD_ACTIVITY, "untracked");
+        if (current != null && current.claim.uses(AgentSensorSettings.THREAD_ACTIVITY)) {
+            Map<String, Object> counters = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
+            long untracked = counter(counters, "untracked");
             if (untracked > 0) {
                 limitations.add(untracked + (untracked == 1 ? " thread or executor was" : " threads or executors were")
                         + " not tracked: the sensor tracks at most 1,024 threads waiting for their request's end and"
                         + " 1,024 executors at a time, so what they left running is not reported.");
+            }
+            long unresolved = counter(counters, "unresolved");
+            if (unresolved > 0) {
+                limitations.add(unresolved + (unresolved == 1 ? " thread was" : " threads were")
+                        + " not checked: their request's end never reached the sensor within 10 minutes, so whether"
+                        + " they outlived it is unknown.");
+            }
+            long endsLost = counter(counters, "requestEndsLost");
+            if (endsLost > 0) {
+                limitations.add(endsLost + (endsLost == 1 ? " request's end was" : " requests' ends were")
+                        + " lost: more requests ended at once than the sensor holds, so their threads are checked"
+                        + " only at their timeout.");
+            }
+            long dropped = counter(counters, "dropped");
+            if (dropped > 0) {
+                limitations.add(dropped + (dropped == 1 ? " thread or executor was" : " threads or executors were")
+                        + " dropped unchecked when the thread-activity sensor was switched off or released.");
             }
         }
         if (read.shown() && !read.requests()) {
@@ -1340,6 +1360,20 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     /** A side-effect sensor's counter in the bridge's status, 0 when absent. */
+    /** The bridge's counters of {@code sensor}, read once; empty when it reports none. */
+    private Map<String, Object> sensorCounters(String sensor) {
+        try {
+            return AgentBridgeAccess.map(access.status(), sensor);
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+    }
+
+    private static long counter(Map<String, Object> counters, String name) {
+        Object value = counters.get(name);
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
     private long sensorCounter(String sensor, String name) {
         try {
             Object value = AgentBridgeAccess.map(access.status(), sensor).get(name);

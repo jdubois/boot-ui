@@ -96,6 +96,8 @@ final class ThreadTracker {
     final LongAdder afterEnd = new LongAdder();
     final LongAdder endsLost = new LongAdder();
     final LongAdder endsChecked = new LongAdder();
+    /** Threads and executors still tracked when the sensor was disabled or released: never checked. */
+    final LongAdder dropped = new LongAdder();
 
     /**
      * What the sensor recorded of a tracked thread or executor, copied into what a check reports: its record's owner,
@@ -431,10 +433,11 @@ final class ThreadTracker {
         return waiting;
     }
 
-    /** Forgets everything: a new claim generation, the sensor disabled, or tests. */
+    /** Forgets everything, counting what was still tracked as dropped: the sensor disabled or released, or tests. */
     void clear() {
         lock.lock();
         try {
+            dropped.add(threads + executors);
             reset(Long.MIN_VALUE);
             generation = Long.MIN_VALUE;
             endsRead = endsWritten.get();

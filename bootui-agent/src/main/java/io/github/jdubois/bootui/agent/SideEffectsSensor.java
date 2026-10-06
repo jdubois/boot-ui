@@ -45,8 +45,8 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatchers;
 
 /**
- * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook, installed with the
- * hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
+ * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook but thread-activity's,
+ * which has its own, installed with the hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
  * in the bridge saying which sensors record ({@link SideEffects#enable}). {@value SideEffects#PROCESSES} hooks {@code
  * ProcessBuilder.start(Redirect[])}; {@value SideEffects#NETWORK} (M5-5b) hooks {@code Socket.connect}, {@code
  * SocketChannelImpl.connect}, {@code blockingConnect}, and {@code finishConnect}, {@code DatagramChannelImpl.send},
@@ -172,8 +172,14 @@ final class SideEffectsSensor {
     private final Set<String> omitted;
 
     private final TransformStats stats = new TransformStats();
+    /** The transformer of every side-effect sensor but thread-activity. */
     private volatile ResettableClassFileTransformer transformer;
-    /** The sensors the installed transformer carries the hooks of. */
+    /**
+     * The thread-activity sensor's own transformer (M5-5e), so switching another sensor never retransforms {@code
+     * java.lang.Thread} and the executors again, nor drops what the sensor waits to check.
+     */
+    private volatile ResettableClassFileTransformer threadTransformer;
+    /** The sensors the installed transformers carry the hooks of. */
     private volatile int installedMask;
     /** The sensors the current claim asks for. */
     private volatile int wantedMask;
@@ -213,11 +219,11 @@ final class SideEffectsSensor {
         }
         int effective = mask & ~failedSensors;
         // Only while no job runs: a release the worker is running would remove the hooks after this enabled them.
-        if (transformer != null && installedMask == effective && selfTestPassed && worker == null) {
+        if (installed() && installedMask == effective && selfTestPassed && worker == null) {
             SideEffects.enable(effective);
             return;
         }
-        if (effective == 0 && transformer == null) {
+        if (effective == 0 && !installed()) {
             return;
         }
         schedule(INSTALL);
@@ -249,6 +255,24 @@ final class SideEffectsSensor {
     /** Whether the worker has no job left. */
     synchronized boolean idle() {
         return worker == null && pending == 0;
+    }
+
+    /** Whether either transformer is installed. */
+    private boolean installed() {
+        return transformer != null || threadTransformer != null;
+    }
+
+    /** The groups whose installed transformer carries other hooks than {@code mask} asks for: reinstalled. */
+    private int stale(int mask) {
+        int stale = 0;
+        if (transformer != null && (installedMask & ~SideEffects.MASK_THREADS) != (mask & ~SideEffects.MASK_THREADS)) {
+            stale |= ~SideEffects.MASK_THREADS;
+        }
+        if (threadTransformer != null
+                && (installedMask & SideEffects.MASK_THREADS) != (mask & SideEffects.MASK_THREADS)) {
+            stale |= SideEffects.MASK_THREADS;
+        }
+        return stale;
     }
 
     /** The sensors the current claim asks for that have not failed. */
@@ -283,14 +307,15 @@ final class SideEffectsSensor {
             while ((job = nextJob()) != 0) {
                 int mask = effective();
                 try {
-                    if ((job & RELEASE) != 0 || (job & INSTALL) != 0 && transformer != null && installedMask != mask) {
-                        SideEffects.disable(installedMask, null);
-                        reset();
+                    // Only the transformer whose sensors changed is removed: switching files never retransforms
+                    // java.lang.Thread, nor switching thread-activity the files' classes.
+                    int stale = (job & RELEASE) != 0 ? -1 : (job & INSTALL) != 0 ? stale(mask) : 0;
+                    if (stale != 0) {
+                        SideEffects.disable(installedMask & stale, null);
+                        reset(stale);
                     }
                     if ((job & INSTALL) != 0 && !stuck && mask != 0) {
-                        if (transformer == null) {
-                            install(mask);
-                        }
+                        install(mask);
                         selfTest(mask, 1);
                     }
                 } catch (Throwable ex) {
@@ -305,16 +330,28 @@ final class SideEffectsSensor {
         }
     }
 
+    /** Installs the transformer of each group of {@code mask} not installed yet. */
     void install(int mask) {
+        int rest = mask & ~SideEffects.MASK_THREADS;
+        int threads = mask & SideEffects.MASK_THREADS;
+        if ((rest == 0 || transformer != null) && (threads == 0 || threadTransformer != null)) {
+            return;
+        }
         long started = System.nanoTime();
         state = "installing";
         selfTestMillis = -1;
         SideEffects.warm();
         startExitWorker();
-        InstallAction action = new InstallAction(mask, leftOut());
+        Set<String> left = leftOut();
         try {
-            transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
-            installedMask = mask;
+            if (rest != 0 && transformer == null) {
+                transformer = installed(new InstallAction(rest, left));
+                installedMask |= rest;
+            }
+            if (threads != 0 && threadTransformer == null) {
+                threadTransformer = installed(new InstallAction(threads, left));
+                installedMask |= threads;
+            }
         } finally {
             long elapsed = System.nanoTime() - started;
             stats.retransformedFor(elapsed);
@@ -334,28 +371,40 @@ final class SideEffectsSensor {
         return left;
     }
 
+    private ResettableClassFileTransformer installed(InstallAction action) {
+        return privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
+    }
+
+    /** Removes both transformers. */
     void reset() {
-        ResettableClassFileTransformer installed;
+        reset(-1);
+    }
+
+    /** Removes the transformers of the groups in {@code groups}, restoring the classes they transformed. */
+    void reset(int groups) {
+        ResettableClassFileTransformer rest = null;
+        ResettableClassFileTransformer threads = null;
         synchronized (this) {
-            installed = transformer;
-            transformer = null;
-            installedMask = 0;
+            if ((groups & ~SideEffects.MASK_THREADS) != 0) {
+                rest = transformer;
+                transformer = null;
+                installedMask &= SideEffects.MASK_THREADS;
+            }
+            if ((groups & SideEffects.MASK_THREADS) != 0) {
+                threads = threadTransformer;
+                threadTransformer = null;
+                installedMask &= ~SideEffects.MASK_THREADS;
+            }
             selfTestPassed = false;
         }
-        if (installed == null) {
+        if (rest == null && threads == null) {
             state = stuck ? "release-failed" : "released";
             return;
         }
         long started = System.nanoTime();
         boolean restored;
         try {
-            restored = installed.reset(
-                    instrumentation,
-                    AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
-                    AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
-                    new AgentBuilder.RedefinitionStrategy.Listener.Compound(
-                            AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
-                            stats.redefinitionFailures()));
+            restored = restore(rest) & restore(threads);
         } finally {
             stats.retransformedFor(System.nanoTime() - started);
         }
@@ -365,6 +414,17 @@ final class SideEffectsSensor {
             SideEffects.disable(-1, "the side-effect sensors' transformer could not be removed");
         }
         state = restored ? "released" : "release-failed";
+    }
+
+    private boolean restore(ResettableClassFileTransformer installed) {
+        return installed == null
+                || installed.reset(
+                        instrumentation,
+                        AgentBuilder.RedefinitionStrategy.RETRANSFORMATION,
+                        AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
+                        new AgentBuilder.RedefinitionStrategy.Listener.Compound(
+                                AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
+                                stats.redefinitionFailures()));
     }
 
     final class InstallAction implements PrivilegedAction<ResettableClassFileTransformer> {
@@ -683,6 +743,7 @@ final class SideEffectsSensor {
         selfTestSteps = steps;
         List<String> failed = new ArrayList<String>();
         int failedNow = 0;
+        int hit = 0;
         for (String[] hook : HOOKS) {
             int bit = SideEffects.bit(hook[3]);
             if ((mask & bit) == 0
@@ -695,6 +756,7 @@ final class SideEffectsSensor {
                 continue;
             }
             failed.add(hook[0]);
+            hit |= bit;
             if (CORE.equals(hook[4])) {
                 failedNow |= bit;
             }
@@ -728,8 +790,11 @@ final class SideEffectsSensor {
         state = "self-test-failed";
         selfTestError = error;
         selfTest = results;
-        SideEffects.disable(mask & ~failedNow, null);
-        reset();
+        // Only the transformer carrying a failed hook is reinstalled.
+        int groups = ((hit & SideEffects.MASK_THREADS) != 0 ? SideEffects.MASK_THREADS : 0)
+                | ((hit & ~SideEffects.MASK_THREADS) != 0 ? ~SideEffects.MASK_THREADS : 0);
+        SideEffects.disable(mask & ~failedNow & groups, null);
+        reset(groups);
         int remaining = effective();
         if (stuck) {
             state = "self-test-failed (release-failed)";
@@ -751,6 +816,8 @@ final class SideEffectsSensor {
                 }
             }
             SideEffects.disable(remaining, error);
+            // Every sensor is off for good now: the transformer a failed hook did not touch is removed too.
+            reset();
         }
         state = "self-test-failed";
     }

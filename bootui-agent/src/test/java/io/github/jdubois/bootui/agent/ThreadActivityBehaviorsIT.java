@@ -31,16 +31,49 @@ class ThreadActivityBehaviorsIT {
             "a thread the JDK starts for the application is the JDK's",
             "a java.util.Timer the application starts for a request is its own thread, left running",
             "a library's thread and executor on a request's thread are the library's",
+            "a lazy holder's executor created in its static initializer inside a request is a singleton's",
+            "a lazy Spring singleton bean's executor created on first use inside a request is a singleton's",
+            "a Spring prototype bean's executor created for a request and never shut down is still left running",
+            "an ArC singleton bean's executor created on first use inside a request is a singleton's",
             "starts no request owns are counted under the starting thread's family",
             "the sensor never keeps an executor",
             "BootUI's own threads and executors are never recorded");
+
+    /**
+     * Spring's bean factory and ArC, from this test's class path, for the lazy singleton counterexamples: the child's
+     * class path holds the test classes only otherwise.
+     */
+    private static final String CONTAINERS = java.util.Arrays.stream(
+                    System.getProperty("java.class.path").split(java.io.File.pathSeparator))
+            .filter(entry -> {
+                String name = java.nio.file.Path.of(entry).getFileName().toString();
+                return name.endsWith(".jar")
+                        && java.util.stream.Stream.of(
+                                        "spring-beans-",
+                                        "spring-core-",
+                                        "commons-logging-",
+                                        "jspecify-",
+                                        "arc-",
+                                        "jakarta.enterprise.",
+                                        "jakarta.inject-",
+                                        "jakarta.annotation-",
+                                        "jakarta.transaction-",
+                                        "jboss-logging-",
+                                        "mutiny-",
+                                        "smallrye-")
+                                .anyMatch(name::startsWith);
+            })
+            .collect(java.util.stream.Collectors.joining(java.io.File.pathSeparator));
+
+    private static ChildJvm.Output run(List<String> jvm, String mode) throws Exception {
+        return ChildJvm.runWithClassPath(jvm, CONTAINERS, "thread-activity-behaviors", mode);
+    }
 
     private static final String VIRTUAL = "a virtual thread a request started is recorded virtual and left running";
 
     @Test
     void theThreadActivityHooksRetransformTheirJdkClassesAndPassTheirSelfTests() throws Exception {
-        ChildJvm.Output output =
-                ChildJvm.run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "thread-activity-behaviors", "check");
+        ChildJvm.Output output = run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "check");
 
         assertThat(output.exitCode()).as(output.toString()).isZero();
         String selfTest = output.value("SELF_TEST_thread-activity");
@@ -75,15 +108,13 @@ class ThreadActivityBehaviorsIT {
 
     @Test
     void everyThreadActivityBehaviorPasses() throws Exception {
-        assertAllPass(
-                ChildJvm.run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "thread-activity-behaviors", "behaviors"));
+        assertAllPass(run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "behaviors"));
     }
 
     /** M5-2's executors and threads sensors transform Thread and the executors too: both keep working, both orders. */
     @Test
     void everyThreadActivityBehaviorPassesBesideThePropagationSensors() throws Exception {
-        ChildJvm.Output output = ChildJvm.run(
-                List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "thread-activity-behaviors", "beside-propagation");
+        ChildJvm.Output output = run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "beside-propagation");
         assertAllPass(output);
         assertThat(output.value("SELF_TEST_executors")).as(output.toString()).startsWith("true null");
         assertThat(output.value("SELF_TEST_threads")).as(output.toString()).startsWith("true null");
@@ -93,14 +124,14 @@ class ThreadActivityBehaviorsIT {
     void everyThreadActivityBehaviorPassesAfterOpenTelemetry() throws Exception {
         List<String> jvm = new ArrayList<>(List.of("-javaagent:" + OPENTELEMETRY, ChildJvm.javaAgent(ChildJvm.AGENT)));
         jvm.addAll(OPENTELEMETRY_OPTIONS);
-        assertAllPass(ChildJvm.run(jvm, "thread-activity-behaviors", "behaviors"));
+        assertAllPass(run(jvm, "behaviors"));
     }
 
     @Test
     void everyThreadActivityBehaviorPassesBeforeOpenTelemetry() throws Exception {
         List<String> jvm = new ArrayList<>(List.of(ChildJvm.javaAgent(ChildJvm.AGENT), "-javaagent:" + OPENTELEMETRY));
         jvm.addAll(OPENTELEMETRY_OPTIONS);
-        assertAllPass(ChildJvm.run(jvm, "thread-activity-behaviors", "behaviors"));
+        assertAllPass(run(jvm, "behaviors"));
     }
 
     private static void assertAllPass(ChildJvm.Output output) {
