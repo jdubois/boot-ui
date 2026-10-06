@@ -39,7 +39,9 @@ import java.util.function.ToLongFunction;
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
  *
- * <p>Version 11 distinguishes DML targets from read-side tables in observed edges. Earlier summaries keep their
+ * <p>Version 12 adds what the run did outside the JVM ({@link RunSideEffects}, M5-7b) after the executions, within its
+ * own byte budget of {@value #SIDE_EFFECTS_MAX_BYTES} bytes, trimmed per sensor before anything else; an earlier
+ * summary reads with none, never with an empty set. Version 11 distinguishes DML targets from read-side tables in observed edges. Earlier summaries keep their
  * original edges, but table edges from them cannot be compared with version 11's meaning. Version 10 keeps only
  * literal-free SQL display shapes; version 8 and 9 fingerprints are sanitized on read too.</p>
  */
@@ -47,14 +49,18 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 11;
+    private static final int VERSION = 12;
+
+    /** The most bytes a summary's side effects take, so they never crowd out the aggregates. */
+    static final int SIDE_EFFECTS_MAX_BYTES = 48 * 1024;
 
     private RunSummaryCodec() {}
 
     /** Encodes {@code summary} within {@code maxBytes}, leaving out its least-used entries if it must. */
     static byte[] encode(RunSummary summary, int maxBytes) {
         AggregatesSnapshot full = summary.aggregates();
-        byte[] bytes = encode(summary.header(), full, 0, 0);
+        RunSideEffects sideEffects = fitSideEffects(summary.sideEffects(), SIDE_EFFECTS_MAX_BYTES);
+        byte[] bytes = encode(summary.header(), full, 0, 0, sideEffects);
         int limit = largestDimension(full);
         while (bytes.length > maxBytes && limit > 0) {
             limit /= 2;
@@ -63,7 +69,8 @@ final class RunSummaryCodec {
                     summary.header(),
                     kept,
                     entries(full) - entries(kept),
-                    full.edges().size() - kept.edges().size());
+                    full.edges().size() - kept.edges().size(),
+                    sideEffects);
         }
         if (bytes.length > maxBytes) {
             throw new IllegalArgumentException("A run summary needs at least " + bytes.length + " bytes");
@@ -101,7 +108,7 @@ final class RunSummaryCodec {
                 in.list(() -> new ThreadFamilyStats(in.string(), in.sourceMap(), in.sourceMap()));
         List<ObservedEdge> edges = in.edges();
         Map<String, Long> overflowed = in.stringMap();
-        if (in.version < VERSION) {
+        if (in.version < 11) {
             overflowed = new LinkedHashMap<>(overflowed);
             overflowed.put(JournalAggregates.LEGACY_TABLE_EDGES, 1L);
         }
@@ -109,6 +116,7 @@ final class RunSummaryCodec {
         List<ExecutionStats> executions = in.version >= 9
                 ? in.list(() -> new ExecutionStats(In.SOURCES.get(in.string()), in.route()))
                 : List.of();
+        RunSideEffects sideEffects = in.version >= 12 ? in.sideEffects() : null;
         return new RunSummary(
                 header,
                 new AggregatesSnapshot(
@@ -121,7 +129,8 @@ final class RunSummaryCodec {
                         run,
                         overflowed,
                         executions,
-                        executionsRecorded));
+                        executionsRecorded),
+                sideEffects);
     }
 
     private static RouteStats readRoute(In in) {
@@ -152,7 +161,11 @@ final class RunSummaryCodec {
     }
 
     private static byte[] encode(
-            RunSummary.Header header, AggregatesSnapshot aggregates, int omitted, int omittedEdges) {
+            RunSummary.Header header,
+            AggregatesSnapshot aggregates,
+            int omitted,
+            int omittedEdges,
+            RunSideEffects sideEffects) {
         Out body = new Out();
         RunStats run = aggregates.run();
         body.sourceMap(run.events());
@@ -216,6 +229,7 @@ final class RunSummaryCodec {
             body.string(execution.source() == null ? null : execution.source().propertyName());
             writeRoute(body, execution.stats());
         }
+        body.sideEffects(sideEffects);
 
         Out out = new Out();
         out.fixedInt(MAGIC);
@@ -275,6 +289,63 @@ final class RunSummaryCodec {
         body.number(orm.entityRequests());
         body.number(orm.entities());
         body.histogram(orm.time());
+    }
+
+    /**
+     * {@code sideEffects} within {@code maxBytes}: each sensor's least frequent keys left out, halving how many are kept
+     * until it fits, and counted in that sensor's omitted keys, so a comparison knows the kept keys are a subset.
+     */
+    static RunSideEffects fitSideEffects(RunSideEffects sideEffects, int maxBytes) {
+        if (sideEffects == null || sideEffectsBytes(sideEffects) <= maxBytes) {
+            return sideEffects;
+        }
+        Map<String, Integer> perSensor = new LinkedHashMap<>();
+        sideEffects.keys().forEach(key -> perSensor.merge(key.sensor(), 1, Integer::sum));
+        int limit =
+                perSensor.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        RunSideEffects kept = sideEffects;
+        while (limit > 0 && sideEffectsBytes(kept) > maxBytes) {
+            limit /= 2;
+            kept = keepTop(sideEffects, limit);
+        }
+        return kept;
+    }
+
+    private static RunSideEffects keepTop(RunSideEffects sideEffects, int limit) {
+        Map<String, Integer> kept = new HashMap<>();
+        Map<String, Long> omitted = new HashMap<>();
+        List<RunSideEffects.Key> keys = new ArrayList<>();
+        List<RunSideEffects.Key> sorted = new ArrayList<>(sideEffects.keys());
+        sorted.sort(Comparator.comparingLong(RunSideEffects.Key::count).reversed());
+        for (RunSideEffects.Key key : sorted) {
+            int count = kept.getOrDefault(key.sensor(), 0);
+            if (count < limit) {
+                kept.put(key.sensor(), count + 1);
+                keys.add(key);
+            } else {
+                omitted.merge(key.sensor(), 1L, Long::sum);
+            }
+        }
+        List<RunSideEffects.Sensor> sensors = new ArrayList<>();
+        for (RunSideEffects.Sensor sensor : sideEffects.sensors()) {
+            sensors.add(new RunSideEffects.Sensor(
+                    sensor.id(),
+                    sensor.reason(),
+                    sensor.startupReason(),
+                    sensor.omittedKeys() + omitted.getOrDefault(sensor.id(), 0L)));
+        }
+        return new RunSideEffects(sideEffects.unavailableReason(), sideEffects.routesHidden(), sensors, keys);
+    }
+
+    /** The bytes {@code sideEffects} takes alone, its strings included as if none were shared. */
+    static int sideEffectsBytes(RunSideEffects sideEffects) {
+        Out out = new Out();
+        out.sideEffects(sideEffects);
+        int bytes = out.bytes.size();
+        for (String text : out.table.keySet()) {
+            bytes += text.getBytes(StandardCharsets.UTF_8).length + 2;
+        }
+        return bytes;
     }
 
     /** The most entries any aggregate or nested count holds, where trimming starts halving. */
@@ -566,6 +637,34 @@ final class RunSummaryCodec {
             });
         }
 
+        /** A run's side effects, {@code 0} for none (M5-7b). */
+        void sideEffects(RunSideEffects sideEffects) {
+            if (sideEffects == null) {
+                number(0);
+                return;
+            }
+            number(1);
+            string(sideEffects.unavailableReason());
+            number(sideEffects.routesHidden() ? 1 : 0);
+            number(sideEffects.sensors().size());
+            for (RunSideEffects.Sensor sensor : sideEffects.sensors()) {
+                string(sensor.id());
+                string(sensor.reason());
+                string(sensor.startupReason());
+                number(sensor.omittedKeys());
+            }
+            number(sideEffects.keys().size());
+            for (RunSideEffects.Key key : sideEffects.keys()) {
+                string(key.sensor());
+                string(key.kind());
+                string(key.target());
+                string(key.scope());
+                string(key.owner());
+                string(key.client());
+                number(key.count());
+            }
+        }
+
         void histogram(LatencyHistogram histogram) {
             number(histogram.count());
             number(histogram.totalMicros());
@@ -618,7 +717,7 @@ final class RunSummaryCodec {
                 magic = (magic << 8) | (next() & 0xFF);
             }
             version = next();
-            if (magic != MAGIC || (version != VERSION && version != 10 && version != 9 && version != 8)) {
+            if (magic != MAGIC || version < 8 || version > VERSION) {
                 throw new IllegalArgumentException("Not a supported run summary (versions 8 to " + VERSION + ")");
             }
             return new RunSummary.Header(
@@ -785,6 +884,41 @@ final class RunSummaryCodec {
             } catch (IllegalArgumentException ex) {
                 return null;
             }
+        }
+
+        /** A run's side effects, {@code null} for none; a key missing a part is skipped. */
+        RunSideEffects sideEffects() {
+            if (number() == 0) {
+                return null;
+            }
+            String unavailable = string();
+            boolean routesHidden = number() != 0;
+            int sensorCount = (int) number();
+            List<RunSideEffects.Sensor> sensors = new ArrayList<>(Math.max(0, sensorCount));
+            for (int i = 0; i < sensorCount; i++) {
+                String id = string();
+                String reason = string();
+                String startupReason = string();
+                long omitted = number();
+                if (id != null) {
+                    sensors.add(new RunSideEffects.Sensor(id, reason, startupReason, omitted));
+                }
+            }
+            int keyCount = (int) number();
+            List<RunSideEffects.Key> keys = new ArrayList<>(Math.max(0, keyCount));
+            for (int i = 0; i < keyCount; i++) {
+                String sensor = string();
+                String kind = string();
+                String target = string();
+                String scope = string();
+                String owner = string();
+                String client = string();
+                long count = number();
+                if (sensor != null && kind != null && target != null && scope != null && owner != null) {
+                    keys.add(new RunSideEffects.Key(sensor, kind, target, scope, owner, client, count));
+                }
+            }
+            return new RunSideEffects(unavailable, routesHidden, sensors, keys);
         }
 
         LatencyHistogram histogram() {

@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.core.dto.CodePathsReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRequestTreeReport;
 import io.github.jdubois.bootui.core.dto.CodePathsRouteTreeReport;
 import io.github.jdubois.bootui.core.dto.RuntimeAgentEvidenceDto;
+import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangesDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsAgentReport;
 import io.github.jdubois.bootui.core.dto.SideEffectsReport;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorReport;
@@ -62,7 +63,9 @@ class AgentEvidenceExportRulesTests {
             ClassInvocation.class,
             SideEffectsReport.class,
             SideEffectsSensorReport.class,
-            SideEffectsAgentReport.class);
+            SideEffectsAgentReport.class,
+            RuntimeSideEffectChangesDto.class,
+            RunSideEffects.class);
 
     /** Every field, each reviewed as metadata. */
     private static final Set<String> METADATA = Set.of(
@@ -142,6 +145,45 @@ class AgentEvidenceExportRulesTests {
             "SideEffectsReport.limitations",
             "SideEffectsReport.sensors",
             "SideEffectsReport.unavailableReason",
+            // Side effects in the run comparison and the run summary (M5-7b, D45): the same targets and owners as
+            // Side Effects rows, masked again, never a value; per-sensor verdicts and counts; sentences BootUI wrote.
+            "RuntimeSideEffectChangesDto.available",
+            "RuntimeSideEffectChangesDto.unavailableReason",
+            "RuntimeSideEffectChangesDto.partial",
+            "RuntimeSideEffectChangesDto.sensors",
+            "RuntimeSideEffectChangesDto.changes",
+            "RuntimeSideEffectChangesDto.changesTotal",
+            "RuntimeSideEffectChangesDto.limitations",
+            "RuntimeSideEffectSensorDto.sensor",
+            "RuntimeSideEffectSensorDto.status",
+            "RuntimeSideEffectSensorDto.reason",
+            "RuntimeSideEffectSensorDto.added",
+            "RuntimeSideEffectSensorDto.removed",
+            "RuntimeSideEffectSensorDto.notExercised",
+            "RuntimeSideEffectChangeDto.sensor",
+            "RuntimeSideEffectChangeDto.kind",
+            "RuntimeSideEffectChangeDto.target",
+            "RuntimeSideEffectChangeDto.scope",
+            "RuntimeSideEffectChangeDto.owner",
+            "RuntimeSideEffectChangeDto.change",
+            "RuntimeSideEffectChangeDto.client",
+            "RuntimeSideEffectChangeDto.count",
+            "RuntimeSideEffectChangeDto.sentence",
+            "RunSideEffects.unavailableReason",
+            "RunSideEffects.routesHidden",
+            "RunSideEffects.sensors",
+            "RunSideEffects.keys",
+            "Sensor.id",
+            "Sensor.reason",
+            "Sensor.startupReason",
+            "Sensor.omittedKeys",
+            "Key.sensor",
+            "Key.kind",
+            "Key.target",
+            "Key.scope",
+            "Key.owner",
+            "Key.client",
+            "Key.count",
             // Network (M5-5b): a host and port or a looked-up name, never a byte; a client label BootUI wrote; how a
             // panel captures it and that panel's id.
             "SideEffectsRowDto.attribution",

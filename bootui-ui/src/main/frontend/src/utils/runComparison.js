@@ -149,3 +149,65 @@ export function codeChangeRow(method) {
     note: method.routesNote ?? null
   }
 }
+
+const SIDE_EFFECT_SENSORS = {
+  network: 'Network',
+  files: 'Files',
+  processes: 'Processes',
+  environment: 'Environment'
+}
+
+const SIDE_EFFECT_STATUS = {
+  COMPARED: 'compared',
+  PARTIAL: 'partly compared',
+  NOT_COMPARED: 'not compared'
+}
+
+const SIDE_EFFECT_MARKERS = {
+  ADDED: {icon: 'bi-plus-lg', label: 'New'},
+  REMOVED: {icon: 'bi-dash-lg', label: 'Gone'},
+  NOT_EXERCISED: {icon: 'bi-question-lg', label: 'Not exercised'}
+}
+
+/**
+ * What changed outside the JVM (M5-7b), or null when the response carries none: whether side effects were compared,
+ * why not, each sensor with its status and counts, and each new, gone, or not exercised key as a row.
+ */
+export function sideEffectChanges(comparison) {
+  const changes = comparison?.sideEffects
+  if (!changes || typeof changes.available !== 'boolean') return null
+  if (!changes.available) return {available: false, reason: changes.unavailableReason ?? '', sensors: [], rows: []}
+  return {
+    available: true,
+    reason: null,
+    partial: Boolean(changes.partial),
+    // "Nothing changed" only when a sensor was compared and no row was withheld.
+    settled: !changes.partial && (changes.sensors ?? []).some((sensor) => sensor.status === 'COMPARED'),
+    sensors: (changes.sensors ?? []).map(sideEffectSensor),
+    rows: (changes.changes ?? []).map((change, index) => ({
+      key: `${change.change}-${change.sensor}-${change.owner}-${change.kind}-${change.target}-${index}`,
+      change: change.change,
+      marker: SIDE_EFFECT_MARKERS[change.change] ?? changeMarker(change.change),
+      sentence: change.sentence
+    })),
+    more: Math.max(0, (changes.changesTotal ?? 0) - (changes.changes?.length ?? 0)),
+    limitations: changes.limitations ?? []
+  }
+}
+
+/** One sensor of the side-effects comparison, such as "Network · compared · 1 new · 1 gone". */
+export function sideEffectSensor(sensor) {
+  const parts = [SIDE_EFFECT_STATUS[sensor.status] ?? String(sensor.status ?? '').toLowerCase()]
+  if (sensor.status !== 'NOT_COMPARED') {
+    if (sensor.added > 0) parts.push(`${formatNumber(sensor.added)} new`)
+    if (sensor.removed > 0) parts.push(`${formatNumber(sensor.removed)} gone`)
+    if (sensor.notExercised > 0) parts.push(`${formatNumber(sensor.notExercised)} not exercised`)
+  }
+  return {
+    id: sensor.sensor,
+    label: SIDE_EFFECT_SENSORS[sensor.sensor] ?? sensor.sensor,
+    compared: sensor.status !== 'NOT_COMPARED',
+    summary: parts.join(' · '),
+    reason: sensor.reason ?? null
+  }
+}

@@ -387,10 +387,11 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
 3. Call `bootui insights list --query repeated-selects --json`, then `bootui insights compare --json`
    (`get_runtime_run_comparison`, optional `id`), and stop. With the BootUI agent, its `codeChanges` come first: read
-   any changed method still `NEVER_EXECUTED` before anything else, and follow
-   [Verify that a change ran, then probe](#verify-that-a-change-ran-then-probe). The default list leaves repeated SELECTs out, so
-   that query is how to see whether a repeat is gone; a statement repeated after the handler returned is reported by
-   `--query lazy-sql-after-handler` instead, with its cause. Omitted `id` or `previous` selects the
+   any changed method still `NEVER_EXECUTED` before anything else, then any `sideEffects` change marked `ADDED`
+   (a new host, file, process, or variable name), trusting only sensors whose status is `COMPARED`, and follow
+   [Verify that a change ran, then probe](#verify-that-a-change-ran-then-probe). The default list leaves repeated
+   SELECTs out, so that query is how to see whether a repeat is gone; a statement repeated after the handler returned
+   is reported by `--query lazy-sql-after-handler` instead, with its cause. Omitted `id` or `previous` selects the
    newest kept run, including listener-only and idle runs; `runs` lists the kept run ids. A new statement fingerprint
    or a higher statement count per request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and
    `NOT_COMPARABLE` are not passes, never edit from a latency row, and a missing observation is not proof that a

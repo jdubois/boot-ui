@@ -1281,6 +1281,10 @@ route, background work, startup, or thread family. It needs the [BootUI agent](#
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus.
 
+Runtime Insights' [run comparison](overview.md#runtime-insights) reads these rows too: under **Outside the JVM**, it
+lists the hosts, file patterns, processes, and variable names a route, a job, or startup uses now and did not in the
+previous run, or no longer uses, for each sensor that recorded the whole of both runs.
+
 The panel has one tab per sensor group:
 
 | Tab | Sensors | State in this version |

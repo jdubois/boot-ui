@@ -160,6 +160,8 @@ public class RuntimeInsightsController {
             CodeInventoryService inventory = codeInventory.getIfUnique();
             return inventory == null ? null : inventory.lookup(type, name);
         });
+        // What changed outside the JVM since the previous run, from Side Effects (M5-7b).
+        this.comparison.setSideEffects(sideEffects::getIfUnique);
         this.comparison.setCodeChanges(
                 () -> {
                     CodeInventoryService inventory = codeInventory.getIfUnique();
