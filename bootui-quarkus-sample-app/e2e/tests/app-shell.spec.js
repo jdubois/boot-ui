@@ -193,13 +193,13 @@ test.describe('BootUI app shell (Quarkus)', () => {
     await expect(page.locator('main h2').filter({hasText: /^Scorecard/})).toBeVisible()
   })
 
-  test('the Java agent group lists the agent panels whether or not the agent is attached', async ({page}) => {
+  test('the Instrumentation group lists the agent panels whether or not the agent is attached', async ({page}) => {
     await page.goto('/bootui/')
 
     // Code Paths, Code Inventory, and Side Effects need the BootUI agent. Without it they are unavailable, but they
-    // stay in the Java agent group, dimmed with their reason, instead of moving into "Disabled / unavailable".
-    await page.getByRole('button', {name: /Java agent\s+4/}).click()
-    await expect(page.getByRole('group', {name: 'Java agent panels'}).locator('.bootui-nav-link__label')).toHaveText([
+    // stay in the Instrumentation group, dimmed with their reason, instead of moving into "Disabled / unavailable".
+    await page.getByRole('button', {name: /Instrumentation\s+4/}).click()
+    await expect(page.getByRole('group', {name: 'Instrumentation panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Java Agent',
       'Code Paths',
       'Code Inventory',
