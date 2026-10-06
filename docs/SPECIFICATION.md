@@ -795,8 +795,8 @@ Data sources:
   when opted in. The `thread-locals`, `resources`, and `security-sinks` sensors are still listed but report
   `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
-  context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended or the connection
-  closed), for the `thread-activity` sensor to check what the request left running.
+  context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
+  `thread-activity` sensor to check what the request left running.
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
 - The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a

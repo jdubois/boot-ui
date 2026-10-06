@@ -892,9 +892,9 @@ grouped apart in the panel. The JDK's own singletons (an innocuous thread, `proc
 **Left running.** A thread the application's code started for a request, and an executor it created for a request or
 an execution, are tracked weakly, at most 1,024 threads and 1,024 executors at a time (the panel says when one was not
 tracked): nothing the sensor holds keeps a thread, an executor, or a class loader alive. Each adapter tells the engine when a request's response is complete (Spring MVC once its async
-context completed, Spring WebFlux when its chain terminates, Quarkus when the response body ended or the connection
-closed); while a tracked thread or executor waits for its request's end, the end is written into a lock-free ring, and
-the agent's drain thread checks it 250 ms later, so a
+context completed, Spring WebFlux when its chain terminates, Quarkus when the response body ended); while a tracked thread or executor waits for its request's end, the end is written into a lock-free ring, and
+the agent's drain thread checks it 250 ms later (a Quarkus request whose connection closed before its response ended
+never ends: what it started stops waiting after 10 minutes, counted), so a
 thread still unwinding as the response completes is not reported: a thread still alive then, or an executor not shut
 down, was so when the response was complete, and is reported once as **left running**. A thread started after its
 request ended is not waited for, when that end was written; one whose request's end never comes stops waiting after
