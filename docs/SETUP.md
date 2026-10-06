@@ -126,6 +126,7 @@ Everything below is optional.
 | Understand when BootUI turns on, or keep it out of your prod build | [Activation and safety](setup/activation.md)                     |
 | Run BootUI on WebFlux or Quarkus                                   | [Spring WebFlux](setup/webflux.md) · [Quarkus](setup/quarkus.md) |
 | Run inside Docker, or in a command-line app                        | [Non-standard runtimes](setup/environments.md)                   |
+| See which methods ran, and whether your change did                 | [Java agent](setup/java-agent.md)                                |
 | Fix something that is not working                                  | [Troubleshooting](setup/troubleshooting.md)                      |
 | Look up a property                                                 | [Property reference](PROPERTIES.md)                              |
 | See what each panel does                                           | [Features](features/README.md)                                   |

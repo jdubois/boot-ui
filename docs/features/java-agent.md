@@ -826,6 +826,10 @@ budget, its later sinks are not checked, so a `files` or `processes` row may the
 value; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
 empty between requests, is not evidence.
 
+**Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
+request), matching added 2.6 % to the same sensors without it (median of 15 pairs), and the run with every sensor,
+`files` included, measured 10.9 % against no agent, above the 10 % budget; matching stays opt-in.
+
 **False positives.** A value that sits outside an SQL literal, or that is made of digits only, may be a word the text
 always holds, as a value equal to a column name. Such a match is shown only once a second request produced a different
 raw text with the same redacted text, which shows the text varies with the value; until then the panel counts it as not
@@ -1367,6 +1371,10 @@ The Side Effects panel shows what application code starts outside the JVM or tou
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus.
+
+Runtime Insights' [run comparison](overview.md#runtime-insights) reads these rows too: under **Outside the JVM**, it
+lists the hosts, file patterns, processes, and variable names a route, a job, or startup uses now and did not in the
+previous run, or no longer uses, for each sensor that recorded the whole of both runs.
 
 The panel has one tab per sensor group:
 

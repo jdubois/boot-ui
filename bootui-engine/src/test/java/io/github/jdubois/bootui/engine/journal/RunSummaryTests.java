@@ -82,7 +82,7 @@ class RunSummaryTests {
                 RunSummary.of(new RunIdentity("sql-shapes", 2, 1000), aggregates.snapshot(), 2000),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 11);
+        assertThat(encoded[4]).isEqualTo((byte) 12);
         assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain("zzsecretzz", "secondsecret");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
         assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
@@ -175,8 +175,9 @@ class RunSummaryTests {
         byte[] encoded = RunSummaryCodec.encode(
                 RunSummary.of(new RunIdentity("old", 1, 1), new JournalAggregates().snapshot(), 2),
                 RunHistory.MAX_SUMMARY_BYTES);
-        // The empty v8 layout matches the newer formats up to their execution-capability flag and empty list.
-        byte[] old = java.util.Arrays.copyOf(encoded, encoded.length - 2);
+        // The empty v8 layout matches the newer formats up to their execution-capability flag, empty list, and the
+        // absent side effects.
+        byte[] old = java.util.Arrays.copyOf(encoded, encoded.length - 3);
         old[4] = 8;
         RunSummary decoded = RunSummaryCodec.decode(old);
         assertThat(decoded.header().runId()).isEqualTo("old");

@@ -311,7 +311,67 @@ final class SideEffectsStore {
             String captureKey,
             String origin,
             String location,
-            String parameter) {}
+            String parameter,
+            boolean startupThread) {
+
+        /** A row's key without a parameter or whether startup's own thread did it, which only side-effect keys read. */
+        Key(
+                String scope,
+                String attribution,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String client,
+                String captureKey,
+                String origin,
+                String location) {
+            this(
+                    scope,
+                    attribution,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    client,
+                    captureKey,
+                    origin,
+                    location,
+                    null);
+        }
+
+        /** A row's key with its security-sinks parameter, without whether startup's own thread did it. */
+        Key(
+                String scope,
+                String attribution,
+                String sensor,
+                String kind,
+                String target,
+                String callSite,
+                String insideMethod,
+                String client,
+                String captureKey,
+                String origin,
+                String location,
+                String parameter) {
+            this(
+                    scope,
+                    attribution,
+                    sensor,
+                    kind,
+                    target,
+                    callSite,
+                    insideMethod,
+                    client,
+                    captureKey,
+                    origin,
+                    location,
+                    parameter,
+                    false);
+        }
+    }
 
     /** The distinct raw sink texts a security-sinks row remembers to confirm it (M5-6 design Important 11). */
     static final int CONFIRMATIONS = 4;
@@ -618,6 +678,7 @@ final class SideEffectsStore {
     private final Map<Key, Row> rows = new LinkedHashMap<>();
     private final Map<String, Integer> rowsPerSensor = new HashMap<>();
     private final Map<String, Long> droppedPerSensor = new HashMap<>();
+    private final Map<String, Long> foldedPerSensor = new HashMap<>();
     private final ArrayDeque<Pending> pending = new ArrayDeque<>();
     private final LinkedHashMap<String, String> routes = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
@@ -651,6 +712,9 @@ final class SideEffectsStore {
     };
 
     private NetworkCapture capture = NetworkCapture.NONE;
+
+    /** The family of the thread that finished starting, whose startup observations alone are keys (M5-7b). */
+    private String startupThread;
 
     /** @param readyAt when the application finished starting, in epoch milliseconds: earlier observations are startup's */
     SideEffectsStore(long readyAt) {
@@ -697,7 +761,22 @@ final class SideEffectsStore {
         namedAt.clear();
         connectDecisions.clear();
         folded = 0;
+        foldedPerSensor.clear();
         version++;
+    }
+
+    /** Names the thread that finished starting: only its startup observations are side-effect keys. */
+    void setStartupThread(String family) {
+        this.startupThread = family;
+    }
+
+    private boolean startupThread(Observation observation) {
+        return startupThread == null || startupThread.equals(observation.threadFamily());
+    }
+
+    /** When the application finished starting: earlier observations are startup's. */
+    long readyAt() {
+        return readyAt;
     }
 
     /** Changes whenever a row is added to or the store is cleared: a cheap fingerprint of its rows. */
@@ -933,7 +1012,8 @@ final class SideEffectsStore {
                 observation.captureKey(),
                 observation.origin(),
                 observation.location(),
-                observation.parameter());
+                observation.parameter(),
+                SideEffectsRowDto.STARTUP.equals(scope) && startupThread(observation));
         Row row = rows.get(key);
         if (row == null) {
             int perSensor = rowsPerSensor.getOrDefault(sensor, 0);
@@ -968,6 +1048,7 @@ final class SideEffectsStore {
                     rows.put(other, row);
                 }
                 folded += observation.record().count();
+                foldedPerSensor.merge(sensor, observation.record().count(), Long::sum);
                 row.add(observation, null);
                 return;
             }
@@ -1065,6 +1146,150 @@ final class SideEffectsStore {
         }
         return opened;
     }
+
+    /**
+     * This run's side-effect keys ({@code docs/PLAN-v2.md} M5-7b): its rows and the waiting observations whose owner is
+     * already named, merged by sensor, kind, target, scope, and owner, for route, execution, and startup owners only. A
+     * thread family's or an unattributed row is no key, as a thread's records may stay buffered in the agent; an owner
+     * not named yet ({@value #UNKNOWN_ROUTE}, {@value #BACKGROUND}, or still waiting) and an Other row count as
+     * omitted, as do the rows a sensor's quota marker hides. Infrastructure connections and files the JDK, logging, or
+     * class loading opened are left out.
+     */
+    Keys keys() {
+        Map<String, KeyCount> merged = new LinkedHashMap<>();
+        Map<String, Long> omitted = new HashMap<>();
+        Set<String> foldedCounted = new HashSet<>();
+        for (Row row : rows.values()) {
+            Key key = row.key;
+            if (SideEffectsRowDto.OTHER.equals(key.scope())) {
+                // One Other row per kind: the sensor's folded operations are counted once.
+                if (foldedCounted.add(key.sensor())) {
+                    omitted.merge(
+                            key.sensor(), Math.max(1L, foldedPerSensor.getOrDefault(key.sensor(), 1L)), Long::sum);
+                }
+                continue;
+            }
+            if (SideEffectsRowDto.STARTUP.equals(key.scope()) && !key.startupThread()) {
+                // Another thread's early work may land on either side of the end of startup from run to run.
+                continue;
+            }
+            addKey(
+                    merged,
+                    omitted,
+                    key.sensor(),
+                    key.kind(),
+                    key.target(),
+                    key.scope(),
+                    key.attribution(),
+                    key.client(),
+                    key.captureKey(),
+                    key.origin(),
+                    row.count > 0 ? row.count : row.completed);
+        }
+        for (Pending waiting : pending) {
+            Observation observation = waiting.observation();
+            String scope;
+            String owner;
+            if (waiting.key() == null) {
+                if (observation.record().firstMillis() >= readyAt || !startupThread(observation)) {
+                    continue;
+                }
+                scope = SideEffectsRowDto.STARTUP;
+                owner = STARTUP;
+            } else {
+                owner = routes.get(waiting.key());
+                if (owner == null) {
+                    omitted.merge(observation.sensor(), 1L, Long::sum);
+                    continue;
+                }
+                scope = waiting.execution() ? SideEffectsRowDto.EXECUTION : SideEffectsRowDto.ROUTE;
+            }
+            addKey(
+                    merged,
+                    omitted,
+                    observation.sensor(),
+                    observation.kind(),
+                    observation.target(),
+                    scope,
+                    owner,
+                    observation.client(),
+                    observation.captureKey(),
+                    observation.origin(),
+                    observation.record().kind() == SideEffectsCatalog.KIND_CONNECT_FINISH
+                            ? 0L
+                            : observation.record().count());
+        }
+        List<KeyCount> keys = new ArrayList<>(merged.values());
+        return new Keys(keys, omitted);
+    }
+
+    private static void addKey(
+            Map<String, KeyCount> merged,
+            Map<String, Long> omitted,
+            String sensor,
+            String kind,
+            String target,
+            String scope,
+            String owner,
+            String client,
+            String captureKey,
+            String origin,
+            long count) {
+        if (!SideEffectsRowDto.ROUTE.equals(scope)
+                && !SideEffectsRowDto.EXECUTION.equals(scope)
+                && !SideEffectsRowDto.STARTUP.equals(scope)) {
+            return;
+        }
+        if (CAPTURE_INFRASTRUCTURE.equals(captureKey)
+                || (origin != null
+                        && (SideEffectOrigins.groupedApart(origin) || SideEffectOrigins.BOOTUI.equals(origin)))) {
+            return;
+        }
+        if (owner == null
+                || target == null
+                || UNKNOWN_ROUTE.equals(owner)
+                || BACKGROUND.equals(owner)
+                || unknownTarget(target)) {
+            omitted.merge(sensor, 1L, Long::sum);
+            return;
+        }
+        String identity = sensor + '\u0000' + kind + '\u0000' + target + '\u0000' + scope + '\u0000' + owner;
+        KeyCount existing = merged.get(identity);
+        if (existing == null) {
+            merged.put(identity, new KeyCount(sensor, kind, target, scope, owner, client, count));
+        } else {
+            merged.put(
+                    identity,
+                    new KeyCount(
+                            sensor,
+                            kind,
+                            target,
+                            scope,
+                            owner,
+                            existing.client() != null ? existing.client() : client,
+                            existing.count() + count));
+        }
+    }
+
+    /** Whether a target is a marker standing for targets the agent could not keep, not a target. */
+    static boolean unknownTarget(String target) {
+        return target == null
+                || SideEffectsService.OTHER_HOSTS.equals(target)
+                || SideEffectsService.TOO_MANY_PATHS.equals(target)
+                || SideEffectsService.TOO_MANY_NAMES.equals(target)
+                || SideEffectsService.UNKNOWN_TARGET.equals(target);
+    }
+
+    /** One side-effect key with its count. */
+    record KeyCount(String sensor, String kind, String target, String scope, String owner, String client, long count) {}
+
+    /**
+     * A run's side-effect keys.
+     *
+     * @param keys the keys, merged
+     * @param omitted the keys or observations left out per sensor, as their owner or target is not known
+     */
+    record Keys(List<KeyCount> keys, Map<String, Long> omitted) {}
 
     /** {@code sensor}'s rows, the Other row included. */
     /** Security-sinks matches not confirmed yet that arrived past the row caps, never kept as rows. */
