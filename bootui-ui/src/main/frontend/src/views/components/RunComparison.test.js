@@ -171,6 +171,121 @@ describe('RunComparison', () => {
     expect(wrapper.find('[data-testid="code-changes-unavailable"]').exists()).toBe(false)
   })
 
+  it('says what changed outside the JVM per sensor, and why a sensor or the whole section is not compared', async () => {
+    const withSideEffects = {
+      ...compared,
+      sideEffects: {
+        available: true,
+        unavailableReason: null,
+        partial: false,
+        sensors: [
+          {sensor: 'network', status: 'COMPARED', reason: null, added: 1, removed: 1, notExercised: 0},
+          {sensor: 'files', status: 'COMPARED', reason: null, added: 0, removed: 0, notExercised: 1},
+          {
+            sensor: 'processes',
+            status: 'NOT_COMPARED',
+            reason: 'Not compared: processes was not recording the whole previous run: it was not claimed.',
+            added: 0,
+            removed: 0,
+            notExercised: 0
+          },
+          {sensor: 'environment', status: 'COMPARED', reason: null, added: 0, removed: 0, notExercised: 0}
+        ],
+        changes: [
+          {
+            sensor: 'network',
+            kind: 'connect',
+            target: 'api.example.com:443',
+            scope: 'route',
+            owner: 'GET /api/orders',
+            change: 'ADDED',
+            client: null,
+            count: 2,
+            sentence: '`GET /api/orders` now connects to `api.example.com:443`.'
+          },
+          {
+            sensor: 'network',
+            kind: 'connect',
+            target: 'old.example.com:443',
+            scope: 'route',
+            owner: 'GET /api/orders',
+            change: 'REMOVED',
+            client: null,
+            count: 1,
+            sentence: '`GET /api/orders` no longer connects to `old.example.com:443`.'
+          },
+          {
+            sensor: 'files',
+            kind: 'read',
+            target: '/tmp/{file}',
+            scope: 'route',
+            owner: 'GET /reports',
+            change: 'NOT_EXERCISED',
+            client: null,
+            count: 1,
+            sentence: '`GET /reports` read `/tmp/{file}` in the previous run, and was not exercised in this run.'
+          }
+        ],
+        changesTotal: 5,
+        limitations: ['Side effects are compared by name and normalized, masked pattern only.']
+      }
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(withSideEffects)))
+    wrapper = mount(RunComparison)
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-section]').map((section) => section.attributes('data-section'))).toEqual([
+      'side-effects',
+      'behavior',
+      'edges',
+      'restart'
+    ])
+    const outside = wrapper.find('[data-section="side-effects"]')
+    expect(outside.find('h3').text()).toContain('Outside the JVM')
+    expect(outside.find('[data-sensor="network"]').text().replace(/\s+/g, ' ')).toBe(
+      'Network · compared · 1 new · 1 gone'
+    )
+    expect(outside.find('[data-sensor="files"]').text()).toContain('1 not exercised')
+    expect(outside.find('[data-sensor="processes"]').classes()).toContain('text-muted')
+    expect(outside.find('[data-sensor="processes"]').text()).toContain('it was not claimed')
+    const rows = outside.findAll('.insight-comparison-row')
+    expect(rows.map((row) => row.find('.visually-hidden').text())).toEqual(['New:', 'Gone:', 'Not exercised:'])
+    expect(rows[0].find('code').text()).toBe('GET /api/orders')
+    expect(outside.text()).toContain('2 more not listed: see the Side Effects panel.')
+    expect(outside.find('details').text()).toContain('masked pattern only')
+
+    wrapper.unmount()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...compared,
+          sideEffects: {
+            available: false,
+            unavailableReason: 'The previous run kept no side effects.',
+            partial: false,
+            sensors: [],
+            changes: [],
+            changesTotal: 0,
+            limitations: []
+          }
+        })
+      )
+    )
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.find('[data-section="side-effects"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="side-effects-unavailable"]').text()).toBe(
+      'Side effects not compared: The previous run kept no side effects.'
+    )
+
+    wrapper.unmount()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({...compared, sideEffects: null})))
+    wrapper = mount(RunComparison)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="side-effects-unavailable"]').exists()).toBe(false)
+  })
+
   it('shows a failed load as its message, never as an object', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Request failed with status 403')))
     wrapper = mount(RunComparison)

@@ -436,7 +436,7 @@ public final class JavaAgentService {
         return null;
     }
 
-    private static Map<String, Object> sensor(Map<String, Object> agent, String id) {
+    static Map<String, Object> sensor(Map<String, Object> agent, String id) {
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
                 Map<String, Object> sensor = AgentBridgeAccess.map(Map.of("sensor", raw), "sensor");
