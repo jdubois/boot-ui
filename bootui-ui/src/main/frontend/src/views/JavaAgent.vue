@@ -7,6 +7,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import PanelHeader from './components/PanelHeader.vue'
+import AgentSensorToggle from './components/AgentSensorToggle.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import PanelTabs from './components/PanelTabs.vue'
 import UnavailableState from './components/UnavailableState.vue'
@@ -238,6 +239,13 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport,
   enabled: manifestAvailable
 })
 
+const toggles = computed(() => report.value?.toggles ?? [])
+
+function onSensorSwitched(updated) {
+  report.value = updated
+  lastFetched.value = Date.now()
+}
+
 const snippets = computed(() => report.value?.setup?.snippets ?? [])
 const activeSnippet = computed(() => snippets.value.find((snippet) => snippet.id === activeSnippetId.value) ?? null)
 const copiedActiveSnippet = computed(() => copiedKey.value === copyKey(activeSnippet.value))
@@ -451,6 +459,26 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
           </section>
         </div>
       </div>
+
+      <section class="card mb-4" aria-labelledby="java-agent-opt-in-title">
+        <div class="card-body p-4">
+          <h3 id="java-agent-opt-in-title" class="h6 fw-bold mb-1">
+            <i class="bi bi-toggles me-2" aria-hidden="true"></i>Opt-in sensors
+          </h3>
+          <p class="small text-muted mb-3">
+            Sensors off by default, switched on or off here for this application without a restart. A switch overrides
+            <code>bootui.agent.sensors</code> until this JVM ends, across DevTools restarts and Quarkus live reloads.
+          </p>
+          <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
+            <li v-for="toggle in toggles" :key="toggle.id">
+              <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="load" />
+            </li>
+          </ul>
+          <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">
+            The opt-in sensors can be switched once the BootUI agent is attached and this application holds its claim.
+          </p>
+        </div>
+      </section>
 
       <section class="card mb-4" aria-labelledby="java-agent-sensors-title">
         <div class="card-body p-4">
@@ -695,6 +723,11 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
 </template>
 
 <style scoped>
+.java-agent-toggles {
+  display: grid;
+  gap: 1rem;
+}
+
 .java-agent-banner {
   align-items: flex-start;
   border: 1px solid var(--java-agent-banner-border);

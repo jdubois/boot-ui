@@ -405,7 +405,7 @@ public final class SideEffectsService implements AutoCloseable {
                 if (claim == null
                         || !claim.armed()
                         || claim.generation() == null
-                        || !claim.sensors().sideEffects()
+                        || claim.activeSensors().stream().noneMatch(AgentSensorSettings.SIDE_EFFECT_SENSORS::contains)
                         || !access.sideEffectsSupported()) {
                     return;
                 }
@@ -635,8 +635,11 @@ public final class SideEffectsService implements AutoCloseable {
      * from then to {@code end}, lost nothing, and its recording was neither cleared nor switched.
      */
     private String reason(Run current, String id, SideEffectsSample end) {
-        if (!current.claim.sensors().sensors().contains(id)) {
-            return "it was not claimed: bootui.agent.sensors does not include " + id;
+        // The sensors the claim uses, a runtime switch the claim carried over from the previous run included (M5-14).
+        if (!current.claim.uses(id)) {
+            return Boolean.FALSE.equals(current.claim.sensorOverrides().get(id))
+                    ? "it was switched off at run time"
+                    : "it was not claimed: bootui.agent.sensors does not include " + id;
         }
         SideEffectsSample start = current.started.getOrDefault(id, SideEffectsSample.NONE);
         if (!start.recording()) {
@@ -1240,7 +1243,8 @@ public final class SideEffectsService implements AutoCloseable {
                 rows,
                 occurrences,
                 dropped,
-                covered.hooks());
+                covered.hooks(),
+                covered.toggle());
     }
 
     private JavaAgentService.SideEffectsCoverage coverage(String id, String reason) {
