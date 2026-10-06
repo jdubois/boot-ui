@@ -22,6 +22,9 @@ import java.util.List;
  * @param limitations what the comparison cannot see
  * @param codeChanges the methods changed, added, and removed since the previous run, which ran, and where: shown first;
  *     {@code null} without the BootUI agent, and unavailable with the reason when the agent cannot list them
+ * @param sideEffects the hosts, file patterns, processes, and variable names new or gone outside the JVM, from the BootUI
+ *     agent's Side Effects (M5-7b); {@code null} without the agent, and unavailable with the reason when they cannot
+ *     be compared
  */
 public record RuntimeRunComparisonDto(
         String status,
@@ -35,7 +38,8 @@ public record RuntimeRunComparisonDto(
         RuntimeRestartCostDto restartCost,
         List<RuntimeRunChangeDto> latency,
         List<String> limitations,
-        RuntimeCodeChangesDto codeChanges) {
+        RuntimeCodeChangesDto codeChanges,
+        RuntimeSideEffectChangesDto sideEffects) {
 
     /** The rows each list holds at most. */
     public static final int MAX_ROWS = 200;
@@ -64,6 +68,35 @@ public record RuntimeRunComparisonDto(
             List<RuntimeRunChangeDto> edges,
             RuntimeRestartCostDto restartCost,
             List<RuntimeRunChangeDto> latency,
+            List<String> limitations,
+            RuntimeCodeChangesDto codeChanges) {
+        this(
+                status,
+                reason,
+                current,
+                previous,
+                runs,
+                notComparableReasons,
+                behavior,
+                edges,
+                restartCost,
+                latency,
+                limitations,
+                codeChanges,
+                null);
+    }
+
+    public RuntimeRunComparisonDto(
+            String status,
+            String reason,
+            RuntimeRunRefDto current,
+            RuntimeRunRefDto previous,
+            List<RuntimeRunRefDto> runs,
+            List<String> notComparableReasons,
+            List<RuntimeRunChangeDto> behavior,
+            List<RuntimeRunChangeDto> edges,
+            RuntimeRestartCostDto restartCost,
+            List<RuntimeRunChangeDto> latency,
             List<String> limitations) {
         this(
                 status,
@@ -77,6 +110,7 @@ public record RuntimeRunComparisonDto(
                 restartCost,
                 latency,
                 limitations,
+                null,
                 null);
     }
 
@@ -94,6 +128,25 @@ public record RuntimeRunComparisonDto(
                 restartCost,
                 latency,
                 limitations,
-                codeChanges);
+                codeChanges,
+                sideEffects);
+    }
+
+    /** This comparison with {@code sideEffects}. */
+    public RuntimeRunComparisonDto withSideEffects(RuntimeSideEffectChangesDto sideEffects) {
+        return new RuntimeRunComparisonDto(
+                status,
+                reason,
+                current,
+                previous,
+                runs,
+                notComparableReasons,
+                behavior,
+                edges,
+                restartCost,
+                latency,
+                limitations,
+                codeChanges,
+                sideEffects);
     }
 }

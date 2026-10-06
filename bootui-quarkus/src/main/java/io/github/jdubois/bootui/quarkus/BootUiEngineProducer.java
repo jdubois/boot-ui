@@ -407,8 +407,16 @@ public class BootUiEngineProducer {
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(
                 key -> config.getOptionalValue(key, String.class).orElse(null));
-        // A side-effect sensor switched on at run time records from now on, even before the panel is read (M5-14).
-        javaAgent.onSensorSwitched(service::start);
+        if (journalAggregates != null) {
+            // The run's side-effect keys go into its summary, for the next start's comparison (M5-7b).
+            journalAggregates.setRunSideEffects(service::runSideEffects);
+        }
+        // A sensor switched at run time (M5-14): the run is not compared for it (M5-7b), and a side-effect sensor
+        // switched on records from now on, even before the panel is read.
+        javaAgent.onSensorSwitched(id -> {
+            service.sensorSwitched(id);
+            service.start();
+        });
         return service;
     }
 

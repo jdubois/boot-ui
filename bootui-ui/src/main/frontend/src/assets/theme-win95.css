@@ -117,6 +117,25 @@ html[data-bootui-theme='win95'] {
 
   --bootui-highlight-bg: #ffffc0;
 
+  /* Property-sheet tabs: every tab is a raised silver flap; the selected one stands
+     2px taller and wider and has no bottom edge, so it joins the page below it. */
+  --bootui-tab-tray-bg: transparent;
+  --bootui-tab-tray-border: transparent;
+  --bootui-tab-tray-padding: 2px 2px 1px;
+  --bootui-tab-tray-shadow: inset 0 -1px 0 var(--w95-light);
+  --bootui-tab-gap: 0;
+  --bootui-tab-bg: var(--w95-face);
+  --bootui-tab-color: #000000;
+  --bootui-tab-hover-bg: var(--bootui-nav-hover-bg);
+  --bootui-tab-hover-color: #000000;
+  --bootui-tab-active-bg: var(--w95-face);
+  --bootui-tab-active-color: #000000;
+  --bootui-tab-indicator: var(--w95-dark);
+  --bootui-tab-flap:
+    inset 1px 1px 0 var(--w95-light), inset 2px 2px 0 var(--w95-highlight), inset -1px 0 0 var(--bootui-tab-indicator),
+    inset -2px 0 0 var(--w95-shadow);
+  --bootui-tab-active-shadow: var(--bootui-tab-flap);
+
   font-family: var(--w95-font);
 }
 
@@ -356,6 +375,30 @@ html[data-bootui-theme='win95'] .bootui-footer a {
   box-shadow: var(--w95-sunken-thin);
   color: var(--w95-title);
   padding: 0.1rem 0.4rem;
+}
+
+/* ------------------------------------------------------------------------ tabs */
+
+/* A property-sheet tab strip. Unselected flaps sit 2px lower; the selected flap is
+   pulled out over its neighbours and down across the strip's white edge, so it
+   reads as the front page of the sheet rather than as a highlighted button. */
+html[data-bootui-theme='win95'] .bootui-tabs {
+  width: 100%;
+}
+
+html[data-bootui-theme='win95'] .bootui-tabs__tab {
+  box-shadow: var(--bootui-tab-flap);
+  font-weight: 400;
+  margin-top: 2px;
+  min-height: 2rem;
+  padding: 0.25rem 0.75rem;
+}
+
+html[data-bootui-theme='win95'] .bootui-tabs__tab.active {
+  margin: 0 -2px -1px;
+  padding-inline: calc(0.75rem + 2px);
+  position: relative;
+  z-index: 1;
 }
 
 /* ------------------------------------------------------------------- controls */

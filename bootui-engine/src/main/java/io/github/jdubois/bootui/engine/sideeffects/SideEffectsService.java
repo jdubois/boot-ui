@@ -12,8 +12,10 @@ import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.javaagent.SideEffectsSample;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.RunSideEffects;
 import io.github.jdubois.bootui.engine.model.EdgeType;
 import io.github.jdubois.bootui.engine.model.HostOpen;
 import io.github.jdubois.bootui.engine.model.NodeType;
@@ -166,6 +168,16 @@ public final class SideEffectsService implements AutoCloseable {
             "The HTTP Exchanges panel is disabled: Side Effects attributes rows to"
                     + " request routes through it, so route rows are merged under one hidden route, without request ids.";
 
+    /** A target the agent's table could not keep. */
+    static final String UNKNOWN_TARGET = "(unknown)";
+
+    /** The sensors a run comparison compares, in catalog order (M5-7b). */
+    public static final List<String> COMPARED_SENSORS = List.of(
+            SideEffectsCatalog.NETWORK_ID,
+            SideEffectsCatalog.FILES_ID,
+            SideEffectsCatalog.PROCESSES_ID,
+            SideEffectsCatalog.ENVIRONMENT_ID);
+
     /** A files row's target past the agent's quota of distinct path patterns. */
     static final String TOO_MANY_PATHS = "(path not kept: too many distinct paths or strings)";
 
@@ -200,6 +212,18 @@ public final class SideEffectsService implements AutoCloseable {
     private long lastClearedAt = Long.MIN_VALUE;
 
     private boolean closed;
+
+    /** This application run's side effects, frozen by {@link #endRun()}; {@code null} before. */
+    private RunSideEffects ended;
+
+    /** Whether a run of a new claim generation replaced an earlier one during this application run. */
+    private boolean replaced;
+
+    /** Reads a sensor's state from the bridge now, and when the claim was armed (M5-7b); replaced by tests. */
+    private volatile Supplier<Map<String, SideEffectsSample>> sampler = this::bridgeSamples;
+
+    private volatile java.util.function.BiFunction<AgentClaim, String, SideEffectsSample> armedSampler =
+            AgentClaim::armedSideEffects;
 
     /**
      * @param access the bridge
@@ -368,9 +392,15 @@ public final class SideEffectsService implements AutoCloseable {
                 if (run != null && run.generation == claim.generation()) {
                     return;
                 }
+                if (ended != null) {
+                    return;
+                }
                 if (run != null) {
                     run.close();
+                    replaced = true;
                 }
+                // The thread that finished starting may hold the end of startup's records in its table (M5-7b).
+                access.sideEffectsFlushThread();
                 run = new Run(claim, clock.getAsLong());
                 publish(run);
                 run.start();
@@ -383,6 +413,8 @@ public final class SideEffectsService implements AutoCloseable {
     /** Stops routing this run's records. Idempotent; the service starts nothing afterwards. */
     @Override
     public void close() {
+        // Normally frozen already, when the adapter ended the run before disarming its claim.
+        endRun();
         synchronized (lock) {
             closed = true;
             if (run != null) {
@@ -390,6 +422,283 @@ public final class SideEffectsService implements AutoCloseable {
                 run = null;
             }
         }
+    }
+
+    /**
+     * Ends this application run's side effects ({@code docs/PLAN-v2.md} M5-7b): publishes the calling thread's buffered
+     * records, drains the agent's ring, names what waits for its route, and freezes the run's side-effect keys and
+     * whether each sensor recorded the whole run, for its summary ({@link #runSideEffects()}). The adapter calls it when
+     * the application stops, before it disarms its claim, so the sensors' state is still this run's. Idempotent; the
+     * rows stay readable. Never throws.
+     */
+    public void endRun() {
+        try {
+            Run current;
+            synchronized (lock) {
+                if (ended != null || closed) {
+                    return;
+                }
+                current = run;
+            }
+            if (current == null) {
+                return;
+            }
+            access.sideEffectsFlushThread();
+            current.drainNow();
+            synchronized (lock) {
+                if (ended != null) {
+                    return;
+                }
+                current.store.resolve(SideEffectsService.this::names, clock.getAsLong(), 0L);
+                ended = snapshot(current, read());
+                publish(current);
+            }
+        } catch (RuntimeException ex) {
+            log.log(Level.WARNING, "BootUI could not end the run's side effects", ex);
+        }
+    }
+
+    /**
+     * This application run's side effects for a run summary or a comparison ({@code docs/PLAN-v2.md} M5-7b): what
+     * {@link #endRun()} froze, else this run's so far; {@code null} when no Side Effects run started, as without the
+     * agent or a side-effect sensor. Names and masked patterns only. Never throws.
+     */
+    public RunSideEffects runSideEffects() {
+        try {
+            synchronized (lock) {
+                if (ended != null) {
+                    return ended;
+                }
+            }
+            AgentEvidence.Read read = read();
+            Run current = shownReason(read) == null ? settledRun() : current();
+            if (current == null) {
+                return null;
+            }
+            synchronized (lock) {
+                return ended != null ? ended : snapshot(current, read);
+            }
+        } catch (RuntimeException ex) {
+            log.log(Level.FINE, "BootUI could not read the run's side effects", ex);
+            return null;
+        }
+    }
+
+    /**
+     * Marks sensor {@code id} as switched during this run, so the run is not compared for it: for a runtime sensor
+     * switch (M5-14), which changes what a sensor records without a new claim.
+     */
+    public void sensorSwitched(String id) {
+        synchronized (lock) {
+            if (run != null && id != null && ended == null) {
+                run.switched.add(id);
+            }
+        }
+    }
+
+    /** The run's side effects now, under the lock: its keys, and each compared sensor's verdicts. */
+    private RunSideEffects snapshot(Run current, AgentEvidence.Read read) {
+        String hidden = shownReason(read);
+        if (hidden != null) {
+            return RunSideEffects.unavailable(
+                    "Side Effects was not shown when the run's side effects were read: " + hidden);
+        }
+        boolean routesHidden = !read.requests();
+        SideEffectsStore.Keys keys = current.store.keys();
+        Map<String, List<SideEffectsStore.KeyCount>> bySensor = new LinkedHashMap<>();
+        Map<String, Map<String, SideEffectsStore.KeyCount>> merged = new LinkedHashMap<>();
+        for (SideEffectsStore.KeyCount key : keys.keys()) {
+            if (!COMPARED_SENSORS.contains(key.sensor())) {
+                continue;
+            }
+            String owner = SideEffectOrigins.maskPath(
+                    routesHidden && SideEffectsRowDto.ROUTE.equals(key.scope())
+                            ? SideEffectsStore.ROUTE_HIDDEN
+                            : key.owner());
+            String target = SideEffectOrigins.maskPath(key.target());
+            SideEffectsStore.KeyCount masked = new SideEffectsStore.KeyCount(
+                    key.sensor(), key.kind(), target, key.scope(), owner, key.client(), key.count());
+            String identity = key.kind() + '\u0000' + target + '\u0000' + key.scope() + '\u0000' + owner;
+            Map<String, SideEffectsStore.KeyCount> sensorKeys =
+                    merged.computeIfAbsent(key.sensor(), id -> new LinkedHashMap<>());
+            SideEffectsStore.KeyCount existing = sensorKeys.get(identity);
+            sensorKeys.put(
+                    identity,
+                    existing == null
+                            ? masked
+                            : new SideEffectsStore.KeyCount(
+                                    key.sensor(),
+                                    key.kind(),
+                                    target,
+                                    key.scope(),
+                                    owner,
+                                    existing.client() != null ? existing.client() : key.client(),
+                                    existing.count() + key.count()));
+        }
+        merged.forEach((sensor, values) -> bySensor.put(sensor, new ArrayList<>(values.values())));
+        Map<String, SideEffectsSample> end = samples();
+        List<RunSideEffects.Sensor> sensors = new ArrayList<>();
+        List<RunSideEffects.Key> kept = new ArrayList<>();
+        for (String id : COMPARED_SENSORS) {
+            List<SideEffectsStore.KeyCount> sensorKeys = new ArrayList<>(bySensor.getOrDefault(id, List.of()));
+            sensorKeys.sort(Comparator.comparingLong(SideEffectsStore.KeyCount::count)
+                    .reversed()
+                    .thenComparing(SideEffectsStore.KeyCount::scope)
+                    .thenComparing(SideEffectsStore.KeyCount::owner)
+                    .thenComparing(SideEffectsStore.KeyCount::target)
+                    .thenComparing(SideEffectsStore.KeyCount::kind));
+            long omitted = keys.omitted().getOrDefault(id, 0L);
+            for (int i = 0; i < sensorKeys.size(); i++) {
+                SideEffectsStore.KeyCount key = sensorKeys.get(i);
+                if (i < RunSideEffects.MAX_KEYS_PER_SENSOR) {
+                    kept.add(new RunSideEffects.Key(
+                            key.sensor(),
+                            key.kind(),
+                            key.target(),
+                            key.scope(),
+                            key.owner(),
+                            key.client(),
+                            key.count()));
+                } else {
+                    omitted++;
+                }
+            }
+            String reason = reason(current, id, end.getOrDefault(id, SideEffectsSample.NONE));
+            String startupReason = reason != null ? reason : startupReason(current, id);
+            sensors.add(new RunSideEffects.Sensor(id, reason, startupReason, omitted));
+        }
+        return new RunSideEffects(null, routesHidden, sensors, kept);
+    }
+
+    /**
+     * Why sensor {@code id} did not record this run whole once the application started, or {@code null}: it recorded
+     * from then to {@code end}, lost nothing, and its recording was neither cleared nor switched.
+     */
+    private String reason(Run current, String id, SideEffectsSample end) {
+        // The sensors the claim uses, a runtime switch the claim carried over from the previous run included (M5-14).
+        if (!current.claim.uses(id)) {
+            return Boolean.FALSE.equals(current.claim.sensorOverrides().get(id))
+                    ? "it was switched off at run time"
+                    : "it was not claimed: bootui.agent.sensors does not include " + id;
+        }
+        SideEffectsSample start = current.started.getOrDefault(id, SideEffectsSample.NONE);
+        if (!start.recording()) {
+            return "it was not recording when the application finished starting";
+        }
+        if (!end.recording()) {
+            return "it was not recording when the run ended";
+        }
+        if ((start.generation() >= 0 && start.generation() != current.generation)
+                || (end.generation() >= 0 && end.generation() != current.generation)) {
+            return "the agent recorded for another claim during the run";
+        }
+        if (current.switched.contains(id)) {
+            return "it was switched during the run";
+        }
+        if (replaced) {
+            return "the agent's claim changed during the run";
+        }
+        if (current.clears > 0) {
+            return "the recording was cleared during the run";
+        }
+        String lost = lost(start, end, id);
+        if (lost != null) {
+            return lost;
+        }
+        long unknown = current.unknownTargets.getOrDefault(id, 0L);
+        if (unknown > 0) {
+            return unknown + (unknown == 1 ? " record's target was" : " records' targets were")
+                    + " not kept: the agent reached its bound of distinct targets";
+        }
+        if (current.malformed > 0) {
+            return current.malformed + (current.malformed == 1 ? " record" : " records") + " could not be read";
+        }
+        long dropped = current.store.dropped(id);
+        if (dropped > 0) {
+            return "BootUI dropped " + dropped + (dropped == 1 ? " operation" : " operations")
+                    + ": its waiting queue or its rows were full";
+        }
+        return null;
+    }
+
+    /**
+     * Why sensor {@code id} did not record this run's startup whole, or {@code null}: it already recorded when the claim
+     * was armed, and lost nothing until the application finished starting.
+     */
+    private String startupReason(Run current, String id) {
+        SideEffectsSample armed;
+        try {
+            armed = armedSampler.apply(current.claim, id);
+        } catch (RuntimeException ex) {
+            armed = SideEffectsSample.NONE;
+        }
+        if (!armed.recording()) {
+            return "the agent was still installing it when the application started, so the start of the run went"
+                    + " unrecorded";
+        }
+        String lost = lost(armed, current.started.getOrDefault(id, SideEffectsSample.NONE), id);
+        if (lost != null) {
+            return lost + " while the application started";
+        }
+        long unknown = current.unknownStartupTargets.getOrDefault(id, 0L);
+        if (unknown > 0) {
+            return unknown + (unknown == 1 ? " startup record's target was" : " startup records' targets were")
+                    + " not kept: the agent reached its bound of distinct targets";
+        }
+        return null;
+    }
+
+    /** The compared sensors' states now, from one read of the bridge; not recording when it cannot be read. */
+    private Map<String, SideEffectsSample> samples() {
+        try {
+            Map<String, SideEffectsSample> samples = sampler.get();
+            return samples == null ? Map.of() : samples;
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+    }
+
+    private Map<String, SideEffectsSample> bridgeSamples() {
+        Map<String, Object> status = access.status();
+        Map<String, SideEffectsSample> samples = new HashMap<>();
+        for (String id : COMPARED_SENSORS) {
+            samples.put(id, SideEffectsSample.read(status, id));
+        }
+        return samples;
+    }
+
+    /** Replaces how sensors' states are read, now and at arm time: for tests. */
+    void setSamplers(
+            Supplier<Map<String, SideEffectsSample>> now,
+            java.util.function.BiFunction<AgentClaim, String, SideEffectsSample> armed) {
+        this.sampler = now;
+        this.armedSampler = armed;
+    }
+
+    /** What the agent lost of sensor {@code id} between two samples, or {@code null} when nothing. */
+    private static String lost(SideEffectsSample from, SideEffectsSample to, String id) {
+        long ring = to.lost() - from.lost();
+        if (ring > 0) {
+            return "the agent's ring lost " + ring + (ring == 1 ? " record" : " records");
+        }
+        long dropped = to.dropped() - from.dropped();
+        if (dropped > 0) {
+            return "the agent dropped " + dropped + (dropped == 1 ? " record" : " records") + ": its ring was full";
+        }
+        // A missing frame or thread name changes a record's origin, client, or owner, so whether it is a key.
+        long interns = (to.internOverflow() - from.internOverflow()) + (to.internRefused() - from.internRefused());
+        if (interns > 0) {
+            return "the agent's string table refused " + interns + (interns == 1 ? " string" : " strings")
+                    + ", so records lost a call site, a thread, or a target";
+        }
+        if (SideEffectsCatalog.FILES_ID.equals(id) || SideEffectsCatalog.ENVIRONMENT_ID.equals(id)) {
+            long sightings = to.sightingsFull() - from.sightingsFull();
+            if (sightings > 0) {
+                return "the agent's table of call sites was full, so " + sightings
+                        + (sightings == 1 ? " record" : " records") + " lost their origin";
+            }
+        }
+        return null;
     }
 
     /** Why Side Effects records nothing for this application, or {@code null} when it does. */
@@ -1173,6 +1482,18 @@ public final class SideEffectsService implements AutoCloseable {
         long cleared;
         long clearedAt = lastClearedAt;
         Map<String, Long> bucketBaseline = Map.of();
+
+        /** Each compared sensor's state when this run started (M5-7b). */
+        final Map<String, SideEffectsSample> started = new HashMap<>();
+
+        /** Records whose target the agent could not keep, per sensor, after startup and during it. */
+        final Map<String, Long> unknownTargets = new HashMap<>();
+
+        final Map<String, Long> unknownStartupTargets = new HashMap<>();
+
+        /** The sensors a runtime switch changed during this run (M5-14). */
+        final java.util.Set<String> switched = new java.util.HashSet<>();
+
         long drainResolvedAt = Long.MIN_VALUE / 2;
 
         Run(AgentClaim claim, long readyAt) {
@@ -1186,6 +1507,14 @@ public final class SideEffectsService implements AutoCloseable {
                     evidence.scaled(SideEffectsStore.MAX_ROWS_PER_SENSOR, 50),
                     evidence.scaled(SideEffectsStore.MAX_PENDING, 500));
             this.store.setCapture(networkCapture);
+            Map<String, SideEffectsSample> now = samples();
+            for (String id : COMPARED_SENSORS) {
+                started.put(id, now.getOrDefault(id, SideEffectsSample.NONE));
+            }
+            // Only the thread that finished starting owns startup's keys: other threads' early work may land on either
+            // side of the end of startup from one run to the next (M5-7b).
+            this.store.setStartupThread(
+                    normalizer.threadFamily(Thread.currentThread().getName()));
         }
 
         void start() {
@@ -1256,6 +1585,11 @@ public final class SideEffectsService implements AutoCloseable {
                     return;
                 }
                 String target = string(record.target());
+                if (target == null || OTHER_HOSTS.equals(target)) {
+                    // The agent could not keep this record's target: the run is not compared for its sensor.
+                    (record.firstMillis() < store.readyAt() ? unknownStartupTargets : unknownTargets)
+                            .merge(sensor.id(), 1L, Long::sum);
+                }
                 if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                     // Ahead of the context below: a network record's bits 32-63 are its client frame, not a context.
                     store.add(network(record, sensor, target, outside, application));
@@ -1264,7 +1598,7 @@ public final class SideEffectsService implements AutoCloseable {
                             record,
                             sensor.id(),
                             SideEffectsCatalog.kind(record.sensor(), record.kind()),
-                            target == null ? "(unknown)" : normalizer.target(target),
+                            target == null ? UNKNOWN_TARGET : normalizer.target(target),
                             application != null ? application : outside,
                             insideMethod(record.stamp()),
                             normalizer.threadFamily(string(record.threadName()))));
@@ -1321,7 +1655,7 @@ public final class SideEffectsService implements AutoCloseable {
                 String application) {
             String client = string(record.clientFrame());
             String thread = normalizer.threadFamily(string(record.threadName()));
-            String normalized = target == null ? "(unknown)" : normalizer.networkTarget(target);
+            String normalized = target == null ? UNKNOWN_TARGET : normalizer.networkTarget(target);
             NetworkClients.Client recognized =
                     NetworkClients.recognize(client, outside, application, thread, target, exporterEndpoints);
             String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());

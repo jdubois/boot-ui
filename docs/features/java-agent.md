@@ -1323,6 +1323,10 @@ that an opt-in sensor's section (`files`, `environment`) carries its [runtime
 switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
 with `bootui.agent.sensors` as the other way to turn it on.
 
+Runtime Insights' [run comparison](overview.md#runtime-insights) reads these rows too: under **Outside the JVM**, it
+lists the hosts, file patterns, processes, and variable names a route, a job, or startup uses now and did not in the
+previous run, or no longer uses, for each sensor that recorded the whole of both runs.
+
 The panel has one tab per sensor group:
 
 | Tab | Sensors | State in this version |

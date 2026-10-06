@@ -681,9 +681,9 @@ class JavaAgentServiceTests {
                 new AgentSensorSettings(List.of("processes", "files"), List.of(), List.of(), null);
         claim.set(
                 AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
-        List<Runnable> switched = new ArrayList<>();
+        List<String> switched = new ArrayList<>();
         JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
-        service.onSensorSwitched(() -> switched.add(() -> {}));
+        service.onSensorSwitched(switched::add);
 
         assertThat(service.report().toggles())
                 .extracting(
@@ -714,7 +714,7 @@ class JavaAgentServiceTests {
         assertThat(claim.get().activeSensors()).containsExactly("processes", "files", "environment");
         assertThat(claim.get().sensors().sensors()).containsExactly("processes", "files");
         assertThat(stub.ops()).contains("sensors");
-        assertThat(switched).hasSize(1);
+        assertThat(switched).containsExactly("environment");
         assertThat(service.sideEffectsCoverage("environment").toggle().enabled())
                 .isTrue();
 

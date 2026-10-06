@@ -123,6 +123,11 @@ components:
     textColor: "{colors.surface-white}"
     rounded: "{rounded.sm}"
     padding: "0.55rem 0.7rem"
+  tab-active:
+    backgroundColor: "{colors.spring-green}"
+    textColor: "{colors.surface-white}"
+    rounded: "{rounded.sm}"
+    padding: "0.4rem 0.8rem"
   pill:
     backgroundColor: "{colors.surface-frost}"
     textColor: "{colors.ink}"
@@ -269,6 +274,25 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **Active:** the green→blue gradient pill with white text — the one place the gradient appears.
 - **Focus:** custom nav toggles and the command-palette trigger must carry a visible focus ring, not rely on the UA default.
 
+### Tabs
+- **One component:** every panel tab strip is `PanelTabs` (`views/components/PanelTabs.vue`). It owns the WAI-ARIA
+  tablist (labelled list, roving tabindex, ArrowLeft/ArrowRight/Home/End, `aria-selected`/`aria-controls`); the panel
+  owns its tab panels, names each by its tab with `aria-labelledby`, and decides what selecting a tab loads. Never
+  Bootstrap's `.nav-tabs`/`.nav-pills`, which paint unselected tabs as link-blue text and ignore every skin.
+- **Style:** a sunken tray that hugs its tabs (surface-alt fill, hairline border, md radius) holding sm-radius tabs.
+  Tabs wrap rather than scroll, so no section hides off-screen, and fill the row evenly below 576px.
+- **States:** unselected labels are muted ink (never link blue, never underlined); hover takes the nav-row tint; the
+  selected tab is the nav's active fill (the green→blue gradient in light and dark) with white text. Focus is the shared
+  branded ring via `.bootui-keyboard-target`. Disabled labels use Slate Subtle. Optional count chips (`.bootui-tabs__count`)
+  take a soft `currentColor` wash.
+- **Tokens:** `--bootui-tab-*` in `App.vue` default to the nav-link states, so a skin that repaints its nav repaints its
+  tabs. A skin overrides a token only where its tab idiom differs and adds geometry in its own `theme-<id>.css`:
+  Graphite adds an accent underline to the selected fill, Cyberpunk a neon glow and a cyan hover scanline, Minimal an
+  ink underline on a hairline rule, France the DSFR `fr-tabs` (blue-tinted tabs; the selected one white with a Blue France
+  top bar), and Windows 95 raised property-sheet flaps with the selected flap joined to the page.
+- **Contrast:** `themeContrast.test.js` holds every theme's labels to 4.5:1 at rest, hovered, selected, and disabled,
+  and the selected tab's own indicator to 3:1 against its tray, so selection never rests on text color alone.
+
 ### Signature: Brand Mark & Ambient Orbs
 - **Brand mark:** a solid Spring-green rounded square (1rem radius, 2.75rem) holding a white coffee-cup glyph (`bi-cup-hot-fill`), with a green glow (`0 0.6rem 1.2rem rgba(25,135,84,0.28)`). The "BootUI" wordmark sits beside it.
 - **Ambient orbs:** two large, softly blurred color fields (green + blue) rest **statically** behind the shell at `z-index: -1` as quiet ambient glows. They are pure atmosphere — they do not drift or animate (the room stays calm across long sessions), must never sit above content, and must never reduce text contrast.
@@ -377,6 +401,7 @@ console is exactly the kind of tool that earns a joke, and it is honest about be
 - **Don't** use a warm near-white (cream, sand, parchment) as any background in light or dark. Backgrounds stay cool, tinted toward the brand green/blue. The opt-in skins (§6) are the explicitly scoped exception, and only inside their own `theme-<id>.css`.
 - **Don't** use `background-clip: text` gradient fills, `border-left`/`border-right` color stripes thicker than 1px, or glassmorphism as a default card treatment.
 - **Don't** nest cards, and don't reach for a card when a table, list, or plain section is the better affordance.
+- **Don't** hand-roll a tablist or reach for Bootstrap `.nav-tabs`; every tab strip is `PanelTabs` (§5 Tabs).
 - **Don't** set `outline: none` on any control without an equally visible branded replacement.
 - **Don't** let a skin (§6) leak past surface, chrome, typography, and geometry — no skin may change layout, semantics, focus order, panel availability, or what a status color means, and every skin's palette must stay inside its own `theme-<id>.css`. Adding a shell means adding a registry entry and a file, never editing another skin.
 - **Don't** add page-entrance reveal animations — no `fade-up`/slide-in applied to every panel or section. Navigation carries one gentle ~180ms route transition; panels otherwise appear instantly. Motion is reserved for hover feedback, loading, and live-status indicators, never decorative reveals or perpetual background drift.

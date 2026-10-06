@@ -66,7 +66,7 @@ public final class JavaAgentService {
     private final AgentBridgeAccess access;
     private final Supplier<AgentClaim> claim;
     private final JavaAgentSettings settings;
-    private final List<Runnable> switchListeners = new CopyOnWriteArrayList<>();
+    private final List<java.util.function.Consumer<String>> switchListeners = new CopyOnWriteArrayList<>();
     /** The agent's failure of a switch the bridge committed, by sensor id, for the claim revision it made. */
     private final Map<String, SwitchFailure> switchFailures = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -429,7 +429,7 @@ public final class JavaAgentService {
         return null;
     }
 
-    private static Map<String, Object> sensor(Map<String, Object> agent, String id) {
+    static Map<String, Object> sensor(Map<String, Object> agent, String id) {
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
                 Map<String, Object> sensor = AgentBridgeAccess.map(Map.of("sensor", raw), "sensor");
@@ -599,9 +599,9 @@ public final class JavaAgentService {
             switchFailures.remove(sensor);
         }
         if (AgentClaim.ARMED.equals(answered) || committed) {
-            for (Runnable listener : switchListeners) {
+            for (java.util.function.Consumer<String> listener : switchListeners) {
                 try {
-                    listener.run();
+                    listener.accept(sensor);
                 } catch (RuntimeException ex) {
                     // A listener only starts routing early; the next read starts it anyway.
                 }
@@ -617,10 +617,11 @@ public final class JavaAgentService {
     }
 
     /**
-     * Runs {@code listener} after each runtime switch the agent applied, such as Side Effects starting to route its
-     * records when the claim used no side-effect sensor until then.
+     * Runs {@code listener} with the sensor's id after each runtime switch the bridge kept, such as Side Effects marking
+     * the run as switched for that sensor (M5-7b's comparison leaves it out) and starting to route its records when the
+     * claim used no side-effect sensor until then.
      */
-    public void onSensorSwitched(Runnable listener) {
+    public void onSensorSwitched(java.util.function.Consumer<String> listener) {
         if (listener != null) {
             switchListeners.add(listener);
         }
