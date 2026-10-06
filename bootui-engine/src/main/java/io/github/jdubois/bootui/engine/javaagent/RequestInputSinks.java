@@ -42,7 +42,7 @@ public final class RequestInputSinks {
             int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
             String[] names = new String[AgentRequestValues.MAX_VALUES];
             int mask = AgentRequestValues.match(sql, AgentRequestValues.SINK_SQL, spans, names);
-            if (mask == 0) {
+            if (mask == 0 || seen(spans)) {
                 return;
             }
             int[] positions = new int[AgentRequestValues.MAX_VALUES];
@@ -71,7 +71,7 @@ public final class RequestInputSinks {
             int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
             String[] names = new String[AgentRequestValues.MAX_VALUES];
             int mask = AgentRequestValues.match(url.text, AgentRequestValues.SINK_URL, spans, names);
-            if (mask == 0) {
+            if (mask == 0 || seen(spans)) {
                 return;
             }
             String target = keep(spans) ? url.target(spans, names) : null;
@@ -89,9 +89,15 @@ public final class RequestInputSinks {
         return correlation == null || (!correlation.bootUi() && correlation.executionId() == null);
     }
 
+    /** Whether the request matched this same text before: its record was already published. */
+    private static boolean seen(int[] spans) {
+        return (spans[AgentRequestValues.S_FLAGS] & AgentRequestValues.F_SEEN) != 0;
+    }
+
     /** Whether every occurrence was reported, so a redacted target covers them all. */
     private static boolean keep(int[] spans) {
-        return spans[AgentRequestValues.S_FLAGS] == 0 && spans[AgentRequestValues.S_COUNT] > 0;
+        return (spans[AgentRequestValues.S_FLAGS] & ~AgentRequestValues.F_SEEN) == 0
+                && spans[AgentRequestValues.S_COUNT] > 0;
     }
 
     private static void publish(

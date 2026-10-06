@@ -39,14 +39,15 @@ import java.util.concurrent.atomic.LongAdder;
  * <p><b>Matching.</b> {@link #match} compares each value with {@link String#indexOf(String, int)}, an intrinsic, within a
  * per-request budget: at most {@value #MAX_CHECKS} checks, {@value #MAX_SCAN} characters of sink text per check (the
  * rest is not scanned, and the check is marked partial), and {@value #MAX_COMPARISONS} character comparisons in all
- * (text length times values); past either budget matching stops for the request, counted. An identical sink text of
+ * (text length times the held values' total length); past either budget matching stops for the request, counted. An identical sink text of
  * the same kind seen again by the request, as one SQL statement inside a loop, is not checked again (the last
  * {@value #HASHES} text hashes). Only parameter indices, their names, and span offsets leave it: <b>never a value</b>.
  * The caller redacts every matched span ({@link #redact}) before it builds any target, record, or log.
  *
  * <p><b>Never stored, logged, or displayed.</b> No {@code toString}, no logging, no accessor for a value. No monitor is
- * taken: each entry has a try-lock taken by compare-and-set, held only for bounded JDK string work, never while
- * application code runs; a check that finds its entry busy is skipped and counted rather than waiting. JDK types only;
+ * taken: each entry has a try-lock taken by compare-and-set with a token of its own, held only for bounded JDK string
+ * work, never while application code runs, and released only by its holder; a check that finds its entry busy is
+ * skipped and counted rather than waiting. JDK types only;
  * every entry point catches everything.
  */
 public final class RequestValues {
@@ -76,7 +77,10 @@ public final class RequestValues {
     /** Characters of sink text scanned per check at most. */
     public static final int MAX_SCAN = 16 * 1024;
 
-    /** Character comparisons per request at most: the sum over its checks of scanned length times values. */
+    /**
+     * Character comparisons per request at most: the sum over its checks of scanned length times the held values' total
+     * length.
+     */
     public static final long MAX_COMPARISONS = 4L * 1024L * 1024L;
 
     /** Sink-text hashes remembered per request, so a repeated text is not checked again. */
@@ -118,6 +122,15 @@ public final class RequestValues {
     public static final int F_BUSY = 16;
 
     /**
+     * The request matched this same text before: compared again, so its spans redact it as before, but neither counted
+     * as a check nor to be published again, so a statement repeated in a loop spends no check budget.
+     */
+    public static final int F_SEEN = 32;
+
+    /** Matched sink-text hashes remembered per request, so a repeated matched text is not published again. */
+    public static final int MATCHED_HASHES = 8;
+
+    /**
      * Where a matched value sat in its sink, in a {@code security-sinks} record's outcome byte: inside a string or
      * numeric literal of an SQL text, or outside one (an identifier or keyword position); 0 when the sink has no
      * literals.
@@ -132,9 +145,21 @@ public final class RequestValues {
     /** In a record's outcome byte: the matched value is made of digits only. */
     public static final int FLAG_NUMERIC = 4;
 
+    /** In a record's outcome byte: the matched value crossed an SQL literal's or comment's bounds. */
+    public static final int FLAG_CROSSES_LITERAL = 8;
+
+    /** In a record's outcome byte: the matched value sat inside an unquoted SQL literal (a number, true, or false). */
+    public static final int FLAG_BARE_LITERAL = 16;
+
     /** What a process start's or a file operation's own record names when its executable or path held request input
      * whose redaction could not cover every occurrence. */
     public static final String FROM_REQUEST_INPUT = "(not kept: it held request input)";
+
+    /**
+     * What a process start's or a file operation's own record names when the request holding values could not have its
+     * executable or path checked (its matching stopped, its entry busy, the text past the scan): never the raw text.
+     */
+    public static final String NOT_CHECKED = "(not kept: not checked for request input)";
 
     /** Command arguments checked per process start at most. */
     static final int MAX_ARGUMENTS = 32;
@@ -146,12 +171,14 @@ public final class RequestValues {
     private static final long HASH_KEY = ThreadLocalRandom.current().nextLong() | 1L;
 
     private static final int FREE = 0;
-    private static final int LOCKED = 1;
+
+    /** The lock tokens: each acquisition takes a new one, never {@link #FREE}, so only its holder ever releases it. */
+    private static final AtomicInteger TOKENS = new AtomicInteger();
 
     /** Each entry's request id, 0 when free; written only under the entry's lock, read without it to find an entry. */
     private static final AtomicLongArray REQUESTS = new AtomicLongArray(ENTRIES);
 
-    /** Each entry's try-lock. */
+    /** Each entry's try-lock: {@link #FREE}, or its holder's token. */
     private static final AtomicIntegerArray LOCKS = new AtomicIntegerArray(ENTRIES);
 
     private static final Entry[] TABLE = entries();
@@ -211,7 +238,12 @@ public final class RequestValues {
         final String[] values = new String[MAX_VALUES];
         final String[] names = new String[MAX_VALUES];
         final long[] hashes = new long[HASHES];
+        final long[] matchedHashes = new long[MATCHED_HASHES];
+        int matchedCount;
         int count;
+        /** The held values' lengths summed: a check's comparisons are its scanned length times this. */
+        int valueChars;
+
         int hashCount;
         long generation;
         long begun;
@@ -299,18 +331,21 @@ public final class RequestValues {
             sweep(now);
             long generation = tableGeneration;
             int index = find(request);
+            int token;
             boolean fresh = false;
             if (index < 0) {
-                index = claimFree(request);
-                if (index < 0) {
+                long claimed = claimFree(request);
+                if (claimed < 0L) {
                     TABLE_FULL.increment();
                     return -1;
                 }
+                index = (int) claimed;
+                token = (int) (claimed >>> 32);
                 fresh = true;
             } else {
-                lock(index);
+                token = lock(index);
                 if (REQUESTS.get(index) != request) {
-                    unlock(index);
+                    unlock(index, token);
                     return -1;
                 }
             }
@@ -322,9 +357,14 @@ public final class RequestValues {
                     BEGUN.increment();
                 }
                 if (values != null) {
-                    for (int i = 0; i < values.length; i++) {
+                    for (int i = 0; i < values.length && owns(index, token, request); i++) {
                         add(entry, names != null && i < names.length ? names[i] : null, values[i]);
                     }
+                }
+                if (!owns(index, token, request)) {
+                    // Taken over while adding: whatever this thread wrote is wiped, never kept.
+                    wipeIfFree(index, token);
+                    return -1;
                 }
                 if (late != null && entry.late == null) {
                     entry.late = late;
@@ -337,7 +377,7 @@ public final class RequestValues {
                 }
                 return entry.count;
             } finally {
-                unlock(index);
+                unlock(index, token);
             }
         } catch (Throwable ex) {
             ERRORS.increment();
@@ -361,14 +401,13 @@ public final class RequestValues {
             sweep(System.nanoTime());
             for (int i = 0; i < ENTRIES; i++) {
                 if (REQUESTS.get(i) == request) {
-                    lock(i);
+                    int token = lock(i);
                     try {
-                        if (REQUESTS.get(i) == request) {
-                            wipe(i);
+                        if (REQUESTS.get(i) == request && wipe(i)) {
                             ENDED.increment();
                         }
                     } finally {
-                        unlock(i);
+                        unlock(i, token);
                     }
                 }
             }
@@ -383,14 +422,14 @@ public final class RequestValues {
             return;
         }
         for (int i = 0; i < ENTRIES; i++) {
-            if (REQUESTS.get(i) != 0L && tryLock(i)) {
+            int token;
+            if (REQUESTS.get(i) != 0L && (token = tryLock(i)) != FREE) {
                 try {
-                    if (REQUESTS.get(i) != 0L && now - TABLE[i].begun > DEADLINE_NANOS) {
-                        wipe(i);
+                    if (REQUESTS.get(i) != 0L && now - TABLE[i].begun > DEADLINE_NANOS && wipe(i)) {
                         EXPIRED.increment();
                     }
                 } finally {
-                    unlock(i);
+                    unlock(i, token);
                 }
             }
         }
@@ -400,22 +439,49 @@ public final class RequestValues {
     static void wipeAll() {
         for (int i = 0; i < ENTRIES; i++) {
             if (REQUESTS.get(i) != 0L) {
-                lock(i);
+                int token = lock(i);
                 try {
-                    if (REQUESTS.get(i) != 0L) {
-                        wipe(i);
+                    if (REQUESTS.get(i) != 0L && wipe(i)) {
                         WIPED.increment();
                     }
                 } finally {
-                    unlock(i);
+                    unlock(i, token);
                 }
             }
         }
     }
 
-    /** Clears entry {@code index}, under its lock, so it reaches no value. */
-    private static void wipe(int index) {
-        Entry entry = TABLE[index];
+    /**
+     * Clears entry {@code index}, under its lock, so it reaches no value, and frees it: returns whether this call freed
+     * it, so {@link #LIVE} counts each entry's request once even when a takeover raced another wipe.
+     */
+    private static boolean wipe(int index) {
+        clear(TABLE[index]);
+        long request = REQUESTS.get(index);
+        if (request != 0L && REQUESTS.compareAndSet(index, request, 0L)) {
+            LIVE.decrementAndGet();
+            return true;
+        }
+        return false;
+    }
+
+    /** Clears a free entry an overtaken holder may have written to, unless another request took it since. */
+    private static void wipeIfFree(int index, int token) {
+        int now = tryLock(index);
+        if (now == FREE) {
+            return;
+        }
+        try {
+            if (REQUESTS.get(index) == 0L) {
+                clear(TABLE[index]);
+            }
+        } finally {
+            unlock(index, now);
+        }
+    }
+
+    /** Clears every field of {@code entry}. */
+    private static void clear(Entry entry) {
         for (int i = 0; i < MAX_VALUES; i++) {
             entry.values[i] = null;
             entry.names[i] = null;
@@ -423,7 +489,12 @@ public final class RequestValues {
         for (int i = 0; i < HASHES; i++) {
             entry.hashes[i] = 0L;
         }
+        for (int i = 0; i < MATCHED_HASHES; i++) {
+            entry.matchedHashes[i] = 0L;
+        }
+        entry.matchedCount = 0;
         entry.count = 0;
+        entry.valueChars = 0;
         entry.hashCount = 0;
         entry.generation = 0L;
         entry.begun = 0L;
@@ -432,8 +503,6 @@ public final class RequestValues {
         entry.stopped = false;
         entry.late = null;
         entry.lateKeys = null;
-        REQUESTS.set(index, 0L);
-        LIVE.decrementAndGet();
     }
 
     /** Adds one value to {@code entry}, under its lock, if it is within the caps and not already held. */
@@ -462,6 +531,7 @@ public final class RequestValues {
         entry.values[entry.count] = value;
         entry.names[entry.count] = validName(name) ? name : fallbackName(name);
         entry.count++;
+        entry.valueChars += value.length();
         KEPT.increment();
     }
 
@@ -591,48 +661,70 @@ public final class RequestValues {
     /**
      * The processes sensor's {@code ProcessBuilder.start} hook started {@code command}, whose file name is
      * {@code commandName}: each of its first {@value #MAX_ARGUMENTS} elements is checked, and a match publishes the
-     * command's file name and the argument's index, never an argument. A match in the executable itself names no file,
-     * and returns true, so the processes sensor's own record does not name it either. Never throws.
+     * command's file name and the argument's index, never an argument. Returns what the processes sensor's own record
+     * names instead of the executable: {@link #FROM_REQUEST_INPUT} when it held a value, {@link #NOT_CHECKED} when the
+     * request holds values but the executable could not be checked, or {@code null} to name it. Never throws.
      */
-    static boolean commandStarted(Claim claim, List<String> command, String commandName, long stamp, long frames) {
-        boolean executable = false;
+    static String commandStarted(Claim claim, List<String> command, String commandName, long stamp, long frames) {
+        String executable = null;
+        boolean checking = false;
         try {
             if (LIVE.get() == 0 || command == null || claim.generation != sensorGeneration) {
-                return false;
+                return null;
             }
             long request = callerRequest(claim);
             if (request == 0L) {
-                return false;
+                return null;
             }
+            checking = true;
             int[] spans = new int[SPANS_LENGTH];
             String[] names = new String[MAX_VALUES];
             int size = Math.min(command.size(), MAX_ARGUMENTS);
             for (int i = 0; i < size; i++) {
                 String argument = command.get(i);
+                spans[S_COUNT] = 0;
+                spans[S_FLAGS] = 0;
                 int mask = matchFor(claim, request, argument, SINK_COMMAND, spans, names);
                 if (mask == 0) {
+                    if (i == 0 && unchecked(spans)) {
+                        executable = NOT_CHECKED;
+                    }
                     continue;
                 }
-                executable |= i == 0;
+                if (i == 0) {
+                    executable = FROM_REQUEST_INPUT;
+                }
                 String target = i == 0
                         ? "(the executable)"
-                        : executable ? "(the executable), argument " + i : commandName + ", argument " + i;
-                publishEach(claim, request, SINK_COMMAND, 0, target, argument, mask, spans, names, stamp, frames);
+                        : executable != null ? "(the executable), argument " + i : commandName + ", argument " + i;
+                if ((spans[S_FLAGS] & F_SEEN) == 0) {
+                    publishEach(claim, request, SINK_COMMAND, 0, target, argument, mask, spans, names, stamp, frames);
+                }
             }
         } catch (Throwable ex) {
             ERRORS.increment();
+            if (checking && executable == null) {
+                // Whether the executable held a value is not known: it is not named.
+                executable = NOT_CHECKED;
+            }
         }
         return executable;
+    }
+
+    /** Whether a check that matched nothing compared nothing, or not the whole text: its text may hold a value. */
+    private static boolean unchecked(int[] spans) {
+        return (spans[S_FLAGS] & (F_STOPPED | F_BUSY | F_PARTIAL)) != 0;
     }
 
     /**
      * The files sensor recorded an operation on {@code text}, a path as the application passed it: a match publishes the
      * path pattern of the <b>redacted</b> path, {@code ../{file}} and never the value, or no target when redaction
      * could not cover every occurrence. Returns the pattern the files sensor's own record must name instead of the
-     * path's (that redacted pattern, or {@link #FROM_REQUEST_INPUT}), or {@code null} when nothing matched. Never
-     * throws.
+     * path's (that redacted pattern, {@link #FROM_REQUEST_INPUT}, or {@link #NOT_CHECKED} when the request holds values
+     * but the path could not be checked), or {@code null} when nothing matched. Never throws.
      */
     static String fileUsed(Claim claim, String text, SideEffects.Places where, long stamp, long frames) {
+        boolean checking = false;
         try {
             if (LIVE.get() == 0 || text == null || claim.generation != sensorGeneration) {
                 return null;
@@ -641,19 +733,24 @@ public final class RequestValues {
             if (request == 0L) {
                 return null;
             }
+            checking = true;
             int[] spans = new int[SPANS_LENGTH];
             String[] names = new String[MAX_VALUES];
             int mask = matchFor(claim, request, text, SINK_FILE, spans, names);
             if (mask == 0) {
-                return null;
+                return unchecked(spans) ? NOT_CHECKED : null;
             }
             String redacted = redact(text, spans, names);
             String target = redacted == null ? null : SideEffects.pattern(SideEffects.absolute(redacted, where), where);
-            publishEach(claim, request, SINK_FILE, 0, target, text, mask, spans, names, stamp, frames);
+            if ((spans[S_FLAGS] & F_SEEN) == 0) {
+                // A path this request already used with the same value: its records already say so.
+                publishEach(claim, request, SINK_FILE, 0, target, text, mask, spans, names, stamp, frames);
+            }
             return target == null ? FROM_REQUEST_INPUT : target;
         } catch (Throwable ex) {
             ERRORS.increment();
-            return null;
+            // Whether the path held a value is not known: it is not named.
+            return checking ? NOT_CHECKED : null;
         }
     }
 
@@ -806,7 +903,8 @@ public final class RequestValues {
         String scanned = partial ? text.substring(0, MAX_SCAN) : text;
         long hash = textHash(text, scanned, kind);
         boolean spansFit = spans == null || spans.length >= SPANS_LENGTH;
-        if (!tryLock(index)) {
+        int token = tryLock(index);
+        if (token == FREE) {
             return busy(spans);
         }
         Map<?, ?> late;
@@ -819,10 +917,11 @@ public final class RequestValues {
             late = entry.late;
             lateKeys = entry.lateKeys;
         } finally {
-            unlock(index);
+            unlock(index, token);
         }
         Object[] pulled = late == null ? null : pull(late, lateKeys);
-        if (!tryLock(index)) {
+        token = tryLock(index);
+        if (token == FREE) {
             return busy(spans);
         }
         String[] found = null;
@@ -833,11 +932,17 @@ public final class RequestValues {
                 return 0;
             }
             if (late != null && entry.late == late && pulled != null) {
-                for (int i = 0; i + 1 < pulled.length; i += 2) {
+                for (int i = 0; i + 1 < pulled.length && owns(index, token, request); i += 2) {
                     add(entry, (String) pulled[i], (String) pulled[i + 1]);
                 }
-                // A text that matched none of the earlier values may hold a new one.
+                if (!owns(index, token, request)) {
+                    // Taken over while adding: whatever this thread wrote is wiped, never kept.
+                    wipeIfFree(index, token);
+                    return busy(spans);
+                }
+                // A text that matched none of the earlier values may hold a new one, and one that matched, another.
                 entry.hashCount = 0;
+                entry.matchedCount = 0;
                 entry.late = null;
                 entry.lateKeys = null;
             }
@@ -855,12 +960,20 @@ public final class RequestValues {
                     return flag(spans, F_REPEATED);
                 }
             }
-            if (++entry.checks > MAX_CHECKS) {
+            if (!owns(index, token, request)) {
+                return busy(spans);
+            }
+            boolean seen = false;
+            for (int i = 0; i < entry.matchedCount && i < MATCHED_HASHES; i++) {
+                seen |= entry.matchedHashes[i] == hash;
+            }
+            if (!seen && ++entry.checks > MAX_CHECKS) {
                 entry.stopped = true;
                 STOPPED.increment();
                 return flag(spans, F_STOPPED);
             }
-            long cost = (long) scanned.length() * entry.count;
+            // Each value is searched for across the whole scanned text: the work grows with every value's length.
+            long cost = (long) scanned.length() * entry.valueChars;
             if (entry.comparisons + cost > MAX_COMPARISONS) {
                 entry.stopped = true;
                 STOPPED.increment();
@@ -870,7 +983,7 @@ public final class RequestValues {
             CHECKS.increment();
             mask = 0;
             int written = 0;
-            int flags = (partial ? F_PARTIAL : 0) | (spansFit ? 0 : F_OVERFLOW);
+            int flags = (partial ? F_PARTIAL : 0) | (spansFit ? 0 : F_OVERFLOW) | (seen ? F_SEEN : 0);
             for (int i = 0; i < entry.count; i++) {
                 String value = entry.values[i];
                 int from = 0;
@@ -899,9 +1012,12 @@ public final class RequestValues {
                     }
                 }
             }
-            if (mask == 0) {
+            if (mask == 0 && owns(index, token, request)) {
                 entry.hashes[entry.hashCount % HASHES] = hash;
                 entry.hashCount++;
+            } else if (mask != 0 && !seen && owns(index, token, request)) {
+                entry.matchedHashes[entry.matchedCount % MATCHED_HASHES] = hash;
+                entry.matchedCount++;
             }
             if (spans != null && spans.length > S_FLAGS) {
                 spans[S_COUNT] = written;
@@ -914,7 +1030,7 @@ public final class RequestValues {
                 OVERFLOW.increment();
             }
         } finally {
-            unlock(index);
+            unlock(index, token);
         }
         if (mask != 0) {
             MATCHED.increment();
@@ -930,12 +1046,16 @@ public final class RequestValues {
     }
 
     /**
-     * A sink text's repeat key: its kind, its length, and the hash of its scanned prefix (the {@code String}'s own
-     * cached hash when the whole text is scanned), computed outside any lock.
+     * A sink text's repeat key: its kind, its length, and a 64-bit hash of its scanned prefix, computed outside any
+     * lock.
      */
     static long textHash(String text, String scanned, int kind) {
-        int hash = scanned.hashCode();
-        return ((long) kind << 56) ^ ((long) text.length() << 32) ^ (hash & 0xFFFFFFFFL);
+        // FNV-1a over 64 bits: a text holding a value colliding with one that held none would be skipped unchecked.
+        long hash = 0xcbf29ce484222325L ^ ((long) kind << 56) ^ text.length();
+        for (int i = 0; i < scanned.length(); i++) {
+            hash = (hash ^ scanned.charAt(i)) * 0x100000001b3L;
+        }
+        return hash;
     }
 
     /** Whether {@code value}'s class is the JDK's (loaded by the bootstrap class loader). */
@@ -1057,9 +1177,9 @@ public final class RequestValues {
         if (text == null || spans == null || spans.length < SPANS_LENGTH) {
             return null;
         }
-        if (spans[S_FLAGS] != 0) {
+        if ((spans[S_FLAGS] & ~F_SEEN) != 0) {
             // Partial, overflowed, or not compared at all (stopped, repeated, busy): the spans may not cover every
-            // occurrence, so no text is kept.
+            // occurrence, so no text is kept. A text seen before was compared in full.
             return null;
         }
         int count = spans[S_COUNT];
@@ -1128,21 +1248,26 @@ public final class RequestValues {
         return -1;
     }
 
-    /** Takes a free entry for {@code request} and returns it locked, or -1 when none is free. */
-    private static int claimFree(long request) {
+    /**
+     * Takes a free entry for {@code request}, every field cleared, and returns it locked: its lock token in the high 32
+     * bits and its index in the low ones, or -1 when none is free.
+     */
+    private static long claimFree(long request) {
         int start = slot(request);
         for (int i = 0; i < ENTRIES; i++) {
             int index = (start + i) & (ENTRIES - 1);
-            if (REQUESTS.get(index) == 0L && tryLock(index)) {
-                if (REQUESTS.get(index) == 0L) {
-                    REQUESTS.set(index, request);
+            int token;
+            if (REQUESTS.get(index) == 0L && (token = tryLock(index)) != FREE) {
+                if (REQUESTS.compareAndSet(index, 0L, request)) {
+                    // Whatever a holder overtaken after its takeover left here is gone before the request's values.
+                    clear(TABLE[index]);
                     LIVE.incrementAndGet();
-                    return index;
+                    return ((long) token << 32) | index;
                 }
-                unlock(index);
+                unlock(index, token);
             }
         }
-        return -1;
+        return -1L;
     }
 
     private static int slot(long request) {
@@ -1150,24 +1275,43 @@ public final class RequestValues {
         return (int) (mixed >>> 57) & (ENTRIES - 1);
     }
 
-    private static boolean tryLock(int index) {
-        return LOCKS.compareAndSet(index, FREE, LOCKED);
+    /** A new lock token, never {@link #FREE}. */
+    private static int token() {
+        int token;
+        do {
+            token = TOKENS.incrementAndGet();
+        } while (token == FREE);
+        return token;
     }
 
-    /** Spins for the entry's lock, held only for bounded JDK string work by another thread. */
-    private static void lock(int index) {
-        if (LOCKS.compareAndSet(index, FREE, LOCKED)) {
-            return;
+    /** The entry's lock, or {@link #FREE} when another thread holds it. */
+    private static int tryLock(int index) {
+        int token = token();
+        return LOCKS.compareAndSet(index, FREE, token) ? token : FREE;
+    }
+
+    /**
+     * Spins for the entry's lock, held only for bounded JDK string work by another thread, and returns its token. One
+     * held past {@link #LOCK_WAIT_NANOS} is taken over, as from a thread that died inside, so a request's end or a claim
+     * is never blocked: the overtaken holder, if it still runs, sees the lock is no longer its own before each write and
+     * stops, and its unlock releases nothing.
+     */
+    private static int lock(int index) {
+        int token = token();
+        if (LOCKS.compareAndSet(index, FREE, token)) {
+            return token;
         }
         long deadline = System.nanoTime() + LOCK_WAIT_NANOS;
         int spins = 0;
-        while (!LOCKS.compareAndSet(index, FREE, LOCKED)) {
-            if (System.nanoTime() - deadline > 0L) {
-                // Its holder does bounded string work only: one that held it this long died inside, as of a stack
-                // overflow in its unlock, so the entry is taken over rather than ever blocking a request or a claim.
-                LOCKS.set(index, LOCKED);
+        while (true) {
+            int held = LOCKS.get(index);
+            if (held == FREE) {
+                if (LOCKS.compareAndSet(index, FREE, token)) {
+                    return token;
+                }
+            } else if (System.nanoTime() - deadline > 0L && LOCKS.compareAndSet(index, held, token)) {
                 FORCED.increment();
-                return;
+                return token;
             }
             if (++spins < 64) {
                 Thread.onSpinWait();
@@ -1177,8 +1321,14 @@ public final class RequestValues {
         }
     }
 
-    private static void unlock(int index) {
-        LOCKS.set(index, FREE);
+    /** Whether the caller still holds entry {@code index} for {@code request}: never after a takeover. */
+    private static boolean owns(int index, int token, long request) {
+        return LOCKS.get(index) == token && REQUESTS.get(index) == request;
+    }
+
+    /** Releases the entry's lock if {@code token} still holds it: an overtaken holder releases nothing. */
+    private static void unlock(int index, int token) {
+        LOCKS.compareAndSet(index, token, FREE);
     }
 
     // ---- status ----------------------------------------------------------------------------------------------------
@@ -1263,11 +1413,11 @@ public final class RequestValues {
     static void expireAll() {
         for (int i = 0; i < ENTRIES; i++) {
             if (REQUESTS.get(i) != 0L) {
-                lock(i);
+                int token = lock(i);
                 try {
                     TABLE[i].begun -= DEADLINE_NANOS + 1L;
                 } finally {
-                    unlock(i);
+                    unlock(i, token);
                 }
             }
         }

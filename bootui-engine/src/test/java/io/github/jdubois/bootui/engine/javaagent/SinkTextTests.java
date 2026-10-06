@@ -57,6 +57,74 @@ class SinkTextTests {
     }
 
     @Test
+    void aValueClosingAStringLiteralKeepsEveryLaterLiteralMasked() {
+        String sql = "select * from users where name = 'x' OR '1'='1' and p = 'secret'";
+        int[] spans = spans(sql, "x' OR '1'='1", 0);
+        int[] positions = new int[AgentRequestValues.MAX_VALUES];
+
+        String masked = SqlSinkText.mask(sql, spans, new String[] {"name"}, positions);
+
+        assertThat(masked).isEqualTo("select * from users where name = {name} and p = ?");
+        assertThat(positions[0])
+                .isEqualTo(AgentRequestValues.POSITION_OUTSIDE_LITERAL | AgentRequestValues.FLAG_CROSSES_LITERAL);
+    }
+
+    @Test
+    void aValueRunningPastANumberKeepsEveryLaterLiteralMasked() {
+        String sql = "select * from t where id = 5 OR 1=1 and t='acme'";
+        int[] spans = spans(sql, "5 OR 1=1", 0);
+        int[] positions = new int[AgentRequestValues.MAX_VALUES];
+
+        String masked = SqlSinkText.mask(sql, spans, new String[] {"id"}, positions);
+
+        assertThat(masked).isEqualTo("select * from t where id = {id} and t=?");
+        assertThat(positions[0])
+                .isEqualTo(AgentRequestValues.POSITION_OUTSIDE_LITERAL | AgentRequestValues.FLAG_CROSSES_LITERAL);
+    }
+
+    @Test
+    void aValueInsideANumberOrTrueOrFalseIsABareLiteral() {
+        String sql = "select * from t where active = true and v = 4242";
+        int[] positions = new int[AgentRequestValues.MAX_VALUES];
+
+        String masked = SqlSinkText.mask(sql, spans(sql, "true", 0, "4242", 1), new String[] {"on", "n"}, positions);
+
+        assertThat(masked).isEqualTo("select * from t where active = {on} and v = {n}");
+        assertThat(positions[0])
+                .isEqualTo(AgentRequestValues.POSITION_IN_LITERAL | AgentRequestValues.FLAG_BARE_LITERAL);
+        assertThat(positions[1])
+                .isEqualTo(AgentRequestValues.POSITION_IN_LITERAL | AgentRequestValues.FLAG_BARE_LITERAL);
+    }
+
+    @Test
+    void noSpanEverCopiesACharacterOfALiteralOrAComment() {
+        // q, z, 7, and 9 appear only inside literals and comments ("zq xq" reads as no column name): no span, wherever
+        // it
+        // starts or ends, keeps one.
+        String sql =
+                "select * from t where a = 'zqxzqx' and b = 'zq''w' or c = 7 and d = true /* zqz */ and e = \"zq xq\""
+                        + " and f = $$zz$$ and g = 9.9 -- qq\n and h = 'end'";
+        for (int from = 0; from < sql.length(); from++) {
+            for (int to = from + 1; to <= sql.length(); to++) {
+                int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
+                spans[AgentRequestValues.S_COUNT] = 1;
+                spans[AgentRequestValues.S_FIRST + 1] = from;
+                spans[AgentRequestValues.S_FIRST + 2] = to;
+
+                String masked =
+                        SqlSinkText.mask(sql, spans, new String[] {"v"}, new int[AgentRequestValues.MAX_VALUES]);
+
+                assertThat(masked.replace("{v}", ""))
+                        .as("span %d-%d", from, to)
+                        .doesNotContain("q")
+                        .doesNotContain("z")
+                        .doesNotContain("7")
+                        .doesNotContain("9");
+            }
+        }
+    }
+
+    @Test
     void urlsAreTheirOriginTheRedactedPathAndTheQueryKeysOnly() {
         URI uri = URI.create(
                 "https://user:p%2Fss@api.example.com:8443/files/alice/42/x%3Fy?token=abc%26z%3Dsecret&q=alice#frag");

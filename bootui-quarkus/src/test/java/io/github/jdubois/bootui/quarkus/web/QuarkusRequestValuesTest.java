@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
+import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.UriInfo;
@@ -51,7 +52,7 @@ class QuarkusRequestValuesTest {
     @Test
     @SuppressWarnings("unchecked")
     void queryAndPathParametersArePushedAndRemovedWhenTheResponseEnds() {
-        RoutingContext routing = mock(RoutingContext.class);
+        RoutingContext routing = routing(false);
         ResteasyReactiveContainerRequestContext request = request(routing, "name", "Robert'); DROP");
 
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(REQUEST))) {
@@ -69,8 +70,19 @@ class QuarkusRequestValuesTest {
     }
 
     @Test
+    void aConnectionThatClosedBeforeTheEndHandlerWasAddedRemovesTheValuesAtOnce() {
+        RoutingContext routing = routing(true);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(REQUEST))) {
+            QuarkusRequestPhaseFilter.pushRequestValues(request(routing, "name", "alice"));
+        }
+
+        assertThat(FakeRequestValues.CALLS).containsExactly("begin " + REQUEST, "end " + REQUEST);
+    }
+
+    @Test
     void nothingIsPushedForBootUiWithoutParametersOrWhileMatchingIsOff() {
-        RoutingContext routing = mock(RoutingContext.class);
+        RoutingContext routing = routing(false);
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
             QuarkusRequestPhaseFilter.pushRequestValues(request(routing, "name", "alice"));
         }
@@ -82,6 +94,14 @@ class QuarkusRequestValuesTest {
 
         assertThat(FakeRequestValues.CALLS).isEmpty();
         verify(routing, never()).addEndHandler(any());
+    }
+
+    private static RoutingContext routing(boolean closed) {
+        HttpServerResponse response = mock(HttpServerResponse.class);
+        when(response.closed()).thenReturn(closed);
+        RoutingContext routing = mock(RoutingContext.class);
+        when(routing.response()).thenReturn(response);
+        return routing;
     }
 
     private static ResteasyReactiveContainerRequestContext request(RoutingContext routing, String name, String value) {

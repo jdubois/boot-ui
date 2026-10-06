@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusResourceHandlers;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.vertx.core.Context;
+import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.annotation.Priority;
 import jakarta.inject.Inject;
@@ -88,6 +89,11 @@ public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, Contai
             }
             routing.addEndHandler(ended -> AgentRequestValues.end(requestId));
             AgentRequestValues.begin(requestId, values);
+            HttpServerResponse response = routing.response();
+            if (response != null && (response.ended() || response.closed())) {
+                // The connection closed, or the response ended, before the end handler was added: it never runs.
+                AgentRequestValues.end(requestId);
+            }
         } catch (RuntimeException | LinkageError ex) {
             // Request-value matching is diagnostics only; the request continues untouched.
         }

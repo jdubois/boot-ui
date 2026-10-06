@@ -323,12 +323,12 @@ class RequestValuesTests {
         String[] values = new String[RequestValues.MAX_VALUES];
         String[] names = new String[RequestValues.MAX_VALUES];
         for (int i = 0; i < values.length; i++) {
-            values[i] = "value-" + i;
+            values[i] = String.format("w%03d", i);
             names[i] = "p" + i;
         }
         RequestValues.begin(REQUEST, names, values, null, null);
         int[] spans = new int[RequestValues.SPANS_LENGTH];
-        // 16 KB times 32 values is half a Mi comparisons: the ninth such check exceeds 4 Mi.
+        // 16 KB times 32 values of 4 characters is 2 Mi comparisons: the third such check exceeds 4 Mi.
         String big = "z".repeat(RequestValues.MAX_SCAN);
         int checks = 0;
         while (checks < 20) {
@@ -338,7 +338,7 @@ class RequestValuesTests {
             }
             checks++;
         }
-        assertThat(checks).isEqualTo(8);
+        assertThat(checks).isEqualTo(2);
     }
 
     @Test
@@ -403,6 +403,53 @@ class RequestValuesTests {
         assertThat(RequestValues.match("/files/report", RequestValues.SINK_FILE + 1, null, names))
                 .isEqualTo(0b10);
         assertThat(names[1]).isEqualTo("file");
+    }
+
+    @Test
+    void aLockHeldByADeadHolderIsTakenOverAndItsLateUnlockReleasesNothing() throws Exception {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("q"), values("held-value"), null, null);
+        Field requestsField = RequestValues.class.getDeclaredField("REQUESTS");
+        requestsField.setAccessible(true);
+        java.util.concurrent.atomic.AtomicLongArray requests =
+                (java.util.concurrent.atomic.AtomicLongArray) requestsField.get(null);
+        Field locksField = RequestValues.class.getDeclaredField("LOCKS");
+        locksField.setAccessible(true);
+        java.util.concurrent.atomic.AtomicIntegerArray locks =
+                (java.util.concurrent.atomic.AtomicIntegerArray) locksField.get(null);
+        int index = -1;
+        for (int i = 0; i < RequestValues.ENTRIES; i++) {
+            if (requests.get(i) != 0L) {
+                index = i;
+            }
+        }
+        // A holder that died inside: its token stays in the lock.
+        int dead = -7;
+        locks.set(index, dead);
+
+        RequestValues.end(REQUEST);
+
+        assertThat(RequestValues.status().get("lockTakeovers")).isEqualTo(1L);
+        assertThat(RequestValues.status().get("live")).isEqualTo(0);
+        assertThat(locks.get(index))
+                .as("released by the thread that took it over")
+                .isZero();
+        assertThat(requests.get(index)).isZero();
+
+        // The next request takes the entry; the dead holder's unlock, were it to run now, releases nothing.
+        RequestValues.begin(REQUEST, names("q"), values("next-value"), null, null);
+        locks.set(index, 99);
+        java.lang.reflect.Method unlock = RequestValues.class.getDeclaredMethod("unlock", int.class, int.class);
+        unlock.setAccessible(true);
+        unlock.invoke(null, index, dead);
+        assertThat(locks.get(index)).isEqualTo(99);
+        locks.set(index, 0);
+        RequestValues.end(REQUEST);
+        RequestValues.end(REQUEST);
+        assertThat(RequestValues.status().get("live"))
+                .as("a second end never counts twice")
+                .isEqualTo(0);
     }
 
     @Test

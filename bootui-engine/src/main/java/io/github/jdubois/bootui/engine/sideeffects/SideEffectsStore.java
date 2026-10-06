@@ -339,14 +339,20 @@ final class SideEffectsStore {
     static final int CONFIRMATIONS = 4;
 
     /**
-     * Whether a security-sinks observation is shown from one request: a value not made of digits only, inside an SQL
-     * literal or in another sink; never one outside a literal or whose place in the text is not known.
+     * Whether a security-sinks observation is shown from one request: a value not made of digits only, inside a quoted
+     * SQL literal, across a literal's bounds, or in another sink; never one outside a literal, inside a number, true, or
+     * false, or whose place in the text is not known.
      */
     static boolean standsAlone(SideEffectRecord record) {
         int flags = record.outcome();
         int position = flags & 0x3;
-        return (flags & SideEffectsCatalog.SINK_NUMERIC) == 0
-                && position != SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+        if ((flags & (SideEffectsCatalog.SINK_NUMERIC | SideEffectsCatalog.SINK_BARE_LITERAL)) != 0) {
+            return false;
+        }
+        if ((flags & SideEffectsCatalog.SINK_CROSSES_LITERAL) != 0) {
+            return true;
+        }
+        return position != SideEffectsCatalog.SINK_OUTSIDE_LITERAL
                 && position != SideEffectsCatalog.SINK_POSITION_UNKNOWN;
     }
 
@@ -1054,7 +1060,7 @@ final class SideEffectsStore {
      * thread family's or an unattributed row is no key, as a thread's records may stay buffered in the agent; an owner
      * not named yet ({@value #UNKNOWN_ROUTE}, {@value #BACKGROUND}, or still waiting) and an Other row count as
      * omitted, as do the rows a sensor's quota marker hides. Infrastructure connections and files the JDK, logging, or
-     * class loading opened are left out.
+     * class loading opened are left out, and so is a security-sinks match no second request confirmed.
      */
     Keys keys() {
         Map<String, KeyCount> merged = new LinkedHashMap<>();
@@ -1062,6 +1068,10 @@ final class SideEffectsStore {
         Set<String> foldedCounted = new HashSet<>();
         for (Row row : rows.values()) {
             Key key = row.key;
+            if (!visible(row)) {
+                // A security-sinks match no second request confirmed: never a key, as it is never a row.
+                continue;
+            }
             if (SideEffectsRowDto.OTHER.equals(key.scope())) {
                 // One Other row per kind: the sensor's folded operations are counted once.
                 if (foldedCounted.add(key.sensor())) {
@@ -1089,6 +1099,10 @@ final class SideEffectsStore {
         }
         for (Pending waiting : pending) {
             Observation observation = waiting.observation();
+            if (SideEffectsCatalog.SECURITY_SINKS_ID.equals(observation.sensor())) {
+                // Not confirmed until its row is: never a key while it waits.
+                continue;
+            }
             String scope;
             String owner;
             if (waiting.key() == null) {

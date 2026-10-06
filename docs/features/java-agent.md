@@ -859,10 +859,12 @@ A missed end is swept after 60 seconds, and a new claim, a DevTools restart, a l
 holder. The values are not part of BootUI's correlation context, so no executor snapshot copies them, and a task the
 agent propagated, or any other request's work, is never matched; a task the request hands to a managed executor still
 matches, until the response completes. Matching is bounded per request: at most 256 checks, 16 KB of text per check,
-and 4 Mi character comparisons in all; an identical text that matched nothing is not checked again. When a text was
-scanned only in part, or held more matches than could be redacted, the row keeps no text. Once a request reached its
-budget, its later sinks are not checked, so a `files` or `processes` row may then name a path or command that holds a
-value; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
+and 4 Mi character comparisons in all, each check costing its text's length times the held values' total length. An
+identical text that matched nothing is not checked again, and one that already matched is redacted again but neither
+counted as a check nor reported twice, so a statement repeated in a loop spends no budget. When a text was scanned only
+in part, or held more matches than could be redacted, the row keeps no text. Once a request reached its budget, its
+later sinks are not checked: a `files` or `processes` row then names its path or executable `(not kept: not checked for
+request input)`, never the text; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
 empty between requests, is not evidence.
 
 **Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
@@ -870,11 +872,12 @@ request), matching added 2.6 % and −0.2 % to the same sensors without it over 
 the run with every sensor, `files` included, measured 10.9 % and 8.4 % against no agent, at the edge of the 10 % budget;
 matching stays opt-in.
 
-**False positives.** A value that sits outside an SQL literal, or that is made of digits only, may be a word the text
-always holds, as a value equal to a column name. Such a match is shown only once a second request produced a different
+**False positives.** A value that sits outside an SQL literal, inside a number or `true`/`false`, or that is made of
+digits only, may be a word the text always holds, as a value equal to a column name. Such a match is shown only once a second request produced a different
 raw text with the same redacted text, which shows the text varies with the value; until then the panel counts it as not
 shown yet; a value repeated in requests with the same text confirms nothing. Any other match is shown from one
-request, marked as seen in one request so far. Only per-process keyed hashes of the raw and redacted texts are compared,
+request, marked as seen in one request so far, including a value that crosses a literal's bounds, as one closing a
+quote: the row then shows it outside any literal, every literal around it still masked. Only per-process keyed hashes of the raw and redacted texts are compared,
 never the texts. Past the tab's row cap, a match not confirmed yet is counted, never shown in its Other row.
 
 The sensor adds no hook of its own in this version: its deserialization, weak algorithm, and trust manager checks

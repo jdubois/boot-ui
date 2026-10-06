@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.RequestValuesTesting;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.journal.RunSummaryBytes;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
@@ -240,6 +241,13 @@ class SecuritySinksServiceTests {
         everything.append(service.agentReport(null, null));
         everything.append(service.modelAccesses());
         everything.append(service.status());
+        // What leaves the panel: the run's side effects, the summary written to disk, the evidence, the bridge's
+        // status.
+        everything.append(service.runSideEffects());
+        everything.append(new String(
+                RunSummaryBytes.encode(service.runSideEffects()), java.nio.charset.StandardCharsets.ISO_8859_1));
+        everything.append(evidence.status());
+        everything.append(AgentBridge.status());
         String all = everything.toString();
         assertThat(rows()).hasSizeGreaterThanOrEqualTo(3);
         assertThat(all).doesNotContain(four).doesNotContain(name).doesNotContain(file);

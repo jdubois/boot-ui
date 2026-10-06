@@ -29,9 +29,13 @@ class SecuritySinksStoreTests {
                 .as("the same raw text five times")
                 .isEmpty();
         assertThat(store.unconfirmed()).isEqualTo(1L);
+        assertThat(store.keys().keys())
+                .as("a match no second request confirmed is no run key either")
+                .noneMatch(key -> SENSOR.equals(key.sensor()));
 
         store.add(sink(6, "select * from t order by {sort}", SideEffectsCatalog.SINK_OUTSIDE_LITERAL, 12, 7));
         store.resolve(routes(6), NOW);
+        assertThat(store.keys().keys()).anyMatch(key -> SENSOR.equals(key.sensor()));
 
         assertThat(store.rows(SENSOR, true, true)).singleElement().satisfies(row -> {
             assertThat(row.detail()).contains("outside a literal").doesNotContain(SinkWording.SEEN_ONCE);
@@ -65,6 +69,23 @@ class SecuritySinksStoreTests {
         assertThat(other.count()).as("only the match that stands alone").isEqualTo(1L);
         assertThat(other.detail()).isEqualTo(SinkWording.OTHER).doesNotContain("literal");
         assertThat(store.unconfirmed()).isEqualTo(1L);
+    }
+
+    @Test
+    void aValueInsideTrueFalseOrANumberWaitsAndOneCrossingALiteralStandsAlone() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        int bare = SideEffectsCatalog.SINK_IN_LITERAL | SideEffectsCatalog.SINK_BARE_LITERAL;
+        store.add(sink(1, "select * from t where active = {on}", bare, 1, 2));
+        store.resolve(routes(1), NOW);
+        assertThat(store.rows(SENSOR, true, true)).as("true in one request").isEmpty();
+
+        int crossing = SideEffectsCatalog.SINK_OUTSIDE_LITERAL | SideEffectsCatalog.SINK_CROSSES_LITERAL;
+        store.add(sink(2, "select * from users where name = {name} and p = ?", crossing, 3, 4));
+        store.resolve(routes(2), NOW);
+        assertThat(store.rows(SENSOR, true, true)).singleElement().satisfies(row -> {
+            assertThat(row.target()).isEqualTo("select * from users where name = {name} and p = ?");
+            assertThat(row.detail()).contains("outside a literal").endsWith(SinkWording.SEEN_ONCE);
+        });
     }
 
     @Test

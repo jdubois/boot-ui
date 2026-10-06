@@ -39,12 +39,14 @@ public final class SideEffectsCatalog {
     static final int KIND_SINK_FILE = 3;
     static final int KIND_SINK_URL = 4;
 
-    /** A security-sinks record's outcome bits ({@code RequestValues.POSITION_*}, {@code FLAG_NUMERIC}). */
+    /** A security-sinks record's outcome bits ({@code RequestValues.POSITION_*} and {@code FLAG_*}). */
     static final int SINK_IN_LITERAL = 1;
 
     static final int SINK_OUTSIDE_LITERAL = 2;
     static final int SINK_POSITION_UNKNOWN = 3;
     static final int SINK_NUMERIC = 4;
+    static final int SINK_CROSSES_LITERAL = 8;
+    static final int SINK_BARE_LITERAL = 16;
 
     /** Where in an SQL text a value sat, as a security-sinks row's location says. */
     public static final String INSIDE_LITERAL = "inside a literal";

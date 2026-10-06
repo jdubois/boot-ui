@@ -621,9 +621,10 @@ public final class SideEffects {
             long stamp = CodePaths.stamp();
             long frames = frames(claim);
             // Request input in the command's arguments (M5-6b), never an argument recorded: only while matching runs.
-            // An executable that held a value is not named by this record either.
-            if (RequestValues.commandStarted(claim, command, name, stamp, frames)) {
-                name = RequestValues.FROM_REQUEST_INPUT;
+            // An executable that held a value, or that the request's matching could not check, is not named either.
+            String notNamed = RequestValues.commandStarted(claim, command, name, stamp, frames);
+            if (notNamed != null) {
+                name = notNamed;
             }
             int target = intern(name);
             Owner owner = owner(frame, claim);
