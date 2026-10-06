@@ -71,6 +71,20 @@ class AgentBridgeAccessTests {
     }
 
     @Test
+    void theRealBridgeSwitchesSensorsAndAnOlderBridgeOfTheSameProtocolSaysItPredatesThem() {
+        assertThat(Bridges.access().sensorSwitchSupported()).isTrue();
+
+        AgentBridgeAccess older = new AgentBridgeAccess(OlderBridge.class);
+        assertThat(older.compatible()).isTrue();
+        assertThat(older.sensorSwitchSupported()).isFalse();
+        assertThat(older.switchSensor(1L, "environment", true))
+                .containsEntry("status", "unavailable")
+                .containsEntry("reason", "the attached BootUI agent predates runtime sensor switches");
+        assertThat(AgentBridgeAccess.absent().switchSensor(1L, "environment", true))
+                .containsEntry("status", "unavailable");
+    }
+
+    @Test
     void aBridgeMissingTheProtocolMethodsCannotBeBound() {
         AgentBridgeAccess access = new AgentBridgeAccess(HalfBridge.class);
 
@@ -125,6 +139,39 @@ class AgentBridgeAccessTests {
 
         public static List<String> messages() {
             return List.of();
+        }
+    }
+
+    /** A bridge of this protocol from before runtime sensor switches (M5-14). */
+    public static final class OlderBridge {
+
+        public static final int PROTOCOL = 1;
+
+        public static boolean attached() {
+            return true;
+        }
+
+        public static Map<String, Object> status() {
+            return Map.of();
+        }
+
+        public static Map<String, Object> claim(
+                Map<String, ?> request,
+                java.util.function.Supplier<Object> capture,
+                java.util.function.Function<Object, AutoCloseable> reopen) {
+            return Map.of();
+        }
+
+        public static Map<String, Object> refine(long token, Map<String, ?> request) {
+            return Map.of();
+        }
+
+        public static Map<String, Object> disarm(long token) {
+            return Map.of();
+        }
+
+        public static Map<String, Object> release(String application, String mode) {
+            return Map.of();
         }
     }
 

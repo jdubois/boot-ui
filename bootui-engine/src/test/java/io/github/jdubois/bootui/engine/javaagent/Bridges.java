@@ -35,6 +35,7 @@ final class Bridges {
         Map<String, Object> installer;
         List<Object> sensors = new ArrayList<>();
         Map<String, Object> claimAnswer;
+        Map<String, Object> sensorsAnswer;
 
         @Override
         public synchronized Map<String, Object> apply(Map<String, Object> request) {
@@ -53,6 +54,9 @@ final class Bridges {
             requests.add(new LinkedHashMap<>(request));
             if ("claim".equals(op) && claimAnswer != null) {
                 return claimAnswer;
+            }
+            if ("sensors".equals(op) && sensorsAnswer != null) {
+                return sensorsAnswer;
             }
             Map<String, Object> answer = new LinkedHashMap<>();
             answer.put("status", "ok");

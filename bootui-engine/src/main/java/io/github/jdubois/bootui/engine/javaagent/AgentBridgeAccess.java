@@ -60,6 +60,9 @@ public final class AgentBridgeAccess {
     private final MethodHandle refine;
     private final MethodHandle disarm;
     private final MethodHandle release;
+    /** {@code AgentBridge.switchSensor}, or {@code null} with an agent from before runtime switches (M5-14). */
+    private final MethodHandle switchSensor;
+
     private final Inventory inventory;
     private final CodePathsHandles codePaths;
     private final ClassEvidenceHandles classEvidence;
@@ -121,6 +124,7 @@ public final class AgentBridgeAccess {
         this.refine = refineHandle;
         this.disarm = disarmHandle;
         this.release = releaseHandle;
+        this.switchSensor = releaseHandle == null ? null : switchSensorHandle(bridge);
         this.inventory = releaseHandle == null ? null : Inventory.bind(bridge);
         this.codePaths = this.inventory == null ? null : CodePathsHandles.bind(bridge);
         this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
@@ -349,6 +353,44 @@ public final class AgentBridgeAccess {
             return copy(release.invoke(application, mode));
         } catch (Throwable ex) {
             return failed(ex);
+        }
+    }
+
+    /**
+     * Whether the bridge switches sensors at run time ({@code AgentBridge.switchSensor}, {@code docs/PLAN-v2.md}
+     * M5-14): an agent of the same protocol from before it does not.
+     */
+    public boolean sensorSwitchSupported() {
+        return compatible() && switchSensor != null;
+    }
+
+    /**
+     * Switches {@code sensor} on or off at run time for the claim the token identifies, and for the later claims of its
+     * slot until the JVM ends. Answers {@value #UNAVAILABLE} without a bridge that supports it.
+     */
+    public Map<String, Object> switchSensor(long token, String sensor, boolean enabled) {
+        if (!sensorSwitchSupported()) {
+            return compatible()
+                    ? unavailable("the attached BootUI agent predates runtime sensor switches")
+                    : unavailable();
+        }
+        try {
+            return copy(switchSensor.invoke(token, sensor, enabled));
+        } catch (Throwable ex) {
+            return failed(ex);
+        }
+    }
+
+    private static MethodHandle switchSensorHandle(Class<?> bridge) {
+        try {
+            return MethodHandles.publicLookup()
+                    .findStatic(
+                            bridge,
+                            "switchSensor",
+                            MethodType.methodType(Map.class, long.class, String.class, boolean.class));
+        } catch (Throwable ex) {
+            // An agent of this protocol from before M5-14: its sensors change only with a new claim.
+            return null;
         }
     }
 

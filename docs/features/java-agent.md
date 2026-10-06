@@ -53,8 +53,8 @@ Every snippet tab has a **Copy** button. Snippet ids and labels are stable: `mav
 
 `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport` shown by
 the panel. The report includes `state`, `reason`, `agentVersion`, `bootUiVersion`, `protocol`, `expectedProtocol`, `jdk`,
-`loadMode`, `jarPath`, `startupMicros`, `claim`, `heldBy`, `sensors`, `retransformation`, `counters`, `messages`,
-`warnings`, and `setup` (with `jarPath`, `jarFound`, `buildTool`, and `snippets`).
+`loadMode`, `jarPath`, `startupMicros`, `claim`, `heldBy`, `sensors`, `toggles`, `retransformation`, `counters`,
+`messages`, `warnings`, and `setup` (with `jarPath`, `jarFound`, `buildTool`, and `snippets`).
 
 | State | Meaning |
 | --- | --- |
@@ -69,6 +69,45 @@ the panel. The report includes `state`, `reason`, `agentVersion`, `bootUiVersion
 
 A different agent version on the same protocol is shown as a warning. Protocol mismatches are unavailable rather than
 best-effort.
+
+## Switching opt-in sensors at run time
+
+The opt-in sensors, `threads`, `files`, and `environment`, can be switched on and off for the running application
+without a restart, from the panel's **Opt-in sensors** card or from each opt-in sensor's section in
+[Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
+`bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
+self-testing, recording, or failed), and why the sensor is off by default. The opt-in `caught-exceptions` sensor is not
+switched at run time: its visit of the application's classes is installed with the claim only.
+
+| Sensor | Why it is opt-in |
+| --- | --- |
+| `threads` | It retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
+| `files` | With the default sensors, the agent's overhead on the benchmark's I/O route measured about 10.6 %, over the 10 % budget. |
+| `environment` | It advises `System.getProperty`, which frameworks call often: about 23–28 ns per read instead of 5–6 ns. |
+
+`POST /bootui/api/java-agent/sensors/{id}` with `{"enabled": true}` or `{"enabled": false}` switches one and returns
+the updated report. It is the panel's only action, so `bootui.panels.java-agent.read-only` and `bootui.read-only`
+refuse it with the canonical 403, and it carries the same localhost, Host, and cross-site write protections as every
+BootUI action. Another sensor id, or a body without `enabled`, answers 400; a switch the agent cannot make answers 409
+with the reason: the agent is not attached or not armed for this application, an older agent predates switches, the
+claim changed meanwhile, `threads` already failed in this run, or `files` or `environment` already failed its
+self-test in this JVM. There is no MCP tool or CLI command for it, and only these three sensors are ever switched: the
+bridge refuses any other, the default sensors, `blocking`, and `caught-exceptions` included. The report lists `toggles`
+only while this application's claim is armed.
+
+The agent applies a switch to the running claim, keeping its generation: switching `threads` on installs and self-tests
+it, and off restores `java.lang.Thread`. Switching `files` or `environment` stops their recording at once, then
+reinstalls the side-effect transformer that `processes`, `network`, and `blocking` share with them, and runs the
+self-test of every side-effect sensor the claim uses again: those sensors pause for the reinstall, and one whose core
+hook fails that self-test stays off for the JVM's life, as at startup. After a switch, both panels read the sensors'
+states again. When the agent fails a switch the bridge already kept, the switch shows **Failed** with the agent's reason
+rather than installing.
+
+A switch is a runtime override, never written to any file. The bootstrap bridge keeps it for the application's slot
+(`mode:application`), so every DevTools restart and Quarkus live reload claims again with it applied, and a full JVM
+restart forgets it. A test run is another slot and never inherits a dev switch. A switch the configuration comes to
+agree with, as after adding the sensor to `bootui.agent.sensors` and restarting, is dropped, so the configuration wins
+again from then on.
 
 ## Claims and lifecycle
 
@@ -759,7 +798,7 @@ are not seen.
 benchmark's I/O route (one outbound connect and one file read per request), the CI job measured `files`' own share
 against the default sensors at a median of 2.3 % over 15 pairs (pairs from −6.6 to 13.7 %). The default sensors plus
 `files` measured 10.6 % against no agent over 9 pairs (pairs from 6.7 to 23.7 %). Add `files` to
-`bootui.agent.sensors` to record it.
+`bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time).
 
 ## The environment sensor
 
@@ -785,7 +824,7 @@ masked.
 
 `environment` is opt-in until its overhead is reviewed (D37): with it recording, `System.getProperty` takes about 23 to
 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
-`bootui.agent.sensors` to record it. Its three hooks are core: one that fails its self-test disables the sensor alone.
+`bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time). Its three hooks are core: one that fails its self-test disables the sensor alone.
 
 ## The blocking sensor
 
@@ -1287,7 +1326,10 @@ API, all `GET`, paged with `offset` and `limit` where they list:
 The Side Effects panel shows what application code starts outside the JVM or touches through agent sensors, grouped by
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
-reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus.
+reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus, except
+that an opt-in sensor's section (`files`, `environment`) carries its [runtime
+switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
+with `bootui.agent.sensors` as the other way to turn it on.
 
 Runtime Insights' [run comparison](overview.md#runtime-insights) reads these rows too: under **Outside the JVM**, it
 lists the hosts, file patterns, processes, and variable names a route, a job, or startup uses now and did not in the
@@ -1298,8 +1340,8 @@ The panel has one tab per sensor group:
 | Tab | Sensors | State in this version |
 | --- | --- | --- |
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
-| Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in. |
-| Environment | `environment` | Records when `bootui.agent.sensors` opts in; otherwise `not-claimed`. |
+| Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in or it is switched on. |
+| Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |

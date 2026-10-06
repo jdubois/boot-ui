@@ -1,4 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
+import {ref} from 'vue'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import JavaAgent from './JavaAgent.vue'
@@ -504,6 +505,65 @@ describe('Java Agent panel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Recording is disabled for this claim: self-test failed: the probe never ran')
+  })
+
+  it('says the opt-in switches need an armed claim, and lists them with their reasons once armed', async () => {
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="java-agent-toggles-unavailable"]').text()).toContain(
+      'once the BootUI agent is attached and this application holds its claim'
+    )
+    wrapper.unmount()
+
+    const toggles = [
+      {
+        id: 'threads',
+        configured: false,
+        enabled: false,
+        overridden: false,
+        state: 'off',
+        optInReason: 'Off by default: it retransforms java.lang.Thread.',
+        available: true,
+        unavailableReason: null
+      },
+      {
+        id: 'environment',
+        configured: false,
+        enabled: true,
+        overridden: true,
+        state: 'installed',
+        optInReason: 'Off by default: it advises System.getProperty.',
+        available: true,
+        unavailableReason: null
+      }
+    ]
+    const armed = {...baseReport, state: 'ARMED', toggles}
+    const switched = {...armed, toggles: [toggles[0], {...toggles[1], enabled: false, overridden: false, state: 'off'}]}
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        String(url).includes('sensors/environment')
+          ? new Response(JSON.stringify(switched), {status: 200, headers: {'content-type': 'application/json'}})
+          : jsonResponse(armed)
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    wrapper = mount(JavaAgent, {global: {provide: {panels}}})
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Opt-in sensors')
+    expect(wrapper.get('[data-testid="agent-sensor-toggle-threads"]').text()).toContain('retransforms java.lang.Thread')
+    const environment = wrapper.get('[data-testid="agent-sensor-toggle-environment"]')
+    expect(environment.get('input').element.checked).toBe(true)
+    expect(environment.text()).toContain('Overridden')
+
+    await environment.get('input').setValue(false)
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('api/java-agent/sensors/environment'))).toBe(true)
+    const after = wrapper.get('[data-testid="agent-sensor-toggle-environment"]')
+    expect(after.get('input').element.checked).toBe(false)
+    expect(after.text()).not.toContain('Overridden')
   })
 
   it('does not call the API when manifest availability says the panel is unavailable', async () => {
