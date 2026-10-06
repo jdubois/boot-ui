@@ -1885,6 +1885,28 @@ public final class SideEffects {
     static final int SLOTS = 8;
 
     /**
+     * Whether a sensor outside Side Effects reads the owner slots, as the caught-exceptions sensor does (PLAN-v2
+     * M5-6a): the slots are then pushed and popped while no side-effect sensor records too.
+     */
+    private static volatile boolean slotReaders;
+
+    /**
+     * A sensor outside Side Effects starts ({@code reading}) or stops reading the owner slots for claim generation
+     * {@code readerGeneration}, which the slots pushed from now on are stamped with when no side-effect sensor's claim
+     * is newer. Never throws.
+     */
+    static void slotReaders(boolean reading, long readerGeneration) {
+        try {
+            if (reading && readerGeneration > generation) {
+                generation = readerGeneration;
+            }
+            slotReaders = reading;
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /**
      * An adapter opened a request's scope on this thread ({@link CodePaths#begin()}), with the owner the code-paths
      * sensor captured there, or {@code null}: a slot is pushed for the scope, naming that owner, or no owner, so that a
      * hook inside captures its own. When the code-paths sensor made no capture ({@code attempted} false, as when it is
@@ -1894,7 +1916,7 @@ public final class SideEffects {
     static void scopeBegin(long[] captured, boolean attempted) {
         try {
             CodePaths.Frame frame;
-            if (mask == 0) {
+            if (mask == 0 && !slotReaders) {
                 // A stack in use stays balanced while a sensor is off, as between a claim and its self-test.
                 frame = CodePaths.FRAME.get();
                 if (frame == null || frame.slots == 0) {
@@ -1963,6 +1985,8 @@ public final class SideEffects {
         } catch (Throwable ex) {
             failed(ex);
         }
+        // The caught exceptions counted, not published one by one, for the scope's owner (PLAN-v2 M5-6a).
+        CaughtExceptions.flushThread();
     }
 
     /**
@@ -1973,7 +1997,7 @@ public final class SideEffects {
     static void handoff(Object[] payload, long snapshotGeneration) {
         try {
             CodePaths.Frame frame;
-            if (mask == 0) {
+            if (mask == 0 && !slotReaders) {
                 frame = CodePaths.FRAME.get();
                 if (frame == null || frame.slots == 0) {
                     return;
@@ -2009,6 +2033,7 @@ public final class SideEffects {
         } catch (Throwable ex) {
             failed(ex);
         }
+        CaughtExceptions.flushThread();
     }
 
     private static void push(
@@ -3969,6 +3994,7 @@ public final class SideEffects {
 
     /** Tests only: forgets the ring, the table, the switches, and the counters; the exit worker stays handed out. */
     static void reset() {
+        slotReaders = false;
         RING.set(null);
         INTERNS.set(null);
         COUNTERS.reset();
