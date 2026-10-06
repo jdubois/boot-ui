@@ -38,7 +38,7 @@ public enum JournalSource {
     /** Tasks the BootUI agent propagated through a JDK executor ({@code docs/PLAN-v2.md} M5-2): one event per handoff. */
     AGENT_EXECUTORS("agent.executors"),
     /**
-     * Exceptions application code caught, and those of them later thrown again, that the BootUI agent's opt-in
+     * Exceptions application code caught, and those of them later thrown again, that the BootUI agent's
      * {@code caught-exceptions} sensor reported ({@code docs/PLAN-v2.md} M5-6a): one event per record.
      */
     AGENT_CAUGHT_EXCEPTIONS("agent.caught-exceptions");

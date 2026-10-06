@@ -912,7 +912,8 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and
+  `caught-exceptions`;
   `threads`,
   `files`, and `environment` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id

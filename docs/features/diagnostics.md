@@ -165,7 +165,7 @@ returns `400`, and an unknown group returns `404`.
 
 ### Caught in application code
 
-With the BootUI agent's opt-in [`caught-exceptions` sensor](java-agent.md#the-caught-exceptions-sensor), the panel adds a
+With the BootUI agent's [`caught-exceptions` sensor](java-agent.md#the-caught-exceptions-sensor), the panel adds a
 **Caught in application code** section (`GET /bootui/api/exceptions/caught`, and `caughtInCode` in the panel's report
 and MCP `get_exceptions`). It groups the exceptions application handlers caught by route, handler, and caught class,
 and counts each occurrence under one outcome:

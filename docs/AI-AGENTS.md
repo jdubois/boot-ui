@@ -255,7 +255,7 @@ the classpath) are simply not advertised.
   fallback). It is not the single legacy REST DTO — see
   [Investigate one request](#investigate-one-request); `get_exception_detail` takes a required `id`
   (from `get_exceptions`, `get_live_activity`, or a profile exception's `exceptionGroupId`) and returns that exception
-  group's full stack trace, causes, and individual occurrences. With the BootUI agent's opt-in `caught-exceptions`
+  group's full stack trace, causes, and individual occurrences. With the BootUI agent's `caught-exceptions`
   sensor, `get_exceptions` also returns `caughtInCode`: counts and the top findings of the exceptions application code
   caught. A finding was not seen rethrown or logged at `WARN` or above while the evidence was complete; `unknown`
   counts incomplete evidence, never a swallowed exception

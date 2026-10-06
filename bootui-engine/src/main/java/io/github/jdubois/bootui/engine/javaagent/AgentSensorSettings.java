@@ -82,8 +82,9 @@ public record AgentSensorSettings(
     public static final String BLOCKING = "blocking";
 
     /**
-     * The sensor reporting the exceptions application code catches (M5-6a): opt-in until its overhead is measured
-     * against the default sensors' budget (D21, D37).
+     * The sensor reporting the exceptions application code catches (M5-6a), on by default (D21): on the caught
+     * benchmark route its own share measured 2.9 % and the cumulative overhead 5.9 % (M5-6a2), within the 3 % and 10 %
+     * budgets, which CI enforces from now on.
      */
     public static final String CAUGHT_EXCEPTIONS = "caught-exceptions";
 
@@ -112,7 +113,7 @@ public record AgentSensorSettings(
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
-            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING, CAUGHT_EXCEPTIONS);
 
     /** The default {@code bootui.agent.ring-capacity}: records of 64 bytes, so 4 MB. */
     public static final int DEFAULT_RING_CAPACITY = 65_536;

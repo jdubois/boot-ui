@@ -89,7 +89,7 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
 - runtime reach in the Vulnerabilities panel;
 - the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors;
-- the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor.
+- the Exceptions panel's **Caught in application code** section, with the agent's `caught-exceptions` sensor, on by default.
 
 **Planned, may not be in 2.0:**
 
