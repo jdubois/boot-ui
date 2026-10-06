@@ -449,7 +449,7 @@ describe('routes', () => {
         Security: groups.security,
         Services: groups.services,
         Diagnostics: groups.diagnostics,
-        'Java agent': groups.agent,
+        Instrumentation: groups.agent,
         'Developer Tools': groups.developerTools
       }).map(([title, group]) => [
         title,
@@ -566,7 +566,7 @@ describe('routes', () => {
     ])
   })
 
-  it('groups the agent-backed panels under Java agent, setup first', () => {
+  it('groups the agent-backed panels under Instrumentation, setup first', () => {
     const agentRoutes = namedRoutes.filter((route) => route.meta.group === groups.agent)
     expect(agentRoutes.map((route) => route.name)).toEqual([
       'java-agent',

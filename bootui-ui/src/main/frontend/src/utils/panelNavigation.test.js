@@ -51,7 +51,7 @@ describe('panel navigation', () => {
     )
   })
 
-  it('keeps an agent panel in its Java agent group without the agent, unless configuration disables it', () => {
+  it('keeps an agent panel in its Instrumentation group without the agent, unless configuration disables it', () => {
     const codePathsRoute = {name: 'code-paths', meta: {group: 'agent', title: 'Code Paths', requiresAgent: true}}
     const withoutAgent = createPanelLookup({
       panels: [{id: 'code-paths', available: false, enabled: true, unavailableReason: 'The agent is not attached'}]
