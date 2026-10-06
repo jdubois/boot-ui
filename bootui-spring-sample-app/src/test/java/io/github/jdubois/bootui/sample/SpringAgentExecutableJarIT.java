@@ -63,14 +63,7 @@ class SpringAgentExecutableJarIT {
                     .isPositive();
         }
         assertThat(sensors)
-                .containsExactlyInAnyOrder(
-                        "executors",
-                        "inventory",
-                        "code-paths",
-                        "processes",
-                        "network",
-                        "blocking",
-                        "caught-exceptions");
+                .containsExactlyInAnyOrder("executors", "inventory", "code-paths", "processes", "network", "blocking");
     }
 
     @Test

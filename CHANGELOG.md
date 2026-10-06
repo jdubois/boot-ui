@@ -9,10 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, now on by default (2.9 % own
-  and 5.9 % cumulative overhead), the Exceptions panel shows what became of each exception application code caught; a
-  finding states it was not seen rethrown or logged at `WARN` or above, and incomplete evidence is unknown with its
-  reason, never swallowed (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`). ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+- **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
+  became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
+  above, and incomplete evidence is shown as unknown with its reason, never as swallowed
+  (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`). ([PLAN-v2 M5-6](docs/PLAN-v2.md))
 
 - **Side effects in the run comparison (M5-7b).** With the BootUI agent, Runtime Insights' comparison lists the hosts,
   files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
@@ -670,6 +670,9 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
   operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
   ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
+- **The `caught-exceptions` sensor stays opt-in.** On the caught benchmark route its own share measured 2.9 % then
+  5.0 % (15 pairs each), over its 3 % budget once; the cumulative overhead with it was 5.9 %
+  ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
 - **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
   default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through

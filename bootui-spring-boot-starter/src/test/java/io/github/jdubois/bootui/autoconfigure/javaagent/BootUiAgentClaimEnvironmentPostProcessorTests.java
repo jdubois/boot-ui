@@ -116,15 +116,7 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
         Map<String, Object> request = FakeBridge.REQUESTS.get(0);
         assertThat(request)
                 .containsEntry(
-                        "sensors",
-                        List.of(
-                                "executors",
-                                "inventory",
-                                "code-paths",
-                                "processes",
-                                "network",
-                                "blocking",
-                                "caught-exceptions"));
+                        "sensors", List.of("executors", "inventory", "code-paths", "processes", "network", "blocking"));
         assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", List.of("com.acme.Wrapper"))

@@ -133,10 +133,10 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor),
-[`blocking`](#the-blocking-sensor), and [`caught-exceptions`](#the-caught-exceptions-sensor), the defaults, and the
-opt-in [`threads`](#the-threads-sensor), [`files`](#the-files-sensor), and [`environment`](#the-environment-sensor). The
-agent installs each one once, on its own thread, then
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
+[`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
+[`files`](#the-files-sensor), [`environment`](#the-environment-sensor), and
+[`caught-exceptions`](#the-caught-exceptions-sensor). The agent installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
 does not advertise propagation as available then. The sensor row
@@ -850,13 +850,13 @@ blocking on a loop before it handled its first request.
 
 ## The caught-exceptions sensor
 
-The `caught-exceptions` sensor, on by default, reports the exceptions application code catches and which of them are
-thrown again. It records the events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions
-panel, whose [**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of
-each one. CI measures its overhead on a route that catches one exception per request: its own share against the other
-default sensors (at most 3 %) and the cumulative overhead with it (at most 10 %). The first run measured 2.9 % (15
-pairs, from -5.7 to 10.0 %) and 5.9 % (15 pairs, from -2.2 to 10.0 %), so it is on by default, and CI fails the build
-should either exceed its budget. Remove it from `bootui.agent.sensors` to turn it off.
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
+sensor, which reports the exceptions application code catches and which of them are thrown again. It records the
+events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel, whose
+[**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one.
+It stays off by default until its overhead fits the default sensors' budget: CI measures its own share on a route
+that catches one exception per request (at most 3 %) and the cumulative overhead with it (at most 10 %). The first run
+measured 2.9 % and 5.9 % (15 pairs each); the second measured a 5.0 % own share, over its budget, so it stays opt-in.
 
 | Hook | Role | What it covers |
 | --- | --- | --- |
@@ -987,7 +987,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `caught-exceptions` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `caught-exceptions`, and the opt-in `threads`, `files`, and `environment`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, and `caught-exceptions`. The Side Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
