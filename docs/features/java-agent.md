@@ -827,8 +827,9 @@ value; the tab's limitations say when that happened. **Clear recording** clears 
 empty between requests, is not evidence.
 
 **Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
-request), matching added 2.6 % to the same sensors without it (median of 15 pairs), and the run with every sensor,
-`files` included, measured 10.9 % against no agent, above the 10 % budget; matching stays opt-in.
+request), matching added 2.6 % and −0.2 % to the same sensors without it over two runs (median of 15 pairs each), and
+the run with every sensor, `files` included, measured 10.9 % and 8.4 % against no agent, at the edge of the 10 % budget;
+matching stays opt-in.
 
 **False positives.** A value that sits outside an SQL literal, or that is made of digits only, may be a word the text
 always holds, as a value equal to a column name. Such a match is shown only once a second request produced a different
