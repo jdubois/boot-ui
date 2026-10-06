@@ -12,12 +12,18 @@ import java.util.Objects;
  *
  * @param header the run and its totals
  * @param aggregates the run's aggregates, possibly without their least-used entries, which {@code header} counts
+ * @param sideEffects what the run did outside the JVM, as the BootUI agent's Side Effects saw it (M5-7b), or {@code
+ *     null} when it ran without them
  */
-public record RunSummary(Header header, AggregatesSnapshot aggregates) {
+public record RunSummary(Header header, AggregatesSnapshot aggregates, RunSideEffects sideEffects) {
 
     public RunSummary {
         Objects.requireNonNull(header, "header must not be null");
         Objects.requireNonNull(aggregates, "aggregates must not be null");
+    }
+
+    public RunSummary(Header header, AggregatesSnapshot aggregates) {
+        this(header, aggregates, null);
     }
 
     /** The summary of {@code run}, which ended at {@code endedAtEpochMillis}, from its final aggregates. */
@@ -31,6 +37,19 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
      */
     public static RunSummary of(
             RunIdentity run, AggregatesSnapshot aggregates, RunStart runStart, long endedAtEpochMillis) {
+        return of(run, aggregates, runStart, null, endedAtEpochMillis);
+    }
+
+    /**
+     * The summary of {@code run}, which ended at {@code endedAtEpochMillis}, from its final aggregates, what it recorded
+     * when it started, and its side effects, each possibly {@code null}.
+     */
+    public static RunSummary of(
+            RunIdentity run,
+            AggregatesSnapshot aggregates,
+            RunStart runStart,
+            RunSideEffects sideEffects,
+            long endedAtEpochMillis) {
         long events = aggregates.run().events().values().stream()
                 .mapToLong(Long::longValue)
                 .sum();
@@ -47,7 +66,8 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
                         0,
                         0,
                         runStart),
-                aggregates);
+                aggregates,
+                sideEffects);
     }
 
     /**

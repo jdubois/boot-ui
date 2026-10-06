@@ -53,12 +53,14 @@ public class QuarkusLogTailCapture {
                         "io.github.jdubois.bootui.core")),
                 journal);
         root.addHandler(handler);
+        QuarkusLogCoverage.handlerChanged();
     }
 
     void onStop(@Observes ShutdownEvent event) {
         if (handler != null) {
             Logger.getLogger("").removeHandler(handler);
             handler = null;
+            QuarkusLogCoverage.handlerChanged();
         }
     }
 }

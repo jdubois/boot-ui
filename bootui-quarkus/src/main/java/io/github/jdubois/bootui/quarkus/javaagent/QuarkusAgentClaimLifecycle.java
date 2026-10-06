@@ -32,6 +32,7 @@ public class QuarkusAgentClaimLifecycle {
     private final Supplier<CodePathsService> codePaths;
     private final Supplier<SideEffectsService> sideEffects;
     private Supplier<AgentCaughtExceptions> caughtExceptions = () -> null;
+    private volatile SideEffectsService startedSideEffects;
 
     @Inject
     public QuarkusAgentClaimLifecycle(
@@ -111,11 +112,17 @@ public class QuarkusAgentClaimLifecycle {
             SideEffectsService effects = sideEffects.get();
             if (effects != null) {
                 effects.start();
+                startedSideEffects = effects;
             }
         }
     }
 
     void onStop(@Observes ShutdownEvent event) {
+        // Side Effects freezes the run's keys while the claim still says which sensors recorded (M5-7b).
+        SideEffectsService effects = startedSideEffects;
+        if (effects != null) {
+            effects.endRun();
+        }
         disarm();
     }
 

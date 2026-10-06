@@ -10,6 +10,7 @@ import {getBootUiApiPath} from '../utils/bootUiPath.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
@@ -90,20 +91,6 @@ function clientTabId(id) {
 
 function clientPanelId(id) {
   return `mcp-client-${id}-panel`
-}
-
-function onClientTabKeydown(event, currentId) {
-  const currentIndex = clients.findIndex((client) => client.id === currentId)
-  let targetIndex = null
-  if (event.key === 'ArrowRight') targetIndex = (currentIndex + 1) % clients.length
-  else if (event.key === 'ArrowLeft') targetIndex = (currentIndex - 1 + clients.length) % clients.length
-  else if (event.key === 'Home') targetIndex = 0
-  else if (event.key === 'End') targetIndex = clients.length - 1
-  if (targetIndex === null) return
-  event.preventDefault()
-  const target = clients[targetIndex].id
-  activeClient.value = target
-  document.getElementById(clientTabId(target))?.focus()
 }
 
 async function fetchStatus() {
@@ -320,24 +307,15 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
             </button>
           </div>
 
-          <ul class="nav nav-tabs mb-3" role="tablist" aria-label="MCP client">
-            <li v-for="client in clients" :key="client.id" class="nav-item">
-              <button
-                :id="clientTabId(client.id)"
-                :aria-controls="clientPanelId(client.id)"
-                :aria-selected="activeClient === client.id"
-                :class="{active: activeClient === client.id}"
-                :tabindex="activeClient === client.id ? 0 : -1"
-                class="nav-link"
-                role="tab"
-                type="button"
-                @click="activeClient = client.id"
-                @keydown="onClientTabKeydown($event, client.id)"
-              >
-                {{ client.label }}
-              </button>
-            </li>
-          </ul>
+          <PanelTabs
+            class="mb-3"
+            :tabs="clients"
+            :selected="activeClient"
+            :tab-id="clientTabId"
+            :panel-id="clientPanelId"
+            label="MCP client"
+            @select="activeClient = $event"
+          />
 
           <div
             v-for="client in clients"

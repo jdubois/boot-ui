@@ -866,7 +866,21 @@ than being silently skipped. A picker chooses another kept run. With the BootUI 
 application's previous run in this JVM, not run yet first, each with whether it ran in this run and the routes whose
 requests' call trees ran it, and the count of removed methods, which the previous run keeps only as hashes. Code
 changes are listed against the previous run only, and need the Code Inventory panel, else the section says why;
-without the agent the comparison is unchanged. On a laptop, warmup and noise dominate latency while
+without the agent the comparison is unchanged. Next, **Outside the JVM** says which hosts and ports, file patterns
+(read or written), process file names, and environment variable or system property names a route, a job, or startup
+uses now and did not before, such as "`GET /orders` now connects to `api.example.com:443`", or no longer uses, from
+the [Side Effects](java-agent.md#side-effects) sensors `network`, `files`, `processes`, and `environment`. Each run keeps
+at most 250 such keys per sensor in its summary, names and masked patterns only, never a value, an argument, or a
+file's contents. A sensor is compared only when it recorded the whole of both runs: one that was off, not claimed in
+`bootui.agent.sensors`, switched, cleared by **Clear recording**, or lost records (a full ring, its quota of distinct
+targets) in either run reads **not compared**, with the reason, and lists nothing; startup's keys also need the sensor
+to have been recording when the application started, which a JVM's first run, whose hooks the agent installs while it
+starts, may not have, and come from the thread that finished starting only. A key is **new** only when the previous
+run exercised its owner, and **gone** only when this run did (its route served a request, its job ran, or it did
+something else outside the JVM); otherwise its owner was **not exercised** in one of the runs. A run that kept only
+part of a sensor's keys marks it **partly compared** and withholds the rows that part could make wrong. Work on a
+thread no request or execution owns is not compared. The keys travel in the run summary, so in the baseline file too.
+On a laptop, warmup and noise dominate latency while
 the work identical requests do is stable, so comparison leads with behavior: per route or execution (scheduled jobs
 and consumed messages), the statements, REST calls, AI calls, cache misses, and tokens per request or execution.
 Statement groups are compared and displayed only as literal-free shapes, in the browser, MCP and CLI under every

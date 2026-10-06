@@ -9,9 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
+  became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
+  above, and incomplete evidence is shown as unknown with its reason, never as swallowed
+  (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`). ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+
+- **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`, and
+  `environment` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
+- **Side effects in the run comparison (M5-7b).** With the BootUI agent, Runtime Insights' comparison lists the hosts,
+  files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
+  both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Agent guidance for the BootUI agent (M5-10a).** MCP instructions check `get_agent_status` first and read an
   agent-gated `NOT_APPLICABLE` as not measured; `verify_after_change` and the skill add verify-then-probe.
-
 - **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
   sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
   that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
@@ -187,7 +196,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
 - **Thread activity sensor in the BootUI agent.** The opt-in `thread-activity` sensor shows, per route, the threads
   application code starts and the executors it creates, and those still running when the request ended, in Side Effects'
-  **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e). An async
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e). An async
   Spring MVC request now ends when its async context completes, so work it handed over can be marked after response.
 - **Thread locals sensor in the BootUI agent.** The opt-in `thread-locals` sensor shows the thread locals a request or a
   job left set on its pooled thread, by the static field that holds them, never their values, in Side Effects'
@@ -353,6 +362,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compared with the previous one after a full restart.
 
 ### Changed
+
+- **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
+  instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
 - **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
   default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
@@ -662,9 +674,14 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **The runtime journal records the sample applications' logs.** Its Spring appender skipped every logger under
+  `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
   operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
   ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
+- **The `caught-exceptions` sensor stays opt-in.** On the caught benchmark route its own share measured 2.9 % then
+  5.0 % (15 pairs each), over its 3 % budget once; the cumulative overhead with it was 5.9 %
+  ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
 - **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
   default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through

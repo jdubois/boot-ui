@@ -15,6 +15,8 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonAgentDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunRefDto;
+import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangeDto;
+import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangesDto;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -263,6 +265,7 @@ public final class RuntimeInsightsAgentView {
                 comparison.runs(),
                 comparison.notComparableReasons(),
                 compact(comparison.codeChanges()),
+                compact(comparison.sideEffects()),
                 head(comparison.behavior()),
                 omitted(comparison.behavior()),
                 head(comparison.edges()),
@@ -426,6 +429,18 @@ public final class RuntimeInsightsAgentView {
                 // An unknown status names nothing to do next.
             }
         }
+        // A new host, file, process, or variable is a fact whatever the behavior rows' status (M5-7b).
+        RuntimeSideEffectChangesDto sideEffects = comparison.sideEffects();
+        if (sideEffects != null) {
+            sideEffects.changes().stream()
+                    .filter(change -> RuntimeSideEffectChangeDto.ADDED.equals(change.change()))
+                    .findFirst()
+                    .ifPresent(change -> next.add(
+                            "get_side_effects",
+                            "query",
+                            change.target(),
+                            "the call site and requests behind the new " + change.target()));
+        }
         return next.list();
     }
 
@@ -476,6 +491,21 @@ public final class RuntimeInsightsAgentView {
                 changes.methods().subList(0, RuntimeRunComparisonAgentDto.MAX_ROWS),
                 changes.methodsTotal(),
                 changes.limitations());
+    }
+
+    /** Side effects with at most {@value RuntimeRunComparisonAgentDto#MAX_ROWS} changes, the new first. */
+    static RuntimeSideEffectChangesDto compact(RuntimeSideEffectChangesDto sideEffects) {
+        if (sideEffects == null || sideEffects.changes().size() <= RuntimeRunComparisonAgentDto.MAX_ROWS) {
+            return sideEffects;
+        }
+        return new RuntimeSideEffectChangesDto(
+                sideEffects.available(),
+                sideEffects.unavailableReason(),
+                sideEffects.partial(),
+                sideEffects.sensors(),
+                sideEffects.changes().subList(0, RuntimeRunComparisonAgentDto.MAX_ROWS),
+                sideEffects.changesTotal(),
+                sideEffects.limitations());
     }
 
     /** {@code previous}, blank, or {@code null} names the newest kept run; anything else is a run id. */

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.javaagent;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +72,13 @@ public final class AgentClaim {
     private volatile AgentHandoffs handoffs;
     private final Set<String> beanClasses = ConcurrentHashMap.newKeySet();
     private AgentRecordDrainer drainer;
+    private volatile Map<String, SideEffectsSample> armedSamples = Map.of();
+
+    // The sensors the bridge's claim uses, the runtime switches applied, as its answers of this generation last said:
+    // the answer with the highest switch revision wins, since answers can arrive out of order. Guarded by this.
+    private long sensorsRevision = -1;
+    private List<String> activeSensors;
+    private Map<String, Boolean> sensorOverrides = Map.of();
 
     private AgentClaim(
             AgentBridgeAccess access,
@@ -157,8 +165,19 @@ public final class AgentClaim {
         Map<String, Object> answer = claim.access.claim(request, claim.capture, claim.reopen);
         claim.result = answer;
         claim.generation = AgentBridgeAccess.number(answer, "generation");
+        claim.observeSensors(answer);
         if (ARMED.equals(answer.get("status")) && answer.get("token") instanceof Long granted) {
             claim.token = granted;
+            if (claim.sensors.sideEffects()) {
+                // Whether each claimed sensor already recorded when this run began: on a JVM's first claim the agent
+                // installs the hooks in the background, so the run's early startup may go unrecorded (M5-7b).
+                Map<String, Object> status = claim.access.status();
+                Map<String, SideEffectsSample> samples = new LinkedHashMap<>();
+                for (String id : claim.sensors.sensors()) {
+                    samples.put(id, SideEffectsSample.read(status, id));
+                }
+                claim.armedSamples = Map.copyOf(samples);
+            }
             // Only once the agent accepted them: Beans at runtime says a call would be observed only for these.
             if (beanClasses != null) {
                 claim.beanClasses.addAll(clean(beanClasses));
@@ -205,6 +224,7 @@ public final class AgentClaim {
         request.put("packages", packages == null ? List.of() : clean(packages));
         request.put("beanClasses", beanClasses == null ? List.of() : clean(beanClasses));
         Map<String, Object> answer = access.refine(granted, request);
+        observeSensors(answer);
         if (ARMED.equals(answer.get("status"))) {
             result = answer;
             // Only once the agent accepted the refine: a refused one instruments none of them.
@@ -244,9 +264,79 @@ public final class AgentClaim {
         return handoffs;
     }
 
-    /** The sensors this claim asked for. */
+    /** The sensors this claim asked for: the application's configuration, before any runtime switch. */
     public AgentSensorSettings sensors() {
         return sensors;
+    }
+
+    /**
+     * The sensors this claim uses: those it asked for with the runtime switches of its slot applied
+     * ({@code docs/PLAN-v2.md} M5-14), as the bridge last answered; the configured ones until it answered.
+     */
+    public synchronized List<String> activeSensors() {
+        return activeSensors == null ? sensors.sensors() : activeSensors;
+    }
+
+    /** Whether this claim uses {@code sensor}, the runtime switches applied. */
+    public boolean uses(String sensor) {
+        return activeSensors().contains(sensor);
+    }
+
+    /** The runtime switch revision of the bridge's answer {@link #activeSensors()} comes from, -1 before any. */
+    public synchronized long sensorsRevision() {
+        return sensorsRevision;
+    }
+
+    /** The runtime switches applied to this claim, sensor id to on or off, as the bridge last answered. */
+    public synchronized Map<String, Boolean> sensorOverrides() {
+        return sensorOverrides;
+    }
+
+    /**
+     * Switches {@code sensor} on or off at run time with this claim's token, while it is armed ({@code docs/PLAN-v2.md}
+     * M5-14): the bridge keeps the switch for this application's later claims in this JVM, across DevTools restarts and
+     * Quarkus live reloads. Returns the bridge's answer: {@value #ARMED} once the agent applied it, or why not.
+     */
+    public Map<String, Object> switchSensor(String sensor, boolean enabled) {
+        Long granted = token;
+        if (granted == null || ended.get()) {
+            return answer(STALE, "this run's claim on the BootUI agent ended");
+        }
+        Map<String, Object> answer = access.switchSensor(granted, sensor, enabled);
+        observeSensors(answer);
+        if (ARMED.equals(answer.get("status"))) {
+            result = answer;
+        }
+        return answer;
+    }
+
+    /** Takes the active sensors from a bridge answer about this claim's generation, unless a later switch's came first. */
+    private synchronized void observeSensors(Map<String, Object> answer) {
+        Map<String, Object> bridgeClaim = AgentBridgeAccess.map(answer, "claim");
+        Long claimed = AgentBridgeAccess.number(bridgeClaim, "generation");
+        if (claimed == null || !claimed.equals(generation) || !bridgeClaim.containsKey("sensors")) {
+            return;
+        }
+        Long revision = AgentBridgeAccess.number(bridgeClaim, "sensorsRevision");
+        long observed = revision == null ? 0L : revision;
+        if (observed < sensorsRevision) {
+            return;
+        }
+        sensorsRevision = observed;
+        List<String> names = new ArrayList<>();
+        for (Object item : AgentBridgeAccess.items(bridgeClaim, "sensors")) {
+            if (item != null) {
+                names.add(String.valueOf(item));
+            }
+        }
+        activeSensors = List.copyOf(names);
+        Map<String, Boolean> overrides = new LinkedHashMap<>();
+        AgentBridgeAccess.map(bridgeClaim, "sensorOverrides").forEach((id, value) -> {
+            if (value instanceof Boolean on) {
+                overrides.put(id, on);
+            }
+        });
+        sensorOverrides = Collections.unmodifiableMap(overrides);
     }
 
     /**
@@ -407,6 +497,15 @@ public final class AgentClaim {
     /** Whether this run's claim ended: disarmed, or never armed. */
     public boolean ended() {
         return ended.get();
+    }
+
+    /**
+     * Side-effect sensor {@code id}'s state when this claim was armed ({@code docs/PLAN-v2.md} M5-7b), or
+     * {@link SideEffectsSample#NONE} when it was not sampled.
+     */
+    public SideEffectsSample armedSideEffects(String id) {
+        SideEffectsSample sample = id == null ? null : armedSamples.get(id);
+        return sample == null ? SideEffectsSample.NONE : sample;
     }
 
     /** The claim's generation, or {@code null} when it was never granted. */

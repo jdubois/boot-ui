@@ -75,7 +75,10 @@ public final class McpToolDescriptions {
                     "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run "
                             + "including runs without HTTP traffic; runs lists the others. Comparability first, then "
                             + "codeChanges (with the BootUI agent: changed and added methods, executed or not, and the "
-                            + "routes that ran them), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
+                            + "routes that ran them), then sideEffects (with the agent: hosts, file patterns, processes, and "
+                            + "variable names a route, job, or startup uses new or no longer, per sensor COMPARED only when "
+                            + "it recorded both runs whole, else NOT_COMPARED with the reason), then at most 8 behavior rows "
+                            + "and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
                             + "mean no change. Call after tests to verify a change. next names the follow-up calls, or the run ids to use "
                             + "after an unknown one."),
             Map.entry(
@@ -91,7 +94,10 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_exceptions",
                     "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack "
-                            + "frames, causes, and individual occurrences."),
+                            + "frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions "
+                            + "sensor, caughtInCode summarizes exceptions application code caught: a finding was not "
+                            + "seen rethrown or logged at WARN or above while the evidence was complete; unknown "
+                            + "means incomplete evidence, never swallowed."),
             Map.entry(
                     "get_exception_detail",
                     "Return stack frames, causes, and occurrences for one exact exception-group id obtained from "

@@ -62,10 +62,15 @@ public final class ThreadActivityBehaviors {
             jdkThread();
             timer();
             libraryThread();
+            lazyHolder();
+            lazySpringSingleton();
+            springPrototype();
+            lazyArcSingleton();
             unowned();
             virtualThreads();
             reclaimed();
             bootUiWork();
+            anotherSwitchKeepsPendingChecks();
             if (!"beside-propagation".equals(mode)) {
                 releaseRestores();
             }
@@ -230,6 +235,114 @@ public final class ThreadActivityBehaviors {
                 "a java.util.Timer the application starts for a request is its own thread, left running ("
                         + describe(RECORDS) + ")",
                 left != null && origin(left) == ThreadActivity.ORIGIN_APPLICATION);
+    }
+
+    /** A lazy holder's executor, created by its static initializer on first use inside a request. */
+    static final class LazyHolder {
+        static final ExecutorService POOL = Executors.newSingleThreadExecutor();
+
+        private LazyHolder() {}
+    }
+
+    /** A bean whose constructor creates an executor and keeps it: a singleton's for the application's life. */
+    public static final class PoolBean {
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+
+        public PoolBean() {}
+    }
+
+    static void lazyHolder() throws Exception {
+        RECORDS.clear();
+        long request = request();
+        LazyHolder.POOL.submit(() -> 1).get();
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        LazyHolder.POOL.shutdown();
+        check(
+                "a lazy holder's executor created in its static initializer inside a request is a singleton's, never"
+                        + " left running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
+    static void lazySpringSingleton() throws Exception {
+        RECORDS.clear();
+        org.springframework.beans.factory.support.DefaultListableBeanFactory factory =
+                new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        org.springframework.beans.factory.support.RootBeanDefinition definition =
+                new org.springframework.beans.factory.support.RootBeanDefinition(PoolBean.class);
+        definition.setLazyInit(true);
+        factory.registerBeanDefinition("poolBean", definition);
+        long request = request();
+        PoolBean bean = factory.getBean(PoolBean.class);
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        bean.pool.shutdown();
+        check(
+                "a lazy Spring singleton bean's executor created on first use inside a request is a singleton's, never"
+                        + " left running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
+    static void springPrototype() throws Exception {
+        RECORDS.clear();
+        org.springframework.beans.factory.support.DefaultListableBeanFactory factory =
+                new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        org.springframework.beans.factory.support.RootBeanDefinition definition =
+                new org.springframework.beans.factory.support.RootBeanDefinition(PoolBean.class);
+        definition.setScope(org.springframework.beans.factory.config.BeanDefinition.SCOPE_PROTOTYPE);
+        factory.registerBeanDefinition("poolBean", definition);
+        long request = request();
+        PoolBean bean = factory.getBean(PoolBean.class);
+        endRequest(request);
+        long[] left = await(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING));
+        bean.pool.shutdown();
+        check(
+                "a Spring prototype bean's executor created for a request and never shut down is still left running ("
+                        + describe(RECORDS) + ")",
+                left != null && !isStatic(left) && left[SideEffects.R_REQUEST] == request);
+    }
+
+    static void lazyArcSingleton() throws Exception {
+        RECORDS.clear();
+        io.quarkus.arc.impl.ItSingletonContext context = new io.quarkus.arc.impl.ItSingletonContext();
+        long request = request();
+        PoolBean bean = context.get("pool-bean", PoolBean.class, PoolBean::new);
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        bean.pool.shutdown();
+        check(
+                "an ArC singleton bean's executor created on first use inside a request is a singleton's, never left"
+                        + " running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
+    static void anotherSwitchKeepsPendingChecks() throws Exception {
+        RECORDS.clear();
+        long request = request();
+        CountDownLatch release = new CountDownLatch(1);
+        Thread thread = new Thread(() -> await(release), "switch-survivor-1");
+        thread.setDaemon(true);
+        thread.start();
+        Map<String, Object> on = AgentBridge.switchSensor(token, SideEffects.FILES, true);
+        Map<String, Object> files = SensorWait.awaitSettled(SideEffects.FILES);
+        endRequest(request);
+        long[] left = await(kind(SideEffects.KIND_THREAD_LEFT_RUNNING));
+        Map<String, Object> off = AgentBridge.switchSensor(token, SideEffects.FILES, false);
+        Object released = SideEffectsBehaviors.awaitState(SideEffects.FILES, "released");
+        release.countDown();
+        thread.join();
+        check(
+                "switching another side-effect sensor at run time keeps what thread-activity waits to check (" + on
+                        + " " + files.get("state") + " " + off + " " + released + " " + describe(RECORDS) + ")",
+                AgentBridge.ARMED.equals(on.get("status"))
+                        && "installed".equals(files.get("state"))
+                        && "released".equals(released)
+                        && left != null
+                        && left[SideEffects.R_REQUEST] == request
+                        && "switch-survivor-{n}".equals(string(left[SideEffects.R_TARGET])));
     }
 
     static void libraryThread() throws Exception {
@@ -436,6 +549,10 @@ public final class ThreadActivityBehaviors {
 
     static int detail(long[] record) {
         return (int) (record[SideEffects.R_FLAGS] >>> 32);
+    }
+
+    static boolean isStatic(long[] record) {
+        return (detail(record) & ThreadActivity.DETAIL_STATIC) != 0;
     }
 
     static int origin(long[] record) {

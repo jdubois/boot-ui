@@ -643,7 +643,9 @@ Features:
 
 Acceptance criteria:
 
-- The panel is always available and view-only on Spring MVC, Spring WebFlux, and Quarkus.
+- The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
+  (`threads`, `files`, `environment`, `thread-activity`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
   refresh, disarms on close or startup failure, and releases the agent when BootUI or `bootui.agent.enabled` is off.
@@ -795,8 +797,8 @@ Data sources:
   `thread-locals` (M5-5f) when opted in. The `resources` and `security-sinks` sensors are still listed but report
   `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
-  context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended or the connection
-  closed), for the `thread-activity` sensor to check what the request left running.
+  context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
+  `thread-activity` sensor to check what the request left running.
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
 - The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
@@ -1963,7 +1965,10 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   changed or added since the previous run, not run yet first, each with its status and the routes whose call trees ran
   it, with the change counts, removed methods counted only (M5-7a). It is `null` without the agent, and
   `available=false` with the reason while the inventory sensor or the Code Inventory panel cannot answer, or against a
-  run other than the previous one.
+  run other than the previous one. `sideEffects`, next, lists with the agent the side-effect keys (sensor, kind,
+  masked target, and route, execution, or startup owner) new, gone, or whose owner this run did not exercise, from the
+  `network`, `files`, `processes`, and `environment` sensors, each sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED`
+  with the reason when it did not record the whole of both runs (M5-7b); `null` without the agent.
 - `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
   §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
@@ -3200,6 +3205,7 @@ Initial endpoints:
 | `/bootui/api/cli`                            | GET    | Command-line endpoint status and the tool catalog this instance exposes                 |
 | `/bootui/api/cli/tools/{name}`               | POST   | Invoke one tool by name and return its payload directly, with the outcome in the HTTP status |
 | `/bootui/api/java-agent`                     | GET    | BootUI Java agent attachment, claim, setup, and sensor status                            |
+| `/bootui/api/java-agent/sensors/{id}`        | POST   | Switch an opt-in agent sensor on or off at run time (`{"enabled": true}`), until the JVM ends |
 | `/bootui/api/code-inventory`                 | GET    | Code Inventory summary: methods executed of tracked, changes since the previous run, dependency counts |
 | `/bootui/api/code-inventory/changes`         | GET    | Paged methods changed or added since the previous run, each executed or not in this run  |
 | `/bootui/api/code-inventory/methods`         | GET    | Paged application methods by `package`, `class`, and `status`, with package and class counts |
@@ -3233,7 +3239,7 @@ Initial endpoints:
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, method (`Class#method`, read from the route trees with the BootUI agent), repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |

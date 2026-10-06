@@ -1238,6 +1238,11 @@ public final class CodePaths {
 
         /** The thread-locals sensor's scope on this thread, created at its first scan ({@code ThreadLocals}). */
         ThreadLocals.Scope threadLocals;
+
+        /** The thread-activity sensor's owner and sighting probe, reused by its hooks on this thread. */
+        SideEffects.Owner threadOwner;
+
+        ThreadActivity.Key threadProbe;
     }
 
     /**

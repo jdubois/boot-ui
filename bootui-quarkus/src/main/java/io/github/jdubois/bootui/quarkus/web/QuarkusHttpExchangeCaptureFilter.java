@@ -205,15 +205,6 @@ public class QuarkusHttpExchangeCaptureFilter {
                 logCaptureFailure(failure);
             }
         });
-        if (phases != null) {
-            // A connection closed before the response ended never reaches the body end: its request ends here, so work
-            // it handed over, and what it left running (docs/PLAN-v2.md §5.16), is still checked.
-            rc.addEndHandler(result -> {
-                if (result.failed()) {
-                    phases.end(requestId);
-                }
-            });
-        }
         rc.addBodyEndHandler(v -> {
             // Runs on the thread that ended the response: on a worker, no end() closes the request's scope, so the
             // code-paths phase its response filter marked is cleared here, before the worker takes other work.

@@ -195,4 +195,34 @@ describe('BootUI design system contracts', () => {
 
     expect(offenders).toEqual([])
   })
+
+  // DESIGN.md "Tabs": every panel tab strip is PanelTabs. Bootstrap's `.nav-tabs`
+  // paints unselected tabs in link blue and ignores every skin, and each hand-rolled
+  // tablist re-implemented (or forgot) its own keyboard model and focus ring.
+  it('routes every panel tab strip through the shared PanelTabs component', () => {
+    const offenders = []
+
+    for (const file of vueFiles(viewsRoot)) {
+      if (path.basename(file) === 'PanelTabs.vue') continue
+      const {template} = descriptorFor(file)
+      if (!template) continue
+      walk(
+        template.content,
+        (node, _ancestors, line) => {
+          const classes = staticClasses(node)
+          const role = node.props?.find((property) => property.type === 6 && property.name === 'role')?.value?.content
+          if (
+            role === 'tablist' ||
+            role === 'tab' ||
+            ['nav-tabs', 'nav-pills', 'nav-link'].some((name) => classes.has(name))
+          ) {
+            offenders.push(`${relative(file)}:${line}`)
+          }
+        },
+        template.loc.start.line - 1
+      )
+    }
+
+    expect(offenders).toEqual([])
+  })
 })

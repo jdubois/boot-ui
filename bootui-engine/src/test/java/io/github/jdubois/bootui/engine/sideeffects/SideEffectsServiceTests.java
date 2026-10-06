@@ -502,6 +502,32 @@ class SideEffectsServiceTests {
         assertThat(service.report().limitations()).contains(SideEffectsService.LIMITATION_LOOPS_REFUSED);
     }
 
+    @Test
+    void saysWhenThreadActivityCouldNotCheckThreadsAtTheirRequestsEnd() throws Exception {
+        start();
+        assertThat(service.report().limitations()).noneMatch(line -> line.contains("not checked"));
+        java.lang.reflect.Field field = Class.forName("io.github.jdubois.bootui.agent.bridge.ThreadActivity")
+                .getDeclaredField("TRACKER");
+        field.setAccessible(true);
+        Object tracker = field.get(null);
+        for (String counter : List.of("unresolved", "endsLost")) {
+            java.lang.reflect.Field adder = tracker.getClass().getDeclaredField(counter);
+            adder.setAccessible(true);
+            ((java.util.concurrent.atomic.LongAdder) adder.get(tracker)).add(2);
+        }
+        try {
+            assertThat(service.report().limitations())
+                    .anyMatch(line -> line.startsWith("2 threads or executors were not checked"))
+                    .anyMatch(line -> line.startsWith("2 requests' ends were lost"));
+        } finally {
+            for (String counter : List.of("unresolved", "endsLost")) {
+                java.lang.reflect.Field adder = tracker.getClass().getDeclaredField(counter);
+                adder.setAccessible(true);
+                ((java.util.concurrent.atomic.LongAdder) adder.get(tracker)).reset();
+            }
+        }
+    }
+
     /** Holds a registered loop's thread, so its weak entry outlives the test's assertions. */
     private Thread keep;
 

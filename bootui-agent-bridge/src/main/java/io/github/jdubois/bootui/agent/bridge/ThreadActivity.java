@@ -50,7 +50,10 @@ public final class ThreadActivity {
     /** The started thread is virtual. */
     public static final int DETAIL_VIRTUAL = 1 << 2;
 
-    /** Created in a static initializer: a singleton, never tracked. */
+    /**
+     * Created once for the application's life: in a static initializer, or while a container creates a singleton bean
+     * ({@link #singletonCreation}), never tracked.
+     */
     public static final int DETAIL_STATIC = 1 << 3;
 
     /** An executor's kind, bits 4–7. */
@@ -105,6 +108,8 @@ public final class ThreadActivity {
         final long generation;
         final ConcurrentHashMap<Key, Sighting> sightings = new ConcurrentHashMap<Key, Sighting>();
         final ConcurrentHashMap<String, Integer> targets = new ConcurrentHashMap<String, Integer>();
+        /** Started threads' names to their family's target, so a name seen again builds no family string. */
+        final ConcurrentHashMap<String, Integer> names = new ConcurrentHashMap<String, Integer>();
 
         State(long generation) {
             this.generation = generation;
@@ -116,18 +121,24 @@ public final class ThreadActivity {
      * started thread's class, so a pool's worker and another thread of the same name never share a verdict.
      */
     static final class Key {
-        final int family;
-        final int target;
-        final int detail;
-        final long site;
-        final int type;
+        int family;
+        int target;
+        int detail;
+        long site;
+        int type;
 
         Key(int family, int target, int detail, long site, int type) {
+            set(family, target, detail, site, type);
+        }
+
+        /** Reused as a thread's lookup probe ({@code CodePaths.Frame#threadProbe}), copied before it is kept. */
+        Key set(int family, int target, int detail, long site, int type) {
             this.family = family;
             this.target = target;
             this.detail = detail;
             this.site = site;
             this.type = type;
+            return this;
         }
 
         @Override
@@ -231,7 +242,7 @@ public final class ThreadActivity {
             SideEffects.Owner owner = owner(frame, claim);
             boolean owned = owner.request != 0L || owner.execution != 0L;
             State state = state(claim.generation);
-            int target = target(state, name.isEmpty() ? UNNAMED : SideEffects.threadFamily(name));
+            int target = nameTarget(state, name);
             int detail = virtual ? DETAIL_VIRTUAL : 0;
             long frames;
             int origin;
@@ -255,17 +266,25 @@ public final class ThreadActivity {
                 origin = (int) walked[1];
                 isStatic = walked[2] != 0L;
             } else {
-                Key key = new Key(
+                Key probe = frame == null ? null : frame.threadProbe;
+                if (probe == null) {
+                    probe = new Key(0, 0, 0, 0L, 0);
+                    if (frame != null) {
+                        frame.threadProbe = probe;
+                    }
+                }
+                probe.set(
                         owner.threadName,
                         target,
                         detail,
                         SideEffects.site(stamp),
                         started.getClass().hashCode());
-                sighting = state.sightings.get(key);
+                sighting = state.sightings.get(probe);
                 if (sighting == null) {
                     long[] walked = walk(claim, false);
                     sighting = new Sighting(walked[0], (int) walked[1], walked[2] != 0L);
                     if (state.sightings.size() < MAX_SIGHTINGS) {
+                        Key key = new Key(probe.family, probe.target, probe.detail, probe.site, probe.type);
                         Sighting raced = state.sightings.putIfAbsent(key, sighting);
                         if (raced != null) {
                             sighting = raced;
@@ -549,12 +568,39 @@ public final class ThreadActivity {
         }
     }
 
-    /** The owner, as the network sensor reads it: the slot's, else captured unless on an event loop; the family named. */
+    /**
+     * The owner, as the network sensor reads it: the slot's, else captured unless on an event loop; the family named.
+     * Reuses the thread's own {@code Owner} ({@code CodePaths.Frame#threadOwner}): the hooks never nest on a thread, and
+     * nothing keeps it past the hook.
+     */
     private static SideEffects.Owner owner(CodePaths.Frame frame, Claim claim) {
         int family = SideEffects.threadFamilyId(frame, claim.generation);
-        SideEffects.Owner owner = SideEffects.owner(frame, claim, false, frame == null || !frame.sideEffectEventLoop);
+        SideEffects.Owner owner;
+        if (frame == null) {
+            owner = new SideEffects.Owner();
+        } else {
+            owner = frame.threadOwner;
+            if (owner == null) {
+                owner = new SideEffects.Owner();
+                frame.threadOwner = owner;
+            }
+        }
+        SideEffects.owner(owner, frame, claim, false, frame == null || !frame.sideEffectEventLoop);
         owner.threadName = family;
         return owner;
+    }
+
+    /** The target of a started thread's family, by its name, building the family's string only for a name not seen. */
+    private static int nameTarget(State state, String name) {
+        Integer known = state.names.get(name);
+        if (known != null) {
+            return known.intValue();
+        }
+        int target = target(state, name.isEmpty() ? UNNAMED : SideEffects.threadFamily(name));
+        if (state.names.size() < MAX_SIGHTINGS) {
+            state.names.putIfAbsent(name, Integer.valueOf(target));
+        }
+        return target;
     }
 
     private static void track(
@@ -763,6 +809,20 @@ public final class ThreadActivity {
                 || className.startsWith("java.util.concurrent.Executors");
     }
 
+    /**
+     * Whether a frame creates something once for the application's life: a static initializer, or a container creating
+     * a singleton bean on first use, which can happen inside a request, and again after a Quarkus live reload: Spring's
+     * {@code DefaultSingletonBeanRegistry.getSingleton} (a lazy singleton, an {@code ObjectProvider} lookup) and ArC's
+     * {@code AbstractSharedContext} ({@code @ApplicationScoped} and {@code @Singleton}). Request and prototype scopes
+     * create through neither, so what their beans start stays tracked.
+     */
+    static boolean singletonCreation(String className, String method) {
+        return "<clinit>".equals(method)
+                || "getSingleton".equals(method)
+                        && "org.springframework.beans.factory.support.DefaultSingletonBeanRegistry".equals(className)
+                || className.startsWith("io.quarkus.arc.impl.AbstractSharedContext");
+    }
+
     /** The JDK's own classes. */
     static boolean jdk(String className) {
         return className.startsWith("java.")
@@ -810,9 +870,10 @@ public final class ThreadActivity {
                 }
                 String method = frame.getMethodName();
                 if (application != 0) {
-                    // The frames found; a static initializer further down, as a lazy holder's first use inside a
-                    // request, still makes it a singleton, never tracked.
-                    isStatic = "<clinit>".equals(method);
+                    // The frames found; a static initializer or a container's singleton creation further down, as a
+                    // lazy holder's or a lazy bean's first use inside a request, still makes it a singleton, never
+                    // tracked.
+                    isStatic = singletonCreation(className, method);
                     continue;
                 }
                 if (!creatorFound) {
@@ -825,7 +886,7 @@ public final class ThreadActivity {
                         return new long[] {0L, WORKER, 0L};
                     }
                 }
-                if ("<clinit>".equals(method)) {
+                if (singletonCreation(className, method)) {
                     isStatic = true;
                 }
                 if (jdk(className)) {
@@ -896,6 +957,7 @@ public final class ThreadActivity {
         map.put("startedAfterRequestEnd", Long.valueOf(TRACKER.afterEnd.sum()));
         map.put("requestEndsChecked", Long.valueOf(TRACKER.endsChecked.sum()));
         map.put("requestEndsLost", Long.valueOf(TRACKER.endsLost.sum()));
+        map.put("dropped", Long.valueOf(TRACKER.dropped.sum()));
         map.put("leftRunning", Long.valueOf(LEFT_RUNNING.sum()));
         map.put("shutDown", Long.valueOf(SHUT_DOWN.sum()));
         map.put("reclaimed", Long.valueOf(RECLAIMED.sum()));
@@ -926,5 +988,6 @@ public final class ThreadActivity {
         TRACKER.afterEnd.reset();
         TRACKER.endsLost.reset();
         TRACKER.endsChecked.reset();
+        TRACKER.dropped.reset();
     }
 }

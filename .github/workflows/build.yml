@@ -545,12 +545,18 @@ jobs:
   # the cumulative overhead with it (nine pairs against no agent), which decide whether files can be on by default
   # (D37): on with files' own median at most 3 % and the cumulative median at most 10 %. The first run measured 2.3 %
   # and 10.6 %, so files stays opt-in.
+  # The same rule decides the caught-exceptions sensor's default (M5-6a2), on the caught route, which adds one caught
+  # exception per request: its own share (the default sensors plus caught-exceptions against the default sensors,
+  # fifteen pairs, budget 3 %) and the cumulative overhead with it (fifteen pairs against no agent, budget 10 %). Each
+  # step prints PASS or FAIL against its budget, and fails the build on a FAIL once the sensor is on by default
+  # (bootui.benchmark.agent.enforce-when-default); while it is opt-in, only the 30 % alarm fails it. The first run
+  # measured 2.9 % and 5.9 %, the second a 5.0 % own share, over its budget, so caught-exceptions stays opt-in.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 120
+    timeout-minutes: 170
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -623,6 +629,27 @@ jobs:
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      - name: Measure the caught-exceptions sensor's share on the caught route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=caught -Dbootui.benchmark.report=spring-mvc-caught-ab
+          -Dbootui.benchmark.agent.budget-percent=3 -Dbootui.benchmark.agent.enforce-when-default=caught-exceptions
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with caught-exceptions on the caught route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=caught -Dbootui.benchmark.report=spring-mvc-agent-caught
+          -Dbootui.benchmark.agent.budget-percent=10 -Dbootui.benchmark.agent.enforce-when-default=caught-exceptions
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
       - name: Publish the overhead report
         if: ${{ !cancelled() }}
         run: |
@@ -637,12 +664,16 @@ jobs:
           if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
             echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
           fi
-          for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab spring-mvc-agent-io-files; do
+          for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab \
+            spring-mvc-agent-io-files spring-mvc-caught-ab spring-mvc-agent-caught; do
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")
-              if awk -v overhead="$overhead" -v limit="$budget" 'BEGIN { exit !(overhead > limit) }'; then
-                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${budget} % limit."
+              own=$(sed -n 's/^budgetPercent=//p' "$directory/$report.properties")
+              verdict=$(sed -n 's/^verdict=//p' "$directory/$report.properties")
+              echo "${verdict:-?}: ${report} median overhead ${overhead} % against its ${own:-$budget} % budget."
+              if awk -v overhead="$overhead" -v limit="${own:-$budget}" 'BEGIN { exit !(overhead > limit) }'; then
+                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${own:-$budget} % limit."
               fi
             fi
           done

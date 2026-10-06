@@ -206,7 +206,13 @@ public final class BootUiApiContractCatalog {
                             "capacity", JsonType.INTEGER,
                             "traces", JsonType.ARRAY)),
             array("log-tail", "/log-tail/recent"),
-            capabilityList("exceptions", "/exceptions", "groups", "totalExceptions", Map.of()),
+            capabilityList(
+                    "exceptions",
+                    "/exceptions",
+                    "groups",
+                    "totalExceptions",
+                    // Caught in application code (PLAN-v2 M5-6): null without the agent's caught-exceptions sensor.
+                    fields("caughtInCode", JsonType.NULLABLE_OBJECT)),
             pagedList(
                     "http-exchanges",
                     "/http-exchanges",
@@ -334,6 +340,7 @@ public final class BootUiApiContractCatalog {
                             "claim", JsonType.NULLABLE_OBJECT,
                             "heldBy", JsonType.NULLABLE_STRING,
                             "sensors", JsonType.ARRAY,
+                            "toggles", JsonType.ARRAY,
                             "retransformation", JsonType.NULLABLE_OBJECT,
                             "counters", JsonType.NULLABLE_OBJECT,
                             "messages", JsonType.ARRAY,
@@ -512,6 +519,23 @@ public final class BootUiApiContractCatalog {
                             "page", JsonType.OBJECT)));
 
     /**
+     * The Exceptions panel's <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6), a read of the
+     * {@code exceptions} panel kept out of {@link #reads()}: it answers the same shape with or without the BootUI agent,
+     * {@code available: false} and no rows without it.
+     */
+    private static final ReadContract CAUGHT_EXCEPTIONS = read(
+            "exceptions",
+            "/exceptions/caught",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "limitations", JsonType.ARRAY,
+                    "settling", JsonType.INTEGER,
+                    "occurrences", JsonType.INTEGER,
+                    "findings", JsonType.INTEGER,
+                    "rows", JsonType.ARRAY));
+
+    /**
      * One Side Effects sensor's rows ({@code docs/PLAN-v2.md} §5.16), a read of the {@code side-effects} panel kept out of
      * {@link #reads()}: it answers the same shape with or without the BootUI agent, {@code available: false} and no rows
      * without it.
@@ -635,7 +659,8 @@ public final class BootUiApiContractCatalog {
                     "restartCost", JsonType.OBJECT,
                     "latency", JsonType.ARRAY,
                     "limitations", JsonType.ARRAY,
-                    "codeChanges", JsonType.NULLABLE_OBJECT));
+                    "codeChanges", JsonType.NULLABLE_OBJECT,
+                    "sideEffects", JsonType.NULLABLE_OBJECT));
 
     /**
      * The <b>Profile resources</b> session's state, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md}
@@ -747,6 +772,11 @@ public final class BootUiApiContractCatalog {
         return REQUEST_JOURNAL_PROFILE;
     }
 
+    /** The Exceptions panel's caught-in-code read contract ({@code docs/PLAN-v2.md} M5-6). */
+    public static ReadContract caughtExceptions() {
+        return CAUGHT_EXCEPTIONS;
+    }
+
     /** One Side Effects sensor's rows' read contract ({@code docs/PLAN-v2.md} §5.16). */
     public static ReadContract sideEffectsSensor() {
         return SIDE_EFFECTS_SENSOR;
@@ -848,6 +878,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "code-paths.probe.start", "code-paths", "POST", "/code-paths/probes");
         all(actions, "code-paths.probe.stop", "code-paths", "POST", "/code-paths/probes/0/stop");
         all(actions, "code-paths.probe.delete", "code-paths", "DELETE", "/code-paths/probes/0");
+        all(actions, "java-agent.sensor.switch", "java-agent", "POST", "/java-agent/sensors/environment");
         all(actions, "http-probe.execute", "http-probe", "POST", "/http-probe");
         all(actions, "architecture.scan", "architecture", "POST", "/architecture/scan");
         all(actions, "vulnerabilities.scan", "vulnerabilities", "POST", "/vulnerabilities/scan");

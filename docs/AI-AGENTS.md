@@ -255,7 +255,11 @@ the classpath) are simply not advertised.
   fallback). It is not the single legacy REST DTO — see
   [Investigate one request](#investigate-one-request); `get_exception_detail` takes a required `id`
   (from `get_exceptions`, `get_live_activity`, or a profile exception's `exceptionGroupId`) and returns that exception
-  group's full stack trace, causes, and individual occurrences. `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
+  group's full stack trace, causes, and individual occurrences. With the BootUI agent's opt-in `caught-exceptions`
+  sensor, `get_exceptions` also returns `caughtInCode`: counts and the top findings of the exceptions application code
+  caught. A finding was not seen rethrown or logged at `WARN` or above while the evidence was complete; `unknown`
+  counts incomplete evidence, never a swallowed exception
+  ([Caught in application code](features/diagnostics.md#caught-in-application-code)). `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
   that keep recent failed and slow records longer than routine ones; each includes a `retention` object with the
   capacity and the retained, reserved, and evicted counts, so an agent can tell a partial window from "it never
   happened". See [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention).
@@ -324,7 +328,7 @@ read tools return short, stable facts rather than a dashboard:
 | `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so only the kinds that passed their external validation or stayed silent on it (M4-20), and no time breakdown, exception hotspot, repeated SELECT, connection, AI, garbage collection, or heap row; a limitation names the returned rows' kinds that are not externally validated, and another counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations, and a row of a kind not externally validated says so |
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
-| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then at most 8 route/execution behavior rows and edges; latency is left out |
+| `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then `sideEffects` (with the agent: hosts, file patterns, processes, and variable names new, gone, or whose owner was not exercised, per sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED` with the reason; at most 8), then at most 8 route/execution behavior rows and edges; latency is left out |
 
 **Every answer names the next call.** Each of the four answers carries `next`: at most three follow-up calls, each
 with the `bootui` `command` line, the MCP `tool` and its `arguments`, and `why`. The list names the lead observation's
@@ -370,7 +374,8 @@ known, runs the tests, calls
    returned is reported by `lazy-sql-after-handler` instead, with its cause. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
 3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
-   come first: the methods changed since the previous run, which ran, and on which routes. Omitted `id` or `previous`
+   come first: the methods changed since the previous run, which ran, and on which routes; its `sideEffects` then name
+   a new host, file, process, or variable a route uses, only for sensors marked `COMPARED`. Omitted `id` or `previous`
    selects the newest kept run, including listener-only and idle runs. A new statement fingerprint or a higher statement count
    per request on a route is a behavior change the agent caused; `INSUFFICIENT` means the tests did not reach the
    route 3 times in both runs, not that nothing changed. Do not edit from a latency row.

@@ -1,15 +1,18 @@
 package io.github.jdubois.bootui.engine.javaagent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorToggleDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSnippetDto;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -663,6 +666,194 @@ class JavaAgentServiceTests {
         assertThat(report.setup().snippets())
                 .extracting(JavaAgentSnippetDto::id)
                 .containsExactly("quarkus-dev", "surefire", "intellij", "java-tool-options");
+    }
+
+    @Test
+    void theOptInSensorsAreSwitchedAtRunTimeOnlyWhileThisApplicationsClaimIsArmed() {
+        JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
+        assertThat(absent.report().toggles()).isEmpty();
+        assertThatThrownBy(() -> absent.switchSensor("environment", true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not armed");
+
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        AgentSensorSettings sensors =
+                new AgentSensorSettings(List.of("processes", "files"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        List<String> switched = new ArrayList<>();
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        service.onSensorSwitched(switched::add);
+
+        assertThat(service.report().toggles())
+                .extracting(
+                        JavaAgentSensorToggleDto::id,
+                        JavaAgentSensorToggleDto::configured,
+                        JavaAgentSensorToggleDto::enabled,
+                        JavaAgentSensorToggleDto::overridden,
+                        JavaAgentSensorToggleDto::state,
+                        JavaAgentSensorToggleDto::available)
+                .containsExactly(
+                        org.assertj.core.api.Assertions.tuple("threads", false, false, false, "off", true),
+                        org.assertj.core.api.Assertions.tuple("files", true, true, false, "installing", true),
+                        org.assertj.core.api.Assertions.tuple("environment", false, false, false, "off", true),
+                        org.assertj.core.api.Assertions.tuple("thread-activity", false, false, false, "off", true));
+        assertThat(service.report().toggles())
+                .allSatisfy(toggle -> assertThat(toggle.optInReason()).startsWith("Off by default"));
+
+        Map<String, Object> environment = new LinkedHashMap<>();
+        environment.put("id", "environment");
+        environment.put("state", "installed");
+        stub.sensors = List.of(environment);
+        JavaAgentReport on = service.switchSensor(" environment ", true);
+
+        assertThat(on.toggles().get(2)).satisfies(toggle -> {
+            assertThat(toggle.enabled()).isTrue();
+            assertThat(toggle.overridden()).isTrue();
+            assertThat(toggle.state()).isEqualTo("installed");
+        });
+        assertThat(claim.get().activeSensors()).containsExactly("processes", "files", "environment");
+        assertThat(claim.get().sensors().sensors()).containsExactly("processes", "files");
+        assertThat(stub.ops()).contains("sensors");
+        assertThat(switched).containsExactly("environment");
+        assertThat(service.sideEffectsCoverage("environment").toggle().enabled())
+                .isTrue();
+
+        JavaAgentReport off = service.switchSensor("files", false);
+        assertThat(off.toggles().get(1)).satisfies(toggle -> {
+            assertThat(toggle.configured()).isTrue();
+            assertThat(toggle.enabled()).isFalse();
+            assertThat(toggle.overridden()).isTrue();
+            assertThat(toggle.state()).isEqualTo("off");
+        });
+        JavaAgentService.SideEffectsCoverage files = service.sideEffectsCoverage("files");
+        assertThat(files.state()).isEqualTo("not-claimed");
+        assertThat(files.reason()).startsWith("Switched off at run time");
+        assertThat(service.sideEffectsCoverage("processes").toggle()).isNull();
+
+        assertThatThrownBy(() -> service.switchSensor("executors", false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("threads, files, environment");
+        claim.get().disarm();
+        assertThat(service.report().toggles()).isEmpty();
+        assertThatThrownBy(() -> service.switchSensor("environment", false)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void aSwitchTheAgentFailedAfterTheBridgeCommittedItIsReportedAsMadeNotRefused() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        stub.sensorsAnswer = new LinkedHashMap<>(Map.of("status", "failed", "reason", "boom"));
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        JavaAgentReport report = service.switchSensor("environment", true);
+
+        assertThat(report.toggles().get(2).enabled()).isTrue();
+        assertThat(report.toggles().get(2).overridden()).isTrue();
+        assertThat(report.toggles().get(2).state()).isEqualTo("failed");
+        assertThat(report.toggles().get(2).failure()).isEqualTo("The agent failed this switch: boom");
+
+        stub.sensorsAnswer = null;
+        JavaAgentReport off = service.switchSensor("environment", false);
+        assertThat(off.toggles().get(2).failure()).isNull();
+        assertThat(off.toggles().get(2).state()).isEqualTo("off");
+    }
+
+    @Test
+    void aSideEffectSensorThatFailedItsSelfTestInThisJvmCannotBeSwitchedBackOn() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> files = new LinkedHashMap<>();
+        files.put("id", "files");
+        files.put("state", "self-test-failed");
+        stub.sensors = List.of(files);
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(service.report().toggles().get(1)).satisfies(toggle -> {
+            assertThat(toggle.available()).isFalse();
+            assertThat(toggle.unavailableReason()).contains("until the JVM restarts");
+        });
+        assertThatThrownBy(() -> service.switchSensor("files", true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("failed its self-test");
+        assertThat(stub.ops()).doesNotContain("sensors");
+    }
+
+    @Test
+    void aSwitchedOnSideEffectSensorStillReleasedReadsInstalling() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> environment = new LinkedHashMap<>();
+        environment.put("id", "environment");
+        environment.put("state", "released");
+        stub.sensors = List.of(environment);
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(service.switchSensor("environment", true).toggles().get(2).state())
+                .isEqualTo("installing");
+    }
+
+    @Test
+    void theThreadsSwitchIsUnavailableInTheRunItFailedIn() {
+        Bridges.StubAgent.install();
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of(), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        assertThat(service.report().toggles().get(0).available()).isTrue();
+
+        io.github.jdubois.bootui.agent.bridge.ThreadPropagation.disable(
+                claim.get().generation(), false);
+
+        assertThat(service.report().toggles().get(0)).satisfies(toggle -> {
+            assertThat(toggle.available()).isFalse();
+            assertThat(toggle.unavailableReason()).contains("until the application restarts");
+        });
+    }
+
+    @Test
+    void aSwitchRefusedByTheBridgeIsAConflictWithItsReason() {
+        Bridges.StubAgent.install();
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("threads"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        io.github.jdubois.bootui.agent.bridge.ThreadPropagation.disable(
+                claim.get().generation(), false);
+        service.switchSensor("threads", false);
+
+        assertThatThrownBy(() -> service.switchSensor("threads", true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("until the application restarts");
+        assertThat(claim.get().activeSensors()).isEmpty();
+    }
+
+    @Test
+    void aRestartOfTheSameApplicationKeepsTheSwitchAndShowsTheConfiguredDefault() {
+        Bridges.StubAgent.install();
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        service.switchSensor("environment", true);
+        claim.get().disarm();
+
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@2", "dev", List.of("com.example"), sensors));
+
+        assertThat(claim.get().activeSensors()).containsExactly("processes", "environment");
+        assertThat(claim.get().sensorOverrides()).containsExactly(Map.entry("environment", true));
+        assertThat(service.report().toggles().get(2)).satisfies(toggle -> {
+            assertThat(toggle.configured()).isFalse();
+            assertThat(toggle.enabled()).isTrue();
+            assertThat(toggle.overridden()).isTrue();
+        });
     }
 
     private JavaAgentService service(AgentBridgeAccess access, JavaAgentSettings settings) {

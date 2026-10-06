@@ -62,12 +62,15 @@ public final class AgentBridgeAccess {
     private final MethodHandle refine;
     private final MethodHandle disarm;
     private final MethodHandle release;
+    /** {@code AgentBridge.switchSensor}, or {@code null} with an agent from before runtime switches (M5-14). */
+    private final MethodHandle switchSensor;
+
     private final Inventory inventory;
     private final CodePathsHandles codePaths;
     private final ClassEvidenceHandles classEvidence;
     private final MethodProbesHandles methodProbes;
     private final SideEffectsHandles sideEffects;
-    private final MethodHandle caughtSites;
+    private final CaughtHandles caught;
 
     /**
      * Binds the bridge's method handles. Package-private so a test can pass a bridge class its own class loader
@@ -123,24 +126,13 @@ public final class AgentBridgeAccess {
         this.refine = refineHandle;
         this.disarm = disarmHandle;
         this.release = releaseHandle;
+        this.switchSensor = releaseHandle == null ? null : switchSensorHandle(bridge);
         this.inventory = releaseHandle == null ? null : Inventory.bind(bridge);
         this.codePaths = this.inventory == null ? null : CodePathsHandles.bind(bridge);
         this.classEvidence = this.inventory == null ? null : ClassEvidenceHandles.bind(bridge);
         this.methodProbes = this.inventory == null ? null : MethodProbesHandles.bind(bridge);
         this.sideEffects = this.inventory == null ? null : SideEffectsHandles.bind(bridge);
-        this.caughtSites = this.inventory == null ? null : bindCaughtSites(bridge);
-    }
-
-    /** The caught-exceptions sensor's site names, bound once; {@code null} when the bridge has none. */
-    private static MethodHandle bindCaughtSites(Class<?> bridge) {
-        try {
-            Class<?> caught = Class.forName(CAUGHT_EXCEPTIONS_CLASS, false, bridge.getClassLoader());
-            return MethodHandles.publicLookup()
-                    .findStatic(caught, "sites", MethodType.methodType(String[].class, int.class));
-        } catch (Throwable ex) {
-            // An agent of this protocol from before M5-6a: no caught-exceptions sensor.
-            return null;
-        }
+        this.caught = this.inventory == null ? null : CaughtHandles.bind(bridge);
     }
 
     /**
@@ -148,7 +140,7 @@ public final class AgentBridgeAccess {
      * from before M5-6a does not.
      */
     public boolean caughtExceptionsSupported() {
-        return inventorySupported() && caughtSites != null;
+        return inventorySupported() && caught != null;
     }
 
     /**
@@ -160,10 +152,88 @@ public final class AgentBridgeAccess {
             return new String[0];
         }
         try {
-            Object value = caughtSites.invoke(from);
+            Object value = caught.sites().invoke(from);
             return value instanceof String[] strings ? strings : new String[0];
         } catch (Throwable ex) {
             return new String[0];
+        }
+    }
+
+    /**
+     * Tells the caught-exceptions sensor that the first {@code count} requests of {@code requests}, as the agent's
+     * request bits, ended ({@code CaughtExceptions.requestsEnded}); sorts the array. Does nothing without the sensor or
+     * with a bridge from before M5-6a2.
+     */
+    public void caughtRequestsEnded(long[] requests, int count) {
+        if (!caughtExceptionsSupported() || caught.requestsEnded() == null || count <= 0) {
+            return;
+        }
+        try {
+            caught.requestsEnded().invoke(requests, count);
+        } catch (Throwable ex) {
+            // The bridge never throws; a failure here only leaves entries pending until they expire.
+        }
+    }
+
+    /** Frees the caught-exceptions sensor's stale pending entries ({@code CaughtExceptions.sweep}), at most once a second. */
+    public void caughtSweep() {
+        if (!caughtExceptionsSupported() || caught.sweep() == null) {
+            return;
+        }
+        try {
+            caught.sweep().invoke();
+        } catch (Throwable ex) {
+            // As above.
+        }
+    }
+
+    /**
+     * The caught-exceptions sensor's losses so far ({@code CaughtExceptions.losses}), summed, or {@code -1} when
+     * unknown: without the sensor, with a bridge from before M5-6a2, or when the bridge failed to count them.
+     */
+    public long caughtLosses() {
+        if (!caughtExceptionsSupported() || caught.losses() == null) {
+            return -1L;
+        }
+        try {
+            Object value = caught.losses().invoke();
+            return value instanceof Long losses ? losses : -1L;
+        } catch (Throwable ex) {
+            return -1L;
+        }
+    }
+
+    /**
+     * The caught-exceptions sensor's entry points, bound once: its site names, and, from M5-6a2, the request ends, the
+     * sweep, and the loss count, each {@code null} when the bridge predates it.
+     */
+    private record CaughtHandles(
+            MethodHandle sites, MethodHandle requestsEnded, MethodHandle sweep, MethodHandle losses) {
+
+        static CaughtHandles bind(Class<?> bridge) {
+            MethodHandle sites;
+            Class<?> caught;
+            try {
+                caught = Class.forName(CAUGHT_EXCEPTIONS_CLASS, false, bridge.getClassLoader());
+                sites = MethodHandles.publicLookup()
+                        .findStatic(caught, "sites", MethodType.methodType(String[].class, int.class));
+            } catch (Throwable ex) {
+                // An agent of this protocol from before M5-6a: no caught-exceptions sensor.
+                return null;
+            }
+            return new CaughtHandles(
+                    sites,
+                    optional(caught, "requestsEnded", MethodType.methodType(void.class, long[].class, int.class)),
+                    optional(caught, "sweep", MethodType.methodType(void.class)),
+                    optional(caught, "losses", MethodType.methodType(long.class)));
+        }
+
+        private static MethodHandle optional(Class<?> caught, String name, MethodType type) {
+            try {
+                return MethodHandles.publicLookup().findStatic(caught, name, type);
+            } catch (Throwable ex) {
+                return null;
+            }
         }
     }
 
@@ -285,6 +355,44 @@ public final class AgentBridgeAccess {
             return copy(release.invoke(application, mode));
         } catch (Throwable ex) {
             return failed(ex);
+        }
+    }
+
+    /**
+     * Whether the bridge switches sensors at run time ({@code AgentBridge.switchSensor}, {@code docs/PLAN-v2.md}
+     * M5-14): an agent of the same protocol from before it does not.
+     */
+    public boolean sensorSwitchSupported() {
+        return compatible() && switchSensor != null;
+    }
+
+    /**
+     * Switches {@code sensor} on or off at run time for the claim the token identifies, and for the later claims of its
+     * slot until the JVM ends. Answers {@value #UNAVAILABLE} without a bridge that supports it.
+     */
+    public Map<String, Object> switchSensor(long token, String sensor, boolean enabled) {
+        if (!sensorSwitchSupported()) {
+            return compatible()
+                    ? unavailable("the attached BootUI agent predates runtime sensor switches")
+                    : unavailable();
+        }
+        try {
+            return copy(switchSensor.invoke(token, sensor, enabled));
+        } catch (Throwable ex) {
+            return failed(ex);
+        }
+    }
+
+    private static MethodHandle switchSensorHandle(Class<?> bridge) {
+        try {
+            return MethodHandles.publicLookup()
+                    .findStatic(
+                            bridge,
+                            "switchSensor",
+                            MethodType.methodType(Map.class, long.class, String.class, boolean.class));
+        } catch (Throwable ex) {
+            // An agent of this protocol from before M5-14: its sensors change only with a new claim.
+            return null;
         }
     }
 
@@ -560,6 +668,22 @@ public final class AgentBridgeAccess {
     }
 
     /**
+     * Publishes the calling thread's buffered side-effect records to the ring now, as a thread's table is otherwise
+     * flushed only by its next record, a scope change, or when full ({@code docs/PLAN-v2.md} M5-7b). Does nothing with
+     * a bridge without it. Never throws.
+     */
+    public void sideEffectsFlushThread() {
+        if (!sideEffectsSupported() || sideEffects.flushThread() == null) {
+            return;
+        }
+        try {
+            sideEffects.flushThread().invoke();
+        } catch (Throwable ex) {
+            // The records stay buffered until the thread's next record.
+        }
+    }
+
+    /**
      * The strings the side-effect records of claim {@code generation} refer to, from id {@code from}, or {@code null}
      * when their table belongs to another generation or without the sensors' bridge.
      */
@@ -709,7 +833,11 @@ public final class AgentBridgeAccess {
 
     /** The side-effect sensors' bridge entry points, bound once; {@code null} when the bridge has none. */
     private record SideEffectsHandles(
-            MethodHandle drain, MethodHandle interned, MethodHandle recordingCleared, MethodHandle requestEnded) {
+            MethodHandle drain,
+            MethodHandle interned,
+            MethodHandle recordingCleared,
+            MethodHandle flushThread,
+            MethodHandle requestEnded) {
 
         static SideEffectsHandles bind(Class<?> bridge) {
             try {
@@ -721,6 +849,7 @@ public final class AgentBridgeAccess {
                         lookup.findStatic(
                                 sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)),
                         recordingCleared(lookup, sideEffects),
+                        flushThread(lookup, sideEffects),
                         requestEnded(lookup, bridge));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-5a: no side-effect sensors.
@@ -744,6 +873,15 @@ public final class AgentBridgeAccess {
             try {
                 return lookup.findStatic(
                         sideEffects, "recordingCleared", MethodType.methodType(void.class, long.class));
+            } catch (ReflectiveOperationException ex) {
+                return null;
+            }
+        }
+
+        /** {@code SideEffects.flushThread()}, or {@code null} for a bridge without it. */
+        private static MethodHandle flushThread(MethodHandles.Lookup lookup, Class<?> sideEffects) {
+            try {
+                return lookup.findStatic(sideEffects, "flushThread", MethodType.methodType(void.class));
             } catch (ReflectiveOperationException ex) {
                 return null;
             }

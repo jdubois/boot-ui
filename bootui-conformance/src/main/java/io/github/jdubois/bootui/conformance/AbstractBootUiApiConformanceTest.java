@@ -1727,6 +1727,27 @@ public abstract class AbstractBootUiApiConformanceTest {
                 assertThat(codeChanges.path("unavailableReason").asText()).isNotBlank();
             }
         }
+        // Side effects follow with the BootUI agent (M5-7b): null without it; with it, the same shape on every stack,
+        // each of the four compared sensors with a status, or unavailable with its reason.
+        JsonNode sideEffects = json.path("sideEffects");
+        if (!sideEffects.isNull()) {
+            assertThat(sideEffects.path("available").isBoolean())
+                    .as(sideEffects.toString())
+                    .isTrue();
+            assertThat(sideEffects.path("changes").isArray())
+                    .as(sideEffects.toString())
+                    .isTrue();
+            if (sideEffects.path("available").asBoolean()) {
+                List<String> sensors = new ArrayList<>();
+                sideEffects.path("sensors").forEach(sensor -> {
+                    sensors.add(sensor.path("sensor").asText());
+                    assertThat(sensor.path("status").asText()).isIn("COMPARED", "PARTIAL", "NOT_COMPARED");
+                });
+                assertThat(sensors).containsExactly("network", "files", "processes", "environment");
+            } else {
+                assertThat(sideEffects.path("unavailableReason").asText()).isNotBlank();
+            }
+        }
 
         Response unknown = probe.get(api(contract.relativePath() + "?run=conformance-unknown-run"));
         assertThat(unknown.status()).isEqualTo(200);
@@ -1884,6 +1905,49 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
+     * The runtime switch of an opt-in agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report
+     * offers no switch, an opt-in sensor answers 409 with the reason, and any other sensor or a body without
+     * {@code enabled} answers 400, each with the canonical {@code error} body; a read-only panel refuses it first with 403.
+     */
+    @Test
+    void anOptInSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
+        assumeTrue(isPanelUsableInLiveManifest("java-agent"), "java-agent panel is not available in this environment");
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        assertThat(probe().get(api("/java-agent")).json().path("toggles").size())
+                .isZero();
+        JsonNode panel = livePanelsById().get("java-agent");
+
+        BootUiHttpProbe probe = probe();
+        Response refused = probe.request(
+                "POST", api("/java-agent/sensors/environment"), stateChangingHeaders(probe), "{\"enabled\":true}");
+        if (panel.path("readOnly").asBoolean(false)) {
+            assertThat(refused.status())
+                    .as("a read-only java-agent panel refuses the switch")
+                    .isEqualTo(403);
+            return;
+        }
+        assertThat(refused.status())
+                .as("POST java-agent/sensors/environment without the agent")
+                .isEqualTo(409);
+        assertThat(refused.isJson()).isTrue();
+        assertThat(refused.json().path("error").asText()).contains("not armed");
+
+        BootUiHttpProbe other = probe();
+        Response unknown = other.request(
+                "POST", api("/java-agent/sensors/executors"), stateChangingHeaders(other), "{\"enabled\":true}");
+        assertThat(unknown.status()).as("POST java-agent/sensors/executors").isEqualTo(400);
+        assertThat(unknown.json().path("error").asText()).contains("threads, files, environment");
+
+        BootUiHttpProbe empty = probe();
+        Response missing =
+                empty.request("POST", api("/java-agent/sensors/environment"), stateChangingHeaders(empty), "{}");
+        assertThat(missing.status())
+                .as("POST java-agent/sensors/environment without enabled")
+                .isEqualTo(400);
+        assertThat(missing.json().path("error").asText()).contains("enabled");
+    }
+
+    /**
      * Code Inventory without the BootUI agent ({@code docs/PLAN-v2.md} §5.15): the panel is unavailable with the Java
      * Agent panel's reason, and every read still answers its shape, {@code available: false} with that reason. The
      * available shape is asserted with the agent attached, by the Spring sample's agent scenario.
@@ -1970,6 +2034,38 @@ public abstract class AbstractBootUiApiConformanceTest {
      * listed; an unknown sensor is a {@code 400}. The available shape is asserted with the agent attached, by the Spring
      * sample's agent scenario.
      */
+    /**
+     * Without the agent's caught-exceptions sensor, the Exceptions panel's report carries no caught-in-code summary
+     * and its section answers its contract, unavailable with why ({@code docs/PLAN-v2.md} M5-6), on every stack.
+     */
+    @Test
+    void caughtInApplicationCodeIsUnavailableWithoutTheAgent() {
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        JsonNode panel = panelFromLiveManifest("exceptions");
+        assumeTrue(panel != null && panel.path("enabled").asBoolean(true), "the exceptions panel is disabled here");
+
+        JsonNode report = probe().get(api("/exceptions")).json();
+        assertThat(report.has("caughtInCode"))
+                .as("the summary field is present")
+                .isTrue();
+        assertThat(report.path("caughtInCode").isNull())
+                .as("no summary without the sensor")
+                .isTrue();
+
+        ReadContract contract = BootUiApiContractCatalog.caughtExceptions();
+        Response response = probe().get(api(contract.relativePath()));
+        assertThat(response.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        List<String> failures = new ArrayList<>();
+        JsonNode body = response.json();
+        assertJsonContract(contract.relativePath(), contract, body, failures);
+        assertThat(failures).isEmpty();
+        assertThat(body.path("available").asBoolean()).isFalse();
+        assertThat(body.path("unavailableReason").asText()).contains("caught-exceptions sensor");
+        assertThat(body.path("rows")).isEmpty();
+    }
+
     @Test
     void sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent() {
         assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");

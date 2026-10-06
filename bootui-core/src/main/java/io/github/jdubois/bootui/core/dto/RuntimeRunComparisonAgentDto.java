@@ -18,6 +18,8 @@ import java.util.List;
  * @param codeChanges the methods changed, added, and removed since the previous run, which ran, and where, first; at
  *     most {@value #MAX_ROWS} methods, each with at most {@value #MAX_ROWS} routes; {@code null} without the BootUI
  *     agent
+ * @param sideEffects the hosts, file patterns, processes, and variable names new or gone outside the JVM, at most
+ *     {@value #MAX_ROWS} changes, new first; {@code null} without the BootUI agent
  * @param behavior what the routes did differently, at most {@value #MAX_ROWS}
  * @param behaviorOmitted the behavior rows left out
  * @param edges the runtime model's added and removed edges, at most {@value #MAX_ROWS}
@@ -33,6 +35,7 @@ public record RuntimeRunComparisonAgentDto(
         List<RuntimeRunRefDto> runs,
         List<String> notComparableReasons,
         RuntimeCodeChangesDto codeChanges,
+        RuntimeSideEffectChangesDto sideEffects,
         List<RuntimeRunChangeDto> behavior,
         int behaviorOmitted,
         List<RuntimeRunChangeDto> edges,
@@ -73,6 +76,7 @@ public record RuntimeRunComparisonAgentDto(
                 runs,
                 notComparableReasons,
                 codeChanges,
+                null,
                 behavior,
                 behaviorOmitted,
                 edges,
