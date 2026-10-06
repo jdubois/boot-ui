@@ -34,18 +34,15 @@ test.describe('Java Agent, attached', () => {
     expect(report.retransformation.state).toBe('installed')
     expect(report.retransformation.failed).toBe(0)
     expect(report.sensors.map((sensor) => sensor.id)).toEqual(
-      expect.arrayContaining([
-        'executors',
-        'inventory',
-        'code-paths',
-        'processes',
-        'network',
-        'files',
-        'environment',
-        'blocking'
-      ])
+      expect.arrayContaining(['executors', 'inventory', 'code-paths', 'processes', 'network', 'files', 'blocking'])
     )
-    for (const sensor of report.sensors) {
+    // The sensors this claim uses: an opt-in sensor another spec switched on and back off at run time (M5-14) stays in
+    // the agent's report, released, until the JVM ends.
+    const claimed = report.sensors.filter((sensor) => sensor.active)
+    expect(claimed.map((sensor) => sensor.id)).toEqual(
+      expect.arrayContaining(['executors', 'inventory', 'code-paths', 'processes', 'network', 'files', 'blocking'])
+    )
+    for (const sensor of claimed) {
       expect.soft(sensor.state, sensor.id).toBe('installed')
       expect.soft(sensor.selfTestPassed, `${sensor.id}: ${sensor.selfTestError}`).toBe(true)
       expect.soft(sensor.failures ?? [], sensor.id).toEqual([])
