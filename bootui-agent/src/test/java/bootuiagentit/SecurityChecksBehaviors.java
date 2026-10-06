@@ -105,6 +105,14 @@ public final class SecurityChecksBehaviors {
                     releaseRestores();
                 }
             }
+            case "limited" -> {
+                // Run with --limit-modules leaving jdk.unsupported out: the deserialization group cannot self-test.
+                weakAlgorithms();
+                trustManager();
+                deserializationOff();
+                System.out.println("REQUEST_VALUES=" + io.github.jdubois.bootui.agent.bridge.RequestValues.active());
+            }
+            case "jvm-filter" -> jvmWideFilter();
             case "mockito-first", "bootui-first" -> {
                 if (mode.equals("bootui-first")) {
                     SecurityChecksMockito.mockStatic(mode);
@@ -269,6 +277,38 @@ public final class SecurityChecksBehaviors {
         Thread.sleep(50);
         drain();
         check("a stream with a filter records nothing (" + describe() + ")", checks().isEmpty());
+    }
+
+    static void deserializationOff() throws Exception {
+        drain();
+        RECORDS.clear();
+        byte[] bytes = serialize(new Cart("ada", new ArrayList<>(List.of(1))));
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
+            in.readObject();
+        }
+        Thread.sleep(50);
+        drain();
+        check(
+                "with the deserialization group off, an unfiltered read records nothing (" + describe() + ")",
+                checks().stream()
+                        .noneMatch(record -> record[SideEffects.R_KIND] == SecuritySinks.KIND_DESERIALIZATION));
+    }
+
+    /** A stream built while {@code -Djdk.serialFilter} sets a JVM-wide filter has it: its read records nothing. */
+    static void jvmWideFilter() throws Exception {
+        drain();
+        RECORDS.clear();
+        byte[] bytes = serialize(new Cart("ada", new ArrayList<>(List.of(1))));
+        Object read;
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
+            read = in.readObject();
+        }
+        Thread.sleep(50);
+        drain();
+        check(
+                "a read under a JVM-wide jdk.serialFilter records nothing ("
+                        + ObjectInputFilter.Config.getSerialFilter() + ", " + describe() + ")",
+                read instanceof Cart && ObjectInputFilter.Config.getSerialFilter() != null && checks().isEmpty());
     }
 
     static void trustManager() throws Exception {

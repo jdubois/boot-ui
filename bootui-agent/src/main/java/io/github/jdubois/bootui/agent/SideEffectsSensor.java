@@ -781,16 +781,33 @@ final class SideEffectsSensor {
      * with the failure otherwise, alone, so request-value matching and the other groups still run.
      */
     private void checkGroups(Map<String, String> results, Set<String> left) {
-        int on = 0;
+        Map<String, String> errors;
+        synchronized (this) {
+            errors = new LinkedHashMap<String, String>(hookErrors);
+        }
         String[] reasons = new String[CHECK_CORE.length];
+        int on = checkGroups(results, left, errors, reasons);
+        for (int group = 0; group < CHECK_CORE.length; group++) {
+            if (reasons[group] != null) {
+                AgentBridge.message("the BootUI agent switched the security-sinks checks "
+                        + SecuritySinks.GROUP_IDS[group] + " off: " + reasons[group]);
+            }
+        }
+        SecuritySinks.groups(on, reasons);
+    }
+
+    /**
+     * The check groups whose every core hook ({@link #CHECK_CORE}) passed its self-test and was not left out, as group
+     * bits; {@code reasons}, by group index, receives why each other group is off, from {@code errors} by hook.
+     */
+    static int checkGroups(
+            Map<String, String> results, Set<String> left, Map<String, String> errors, String[] reasons) {
+        int on = 0;
         for (int group = 0; group < CHECK_CORE.length; group++) {
             List<String> failed = new ArrayList<String>();
             for (String hook : CHECK_CORE[group]) {
                 if (left.contains(hook) || !"passed".equals(results.get(hook))) {
-                    String error;
-                    synchronized (this) {
-                        error = hookErrors.get(hook);
-                    }
+                    String error = errors.get(hook);
                     failed.add(hook + ": " + (error != null ? error : results.getOrDefault(hook, "not-run")));
                 }
             }
@@ -798,11 +815,9 @@ final class SideEffectsSensor {
                 on |= 1 << group;
             } else {
                 reasons[group] = "self-test failed for " + failed;
-                AgentBridge.message("the BootUI agent switched the security-sinks checks "
-                        + SecuritySinks.GROUP_IDS[group] + " off: " + reasons[group]);
             }
         }
-        SecuritySinks.groups(on, reasons);
+        return on;
     }
 
     /**

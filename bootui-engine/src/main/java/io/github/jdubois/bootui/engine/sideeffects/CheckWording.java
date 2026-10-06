@@ -46,9 +46,12 @@ final class CheckWording {
         String libraryFrame = location == null ? "(frame not kept)" : "`" + location + "`";
         String at = callSite == null ? "" : " at `" + callSite + "`";
         if (SideEffectsCatalog.DESERIALIZATION.equals(kind)) {
+            // A library's read with no application frame above it names its frame once, not again as its call site.
+            String readAt = library && (callSite == null || callSite.equals(location)) ? "" : at;
             return "Deserialization without an ObjectInputFilter"
                     + (library ? " by library code " + libraryFrame : "")
-                    + at + " (classes read: " + classes(target, classes, moreClasses) + "). Check that the stream comes"
+                    + readAt + " (classes read: " + classes(target, classes, moreClasses)
+                    + "). Check that the stream comes"
                     + " only from a trusted source, or give it a filter (ObjectInputStream.setObjectInputFilter or"
                     + " jdk.serialFilter).";
         }

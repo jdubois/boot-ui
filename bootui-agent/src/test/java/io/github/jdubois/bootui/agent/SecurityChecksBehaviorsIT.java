@@ -95,6 +95,48 @@ class SecurityChecksBehaviorsIT {
         assertAllPass(ChildJvm.run(jvm, "security-checks-behaviors", "behaviors"), REQUIRED);
     }
 
+    /**
+     * Without {@code jdk.unsupported} ({@code --limit-modules}), the deserialization self-test cannot allocate its
+     * stream: that group alone is off, with its reason; the other groups and request-value matching still run.
+     */
+    @Test
+    void withoutJdkUnsupportedOnlyTheDeserializationGroupIsOff() throws Exception {
+        ChildJvm.Output output = ChildJvm.run(
+                List.of(
+                        "--limit-modules",
+                        "java.base,java.instrument,java.logging,java.management,java.sql",
+                        ChildJvm.javaAgent(ChildJvm.AGENT)),
+                "security-checks-behaviors",
+                "limited");
+
+        assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertThat(output.value("SECURITY_SINKS"))
+                .as(output.toString())
+                .contains("deserialization=off: self-test failed for [ObjectInputStream.readObject")
+                .contains("weak-algorithms=on")
+                .contains("trust-managers=on");
+        assertThat(output.value("REQUEST_VALUES")).as(output.toString()).isEqualTo("true");
+        assertThat(output.value("SENSOR")).as(output.toString()).contains("state=installed");
+        assertAllPassLines(
+                output,
+                List.of(
+                        "MD5, AES/ECB, and DESede asked for by the application are recorded with its call site",
+                        "an application trust manager passed to SSLContext.init is recorded",
+                        "with the deserialization group off, an unfiltered read records nothing"));
+    }
+
+    /** A JVM-wide filter set through {@code -Djdk.serialFilter} is the stream's own filter: no row. */
+    @Test
+    void aJvmWideSerialFilterCountsAsAFilter() throws Exception {
+        ChildJvm.Output output = ChildJvm.run(
+                List.of("-Djdk.serialFilter=maxdepth=20;maxrefs=1000", ChildJvm.javaAgent(ChildJvm.AGENT)),
+                "security-checks-behaviors",
+                "jvm-filter");
+
+        assertSelfTest(output);
+        assertAllPassLines(output, List.of("a read under a JVM-wide jdk.serialFilter records nothing"));
+    }
+
     /** JaCoCo instrumenting the JDK's security classes too, before the agent: both transformers stay valid. */
     @Test
     void everyBehaviorPassesWithJacocoInstrumentingTheJdk() throws Exception {
@@ -152,6 +194,20 @@ class SecurityChecksBehaviorsIT {
                 .contains("deserialization=on")
                 .contains("weak-algorithms=on")
                 .contains("trust-managers=on");
+        assertThat(output.value("STATUS")).as(output.toString()).contains("errors=0");
+    }
+
+    private static void assertAllPassLines(ChildJvm.Output output, List<String> required) {
+        assertThat(output.text().lines().filter(line -> line.startsWith("  FAIL")))
+                .as(output.toString())
+                .isEmpty();
+        List<String> passed =
+                output.text().lines().filter(line -> line.startsWith("  PASS ")).toList();
+        for (String behavior : required) {
+            assertThat(passed)
+                    .as("%s in %s", behavior, output)
+                    .anySatisfy(line -> assertThat(line).startsWith("  PASS " + behavior));
+        }
         assertThat(output.value("STATUS")).as(output.toString()).contains("errors=0");
     }
 

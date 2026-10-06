@@ -119,7 +119,14 @@ public final class SecuritySinks {
     private static final LongAdder SKIPPED = new LongAdder();
     private static final LongAdder NOT_KEPT = new LongAdder();
     private static final LongAdder UNATTRIBUTED = new LongAdder();
-    private static final java.util.concurrent.atomic.AtomicLong ERRORS = new java.util.concurrent.atomic.AtomicLong();
+    /** Each group's internal errors, by group index: a group past its own budget is off alone for the JVM's life. */
+    private static final java.util.concurrent.atomic.AtomicLongArray ERRORS =
+            new java.util.concurrent.atomic.AtomicLongArray(GROUP_IDS.length);
+
+    /** The groups switched off for the JVM's life by their own error budget. */
+    private static volatile int budgetOff;
+
+    private static final String[] BUDGET_REASONS = new String[GROUP_IDS.length];
     private static final AtomicInteger INTERNED = new AtomicInteger();
     private static volatile long internGeneration = Long.MIN_VALUE;
 
@@ -145,34 +152,38 @@ public final class SecuritySinks {
      * {@code reasons}, by group index, says why a group is off, or {@code null}. Never throws.
      */
     public static void groups(int bits, String[] reasons) {
-        if (ERRORS.get() >= SideEffects.MAX_ERRORS) {
-            // Off for the JVM's life after their error budget.
-            return;
-        }
+        int off = budgetOff;
         for (int i = 0; i < GROUP_REASONS.length; i++) {
-            GROUP_REASONS[i] = reasons != null && i < reasons.length ? reasons[i] : null;
+            // A group past its error budget stays off, with that reason, whatever the agent asks.
+            GROUP_REASONS[i] = (off & (1 << i)) != 0
+                    ? BUDGET_REASONS[i]
+                    : reasons != null && i < reasons.length ? reasons[i] : null;
         }
-        groups = bits & GROUPS;
+        groups = bits & GROUPS & ~off;
     }
 
     /**
-     * An internal error of a check: counted against the checks' own budget of {@value SideEffects#MAX_ERRORS}, which
-     * switches every check group off for the JVM's life, never the sensor, so request-value matching keeps running.
-     * Never throws.
+     * An internal error of a check of {@code group}: counted against that group's own budget of {@value
+     * SideEffects#MAX_ERRORS}, which switches that group alone off for the JVM's life, never another group nor the
+     * sensor, so request-value matching keeps running. Never throws.
      */
-    static void failed(Throwable ex) {
+    static void failed(int group, Throwable ex) {
         try {
             if (ex instanceof VirtualMachineError) {
                 return;
             }
             AgentBridge.error(ex);
-            if (ERRORS.incrementAndGet() == SideEffects.MAX_ERRORS) {
+            int index = Integer.numberOfTrailingZeros(group);
+            if (index >= GROUP_IDS.length) {
+                return;
+            }
+            if (ERRORS.incrementAndGet(index) == SideEffects.MAX_ERRORS) {
                 String reason = "switched off after " + SideEffects.MAX_ERRORS + " internal errors, the last: " + ex;
-                for (int i = 0; i < GROUP_REASONS.length; i++) {
-                    GROUP_REASONS[i] = reason;
-                }
-                groups = 0;
-                AgentBridge.message("the security-sinks JDK checks were " + reason);
+                BUDGET_REASONS[index] = reason;
+                GROUP_REASONS[index] = reason;
+                budgetOff |= group;
+                groups &= ~group;
+                AgentBridge.message("the security-sinks checks " + GROUP_IDS[index] + " were " + reason);
             }
         } catch (Throwable ignored) {
             // Never throw from the error path.
@@ -312,7 +323,7 @@ public final class SecuritySinks {
             }
             record(frame, claim, kind, intern(target, claim.generation), (int) who[1], 0, who[0]);
         } catch (Throwable ex) {
-            failed(ex);
+            failed(GROUP_ALGORITHMS, ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -336,12 +347,13 @@ public final class SecuritySinks {
             if (selfTest(SideEffects.HOOK_READ_OBJECT) || (groups & GROUP_DESERIALIZATION) == 0) {
                 return 0L;
             }
-            CodePaths.Frame frame = CodePaths.frame();
-            Serial serial = frame.serial;
+            // Nothing is allocated before the stream is known unfiltered and the sensor records on this thread.
+            CodePaths.Frame existing = CodePaths.FRAME.get();
+            Serial serial = existing == null ? null : existing.serial;
             long generation = SideEffects.generation;
-            long now = System.nanoTime();
             if (serial != null && serial.depth > 0) {
-                if (serial.generation == generation && now - serial.since < SideEffects.STALE_DEPTH_NANOS) {
+                if (serial.generation == generation
+                        && System.nanoTime() - serial.since < SideEffects.STALE_DEPTH_NANOS) {
                     serial.depth++;
                     return NESTED;
                 }
@@ -352,9 +364,14 @@ public final class SecuritySinks {
                 FILTERED.increment();
                 return 0L;
             }
-            if (recording() == null || !quiet(frame)) {
+            if (recording() == null) {
                 return 0L;
             }
+            CodePaths.Frame frame = existing != null ? existing : CodePaths.frame();
+            if (!quiet(frame)) {
+                return 0L;
+            }
+            long now = System.nanoTime();
             if (serial == null) {
                 serial = new Serial();
                 frame.serial = serial;
@@ -365,7 +382,7 @@ public final class SecuritySinks {
             serial.generation = generation;
             return token;
         } catch (Throwable ex) {
-            failed(ex);
+            failed(GROUP_DESERIALIZATION, ex);
             return 0L;
         }
     }
@@ -425,7 +442,7 @@ public final class SecuritySinks {
                     others == null ? 0 : intern(others, claim.generation),
                     who[0]);
         } catch (Throwable ex) {
-            failed(ex);
+            failed(GROUP_DESERIALIZATION, ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -463,7 +480,7 @@ public final class SecuritySinks {
                 serial.more = true;
             }
         } catch (Throwable ex) {
-            failed(ex);
+            failed(GROUP_DESERIALIZATION, ex);
         }
     }
 
@@ -547,7 +564,7 @@ public final class SecuritySinks {
             TRUST_MANAGERS.increment();
             record(frame, claim, KIND_TRUST_MANAGER, intern(className(own), claim.generation), (int) who[1], 0, who[0]);
         } catch (Throwable ex) {
-            failed(ex);
+            failed(GROUP_TRUST, ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -601,7 +618,7 @@ public final class SecuritySinks {
             String name = className(value.getClass().getName());
             record(frame, claim, kind, intern(name, claim.generation), ORIGIN_APPLICATION, 0, who[0]);
         } catch (Throwable ex) {
-            failed(ex);
+            failed(GROUP_TRUST, ex);
         } finally {
             if (opened) {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
@@ -771,15 +788,60 @@ public final class SecuritySinks {
     private static final SideEffects.Sightings SIGHTINGS = new SideEffects.Sightings();
 
     /**
-     * Whether a frame is the JDK's: by name, {@code javax.crypto}, {@code javax.net}, and {@code javax.security}
-     * included, or by its module when the walker retains classes.
+     * Whether a frame is the JDK's. With the walker retaining classes, by its class alone: loaded by the boot or the
+     * platform class loader, or declared in a named {@code java.} or {@code jdk.} module of the boot layer; so a
+     * library in a {@code com.sun.} package, as Mojarra's {@code com.sun.faces}, JavaMail's {@code com.sun.mail}, or
+     * {@code com.sun.xml}, is never the JDK. Without classes, by name: {@code java.}, {@code javax.crypto}, {@code
+     * javax.net}, {@code javax.security}, {@code jdk.}, {@code sun.}, and the JDK's own {@code com.sun.} packages only.
      */
     static boolean jdk(StackWalker.StackFrame frame) {
-        String name = frame.getClassName();
-        return name.startsWith("javax.crypto.")
+        Class<?> type;
+        try {
+            type = frame.getDeclaringClass();
+        } catch (UnsupportedOperationException ex) {
+            return jdkByName(frame.getClassName());
+        }
+        ClassLoader loader = type.getClassLoader();
+        if (loader == null || loader == PLATFORM) {
+            return true;
+        }
+        Module module = type.getModule();
+        String name = module.getName();
+        return module.isNamed()
+                && name != null
+                && (name.startsWith("java.") || name.startsWith("jdk."))
+                && module.getLayer() == ModuleLayer.boot();
+    }
+
+    /** The platform class loader, which loads the JDK's modules outside the boot loader. */
+    private static final ClassLoader PLATFORM = platformLoader();
+
+    private static ClassLoader platformLoader() {
+        try {
+            return ClassLoader.getPlatformClassLoader();
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    /** {@link #jdk(StackWalker.StackFrame)} by the class's name alone, when the walker keeps no class. */
+    static boolean jdkByName(String name) {
+        return name.startsWith("java.")
+                || name.startsWith("javax.crypto.")
                 || name.startsWith("javax.net.")
                 || name.startsWith("javax.security.")
-                || SideEffects.jdk(frame);
+                || name.startsWith("jdk.")
+                || name.startsWith("sun.")
+                || name.startsWith("com.sun.crypto.provider.")
+                || name.startsWith("com.sun.security.")
+                || name.startsWith("com.sun.net.ssl.")
+                || name.startsWith("com.sun.jndi.")
+                || name.startsWith("com.sun.jmx.")
+                || name.startsWith("com.sun.management.")
+                || name.startsWith("com.sun.org.apache.")
+                || name.startsWith("com.sun.rowset.")
+                || name.startsWith("com.sun.naming.")
+                || name.startsWith("com.sun.proxy.");
     }
 
     private static void record(
@@ -907,7 +969,11 @@ public final class SecuritySinks {
         map.put("checksSkipped", Long.valueOf(SKIPPED.sum()));
         map.put("checksNotKept", Long.valueOf(NOT_KEPT.sum()));
         map.put("checksUnattributed", Long.valueOf(UNATTRIBUTED.sum()));
-        map.put("checkErrors", Long.valueOf(ERRORS.get()));
+        Map<String, Object> errors = new java.util.LinkedHashMap<String, Object>();
+        for (int i = 0; i < GROUP_IDS.length; i++) {
+            errors.put(GROUP_IDS[i], Long.valueOf(ERRORS.get(i)));
+        }
+        map.put("checkErrors", errors);
     }
 
     /** Loads and links what the hooks use, on the agent's own thread, before the transformer installs. */
@@ -922,6 +988,7 @@ public final class SecuritySinks {
         clear(serial);
         new Attribution(null, -1, "warm", 0).getClass();
         SIGHTINGS.find(-2L, 1L, new long[2]);
+        jdkByName("warm");
         java.io.ObjectInputStream.class.getName();
         putStatus(new java.util.LinkedHashMap<String, Object>());
     }
@@ -947,7 +1014,11 @@ public final class SecuritySinks {
         }) {
             adder.reset();
         }
-        ERRORS.set(0);
+        for (int i = 0; i < GROUP_IDS.length; i++) {
+            ERRORS.set(i, 0L);
+        }
+        budgetOff = 0;
+        Arrays.fill(BUDGET_REASONS, null);
         INTERNED.set(0);
         internGeneration = Long.MIN_VALUE;
         SIGHTINGS.clear();

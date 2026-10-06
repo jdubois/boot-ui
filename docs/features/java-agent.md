@@ -857,7 +857,9 @@ as what was seen, never as a vulnerability:
 Only what passes an allocation-free check takes the slow path: an algorithm's name, a stream's filter, a trust
 manager's package. A bounded `StackWalker` walk then finds the immediate caller past reflection: a caller in the JDK,
 as `UUID.nameUUIDFromBytes`, `SecureRandom`, TLS, or jar verification asking for SHA-1 or MD5 themselves, is the
-JDK's own use, counted and never shown. The first frame outside the JDK decides between application and library code,
+JDK's own use, counted and never shown. A frame is the JDK's when its class was loaded by the boot or platform class
+loader or belongs to a `java.` or `jdk.` module, never by its package alone: a library in a `com.sun.` package, as
+Mojarra's `com.sun.faces` deserializing client view state, is a library. The first frame outside the JDK decides between application and library code,
 and the attribution is remembered per immediate caller and algorithm, so a call site walks once. While a check records,
 the thread's side-effect bit is held, so the walk's own class loading never records; the advised methods never hold it,
 so a `readObject` running application code still shows its files and connects.
@@ -867,8 +869,9 @@ null or empty name, which the JDK refuses before reading any configuration; `ini
 whose engine does nothing; each `HttpsURLConnection` default set to null, which the JDK refuses before setting it; and
 `readObject` and `resolveClass` on a stream allocated without running a constructor, since building any
 `ObjectInputStream` fixes the JVM's serial filter factory for the JVM's life, after which an application's own
-`ObjectInputFilter.Config.setSerialFilterFactory` would throw. A group whose core hook fails is switched off alone, its
-reason on the sensor's row; request-value matching and the other groups keep running. The sensor's reason lists the
+`ObjectInputFilter.Config.setSerialFilterFactory` would throw (without `jdk.unsupported`, the deserialization group
+is off). A group whose core hook fails, or whose checks reach their own budget of internal errors, is switched off
+alone, its reason on the sensor's row; request-value matching and the other groups keep running. The sensor's reason lists the
 groups that run, then request-value matching's state.
 
 Not checked: `readUnshared`, classes a subclass resolves itself (the row then says "not named"), `KeyGenerator`,

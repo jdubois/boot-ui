@@ -167,18 +167,54 @@ class SecuritySinksTests {
     }
 
     @Test
-    void theChecksErrorBudgetSwitchesTheirGroupsOffButNeverRequestValueMatching() {
+    void aGroupsErrorBudgetSwitchesThatGroupOffAloneAndNeverRequestValueMatching() {
         enabledClaim(SecuritySinks.GROUPS);
         for (int i = 0; i < SideEffects.MAX_ERRORS; i++) {
-            SecuritySinks.failed(new IllegalStateException("check " + i));
+            SecuritySinks.failed(SecuritySinks.GROUP_ALGORITHMS, new IllegalStateException("check " + i));
         }
+        SecuritySinks.failed(SecuritySinks.GROUP_TRUST, new IllegalStateException("one"));
 
-        assertThat(SecuritySinks.groups).isZero();
+        int others = SecuritySinks.GROUP_DESERIALIZATION | SecuritySinks.GROUP_TRUST;
+        assertThat(SecuritySinks.groups).isEqualTo(others);
         SecuritySinks.groups(SecuritySinks.GROUPS, null);
-        assertThat(SecuritySinks.groups).as("off for the JVM's life").isZero();
+        assertThat(SecuritySinks.groups).as("off for the JVM's life, alone").isEqualTo(others);
         assertThat(SideEffects.mask & SideEffects.MASK_SECURITY_SINKS).isNotZero();
         assertThat(RequestValues.active()).isTrue();
-        assertThat(SideEffects.status(SideEffects.SECURITY_SINKS)).containsEntry("checkErrors", 100L);
+        Map<String, Object> status = SideEffects.status(SideEffects.SECURITY_SINKS);
+        assertThat(status.get("checkErrors"))
+                .isEqualTo(Map.of("deserialization", 0L, "weak-algorithms", 100L, "trust-managers", 1L));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> groups = (Map<String, Object>) status.get("groups");
+        assertThat(groups).containsEntry("deserialization", "on").containsEntry("trust-managers", "on");
+        assertThat(groups.get("weak-algorithms").toString()).startsWith("off: switched off after 100 internal errors");
+        Shop.hash("MD5");
+        Shop.trust(new Object[] {new Shop.TrustAll()});
+        assertThat(drain(enabledToken))
+                .singleElement()
+                .satisfies(
+                        record -> assertThat(record[SideEffects.R_KIND]).isEqualTo(SecuritySinks.KIND_TRUST_MANAGER));
+    }
+
+    @Test
+    void aLibraryInAComSunPackageIsNotTheJdkAndTheJdksOwnComSunClassesAre() {
+        assertThat(SecuritySinks.jdk(classFrame(com.sun.faces.renderkit.ClientSideStateHelper.class)))
+                .as("a com.sun class of the class path")
+                .isFalse();
+        assertThat(SecuritySinks.jdk(classFrame(java.util.UUID.class))).isTrue();
+        assertThat(SecuritySinks.jdk(classFrame(javax.crypto.Cipher.class))).isTrue();
+        assertThat(SecuritySinks.jdk(classFrame(java.sql.Connection.class)))
+                .as("a platform module's class")
+                .isTrue();
+        assertThat(SecuritySinks.jdk(classFrame(Shop.class))).isFalse();
+        // By name only, when the walker keeps no class.
+        assertThat(SecuritySinks.jdk(frame("com.sun.faces.renderkit.ClientSideStateHelper", "getState")))
+                .isFalse();
+        assertThat(SecuritySinks.jdk(frame("com.sun.mail.util.MailSSLSocketFactory", "init")))
+                .isFalse();
+        assertThat(SecuritySinks.jdk(frame("com.sun.crypto.provider.CipherCore", "init")))
+                .isTrue();
+        assertThat(SecuritySinks.jdk(frame("sun.security.provider.SecureRandom", "init")))
+                .isTrue();
     }
 
     @Test
@@ -341,6 +377,22 @@ class SecuritySinksTests {
     }
 
     @Test
+    void aFilteredReadOnAFreshThreadAllocatesNoThreadState() throws Exception {
+        enabledClaim(SecuritySinks.GROUPS);
+        ObjectInputStream filtered = stream(List.of(1));
+        filtered.setObjectInputFilter(info -> ObjectInputFilter.Status.ALLOWED);
+        java.util.concurrent.atomic.AtomicReference<Object> state = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread thread = new Thread(() -> {
+            Shop.reading(filtered);
+            state.set(CodePaths.FRAME.get() == null ? "none" : "allocated");
+        });
+        thread.start();
+        thread.join(10_000L);
+
+        assertThat(state.get()).isEqualTo("none");
+    }
+
+    @Test
     void theOutermostExitClosesTheReadEvenWhenANestedExitWasLost() throws Exception {
         long token = enabledClaim(SecuritySinks.GROUPS);
         ObjectInputStream stream = stream(List.of(1));
@@ -466,8 +518,11 @@ class SecuritySinksTests {
 
     // ---- helpers --------------------------------------------------------------------------------------------------
 
+    private long enabledToken;
+
     private long enabledClaim(int groups) {
         long token = claim(List.of(SideEffects.SECURITY_SINKS));
+        enabledToken = token;
         SideEffects.enable(SideEffects.MASK_SECURITY_SINKS);
         SecuritySinks.groups(groups, null);
         return token;
@@ -498,6 +553,52 @@ class SecuritySinksTests {
         } catch (java.io.IOException ex) {
             throw new AssertionError(ex);
         }
+    }
+
+    /** A frame whose walker retains its class. */
+    private static StackWalker.StackFrame classFrame(Class<?> type) {
+        StackWalker.StackFrame named = frame(type.getName(), "run");
+        return new StackWalker.StackFrame() {
+            @Override
+            public String getClassName() {
+                return named.getClassName();
+            }
+
+            @Override
+            public String getMethodName() {
+                return named.getMethodName();
+            }
+
+            @Override
+            public Class<?> getDeclaringClass() {
+                return type;
+            }
+
+            @Override
+            public int getByteCodeIndex() {
+                return 0;
+            }
+
+            @Override
+            public String getFileName() {
+                return null;
+            }
+
+            @Override
+            public int getLineNumber() {
+                return -1;
+            }
+
+            @Override
+            public boolean isNativeMethod() {
+                return false;
+            }
+
+            @Override
+            public StackTraceElement toStackTraceElement() {
+                return named.toStackTraceElement();
+            }
+        };
     }
 
     private static StackWalker.StackFrame frame(String className, String method) {
