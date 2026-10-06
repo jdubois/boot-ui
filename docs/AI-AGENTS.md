@@ -349,9 +349,11 @@ exception classes, execution names, and edges, with a “not compared because &l
 configuration comparability and restart timings are independent facts. The `diagnose_runtime_issue` prompt starts
 with `get_runtime_insights`, calls it again with `all` or the route when nothing listed explains the issue, then one
 `get_request_profile`, and for a slow route whose time is in its handler,
-`get_code_paths` when the agent is attached; the
+`get_code_paths` when the agent is attached, and it words a dependency reached or request input matched verbatim as a
+check to verify against source and configuration, never as a vulnerability verdict; the
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
-calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
+names `start_method_probe` as the next step when the edited method still did not run after the test that should reach
+it, calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
 known, runs the tests, calls
 `get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
 
@@ -392,6 +394,21 @@ that stopped recording since, carries the reason too. `NEVER_EXECUTED` on a chan
 run the test or send the request that reaches it, then call the tool again before reading any latency. `NOT_TRACKED`
 is not evidence either way, and a jar `NOT_LOADED` in this run is not proof it is unused. Runtime Insights reports the
 same gap as `changed-code-not-executed`.
+
+**Verify, then probe.** When a changed method is still `NEVER_EXECUTED` after the test or request that should reach
+it, the next step is a [method probe](#did-this-method-run-and-how): with the user's separate approval, start one on the
+method as Code Inventory names it, rerun the same test or request, then read `get_method_probe`. No invocation is
+evidence that path never reaches the method: the wrong route, the wrong bean, or never wired; `get_code_paths` on the
+route shows what it did run. The `verify_after_change` prompt and the [agent skill](#install-the-bootui-agent-skill)
+follow this workflow. [Set up the Java agent](setup/java-agent.md) walks through it from a fresh application.
+
+### Before relying on the BootUI agent
+
+The server's instructions tell an agent to call `get_agent_status` once before relying on any tool or observation that
+needs the BootUI agent, so it learns up front whether Code Paths, Code Inventory, Side Effects, and method probes can
+answer, rather than one refused or unadvertised tool at a time. An observation `NOT_APPLICABLE` because it requires the
+BootUI agent (or one of its sensors) was **not measured**: it is never healthy, never "nothing to worry about", and
+never a passed check. The agent benchmark's sixth refusal fixture checks exactly that.
 
 ### Where does the handler's time go?
 

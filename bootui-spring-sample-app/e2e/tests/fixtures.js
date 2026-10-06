@@ -15,6 +15,11 @@ export const test = base.extend({
   // playwright.agent.config.js, which starts the sample with -javaagent. Specs whose expectations differ (the Java
   // Agent view) read it instead of guessing from the server's answer, so neither leg can pass on the other's state.
   agentAttached: [false, {option: true}],
+  // The JVM arguments of the suite's sample, for specs that start samples of their own (the read-only spec), so the agent
+  // suite starts them with the agent attached too.
+  sampleJvmArguments: ['-Dspring.devtools.restart.enabled=false', {option: true}],
+  // The agent attached beside BootUI's in the agent companion suites (agent-config.js), or null.
+  agentCompanion: [/** @type {AgentCompanion | null} */ (null), {option: true}],
 
   openView: async ({page}, use) => {
     /**
@@ -45,5 +50,9 @@ export async function acceptConfirm(page) {
   await dialog.locator('.confirm-actions button:not(.btn-outline-secondary)').click()
   await expect(dialog).toBeHidden()
 }
+
+/**
+ * @typedef {{name: string, serviceName?: string, jacocoPort?: number}} AgentCompanion
+ */
 
 export {expect}

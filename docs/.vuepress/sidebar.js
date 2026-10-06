@@ -15,6 +15,7 @@ const sidebarLabels = {
   'features/README.md': 'All features',
   'setup/webflux.md': 'Spring WebFlux',
   'setup/quarkus.md': 'Quarkus',
+  'setup/java-agent.md': 'Java agent',
   'QUARKUS-SUPPORT.md': 'Quarkus design notes',
   'WEBFLUX-SUPPORT.md': 'WebFlux design notes',
   'SPECIFICATION.md': 'Specification',
@@ -53,6 +54,7 @@ const groups = [
       'SETUP.md',
       'setup/webflux.md',
       'setup/quarkus.md',
+      'setup/java-agent.md',
       'setup/activation.md',
       'setup/environments.md',
       'setup/troubleshooting.md'

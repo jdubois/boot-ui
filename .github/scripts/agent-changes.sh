@@ -66,7 +66,11 @@ pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/support/B
 pattern+='|bootui-quarkus(-deployment)?/src/main/java/io/github/jdubois/bootui/quarkus/(deployment/)?(agent|javaagent|codepaths|inventory|sideeffects|correlation)/'
 pattern+='|bootui-ui/src/main/frontend/src/views/(JavaAgent|CodeInventory|CodePaths|SideEffects|MethodProbes)'
 pattern+='|bootui-ui/src/main/frontend/src/views/components/(MethodProbes|RequestCodePath|ChangeImpact|RunComparison)'
-pattern+='|bootui-spring-sample-app/e2e/(tests-agent|tests-webflux-agent|playwright\.(agent|webflux-agent)\.config)'
+pattern+='|bootui-spring-sample-app/e2e/(tests-agent|tests-webflux-agent|agent-(config|jar)\.js$|playwright\.(agent[^/]*|webflux-agent)\.config)'
+# The MVC agent leg runs the whole MVC suite and its scripts, the sample's POM copies the companion agents' jars, and the
+# e2e package.json holds the agent legs' test:agent* scripts.
+pattern+='|bootui-spring-sample-app/e2e/(tests|scripts)/'
+pattern+='|bootui-spring-sample-app/(pom\.xml|e2e/package\.json)$'
 pattern+='|bootui-quarkus-sample-app/e2e/(tests-agent|playwright\.agent\.config)'
 pattern+='|bootui-spring-sample-app/src/test/java/.*Agent'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/SideEffectsResource'
