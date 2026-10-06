@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent.bridge;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
@@ -453,6 +454,93 @@ class RequestValuesTests {
     }
 
     @Test
+    void anOvertakenHolderThatResumesNeverFreesNorWritesIntoTheNextRequestsEntry() throws Exception {
+        on();
+        context.set(owner(REQUEST, null));
+        String first = new String("first-" + System.nanoTime());
+        String stale = new String("stale-" + System.nanoTime());
+        String third = new String("third-" + System.nanoTime());
+        RequestValues.begin(REQUEST, names("q"), new String[] {first}, null, null);
+        java.util.concurrent.atomic.AtomicLongArray requests = field("REQUESTS");
+        java.util.concurrent.atomic.AtomicIntegerArray locks = field("LOCKS");
+        java.util.concurrent.atomic.AtomicReferenceArray<?> table = field("TABLE");
+        int index = -1;
+        for (int i = 0; i < RequestValues.ENTRIES; i++) {
+            if (requests.get(i) != 0L) {
+                index = i;
+            }
+        }
+        Object overtaken = table.get(index);
+        // Another request whose slot is the same, so it takes the slot the first one leaves.
+        Method slot = RequestValues.class.getDeclaredMethod("slot", long.class);
+        slot.setAccessible(true);
+        long next = 0x100L;
+        while ((int) slot.invoke(null, next) != (int) slot.invoke(null, Long.parseLong(REQUEST, 16))) {
+            next++;
+        }
+        String nextRequest = String.format("%016x", next);
+
+        // The first request's holder stalls inside; its end takes the lock over and detaches the entry.
+        locks.set(index, -7);
+        RequestValues.end(REQUEST);
+        RequestValues.begin(nextRequest, names("q"), new String[] {third}, null, null);
+        assertThat(requests.get(index)).isEqualTo(next);
+        assertThat(table.get(index)).isNotSameAs(overtaken);
+
+        // The stalled holder resumes: its wipe frees nothing, and what it adds goes into the detached object.
+        Class<?> entryType = overtaken.getClass();
+        Method wipe = RequestValues.class.getDeclaredMethod("wipe", int.class, entryType);
+        wipe.setAccessible(true);
+        Method add = RequestValues.class.getDeclaredMethod("add", entryType, String.class, String.class);
+        add.setAccessible(true);
+        assertThat((boolean) wipe.invoke(null, index, overtaken)).isFalse();
+        add.invoke(null, overtaken, "late", stale);
+        assertThat(requests.get(index)).isEqualTo(next);
+        assertThat(RequestValues.status().get("live")).isEqualTo(1);
+
+        RequestValues.end(nextRequest);
+        assertThat(RequestValues.status().get("live")).isEqualTo(0);
+        IdentityHashMap<Object, Boolean> seen = new IdentityHashMap<>();
+        List<Object> reached = new ArrayList<>();
+        reach(RequestValues.class, seen, reached, 0);
+        assertThat(reached).noneMatch(o -> o == first || o == stale || o == third || o == overtaken);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T field(String name) throws ReflectiveOperationException {
+        Field field = RequestValues.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return (T) field.get(null);
+    }
+
+    @Test
+    void signedAndDecimalNumbersAreNumbersAndNothingElseIs() {
+        for (String number : List.of("4242", "-33.8688", "+7", "151.2093", ".5")) {
+            assertThat(RequestValues.number(number, 0, number.length()))
+                    .as(number)
+                    .isTrue();
+        }
+        for (String text : List.of("-", ".", "1.2.3", "-x.1", "12a", "--1", "")) {
+            assertThat(RequestValues.number(text, 0, text.length())).as(text).isFalse();
+        }
+    }
+
+    @Test
+    void aPartlyScannedTextIsCheckedAgainEachTimeNeverReportedAsRepeated() {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("q"), values("hidden-far"), null, null);
+        String text = "z".repeat(RequestValues.MAX_SCAN) + " hidden-far";
+        int[] spans = new int[RequestValues.SPANS_LENGTH];
+        for (int i = 0; i < 3; i++) {
+            spans[RequestValues.S_FLAGS] = 0;
+            assertThat(RequestValues.match(text, RequestValues.SINK_FILE, spans, null))
+                    .isZero();
+            assertThat(spans[RequestValues.S_FLAGS]).as("check %d", i).isEqualTo(RequestValues.F_PARTIAL);
+        }
+    }
+
+    @Test
     void noValueIsReachableFromTheBridgeOnceTheRequestEnded() throws Exception {
         on();
         context.set(owner(REQUEST, null));
@@ -509,6 +597,12 @@ class RequestValuesTests {
         if (value instanceof Object[] array) {
             for (Object item : array) {
                 walk(item, seen, out, depth + 1);
+            }
+            return;
+        }
+        if (value instanceof java.util.concurrent.atomic.AtomicReferenceArray<?> array) {
+            for (int i = 0; i < array.length(); i++) {
+                walk(array.get(i), seen, out, depth + 1);
             }
             return;
         }

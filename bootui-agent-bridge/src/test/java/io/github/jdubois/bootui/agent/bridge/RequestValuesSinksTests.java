@@ -146,6 +146,40 @@ class RequestValuesSinksTests {
     }
 
     @Test
+    void aPathLongerThanTheScanIsNeverNamedTheFirstTimeNorWhenRepeated() {
+        long token = claim(List.of(SideEffects.FILES, SideEffects.PROCESSES, SideEffects.SECURITY_SINKS));
+        SideEffects.enable(SideEffects.MASK_FILES | SideEffects.MASK_PROCESSES | SideEffects.MASK_SECURITY_SINKS);
+        SideEffects.places(PLACES);
+        context.set(owner(REQUEST));
+        String value = seeded("quarterly");
+        RequestValues.begin(REQUEST, new String[] {"name"}, new String[] {value}, null, null);
+        // The value sits past the characters a check scans.
+        String path = "/srv/app/" + "d/".repeat(RequestValues.MAX_SCAN / 2) + value + ".csv";
+        String executable = "/opt/" + "t".repeat(RequestValues.MAX_SCAN) + value;
+
+        for (int i = 0; i < 2; i++) {
+            long opening = SideEffects.fileOpening(SideEffects.HOOK_FILE_INPUT_STREAM);
+            SideEffects.fileOpened(opening, SideEffects.HOOK_FILE_INPUT_STREAM, SideEffects.KIND_FILE_READ, path, null);
+            SideEffects.processStarted(
+                    SideEffects.processStarting(), List.of(executable, "--help"), null, new IOException());
+        }
+
+        List<String> targets = new ArrayList<>();
+        SideEffects.drain(token, record -> {
+            if (record[SideEffects.R_SENSOR] == SideEffects.SENSOR_FILES
+                    || record[SideEffects.R_SENSOR] == SideEffects.SENSOR_PROCESSES) {
+                targets.add(record[SideEffects.R_SENSOR] + " " + string(record[SideEffects.R_TARGET]));
+            }
+        });
+        assertThat(targets)
+                .as("every file and process record, the repeats included, names neither the path nor the executable")
+                .anyMatch(target -> target.startsWith(SideEffects.SENSOR_FILES + " "))
+                .anyMatch(target -> target.startsWith(SideEffects.SENSOR_PROCESSES + " "))
+                .allMatch(target -> target.endsWith(RequestValues.NOT_CHECKED));
+        assertThat(String.join("|", interned())).doesNotContain(value);
+    }
+
+    @Test
     void aPathOrAnExecutableTheRequestsMatchingCouldNotCheckIsNeverNamed() {
         long token = claim(List.of(SideEffects.FILES, SideEffects.PROCESSES, SideEffects.SECURITY_SINKS));
         SideEffects.enable(SideEffects.MASK_FILES | SideEffects.MASK_PROCESSES | SideEffects.MASK_SECURITY_SINKS);

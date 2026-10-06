@@ -8,6 +8,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -181,7 +182,11 @@ public final class RequestValues {
     /** Each entry's try-lock: {@link #FREE}, or its holder's token. */
     private static final AtomicIntegerArray LOCKS = new AtomicIntegerArray(ENTRIES);
 
-    private static final Entry[] TABLE = entries();
+    /**
+     * Each slot's entry, {@code null} when free. A wipe detaches the entry object by compare-and-set: a holder a takeover
+     * overtook keeps writing into an object the table no longer reaches, never into the next request's.
+     */
+    private static final AtomicReferenceArray<Entry> TABLE = new AtomicReferenceArray<Entry>(ENTRIES);
 
     /** Entries holding a request, so a check returns at once while none does. */
     private static final AtomicInteger LIVE = new AtomicInteger();
@@ -225,16 +230,13 @@ public final class RequestValues {
 
     private RequestValues() {}
 
-    private static Entry[] entries() {
-        Entry[] entries = new Entry[ENTRIES];
-        for (int i = 0; i < ENTRIES; i++) {
-            entries[i] = new Entry();
-        }
-        return entries;
-    }
-
-    /** One request's values: every field is guarded by the entry's lock. No {@code toString}, by design. */
+    /**
+     * One request's values, created when the request takes a slot and detached when it is wiped: every mutable field is
+     * guarded by the slot's lock. No {@code toString}, by design.
+     */
     private static final class Entry {
+        final long request;
+        final long generation;
         final String[] values = new String[MAX_VALUES];
         final String[] names = new String[MAX_VALUES];
         final long[] hashes = new long[HASHES];
@@ -245,7 +247,6 @@ public final class RequestValues {
         int valueChars;
 
         int hashCount;
-        long generation;
         long begun;
         int checks;
         long comparisons;
@@ -254,6 +255,12 @@ public final class RequestValues {
         Map<?, ?> late;
 
         String[] lateKeys;
+
+        Entry(long request, long generation, long begun) {
+            this.request = request;
+            this.generation = generation;
+            this.begun = begun;
+        }
     }
 
     // ---- the gate --------------------------------------------------------------------------------------------------
@@ -332,47 +339,40 @@ public final class RequestValues {
             long generation = tableGeneration;
             int index = find(request);
             int token;
-            boolean fresh = false;
             if (index < 0) {
-                long claimed = claimFree(request);
+                long claimed = claimFree(request, generation, now);
                 if (claimed < 0L) {
                     TABLE_FULL.increment();
                     return -1;
                 }
                 index = (int) claimed;
                 token = (int) (claimed >>> 32);
-                fresh = true;
+                BEGUN.increment();
             } else {
                 token = lock(index);
-                if (REQUESTS.get(index) != request) {
-                    unlock(index, token);
-                    return -1;
-                }
             }
             try {
-                Entry entry = TABLE[index];
-                if (fresh) {
-                    entry.generation = generation;
-                    entry.begun = now;
-                    BEGUN.increment();
+                Entry entry = entry(index, request);
+                if (entry == null) {
+                    return -1;
                 }
                 if (values != null) {
-                    for (int i = 0; i < values.length && owns(index, token, request); i++) {
+                    for (int i = 0; i < values.length; i++) {
                         add(entry, names != null && i < names.length ? names[i] : null, values[i]);
                     }
-                }
-                if (!owns(index, token, request)) {
-                    // Taken over while adding: whatever this thread wrote is wiped, never kept.
-                    wipeIfFree(index, token);
-                    return -1;
                 }
                 if (late != null && entry.late == null) {
                     entry.late = late;
                     entry.lateKeys = lateKeys;
                 }
+                if (TABLE.get(index) != entry) {
+                    // Wiped while adding, after a takeover: the object is detached, and cleared again here.
+                    clear(entry);
+                    return -1;
+                }
                 if (entry.generation != tableGeneration || entry.generation != sensorGeneration) {
                     // A claim change or the sensor going off raced this push: its wipe may have passed this entry.
-                    wipe(index);
+                    wipe(index, entry);
                     return -1;
                 }
                 return entry.count;
@@ -403,7 +403,7 @@ public final class RequestValues {
                 if (REQUESTS.get(i) == request) {
                     int token = lock(i);
                     try {
-                        if (REQUESTS.get(i) == request && wipe(i)) {
+                        if (wipe(i, entry(i, request))) {
                             ENDED.increment();
                         }
                     } finally {
@@ -425,7 +425,8 @@ public final class RequestValues {
             int token;
             if (REQUESTS.get(i) != 0L && (token = tryLock(i)) != FREE) {
                 try {
-                    if (REQUESTS.get(i) != 0L && now - TABLE[i].begun > DEADLINE_NANOS && wipe(i)) {
+                    Entry entry = TABLE.get(i);
+                    if (entry != null && now - entry.begun > DEADLINE_NANOS && wipe(i, entry)) {
                         EXPIRED.increment();
                     }
                 } finally {
@@ -438,10 +439,10 @@ public final class RequestValues {
     /** Wipes every entry, waiting for each one's lock. */
     static void wipeAll() {
         for (int i = 0; i < ENTRIES; i++) {
-            if (REQUESTS.get(i) != 0L) {
+            if (REQUESTS.get(i) != 0L || TABLE.get(i) != null) {
                 int token = lock(i);
                 try {
-                    if (REQUESTS.get(i) != 0L && wipe(i)) {
+                    if (wipe(i, TABLE.get(i))) {
                         WIPED.increment();
                     }
                 } finally {
@@ -451,33 +452,25 @@ public final class RequestValues {
         }
     }
 
-    /**
-     * Clears entry {@code index}, under its lock, so it reaches no value, and frees it: returns whether this call freed
-     * it, so {@link #LIVE} counts each entry's request once even when a takeover raced another wipe.
-     */
-    private static boolean wipe(int index) {
-        clear(TABLE[index]);
-        long request = REQUESTS.get(index);
-        if (request != 0L && REQUESTS.compareAndSet(index, request, 0L)) {
-            LIVE.decrementAndGet();
-            return true;
-        }
-        return false;
+    /** Slot {@code index}'s entry when it holds {@code request}, or {@code null}. */
+    private static Entry entry(int index, long request) {
+        Entry entry = TABLE.get(index);
+        return entry != null && entry.request == request ? entry : null;
     }
 
-    /** Clears a free entry an overtaken holder may have written to, unless another request took it since. */
-    private static void wipeIfFree(int index, int token) {
-        int now = tryLock(index);
-        if (now == FREE) {
-            return;
+    /**
+     * Detaches {@code entry} from slot {@code index}, clears it, and frees the slot: only when the slot still holds this
+     * very object, so a holder a takeover overtook never frees another request's slot. Returns whether this call
+     * detached it, so {@link #LIVE} counts each entry once.
+     */
+    private static boolean wipe(int index, Entry entry) {
+        if (entry == null || !TABLE.compareAndSet(index, entry, null)) {
+            return false;
         }
-        try {
-            if (REQUESTS.get(index) == 0L) {
-                clear(TABLE[index]);
-            }
-        } finally {
-            unlock(index, now);
-        }
+        REQUESTS.compareAndSet(index, entry.request, 0L);
+        LIVE.decrementAndGet();
+        clear(entry);
+        return true;
     }
 
     /** Clears every field of {@code entry}. */
@@ -496,8 +489,6 @@ public final class RequestValues {
         entry.count = 0;
         entry.valueChars = 0;
         entry.hashCount = 0;
-        entry.generation = 0L;
-        entry.begun = 0L;
         entry.checks = 0;
         entry.comparisons = 0L;
         entry.stopped = false;
@@ -793,7 +784,10 @@ public final class RequestValues {
         return false;
     }
 
-    /** {@link #FLAG_NUMERIC} when the first span of value {@code index} holds digits only, else 0. */
+    /**
+     * {@link #FLAG_NUMERIC} when the first span of value {@code index} is a number: digits, with an optional leading
+     * sign and at most one decimal point, else 0.
+     */
     static int numericFlag(String text, int[] spans, int index) {
         int count = Math.min(spans[S_COUNT], MAX_SPANS);
         for (int s = 0; s < count; s++) {
@@ -806,13 +800,7 @@ public final class RequestValues {
             if (start < 0 || end > text.length() || start >= end) {
                 return 0;
             }
-            for (int c = start; c < end; c++) {
-                char ch = text.charAt(c);
-                if (ch < '0' || ch > '9') {
-                    return 0;
-                }
-            }
-            return FLAG_NUMERIC;
+            return number(text, start, end) ? FLAG_NUMERIC : 0;
         }
         return 0;
     }
@@ -909,13 +897,14 @@ public final class RequestValues {
         }
         Map<?, ?> late;
         String[] lateKeys;
+        Entry held;
         try {
-            Entry entry = TABLE[index];
-            if (REQUESTS.get(index) != request || entry.generation != generation) {
+            held = entry(index, request);
+            if (held == null || held.generation != generation) {
                 return 0;
             }
-            late = entry.late;
-            lateKeys = entry.lateKeys;
+            late = held.late;
+            lateKeys = held.lateKeys;
         } finally {
             unlock(index, token);
         }
@@ -927,18 +916,14 @@ public final class RequestValues {
         String[] found = null;
         int mask;
         try {
-            Entry entry = TABLE[index];
-            if (REQUESTS.get(index) != request || entry.generation != generation) {
+            Entry entry = TABLE.get(index);
+            if (entry != held) {
+                // The request's entry was wiped between the two locks, and the slot perhaps taken by another request.
                 return 0;
             }
             if (late != null && entry.late == late && pulled != null) {
-                for (int i = 0; i + 1 < pulled.length && owns(index, token, request); i += 2) {
+                for (int i = 0; i + 1 < pulled.length; i += 2) {
                     add(entry, (String) pulled[i], (String) pulled[i + 1]);
-                }
-                if (!owns(index, token, request)) {
-                    // Taken over while adding: whatever this thread wrote is wiped, never kept.
-                    wipeIfFree(index, token);
-                    return busy(spans);
                 }
                 // A text that matched none of the earlier values may hold a new one, and one that matched, another.
                 entry.hashCount = 0;
@@ -960,7 +945,7 @@ public final class RequestValues {
                     return flag(spans, F_REPEATED);
                 }
             }
-            if (!owns(index, token, request)) {
+            if (!owns(index, token, entry)) {
                 return busy(spans);
             }
             boolean seen = false;
@@ -1012,10 +997,13 @@ public final class RequestValues {
                     }
                 }
             }
-            if (mask == 0 && owns(index, token, request)) {
+            if (mask == 0 && !partial && owns(index, token, entry)) {
+                // Only a text scanned whole is remembered as holding nothing: a partly scanned one is checked again,
+                // and
+                // reported partial again, each time, so a repeat never reads as checked.
                 entry.hashes[entry.hashCount % HASHES] = hash;
                 entry.hashCount++;
-            } else if (mask != 0 && !seen && owns(index, token, request)) {
+            } else if (mask != 0 && !seen && owns(index, token, entry)) {
                 entry.matchedHashes[entry.matchedCount % MATCHED_HASHES] = hash;
                 entry.matchedCount++;
             }
@@ -1043,6 +1031,27 @@ public final class RequestValues {
             }
         }
         return mask;
+    }
+
+    /** Whether {@code text}'s characters {@code start} to {@code end} are a number, as {@code 42}, {@code -33.8688}. */
+    static boolean number(CharSequence text, int start, int end) {
+        int c = start;
+        if (c < end && (text.charAt(c) == '-' || text.charAt(c) == '+')) {
+            c++;
+        }
+        boolean digit = false;
+        boolean point = false;
+        for (; c < end; c++) {
+            char ch = text.charAt(c);
+            if (ch >= '0' && ch <= '9') {
+                digit = true;
+            } else if (ch == '.' && !point) {
+                point = true;
+            } else {
+                return false;
+            }
+        }
+        return digit;
     }
 
     /**
@@ -1249,20 +1258,23 @@ public final class RequestValues {
     }
 
     /**
-     * Takes a free entry for {@code request}, every field cleared, and returns it locked: its lock token in the high 32
-     * bits and its index in the low ones, or -1 when none is free.
+     * Takes a free slot for {@code request} with a new entry, and returns it locked: its lock token in the high 32 bits
+     * and its index in the low ones, or -1 when none is free. The entry is a new object, so nothing a holder overtaken
+     * by a takeover wrote into the slot's previous one is ever reachable from it.
      */
-    private static long claimFree(long request) {
+    private static long claimFree(long request, long generation, long now) {
         int start = slot(request);
         for (int i = 0; i < ENTRIES; i++) {
             int index = (start + i) & (ENTRIES - 1);
             int token;
             if (REQUESTS.get(index) == 0L && (token = tryLock(index)) != FREE) {
                 if (REQUESTS.compareAndSet(index, 0L, request)) {
-                    // Whatever a holder overtaken after its takeover left here is gone before the request's values.
-                    clear(TABLE[index]);
-                    LIVE.incrementAndGet();
-                    return ((long) token << 32) | index;
+                    if (TABLE.compareAndSet(index, null, new Entry(request, generation, now))) {
+                        LIVE.incrementAndGet();
+                        return ((long) token << 32) | index;
+                    }
+                    // A wipe still detaching the slot's previous entry: the slot is not free yet.
+                    REQUESTS.compareAndSet(index, request, 0L);
                 }
                 unlock(index, token);
             }
@@ -1302,9 +1314,16 @@ public final class RequestValues {
             return token;
         }
         long deadline = System.nanoTime() + LOCK_WAIT_NANOS;
+        int seen = FREE;
         int spins = 0;
         while (true) {
             int held = LOCKS.get(index);
+            if (held != seen) {
+                // Another holder took the lock: its own wait starts now, so a lock is taken over only from a holder
+                // that kept it the whole time, never from one that just took it.
+                seen = held;
+                deadline = System.nanoTime() + LOCK_WAIT_NANOS;
+            }
             if (held == FREE) {
                 if (LOCKS.compareAndSet(index, FREE, token)) {
                     return token;
@@ -1321,9 +1340,9 @@ public final class RequestValues {
         }
     }
 
-    /** Whether the caller still holds entry {@code index} for {@code request}: never after a takeover. */
-    private static boolean owns(int index, int token, long request) {
-        return LOCKS.get(index) == token && REQUESTS.get(index) == request;
+    /** Whether the caller still holds slot {@code index}, and the slot still holds {@code entry}: never after a takeover. */
+    private static boolean owns(int index, int token, Entry entry) {
+        return LOCKS.get(index) == token && TABLE.get(index) == entry;
     }
 
     /** Releases the entry's lock if {@code token} still holds it: an overtaken holder releases nothing. */
@@ -1412,10 +1431,11 @@ public final class RequestValues {
     /** Tests only: ages every entry past the deadline. */
     static void expireAll() {
         for (int i = 0; i < ENTRIES; i++) {
-            if (REQUESTS.get(i) != 0L) {
+            Entry entry = TABLE.get(i);
+            if (entry != null) {
                 int token = lock(i);
                 try {
-                    TABLE[i].begun -= DEADLINE_NANOS + 1L;
+                    entry.begun -= DEADLINE_NANOS + 1L;
                 } finally {
                     unlock(i, token);
                 }

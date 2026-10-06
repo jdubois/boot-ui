@@ -46,6 +46,10 @@ final class SqlSinkText {
         Arrays.fill(value, -1);
         Arrays.fill(outside, -1);
         boolean[] crosses = new boolean[positions.length];
+        // Per value: whether every span crossing a bound is only a sign or spaces beside one number, as -33.8688, whose
+        // minus SQL Trace's lexer leaves outside the literal.
+        boolean[] signed = new boolean[positions.length];
+        boolean[] other = new boolean[positions.length];
         for (int s = 0; s < count; s++) {
             int slot = AgentRequestValues.S_FIRST + 3 * s;
             int index = spans[slot];
@@ -62,6 +66,11 @@ final class SqlSinkText {
             boolean contained = same && first >= 0;
             if (!same && index >= 0 && index < crosses.length) {
                 crosses[index] = true;
+                if (signedNumber(sql, region, ranges, from, to)) {
+                    signed[index] = true;
+                } else {
+                    other[index] = true;
+                }
             }
             for (int c = from; c < to; c++) {
                 if (value[c] < 0 && outside[c] < 0) {
@@ -110,14 +119,39 @@ final class SqlSinkText {
         }
         for (int index = 0; index < positions.length; index++) {
             if (crosses[index] && decided[index]) {
-                positions[index] =
-                        AgentRequestValues.POSITION_OUTSIDE_LITERAL | AgentRequestValues.FLAG_CROSSES_LITERAL;
+                positions[index] = AgentRequestValues.POSITION_OUTSIDE_LITERAL
+                        | AgentRequestValues.FLAG_CROSSES_LITERAL
+                        | (signed[index] && !other[index] ? AgentRequestValues.FLAG_BARE_LITERAL : 0);
             }
         }
         if (sql.length() > length) {
             out.append(" …");
         }
         return out.toString().trim();
+    }
+
+    /**
+     * Whether characters {@code from} to {@code to} are a sign or spaces outside any literal and comment, and the rest one
+     * unquoted literal (a number, true, or false): a signed number such as {@code -33.8688}, never a fact on its own.
+     */
+    private static boolean signedNumber(String sql, int[] region, int[] ranges, int from, int to) {
+        int literal = -1;
+        for (int c = from; c < to; c++) {
+            int r = region[c];
+            if (r < 0) {
+                char ch = sql.charAt(c);
+                if (ch != '-' && ch != '+' && !Character.isWhitespace(ch)) {
+                    return false;
+                }
+            } else if (literal < 0) {
+                literal = r;
+            } else if (literal != r) {
+                return false;
+            }
+        }
+        return literal >= 0
+                && ranges[literal + 2] == SqlStatementNormalizer.RANGE_LITERAL
+                && !quoted(sql, ranges[literal], Math.min(ranges[literal + 1], region.length));
     }
 
     /**

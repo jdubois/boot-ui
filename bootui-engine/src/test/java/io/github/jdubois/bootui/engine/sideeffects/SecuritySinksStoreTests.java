@@ -79,6 +79,13 @@ class SecuritySinksStoreTests {
         store.resolve(routes(1), NOW);
         assertThat(store.rows(SENSOR, true, true)).as("true in one request").isEmpty();
 
+        int signed = SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+                | SideEffectsCatalog.SINK_CROSSES_LITERAL
+                | SideEffectsCatalog.SINK_BARE_LITERAL;
+        store.add(sink(3, "select * from places where lat = {lat}", signed, 5, 6));
+        store.resolve(routes(3), NOW);
+        assertThat(store.rows(SENSOR, true, true)).as("-33.8688 in one request").isEmpty();
+
         int crossing = SideEffectsCatalog.SINK_OUTSIDE_LITERAL | SideEffectsCatalog.SINK_CROSSES_LITERAL;
         store.add(sink(2, "select * from users where name = {name} and p = ?", crossing, 3, 4));
         store.resolve(routes(2), NOW);

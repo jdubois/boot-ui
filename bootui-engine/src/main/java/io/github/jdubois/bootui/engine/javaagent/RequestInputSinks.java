@@ -173,7 +173,10 @@ public final class RequestInputSinks {
         return false;
     }
 
-    /** {@link AgentRequestValues#FLAG_NUMERIC} when the first span of value {@code index} holds digits only. */
+    /**
+     * {@link AgentRequestValues#FLAG_NUMERIC} when the first span of value {@code index} is a number: digits, with an
+     * optional leading sign and at most one decimal point.
+     */
     static int numeric(String text, int[] spans, int index) {
         int count = Math.min(spans[AgentRequestValues.S_COUNT], AgentRequestValues.MAX_SPANS);
         for (int s = 0; s < count; s++) {
@@ -186,14 +189,30 @@ public final class RequestInputSinks {
             if (start < 0 || end > text.length() || start >= end) {
                 return 0;
             }
-            for (int c = start; c < end; c++) {
-                if (!Character.isDigit(text.charAt(c))) {
-                    return 0;
-                }
-            }
-            return AgentRequestValues.FLAG_NUMERIC;
+            return number(text, start, end) ? AgentRequestValues.FLAG_NUMERIC : 0;
         }
         return 0;
+    }
+
+    /** Whether {@code text}'s characters {@code start} to {@code end} are a number, as {@code 42}, {@code -33.8688}. */
+    static boolean number(String text, int start, int end) {
+        int c = start;
+        if (c < end && (text.charAt(c) == '-' || text.charAt(c) == '+')) {
+            c++;
+        }
+        boolean digit = false;
+        boolean point = false;
+        for (; c < end; c++) {
+            char ch = text.charAt(c);
+            if (ch >= '0' && ch <= '9') {
+                digit = true;
+            } else if (ch == '.' && !point) {
+                point = true;
+            } else {
+                return false;
+            }
+        }
+        return digit;
     }
 
     /** A per-process keyed hash of a text, never negative, never the text. */

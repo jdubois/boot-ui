@@ -97,6 +97,54 @@ class SinkTextTests {
     }
 
     @Test
+    void aSignedNumberIsABareLiteralThatWaitsForConfirmation() {
+        String sql = "select * from places where lat = -33.8688 and lon = 151.2093 and name = 'sydney'";
+        int[] positions = new int[AgentRequestValues.MAX_VALUES];
+
+        String masked =
+                SqlSinkText.mask(sql, spans(sql, "-33.8688", 0, "151.2093", 1), new String[] {"lat", "lon"}, positions);
+
+        assertThat(masked).isEqualTo("select * from places where lat = {lat} and lon = {lon} and name = ?");
+        assertThat(positions[0])
+                .isEqualTo(AgentRequestValues.POSITION_OUTSIDE_LITERAL
+                        | AgentRequestValues.FLAG_CROSSES_LITERAL
+                        | AgentRequestValues.FLAG_BARE_LITERAL);
+        assertThat(positions[1])
+                .isEqualTo(AgentRequestValues.POSITION_IN_LITERAL | AgentRequestValues.FLAG_BARE_LITERAL);
+        assertThat(RequestInputSinks.numeric(sql, spans(sql, "-33.8688", 0), 0))
+                .isEqualTo(AgentRequestValues.FLAG_NUMERIC);
+        assertThat(RequestInputSinks.numeric("a=-x.1", spans("a=-x.1", "-x.1", 0), 0))
+                .isZero();
+    }
+
+    @Test
+    void noSpanPairOfTwoValuesEverCopiesACharacterOfALiteralOrAComment() {
+        String sql = "select * from t where a = 'zq' and b = 7 /* q */ and c = 'qz'";
+        for (int from = 0; from < sql.length(); from += 3) {
+            for (int to = from + 1; to <= sql.length(); to += 3) {
+                for (int other = 0; other < sql.length(); other += 5) {
+                    int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
+                    spans[AgentRequestValues.S_COUNT] = 2;
+                    spans[AgentRequestValues.S_FIRST + 1] = from;
+                    spans[AgentRequestValues.S_FIRST + 2] = to;
+                    spans[AgentRequestValues.S_FIRST + 3] = 1;
+                    spans[AgentRequestValues.S_FIRST + 4] = other;
+                    spans[AgentRequestValues.S_FIRST + 5] = Math.min(sql.length(), other + 6);
+
+                    String masked = SqlSinkText.mask(
+                            sql, spans, new String[] {"v", "w"}, new int[AgentRequestValues.MAX_VALUES]);
+
+                    assertThat(masked.replace("{v}", "").replace("{w}", ""))
+                            .as("spans %d-%d and %d", from, to, other)
+                            .doesNotContain("q")
+                            .doesNotContain("z")
+                            .doesNotContain("7");
+                }
+            }
+        }
+    }
+
+    @Test
     void noSpanEverCopiesACharacterOfALiteralOrAComment() {
         // q, z, 7, and 9 appear only inside literals and comments ("zq xq" reads as no column name): no span, wherever
         // it
