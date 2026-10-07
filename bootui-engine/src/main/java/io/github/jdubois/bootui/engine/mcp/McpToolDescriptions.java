@@ -63,10 +63,10 @@ public final class McpToolDescriptions {
                             + "that lists the current ids."),
             Map.entry(
                     "get_runtime_impact",
-                    "For a route, bean, class, method (Class#method, with parameter types for one overload), "
-                            + "repository, table, cache, host, or event type id: the routes this run exercised through "
-                            + "it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS "
-                            + "with candidates. With the BootUI agent, a method's observed routes are those whose "
+                    "For a route, bean, class, method (Class#method, with parameter types for one overload, or a "
+                            + "bare method name), repository, table, cache, host, or event type id: the routes this run "
+                            + "exercised through it, those it did not, and those sharing a resource with it, at most 8 "
+                            + "each with totals, a limitation naming the rest, or AMBIGUOUS with candidates. With the BootUI agent, a method's observed routes are those whose "
                             + "requests executed it; notObserved routes ran without showing it, which proves nothing. "
                             + "A checklist of what was and was not exercised, never a verdict that a change is safe. For AMBIGUOUS, "
                             + "NOT_FOUND, or UNAVAILABLE, next names the call that resolves it."),
@@ -101,7 +101,7 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_exception_detail",
                     "Return stack frames, causes, and occurrences for one exact exception-group id obtained from "
-                            + "get_exceptions or get_live_activity."),
+                            + "get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity."),
             Map.entry(
                     "get_security_logs",
                     "Return a bounded, newest-first snapshot of authentication and authorization audit events. "
@@ -275,8 +275,9 @@ public final class McpToolDescriptions {
                             + "Use a narrow metric-name query when diagnosing one runtime signal."),
             Map.entry(
                     "get_live_memory",
-                    "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and "
-                            + "thread measurements without requesting GC or a class histogram."),
+                    "Return a passive snapshot of current JVM heap, non-heap, and per-memory-pool usage without "
+                            + "requesting GC or a class histogram. Sizing recommendations come from get_jvm_tuning; "
+                            + "garbage collection and class-loading meters from get_metrics; threads from get_threads."),
             Map.entry(
                     "get_agent_status",
                     "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, "
@@ -292,7 +293,8 @@ public final class McpToolDescriptions {
                             + "most limit (25) rows of query: changed (the default; methods changed or added since the "
                             + "previous DevTools restart or Quarkus live reload, not executed first, with the first "
                             + "request id and route that ran each), never-executed, not-tracked, executed, "
-                            + "dependencies (declared jars not loaded in this run first), or a package or class. "
+                            + "dependencies (declared jars not loaded in this run first), or a package, class, or "
+                            + "method name. "
                             + "NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is "
                             + "unused."),
             Map.entry(
@@ -362,8 +364,10 @@ public final class McpToolDescriptions {
                             + "request with no call site, never its value."),
             Map.entry(
                     "get_jvm_tuning",
-                    "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
-                            + "This is a passive calculation and does not change JVM or container settings."),
+                    "Return the current JVM sizing facts and generated tuning recommendations using detected defaults: "
+                            + "the JVM's arguments, the memory calculation, suggested options, and the Kubernetes "
+                            + "recommendation; per-pool usage comes from get_live_memory. This is a passive calculation "
+                            + "and does not change JVM or container settings."),
             Map.entry(
                     "get_heap_dump_report",
                     "Return passive heap-dump status, file metadata, and any already-cached analysis. This does not "

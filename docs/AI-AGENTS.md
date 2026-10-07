@@ -121,6 +121,12 @@ The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/
 (fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless non-loopback access is
 explicitly enabled, which requires authentication.
 
+The endpoint speaks both MCP eras. A client that opens with `initialize` gets MCP 2025-06-18 exactly as before; a client
+that sends MCP 2026-07-28 per-request `_meta` (with the matching `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
+headers) can call `server/discover` and gets `resultType`, the server's identity, and cache hints on every result. Both
+eras see the same tools, prompts, policies, and limits, and every response is a single JSON object. There is no `GET`
+stream in either era (`405`). See [Protocol eras](#protocol-eras) for the details a client implementer needs.
+
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
    classpath). See [Setup](SETUP.md).
 2. **Enable the server.** Set `bootui.mcp.enabled=ON`, or flip the toggle at the top of the **MCP Server** panel
@@ -265,7 +271,7 @@ user; BootUI's own panel and read-only gates still apply.
   and a retained HTTP-exchange `buffers` profile accompanies it for HTTP requests (or is returned alone as a
   fallback). It is not the single legacy REST DTO — see
   [Investigate one request](#investigate-one-request); `get_exception_detail` takes a required `id`
-  (from `get_exceptions`, `get_live_activity`, or a profile exception's `exceptionGroupId`) and returns that exception
+  (from `get_exceptions`, an `EXCEPTION` entry's `exceptionGroupId` in `get_live_activity`, never the entry's own `id`, or a profile exception's `exceptionGroupId`) and returns that exception
   group's full stack trace, causes, and individual occurrences. With the BootUI agent's opt-in `caught-exceptions`
   sensor, `get_exceptions` also returns `caughtInCode`: counts and the top findings of the exceptions application code
   caught. A finding was not seen rethrown or logged at `WARN` or above while the evidence was complete; `unknown`
@@ -344,7 +350,7 @@ read tools return short, stable facts rather than a dashboard:
 | --- | --- | --- |
 | `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says where its evidence is shown first among its limitations |
-| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
+| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each with their totals and a limitation naming the rest, or `AMBIGUOUS` with candidates. A bare method name, such as `applyDiscount`, resolves through Code Inventory, `AMBIGUOUS` when several classes declare it; parameters that match no overload return `NOT_FOUND` with the real overloads as `candidates`. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
 | `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then `sideEffects` (with the agent: hosts, file patterns, processes, and variable names new, gone, or whose owner was not exercised, per sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED` with the reason; at most 8), then at most 8 route/execution behavior rows and edges; latency is left out |
 
 **Every answer names the next call.** Each of the four answers carries `next`: at most three follow-up calls, each
@@ -408,7 +414,7 @@ answers the question an agent most needs after an edit: did the method it change
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_code_inventory` | `bootui code inventory [--query Q] [--limit N]` | The summary first (this run, N of M tracked methods executed, changed, added, and removed counts, dependency counts, limitations), then at most `limit` (25) rows of `query`: `changed` (the default; the methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, each with its status and the first request id and route that ran it), `never-executed`, `not-tracked`, `executed`, `dependencies` (declared jars not loaded in this run first), or a package or class |
+| `get_code_inventory` | `bootui code inventory [--query Q] [--limit N]` | The summary first (this run, N of M tracked methods executed, changed, added, and removed counts, dependency counts, limitations), then at most `limit` (25) rows of `query`: `changed` (the default; the methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, each with its status and the first request id and route that ran it), `never-executed`, `not-tracked`, `executed`, `dependencies` (declared jars not loaded in this run first), or a package, class, or method name (`applyDiscount`, `OrderService#applyDiscount`) |
 
 The tool is advertised only while the agent's inventory sensor records this run, like every tool of an unavailable
 panel; read `get_agent_status` once to learn whether it can be, and why not. `summary.available: false`, from a run
@@ -490,7 +496,7 @@ values. Ask with `query` `not captured` for the outbound calls no panel shows (a
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, `blocking`, `thread-activity`, or `thread-locals`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, `blocking`, `thread-activity`, or `thread-locals`, `not captured`, part of a route, target, client, or call site, or a request id among a row's exemplars, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
 
 Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
@@ -673,6 +679,32 @@ See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](f
 description. `get_agent_status` is read-only and reports only the local BootUI Java agent state, setup snippets, and
 claim metadata.
 
+
+## Protocol eras
+
+BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, as MCP 2026-07-28's backward
+compatibility rules describe:
+
+- **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
+  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes
+  `-32000` (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An
+  `MCP-Protocol-Version` header other than `2025-06-18` is refused with `400` and `-32600`.
+- **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
+  being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
+  (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
+  `data.requested`; `io.modelcontextprotocol/clientCapabilities` must be an object (`-32602`); `Mcp-Method` must be sent
+  once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
+  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
+  (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
+- **Modern results.** Every result carries `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`.
+  `server/discover`, `tools/list`, and `prompts/list` also carry `ttlMs: 60000` and `cacheScope: "private"`; tools stay
+  in catalog order. Modern clients have no `initialize` or `ping`; an unknown method answers `404` with `-32601`.
+  BootUI's own server errors move out of the JSON-RPC reserved range for modern clients: `-31000` (disabled), `-31001`
+  (at capacity), `-31002` (timeout), and `-31003` (response too large), with the same messages.
+- **Unchanged in both eras.** Loopback, Host, cross-site write, token, panel enable and read-only, masking,
+  payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
+  answer `202`. Responses are single JSON objects; request-scoped progress over `text/event-stream` is planned
+  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 ## Assess an application and approve an action plan
 
 When you do not know which panel to investigate first, ask your coding agent for an application assessment:

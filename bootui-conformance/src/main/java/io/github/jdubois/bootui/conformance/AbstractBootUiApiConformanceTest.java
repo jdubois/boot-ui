@@ -161,6 +161,14 @@ public abstract class AbstractBootUiApiConformanceTest {
         return applicationPath() + "/conformance-route-probe/4711";
     }
 
+    /**
+     * An application request that fails with an exception BootUI captures into an exception group, or {@code null} when
+     * the host application has none; the Live Activity exception-link contract is skipped then.
+     */
+    protected String exceptionProbePath() {
+        return null;
+    }
+
     /** Browser-visible UI mount, including any host application root path. */
     protected String uiPath() {
         return "/bootui";
@@ -1575,6 +1583,42 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(buffers.json().path("warnings").toString())
                 .as("a journal-only filter on the buffers' feed is reported, never silently dropped")
                 .contains("source=journal");
+    }
+
+    @Test
+    void liveActivityExceptionEntriesNameTheirExceptionGroup() throws InterruptedException {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        assumeTrue(isPanelUsableInLiveManifest("exceptions"), "exceptions panel is not available in this environment");
+        String failing = exceptionProbePath();
+        assumeTrue(failing != null, "this host application has no failing request to send");
+        BootUiHttpProbe probe = probe();
+        probe.get(failing);
+        for (String feed : List.of("/activity?source=journal&type=EXCEPTION&limit=50", "/activity?source=buffers")) {
+            String groupId = null;
+            for (int attempt = 0; attempt < 30 && groupId == null; attempt++) {
+                for (JsonNode entry : probe.get(api(feed)).json().path("entries")) {
+                    if ("EXCEPTION".equals(entry.path("type").asText())) {
+                        assertThat(entry.has("exceptionGroupId"))
+                                .as("%s: an EXCEPTION entry carries exceptionGroupId", feed)
+                                .isTrue();
+                        if (!entry.path("exceptionGroupId").asText("").isBlank()) {
+                            groupId = entry.path("exceptionGroupId").asText();
+                            break;
+                        }
+                    }
+                }
+                if (groupId == null) {
+                    Thread.sleep(100);
+                }
+            }
+            assertThat(groupId)
+                    .as("%s lists the failing request's exception with its group id", feed)
+                    .isNotNull();
+            Response detail = probe.get(api("/exceptions/" + groupId));
+            assertThat(detail.status())
+                    .as("%s: GET /exceptions/{exceptionGroupId} resolves the entry's group", feed)
+                    .isEqualTo(200);
+        }
     }
 
     @Test

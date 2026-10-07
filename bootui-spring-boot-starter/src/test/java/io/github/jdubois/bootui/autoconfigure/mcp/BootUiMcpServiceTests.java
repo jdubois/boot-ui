@@ -3,11 +3,14 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.conformance.McpCodecParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
@@ -19,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -239,6 +243,31 @@ class BootUiMcpServiceTests {
                 .isEqualTo("The rule id, from get_architecture_report.");
         assertThat(properties.path("offset").path("default").asInt()).isZero();
         assertThat(properties.path("limit").path("default").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void toolsListRendersEveryCatalogSchemaAndHintByteForByteLikeTheQuarkusCodec() {
+        properties.getMcp().setMaxResults(McpCodecParity.MAX_RESULTS);
+        BootUiMcpService catalog = new BootUiMcpService(
+                McpCodecParity.tools(McpToolDescriptions::spring),
+                properties,
+                objectMapper,
+                "1.2.3",
+                (operation, failure) -> {
+                    throw new AssertionError(failure);
+                });
+        ArrayNode rendered = JsonNodeFactory.instance.arrayNode();
+        catalog.handle(request("tools/list", 4, null))
+                .path("result")
+                .path("tools")
+                .forEach(tool -> {
+                    ObjectNode projection = rendered.addObject();
+                    projection.set("name", tool.path("name"));
+                    projection.set("inputSchema", tool.path("inputSchema"));
+                    projection.set("annotations", tool.path("annotations"));
+                });
+
+        assertThat(objectMapper.writeValueAsString(rendered)).isEqualTo(McpCodecParity.expected());
     }
 
     @Test
@@ -546,6 +575,155 @@ class BootUiMcpServiceTests {
         assertThat(diagnostics.count()).isEqualTo(1);
         assertThat(diagnostics.failure()).isNotNull();
         assertThat(diagnostics.operation()).isEqualTo("serializing a tool result");
+    }
+
+    @Test
+    void modernDiscoverAndListsCarryResultTypeServerInfoAndCacheHints() {
+        BootUiMcpService.Reply discover = modern("server/discover", 1, null, true);
+        assertThat(discover.status()).isEqualTo(200);
+        JsonNode result = discover.body().path("result");
+        assertThat(result.propertyNames())
+                .containsExactly(
+                        "resultType",
+                        "supportedVersions",
+                        "capabilities",
+                        "instructions",
+                        "_meta",
+                        "ttlMs",
+                        "cacheScope");
+        assertThat(result.path("supportedVersions").toString()).isEqualTo("[\"2026-07-28\",\"2025-06-18\"]");
+        assertThat(result.path("capabilities").toString())
+                .isEqualTo("{\"tools\":{\"listChanged\":false},\"prompts\":{\"listChanged\":false}}");
+        assertThat(result.path("_meta").toString())
+                .isEqualTo("{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}");
+
+        JsonNode tools = modern("tools/list", 2, null, true).body().path("result");
+        assertThat(tools.propertyNames()).containsExactly("resultType", "tools", "_meta", "ttlMs", "cacheScope");
+        assertThat(tools.path("ttlMs").asLong()).isEqualTo(60_000);
+        assertThat(tools.path("cacheScope").asString()).isEqualTo("private");
+        assertThat(tools.path("tools").get(0).path("name").asString()).isEqualTo("get_overview");
+        JsonNode prompts = modern("prompts/list", 3, null, true).body().path("result");
+        assertThat(prompts.propertyNames()).containsExactly("resultType", "prompts", "_meta", "ttlMs", "cacheScope");
+    }
+
+    @Test
+    void modernToolCallsAreUncacheableCompleteResults() {
+        BootUiMcpService.Reply call = modern("tools/call", 4, "get_overview", true);
+        assertThat(call.status()).isEqualTo(200);
+        assertThat(call.body().toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
+                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+        properties.panel(BootUiPanels.OVERVIEW).setEnabled(false);
+        JsonNode refused = modern("tools/call", 5, "get_overview", true).body().path("result");
+        assertThat(refused.path("resultType").asString()).isEqualTo("complete");
+        assertThat(refused.path("isError").asBoolean()).isTrue();
+        assertThat(refused.has("ttlMs")).isFalse();
+    }
+
+    @Test
+    void modernErrorsUseModernCodesAndStatuses() {
+        BootUiMcpService.Reply unknown = modern("ping", 6, null, true);
+        assertThat(unknown.status()).isEqualTo(404);
+        assertThat(unknown.body().toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":-32601,\"message\":\"Unknown method: ping\"}}");
+        BootUiMcpService.Reply disabled = modern("tools/list", 7, null, false);
+        assertThat(disabled.status()).isEqualTo(200);
+        assertThat(disabled.body().path("error").path("code").asInt()).isEqualTo(-31000);
+        assertThat(service.exchange(request("ping", 8, null), McpRequestHeaders.NONE, false)
+                        .body()
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .as("legacy clients keep -32000")
+                .isEqualTo(-32000);
+    }
+
+    @Test
+    void modernRejectionsAre400sThatEchoTheRequestId() {
+        ObjectNode unsupported = modernRequest("tools/list", "a", null, "2099-01-01");
+        BootUiMcpService.Reply reply = service.exchange(
+                unsupported, new McpRequestHeaders(List.of("2099-01-01"), List.of("tools/list"), List.of()), true);
+        assertThat(reply.status()).isEqualTo(400);
+        assertThat(reply.body().toString())
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"error\":{\"code\":-32022,"
+                        + "\"message\":\"Unsupported protocol version\","
+                        + "\"data\":{\"supported\":[\"2026-07-28\",\"2025-06-18\"],\"requested\":\"2099-01-01\"}}}");
+
+        BootUiMcpService.Reply mismatch = service.exchange(
+                modernRequest("tools/call", 9, "get_overview", "2026-07-28"),
+                new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan")),
+                false);
+        assertThat(mismatch.status())
+                .as("validation precedes the disabled short-circuit")
+                .isEqualTo(400);
+        assertThat(mismatch.body().path("error").path("code").asInt()).isEqualTo(-32020);
+        assertThat(mismatch.body().path("id").asInt()).isEqualTo(9);
+
+        BootUiMcpService.Reply legacy = service.exchange(
+                request("ping", 10, null), new McpRequestHeaders(List.of("2099-01-01"), List.of(), List.of()), true);
+        assertThat(legacy.status()).isEqualTo(400);
+        assertThat(legacy.body().toString())
+                .as("legacy rejections keep BootUI 1.x's bytes")
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,"
+                        + "\"message\":\"Unsupported MCP-Protocol-Version\"}}");
+    }
+
+    @Test
+    void containerValuedEnvelopeFieldsAreClientErrorsLikeOnQuarkus() {
+        for (String method : List.of("{}", "[]")) {
+            JsonNode notification = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"method\":" + method + "}");
+            assertThat(service.exchange(notification, McpRequestHeaders.NONE, true))
+                    .isEqualTo(new BootUiMcpService.Reply(202, null));
+            JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+            BootUiMcpService.Reply reply = service.exchange(request, McpRequestHeaders.NONE, true);
+            assertThat(reply.status()).isEqualTo(200);
+            assertThat(reply.body().toString())
+                    .isEqualTo(
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Missing 'method'\"}}");
+        }
+        JsonNode objectJsonrpc = objectMapper.readTree("{\"jsonrpc\":{},\"id\":2,\"method\":\"ping\"}");
+        assertThat(service.exchange(objectJsonrpc, McpRequestHeaders.NONE, true)
+                        .body()
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(McpProtocol.INVALID_REQUEST);
+        JsonNode objectName = objectMapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":{}}}");
+        assertThat(service.exchange(objectName, McpRequestHeaders.NONE, true)
+                        .body()
+                        .toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Missing tool name\"}}");
+    }
+
+    private BootUiMcpService.Reply modern(String method, int id, String name, boolean enabled) {
+        return service.exchange(
+                modernRequest(method, id, name, "2026-07-28"),
+                new McpRequestHeaders(List.of("2026-07-28"), List.of(method), name == null ? List.of() : List.of(name)),
+                enabled);
+    }
+
+    private ObjectNode modernRequest(String method, Object id, String name, String version) {
+        ObjectNode params = JsonNodeFactory.instance.objectNode();
+        if (name != null) {
+            params.put("name", name);
+            params.set("arguments", JsonNodeFactory.instance.objectNode());
+        }
+        ObjectNode meta = params.putObject("_meta");
+        meta.put("io.modelcontextprotocol/protocolVersion", version);
+        meta.putObject("io.modelcontextprotocol/clientCapabilities");
+        ObjectNode request = request(method, null, params);
+        if (id instanceof Integer number) {
+            request.put("id", number);
+        } else {
+            request.put("id", String.valueOf(id));
+        }
+        return request;
     }
 
     private static McpToolSchema schema() {

@@ -504,19 +504,20 @@ public final class JournalActivityFeed {
             HttpPayload ownerHttp =
                     owner == null ? null : (HttpPayload) owner.event().payload();
             return entry(
-                    id,
-                    TYPE_EXCEPTION,
-                    event,
-                    SEVERITY_ERROR,
-                    exception.exceptionClass() == null ? "Exception" : exception.exceptionClass(),
-                    null,
-                    null,
-                    ownerHttp == null ? null : ownerHttp.method(),
-                    ownerHttp == null ? null : text.path(ownerHttp.path()),
-                    null,
-                    false,
-                    parentId,
-                    false);
+                            id,
+                            TYPE_EXCEPTION,
+                            event,
+                            SEVERITY_ERROR,
+                            exception.exceptionClass() == null ? "Exception" : exception.exceptionClass(),
+                            null,
+                            null,
+                            ownerHttp == null ? null : ownerHttp.method(),
+                            ownerHttp == null ? null : text.path(ownerHttp.path()),
+                            null,
+                            false,
+                            parentId,
+                            false)
+                    .withExceptionGroupId(exception.groupId());
         }
         if (payload instanceof SecurityPayload security) {
             String type = security.type() == null ? "" : security.type();

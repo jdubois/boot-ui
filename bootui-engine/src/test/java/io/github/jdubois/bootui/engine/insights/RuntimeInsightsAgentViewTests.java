@@ -473,6 +473,113 @@ class RuntimeInsightsAgentViewTests {
                 .containsExactly("bootui beans --query Orders", "bootui code inventory --query Orders");
     }
 
+    @Test
+    void aRouteQueryListsThatRoutesRowsFirstAndFollowsOneOfThemUp() {
+        List<RuntimeObservationDto> observations = List.of(
+                observation(1, RepeatedSelects.KIND, "GET /api/orders/{id}", "repeated a SELECT"),
+                observation(2, RouteTimeBreakdown.KIND, "GET /api/orders/joined", "warm median 120 ms"),
+                observation(3, RepeatedSelects.KIND, "GET /api/orders", "repeated a SELECT 20 times"),
+                observation(4, ExceptionHotspots.KIND, "POST /api/orders", "recorded `X`"));
+        RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", 1L, 2L, 100, 12, 0, 0),
+                List.of(),
+                List.of(),
+                observations,
+                List.of(),
+                List.of(),
+                0);
+
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report, "get /api/orders", 20);
+
+        assertThat(list.observations())
+                .extracting(observation -> observation.subject())
+                .as("the route asked for exactly comes first; the rows that only contain it follow in report order")
+                .containsExactly("GET /api/orders", "GET /api/orders/{id}", "GET /api/orders/joined");
+        assertThat(list.next())
+                .filteredOn(step -> "get_runtime_insight".equals(step.tool()))
+                .singleElement()
+                .satisfies(step -> assertThat(step.arguments()).containsEntry("id", RepeatedSelects.KIND + ":3"));
+        assertThat(list.next())
+                .filteredOn(step -> "get_request_profile".equals(step.tool()))
+                .singleElement()
+                .satisfies(step -> assertThat(step.arguments()).containsEntry("id", "r-3"));
+
+        List<RuntimeObservationDto> insufficient = new ArrayList<>(observations);
+        RuntimeObservationDto exact = observations.get(2);
+        insufficient.set(
+                2,
+                new RuntimeObservationDto(
+                        exact.id(),
+                        exact.kind(),
+                        exact.subject(),
+                        "INSUFFICIENT",
+                        exact.sentence(),
+                        exact.eligible(),
+                        exact.affected(),
+                        exact.minimumTier(),
+                        exact.whatToCheck(),
+                        exact.exemplarRequestIds(),
+                        exact.evidenceRows(),
+                        exact.limitations(),
+                        exact.listed(),
+                        exact.unlistedReason()));
+        RuntimeInsightsReportDto thin = new RuntimeInsightsReportDto(
+                true, null, report.window(), List.of(), List.of(), insufficient, List.of(), List.of(), 0);
+        assertThat(RuntimeInsightsAgentView.list(thin, "GET /api/orders", 20).next())
+                .filteredOn(step -> "get_runtime_insight".equals(step.tool()))
+                .singleElement()
+                .as("the asked route's row is followed up even with too little evidence, never another route's")
+                .satisfies(step -> assertThat(step.arguments()).containsEntry("id", RepeatedSelects.KIND + ":3"));
+
+        assertThat(RuntimeInsightsAgentView.list(report, "GET /api/orders", 1).observations())
+                .extracting(observation -> observation.subject())
+                .as("a limit keeps the exact route's row")
+                .containsExactly("GET /api/orders");
+    }
+
+    @Test
+    void aMethodWhoseParametersMatchNoOverloadNamesTheOverloadsAndABareNameItsInventoryRows() {
+        io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto overloads =
+                new io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto(
+                        ChangeImpactService.NOT_FOUND,
+                        "No overload of `total` of `Orders` matches `(J)J`.",
+                        "Orders#total(J)J",
+                        null,
+                        List.of("METHOD com.example.Orders#total(J)V"),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of());
+        assertThat(RuntimeInsightsAgentView.impact(overloads, null).next())
+                .extracting(step -> step.command())
+                .containsExactly("bootui insights impact 'METHOD com.example.Orders#total(J)V'");
+
+        io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto bare =
+                new io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto(
+                        ChangeImpactService.NOT_FOUND,
+                        "No route, bean, repository, table, cache, host, or method named `total`.",
+                        "total",
+                        null,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of());
+        assertThat(RuntimeInsightsAgentView.impact(bare, null).next())
+                .extracting(step -> step.command())
+                .containsExactly("bootui beans --query total", "bootui code inventory --query total");
+    }
+
     private static RuntimeInsightsReportDto report() {
         List<RuntimeObservationDto> observations = new ArrayList<>();
         for (int i = 0; i < 8; i++) {

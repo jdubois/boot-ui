@@ -10,7 +10,8 @@ import java.util.Locale;
  * one overload: Java types, such as {@code (String, int)} or {@code (java.util.List<Long>)}, or a JVM descriptor, such
  * as {@code (Ljava/lang/String;)V}.
  *
- * @param type the class as asked: a binary name, its source form, or a simple name
+ * @param type the class as asked: a binary name, its source form, or a simple name; {@code null} for a bare method
+ *     name, which any class may declare
  * @param name the method's name
  * @param parameters the parameter list as asked, without its parentheses, or {@code null} for every overload
  * @param returns the JVM return descriptor asked for after the parameters, or {@code null}
@@ -74,6 +75,16 @@ record MethodSymbol(String type, String name, String parameters, String returns)
         return new MethodSymbol(type, name, parameters, returns);
     }
 
+    /**
+     * A bare method name, such as {@code applyDiscount}, which names that method of any class, or {@code null} when
+     * {@code symbol} is no Java identifier. Callers try it only when no other symbol matched, since a bean is named the
+     * same way.
+     */
+    static MethodSymbol anyClass(String symbol) {
+        String text = symbol == null ? "" : symbol.strip();
+        return !text.contains(".") && javaName(text, false) ? new MethodSymbol(null, text, null, null) : null;
+    }
+
     /** Whether {@code key}, {@code class#name+descriptor}, is this method: its class, its name, and its parameters. */
     boolean matchesKey(String key) {
         int hash = key.indexOf('#');
@@ -88,6 +99,9 @@ record MethodSymbol(String type, String name, String parameters, String returns)
 
     /** Whether {@code className}, a binary name, is the class asked for. */
     boolean namesClass(String className) {
+        if (type == null) {
+            return true;
+        }
         if (className.equals(type) || className.replace('$', '.').equals(type)) {
             return true;
         }
