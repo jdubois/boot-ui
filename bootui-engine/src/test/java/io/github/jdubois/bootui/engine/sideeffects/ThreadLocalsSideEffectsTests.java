@@ -148,6 +148,41 @@ class ThreadLocalsSideEffectsTests {
     }
 
     @Test
+    void aRetryPastTheWaitStillAsksTheAgentFirst() {
+        start();
+        outOfTime = true;
+        leaveSet(TENANT);
+        assertThat(service.sensor("thread-locals", null, null).rows()).isEmpty();
+
+        // Retries are as sparse as the records: the first one comes after the wait, with the agent's time back.
+        outOfTime = false;
+        clock.addAndGet(SideEffectsService.HOLDER_WAIT_MILLIS + 1);
+
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo(getClass().getName() + ".TENANT"));
+    }
+
+    @Test
+    void aHolderGivenUpOnIsAskedAgainForItsNextRecord() {
+        start();
+        outOfTime = true;
+        leaveSet(TENANT);
+        assertThat(service.sensor("thread-locals", null, null).rows()).isEmpty();
+        clock.addAndGet(SideEffectsService.HOLDER_WAIT_MILLIS + 1);
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo("holder not resolved (java.lang.ThreadLocal)"));
+
+        outOfTime = false;
+        leaveSet(TENANT);
+
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .extracting(SideEffectsRowDto::target)
+                .contains(getClass().getName() + ".TENANT");
+    }
+
+    @Test
     void aReusedRegistrySlotReplacesWhatItNamedAndTheCachesStayBounded() {
         Map<Integer, SideEffectsService.Named<String>> cache = new java.util.HashMap<>();
         SideEffectsService.remember(cache, 7, 111, "first");

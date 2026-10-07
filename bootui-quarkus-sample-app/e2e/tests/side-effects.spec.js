@@ -74,7 +74,7 @@ test.describe('Side Effects view (Quarkus)', () => {
           const rows = (await (await page.request.get(`/bootui/api/side-effects/sensor?sensor=processes`)).json()).rows
           return rows?.find((candidate) => scheduled.test(candidate.attribution))?.scope ?? null
         },
-        {timeout: 60_000}
+        {timeout: 45_000}
       )
       .toBe('execution')
     const scheduledRows = await (await page.request.get(`/bootui/api/side-effects/sensor?sensor=processes`)).json()
@@ -328,8 +328,9 @@ test.describe('Side Effects view (Quarkus)', () => {
     }
     expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
     expect(JSON.stringify(rows)).not.toContain('tenant-secret')
-    // The sample's ScheduledTenant, which this leg turns on, leaves its tenant set on the scheduler's worker: a row of
-    // that run, named as the runtime journal names it, with no request.
+    // The sample's ScheduledTenant, which this leg turns on, leaves its tenant set on the scheduler's worker every 20 s,
+    // even after an earlier spec's Clear recording: a row of that run, named as the runtime journal names it, with no
+    // request.
     const job = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.JOB'
     await expect
       .poll(
@@ -337,7 +338,7 @@ test.describe('Side Effects view (Quarkus)', () => {
           (await read()).find(
             (row) => row.target === job && /^scheduled .*ScheduledTenant[#.]remember$/.test(row.attribution)
           )?.scope ?? null,
-        {timeout: 60_000}
+        {timeout: 45_000}
       )
       .toBe('execution')
     const scheduledLeak = (await read()).find((row) => row.target === job)

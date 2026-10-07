@@ -127,6 +127,9 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final int MAX_HOLDER_WAITING = 1_024;
 
+    /** The answer of a thread local whose holder the agent had no time to name: "not resolved", never remembered. */
+    private static final String[] GAVE_UP = {null, "false", "false", null};
+
     /** The holders and answers a run remembers, one per slot of the bridge's thread-local registry. */
     static final int MAX_HOLDERS = 1_024;
 
@@ -1925,7 +1928,11 @@ public final class SideEffectsService implements AutoCloseable {
                 if (waiting == null) {
                     return;
                 }
-                String[] answer = answer(waiting.record(), now - waiting.since() > HOLDER_WAIT_MILLIS);
+                // Asked again first: retries are as sparse as the records, so one past the wait may be its first.
+                String[] answer = answer(waiting.record(), false);
+                if (answer == null && now - waiting.since() > HOLDER_WAIT_MILLIS) {
+                    answer = answer(waiting.record(), true);
+                }
                 if (answer == null) {
                     return;
                 }
@@ -1946,7 +1953,7 @@ public final class SideEffectsService implements AutoCloseable {
 
         /**
          * The agent's answer naming a record's holder, within the time budget, never under the lock: {@code null} when
-         * out of time, unless {@code giveUp}, which answers "not resolved".
+         * out of time, unless {@code giveUp}, which answers "not resolved" without asking, and is never remembered.
          */
         String[] answer(SideEffectRecord record, boolean giveUp) {
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
@@ -1956,11 +1963,8 @@ public final class SideEffectsService implements AutoCloseable {
                 return known;
             }
             if (id == 0 || giveUp) {
-                String[] none = {null, "false", "false", null};
-                if (id != 0) {
-                    remember(answers, id, hash, none);
-                }
-                return none;
+                // Never remembered: a later record of the same thread local asks the agent again.
+                return GAVE_UP;
             }
             long left;
             synchronized (holderBudget) {
@@ -2001,7 +2005,7 @@ public final class SideEffectsService implements AutoCloseable {
                 return known;
             }
             ThreadLocalHolders.Holder holder = ThreadLocalHolders.decide(answer, target, detail);
-            if (id != 0) {
+            if (id != 0 && answer != GAVE_UP) {
                 remember(holders, id, hash, holder);
                 if (holder.excludedBy() != null) {
                     // Skipped by the bridge from now on, so it never takes an application's thread local's place.
