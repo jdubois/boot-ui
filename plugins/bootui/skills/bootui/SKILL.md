@@ -605,7 +605,10 @@ When BootUI MCP tools are available:
 5. After making and testing a fix, rerun the same tool and compare results.
 
 Read tools honor panel enablement. Scan tools also honor panel and global read-only settings. Results are masked and
-paginated reads are capped by `bootui.mcp.max-results`. Log and exception messages have secret-like assignments and
+paginated reads are capped by `bootui.mcp.max-results`. Large reads (SQL traces, startup, log tail, sessions, the
+vulnerabilities report, activity, exchanges, configuration, beans, metrics, conditions, threads) return a short first page without `limit`;
+when `page.hasMore` is true, narrow `--query` or raise `--limit` instead of assuming you saw everything. Agent status
+and Side Effects summarize each sensor; pass `--query <sensor id>` for its hooks. Log and exception messages have secret-like assignments and
 authorization credentials masked, and are omitted under `bootui.expose-values=METADATA_ONLY`; a `get_log_tail` line
 with `messageOmitted: true` had its message withheld, not an empty one.
 
