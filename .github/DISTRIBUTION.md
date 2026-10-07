@@ -16,7 +16,7 @@ Context: this is the hand-off from [issue #1067](https://github.com/jdubois/boot
 | --- | --- | --- | --- |
 | [GitHub Agent Finder](https://agentfinder.github.com) | GitHub Copilot users searching for skills in natural language | Pull request to [`github/agentfinder-catalog`](https://github.com/github/agentfinder-catalog) | submitted — [`github/agentfinder-catalog#66`](https://github.com/github/agentfinder-catalog/pull/66) |
 | Claude Code plugin marketplace (this repository) | Claude Code users | Nothing to submit — the marketplace is self-hosted here and works as soon as this PR merges | shipped |
-| GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | todo — owner |
+| GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | shipped |
 | [mcpservers.org](https://mcpservers.org) | People browsing MCP servers | Web form only, no pull request path | todo — owner |
 | [cursor.directory](https://cursor.directory) | Cursor users looking for MCP servers and skills | Web form — **Manual tab**, never the GitHub auto-scan | todo — owner |
 | [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | Claude Code users | Open an issue on that repository | todo — delegable |
