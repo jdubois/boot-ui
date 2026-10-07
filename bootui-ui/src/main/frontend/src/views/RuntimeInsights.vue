@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, provide, reactive, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {getJson} from '../api.js'
 import {formatClockTime, formatNumber} from '../utils/format.js'
@@ -15,17 +15,21 @@ import {
   groupObservations,
   evidenceShares,
   isListed,
-  isMachineColumn,
   numericColumns,
-  textParts,
   unlistedSummary,
   validationOf
 } from '../utils/runtimeInsights.js'
-import InsightText from './components/InsightText.vue'
+import {insightsLayout} from '../utils/runtimeInsightsLayouts.js'
+import InsightCheckLimits from './components/InsightCheckLimits.vue'
+import InsightCoverage from './components/InsightCoverage.vue'
+import InsightDetail from './components/InsightDetail.vue'
+import InsightNotExercised from './components/InsightNotExercised.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import RuntimeInsightsByArea from './components/RuntimeInsightsByArea.vue'
+import RuntimeInsightsByQuestion from './components/RuntimeInsightsByQuestion.vue'
+import RuntimeInsightsSummaryFirst from './components/RuntimeInsightsSummaryFirst.vue'
 import {insightMarkdown} from '../utils/markdownExport.js'
-import AiExportPreview from './components/AiExportPreview.vue'
 import ChangeImpact from './components/ChangeImpact.vue'
 import ResourceProfile from './components/ResourceProfile.vue'
 import RunComparison from './components/RunComparison.vue'
@@ -50,6 +54,11 @@ const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.i
 const showAll = ref(route?.query?.all === '1' || route?.query?.all === 'true')
 let deepLinkChecked = false
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
+// Layout proposals (temporary): ?insightsLayout=a|b|c renders the same report and state in one of three proposed
+// layouts; without it the current layout stays. Proposals B and C open an observation only when it is asked for.
+const layout = insightsLayout(route?.query)
+const LAYOUTS = {a: RuntimeInsightsByQuestion, b: RuntimeInsightsByArea, c: RuntimeInsightsSummaryFirst}
+const opensFirstObservation = layout === '' || layout === 'a'
 const detail = ref(null)
 // The "Copy for AI" preview of the open observation, built from the detail already loaded; copying sends nothing.
 const aiExport = ref(null)
@@ -61,6 +70,8 @@ const detailLoading = ref(false)
 const comparison = ref(null)
 const comparisonReady = ref(false)
 const comparisonText = computed(() => comparisonSummary(comparison.value))
+// Whether there is a previous run to show the changes of, rather than only a reason there is none.
+const compared = computed(() => ['COMPARED', 'INSUFFICIENT'].includes(comparison.value?.status))
 
 function onComparisonLoaded(value) {
   comparison.value = value
@@ -147,7 +158,7 @@ watch(
   (observations) => {
     if (!report.value) return
     if (!observations.some((observation) => observation.id === selectedId.value)) {
-      selectedId.value = observations[0]?.id ?? null
+      selectedId.value = opensFirstObservation ? (observations[0]?.id ?? null) : null
     }
   },
   {immediate: true}
@@ -236,6 +247,57 @@ const windowText = computed(() => {
   if (window.evictedEvents > 0) parts.push(`${formatNumber(window.evictedEvents)} evicted`)
   return parts.join(' · ')
 })
+
+function select(id) {
+  selectedId.value = id
+}
+
+// The shared state every layout and the extracted pieces of the panel read; refs are unwrapped and stay writable.
+provide(
+  'runtimeInsights',
+  reactive({
+    report,
+    lastFetched,
+    readOnly,
+    readOnlyReason,
+    query,
+    theme,
+    showAll,
+    selectedId,
+    detail,
+    detailLoading,
+    detailError,
+    aiExport,
+    themes,
+    groups,
+    unlisted,
+    unlistedText,
+    anyUnlisted,
+    visibleObservations,
+    coverage,
+    sources,
+    unrun,
+    empty,
+    evaluated,
+    selected,
+    selectedValidation,
+    shares,
+    numeric,
+    comparison,
+    comparisonReady,
+    comparisonText,
+    compared,
+    windowText,
+    initialImpact,
+    select,
+    openAiExport,
+    toggleTheme,
+    statusLabel,
+    checkStatusLabel,
+    tierLabel,
+    onComparisonLoaded
+  })
+)
 </script>
 
 <template>
@@ -276,69 +338,13 @@ const windowText = computed(() => {
         <span class="d-block small">{{ report.unavailableReason }}</span>
       </div>
 
+      <component :is="LAYOUTS[layout]" v-else-if="layout" />
+
       <template v-else>
         <section class="card insight-window mb-3" aria-labelledby="insight-window-title">
           <div class="card-body">
             <h2 id="insight-window-title" class="visually-hidden">Window and correlation coverage</h2>
-            <p class="mb-2 small insight-window-text">
-              <span class="fw-semibold">This run</span>
-              <span class="text-muted"> · {{ windowText }}</span>
-            </p>
-            <div v-if="coverage.events > 0">
-              <div
-                class="insight-coverage-bar"
-                role="img"
-                :aria-label="
-                  'Events linked by ' +
-                  coverage.segments.map((segment) => `${segment.label} ${segment.share} %`).join(', ')
-                "
-              >
-                <span
-                  v-for="segment in coverage.segments.filter((segment) => segment.count > 0)"
-                  :key="segment.id"
-                  :class="`insight-coverage-${segment.id}`"
-                  :style="{flexGrow: segment.count}"
-                ></span>
-              </div>
-              <ul class="list-inline small mb-0 mt-2 insight-coverage-legend">
-                <li class="list-inline-item text-muted">Linked by</li>
-                <li v-for="segment in coverage.segments" :key="segment.id" class="list-inline-item">
-                  <span :class="`insight-coverage-swatch insight-coverage-${segment.id}`" aria-hidden="true"></span>
-                  {{ segment.label }} <span class="fw-semibold">{{ segment.share }} %</span>
-                </li>
-              </ul>
-              <details class="small mt-2 insight-coverage-sources">
-                <summary>By source</summary>
-                <div class="table-responsive mt-2">
-                  <table class="table table-sm align-middle mb-0">
-                    <thead>
-                      <tr>
-                        <th scope="col">Source</th>
-                        <th scope="col" class="text-end">Events</th>
-                        <th scope="col" class="text-end">Request id</th>
-                        <th scope="col" class="text-end">Trace id</th>
-                        <th scope="col" class="text-end">Run or message</th>
-                        <th scope="col" class="text-end">Outside requests</th>
-                        <th scope="col" class="text-end">Dropped</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="source in sources" :key="source.source">
-                        <td>
-                          <code>{{ source.source }}</code>
-                        </td>
-                        <td class="text-end">{{ formatNumber(source.events) }}</td>
-                        <td class="text-end">{{ formatNumber(source.byRequestId) }}</td>
-                        <td class="text-end">{{ formatNumber(source.byTraceId) }}</td>
-                        <td class="text-end">{{ formatNumber(source.byExecutionId) }}</td>
-                        <td class="text-end">{{ formatNumber(source.unlinked) }}</td>
-                        <td class="text-end">{{ formatNumber(source.dropped) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            </div>
+            <InsightCoverage />
           </div>
         </section>
 
@@ -488,136 +494,7 @@ const windowText = computed(() => {
                 aria-labelledby="insight-sentence"
               >
                 <div class="card-body">
-                  <AiExportPreview
-                    v-if="aiExport"
-                    class="mb-3"
-                    heading="Copy observation for AI"
-                    :markdown="aiExport.markdown"
-                    :omissions="aiExport.omissions"
-                    @close="aiExport = null"
-                  />
-                  <div class="d-flex justify-content-between align-items-start gap-2">
-                    <p id="insight-sentence" class="insight-sentence mb-2"><InsightText :text="selected.sentence" /></p>
-                    <button
-                      v-if="!aiExport"
-                      type="button"
-                      class="btn btn-sm btn-outline-secondary text-nowrap insight-copy-ai"
-                      :disabled="!detail || detail.observation?.id !== selected.id"
-                      @click="openAiExport"
-                    >
-                      <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
-                    </button>
-                  </div>
-                  <p
-                    v-if="selectedValidation?.reason && selectedValidation.reason !== selected.unlistedReason"
-                    class="small mb-2 insight-validation-reason"
-                  >
-                    {{ selectedValidation.marker }}: {{ selectedValidation.reason }}
-                  </p>
-                  <p v-if="!isListed(selected)" class="small mb-2 insight-unlisted-reason">
-                    {{
-                      selected.unlistedReason
-                        ? `Not listed by default: ${selected.unlistedReason}`
-                        : 'Not listed by default'
-                    }}
-                  </p>
-                  <p class="small text-muted mb-3">
-                    <template v-if="selected.eligible > 0">
-                      {{ formatNumber(selected.affected) }} of {{ formatNumber(selected.eligible) }} requests · linked
-                      by {{ tierLabel(selected.minimumTier) }} ·
-                    </template>
-                    {{ statusLabel(selected.status) }}
-                  </p>
-
-                  <h3 class="h6">What to check</h3>
-                  <ol class="small mb-3 insight-checks">
-                    <li v-for="check in selected.whatToCheck" :key="check"><InsightText :text="check" /></li>
-                  </ol>
-
-                  <template v-if="selected.exemplarRequestIds.length">
-                    <h3 class="h6">Open a request</h3>
-                    <ul class="list-inline small mb-3">
-                      <li v-for="requestId in selected.exemplarRequestIds" :key="requestId" class="list-inline-item">
-                        <router-link :to="{path: '/activity', query: {request: requestId}}">
-                          <code>{{ requestId }}</code>
-                        </router-link>
-                      </li>
-                    </ul>
-                  </template>
-
-                  <h3 class="h6">Evidence</h3>
-                  <div v-if="detailLoading" class="small text-muted mb-3" role="status">Loading evidence…</div>
-                  <div v-else-if="detailError" class="alert alert-warning small py-2">{{ detailError }}</div>
-                  <div v-else-if="detail && !detail.available" class="small text-muted mb-3">
-                    {{ detail.unavailableReason }}
-                  </div>
-                  <template v-else-if="detail">
-                    <div class="table-responsive mb-2">
-                      <table
-                        class="table table-sm align-middle insight-evidence mb-0"
-                        :class="{'insight-evidence-shares': shares}"
-                      >
-                        <thead>
-                          <tr>
-                            <th
-                              v-for="(column, index) in detail.columns"
-                              :key="column"
-                              scope="col"
-                              :class="{'insight-number': numeric.has(index)}"
-                            >
-                              {{ column }}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr
-                            v-for="(row, index) in detail.rows"
-                            :key="index"
-                            :class="{'insight-evidence-top': shares && shares.top === index}"
-                          >
-                            <td
-                              v-for="(cell, column) in row.cells"
-                              :key="column"
-                              :class="{
-                                'insight-share-cell': shares && shares.column === column,
-                                'insight-number': numeric.has(column)
-                              }"
-                            >
-                              <span
-                                v-if="shares && shares.column === column && shares.shares[index] != null"
-                                class="insight-share"
-                              >
-                                <span class="insight-share-track" aria-hidden="true">
-                                  <span
-                                    class="insight-share-bar"
-                                    :class="{'insight-share-bar-top': shares.top === index}"
-                                    :style="{width: `${shares.shares[index]}%`}"
-                                  ></span>
-                                </span>
-                                <span class="insight-share-value">{{ cell }}</span>
-                              </span>
-                              <code v-else-if="isMachineColumn(detail.columns[column])" class="bootui-break-anywhere">{{
-                                cell
-                              }}</code>
-                              <InsightText v-else :text="cell" />
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <p v-if="detail.truncated > 0" class="small text-muted mb-3">
-                      {{ formatNumber(detail.truncated) }} more rows not shown.
-                    </p>
-                  </template>
-
-                  <template v-if="selected.limitations.length">
-                    <h3 class="h6">Limits</h3>
-                    <ul class="small text-muted mb-0">
-                      <li v-for="limitation in selected.limitations" :key="limitation">
-                        <InsightText :text="limitation" />
-                      </li>
-                    </ul>
-                  </template>
+                  <InsightDetail />
                 </div>
               </section>
             </div>
@@ -637,17 +514,7 @@ const windowText = computed(() => {
             >
               <div class="card-body">
                 <h2 id="insight-not-exercised-title" class="h6 mb-1">Not exercised in this run</h2>
-                <p class="small text-muted mb-2">
-                  Declared routes no request of this run reached, so nothing above speaks for them.
-                </p>
-                <ul class="list-unstyled small mb-0 insight-not-exercised-list">
-                  <li v-for="declared in report.notExercised" :key="declared">
-                    <code class="bootui-break-anywhere">{{ declared }}</code>
-                  </li>
-                </ul>
-                <p v-if="report.notExercisedOmitted > 0" class="small text-muted mb-0 mt-2">
-                  {{ formatNumber(report.notExercisedOmitted) }} more routes not listed.
-                </p>
+                <InsightNotExercised />
               </div>
             </section>
           </div>
@@ -655,13 +522,7 @@ const windowText = computed(() => {
             <section v-if="unrun.length" class="card h-100 insight-unrun" aria-labelledby="insight-unrun-title">
               <div class="card-body">
                 <h2 id="insight-unrun-title" class="h6 mb-2">Checks and their limits</h2>
-                <ul class="list-unstyled small mb-0">
-                  <li v-for="check in unrun" :key="check.kind" class="mb-1">
-                    <span class="fw-semibold">{{ check.title }}</span>
-                    <span class="text-muted"> · {{ checkStatusLabel(check.status) }}</span>
-                    <span v-if="check.reason" class="d-block text-muted">{{ check.reason }}</span>
-                  </li>
-                </ul>
+                <InsightCheckLimits />
               </div>
             </section>
           </div>
@@ -676,129 +537,8 @@ const windowText = computed(() => {
   max-width: 22rem;
 }
 
-.insight-not-exercised-list {
-  columns: 2 22rem;
-  column-gap: 1.25rem;
-}
-
-.insight-coverage-bar {
-  display: flex;
-  height: 0.5rem;
-  border-radius: var(--bootui-radius-pill);
-  overflow: hidden;
-  background: var(--bs-secondary-bg);
-}
-
-.insight-coverage-bar > span {
-  flex-basis: 0;
-  min-width: 2px;
-}
-
-.insight-coverage-swatch {
-  display: inline-block;
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 50%;
-  margin-right: 0.25rem;
-  vertical-align: baseline;
-}
-
-.insight-coverage-request {
-  background: var(--bootui-green);
-}
-
-.insight-coverage-trace {
-  background: var(--bootui-blue);
-}
-
-.insight-coverage-execution {
-  background: var(--bs-secondary-color);
-}
-
-.insight-coverage-none {
-  background: var(--bs-border-color);
-}
-
 .insight-group-title {
   font-weight: 700;
-}
-
-.insight-sentence {
-  font-size: 1.15rem;
-  font-weight: 700;
-  max-width: 75ch;
-}
-
-.insight-share-cell {
-  min-width: 11rem;
-  width: 40%;
-}
-
-.insight-share {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.insight-share-track {
-  position: relative;
-  flex: 1 1 auto;
-  height: 0.6rem;
-  background: var(--bs-secondary-bg);
-  border-radius: var(--bootui-radius-xs);
-  overflow: hidden;
-}
-
-.insight-share-bar {
-  position: absolute;
-  inset: 0 auto 0 0;
-  min-width: 2px;
-  background: var(--bootui-text-muted);
-  border-radius: var(--bootui-radius-xs);
-}
-
-.insight-share-bar-top {
-  background: var(--bootui-green-dark);
-}
-
-.insight-share-value {
-  flex: 0 0 3.25rem;
-  text-align: end;
-  font-variant-numeric: tabular-nums;
-}
-
-.insight-evidence-shares td:first-child {
-  white-space: nowrap;
-}
-
-@media (max-width: 575.98px) {
-  .insight-evidence-shares td:first-child {
-    white-space: normal;
-  }
-
-  .insight-share-cell {
-    min-width: 7rem;
-  }
-
-  .insight-share-value {
-    flex-basis: 2.75rem;
-  }
-}
-
-.insight-number {
-  text-align: end;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.insight-evidence-top td:first-child,
-.insight-evidence-top .insight-share-value {
-  font-weight: 700;
-}
-
-.insight-checks {
-  max-width: 75ch;
-  padding-left: 1.25rem;
 }
 
 .insight-status {
@@ -825,9 +565,7 @@ const windowText = computed(() => {
   border-color: currentColor;
 }
 
-.insight-unlisted-label,
-.insight-unlisted-reason,
-.insight-validation-reason {
+.insight-unlisted-label {
   color: var(--bs-secondary-color);
   font-style: italic;
 }
