@@ -3499,9 +3499,9 @@ Design rules:
   newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so a blocking stack notices a closed stream within about 4
   seconds. Closing the stream cancels the call: nothing more is written, the tool is interrupted and stops at its next
-  step, and its concurrency permit is released exactly once when it returns. The execution timeout stays absolute.
-  Everything else, every refusal, and every legacy request is one JSON response; there is still no `GET` stream, live
-  push, resource, or `subscriptions/listen`.
+  step, and its concurrency permit is released exactly once, when the tool has returned and the stream is written. The
+  execution timeout stays absolute. Everything else, every refusal, and every legacy request is one JSON response; there
+  is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
