@@ -16,6 +16,9 @@ public final class TenantContext {
     public static final ThreadLocal<SimpleDateFormat> FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
 
+    /** A scheduled run's tenant, which {@link ScheduledTenant} forgets to clear: reported for the run, no request. */
+    public static final ThreadLocal<String> JOB = new ThreadLocal<>();
+
     /** Set by a filter outside BootUI's scope and never cleared: there before every request, never reported. */
     public static final ThreadLocal<String> BEFORE = new ThreadLocal<>();
 
