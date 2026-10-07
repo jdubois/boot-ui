@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The typed outcome of an {@link McpDispatcher} evaluation. The adapter renders each variant to JSON,
@@ -123,6 +126,17 @@ public sealed interface McpDispatchOutcome
      * @param code the JSON-RPC error code (see {@link McpProtocol})
      * @param message the human-readable error message; unexpected failures use the detail-free {@link
      *     McpProtocol#INTERNAL_ERROR_MESSAGE}
+     * @param data the optional machine-readable {@code error.data} members, or {@code null}
      */
-    record ProtocolError(int code, String message) implements McpDispatchOutcome {}
+    record ProtocolError(int code, String message, Map<String, String> data) implements McpDispatchOutcome {
+
+        public ProtocolError {
+            data = data == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(data));
+        }
+
+        /** An error without {@code data}. */
+        public ProtocolError(int code, String message) {
+            this(code, message, null);
+        }
+    }
 }

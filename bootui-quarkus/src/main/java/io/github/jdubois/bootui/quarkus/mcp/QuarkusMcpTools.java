@@ -29,6 +29,7 @@ import io.github.jdubois.bootui.quarkus.web.GitHubResource;
 import io.github.jdubois.bootui.quarkus.web.HealthResource;
 import io.github.jdubois.bootui.quarkus.web.HeapDumpResource;
 import io.github.jdubois.bootui.quarkus.web.HibernateResource;
+import io.github.jdubois.bootui.quarkus.web.HibernateStatisticsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.JavaAgentResource;
 import io.github.jdubois.bootui.quarkus.web.JvmTuningResource;
@@ -59,6 +60,7 @@ import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
 import io.github.jdubois.bootui.quarkus.web.ThreadsResource;
 import io.github.jdubois.bootui.quarkus.web.TracesResource;
 import io.github.jdubois.bootui.quarkus.web.VulnerabilitiesResource;
+import io.github.jdubois.bootui.quarkus.web.WebSocketsResource;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
@@ -95,6 +97,7 @@ import java.util.function.Predicate;
 public class QuarkusMcpTools {
 
     private final List<McpTool> tools;
+    private final QuarkusPanelAvailability availability;
 
     public QuarkusMcpTools(
             QuarkusPanelAvailability availability,
@@ -147,7 +150,10 @@ public class QuarkusMcpTools {
             JavaAgentResource javaAgent,
             CodeInventoryResource codeInventory,
             CodePathsResource codePaths,
-            SideEffectsResource sideEffects) {
+            SideEffectsResource sideEffects,
+            HibernateStatisticsResource hibernateStatistics,
+            WebSocketsResource webSockets) {
+        this.availability = availability;
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -695,7 +701,27 @@ public class QuarkusMcpTools {
                         McpToolDescriptions.quarkus("get_claude_code_sessions"),
                         args -> claudeCode.sessions(null, null)));
 
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_hibernate_statistics",
+                        McpToolDescriptions.quarkus("get_hibernate_statistics"),
+                        args -> hibernateStatistics.statistics()));
+        addIfAvailable(
+                registry,
+                availability,
+                tool("get_websockets", McpToolDescriptions.quarkus("get_websockets"), args -> webSockets.report()));
+
         this.tools = List.copyOf(registry);
+    }
+
+    /**
+     * Why a panel is unavailable in this application, in the panel manifest's own words, or {@code null} when it is
+     * available, so a call to a tool this registry does not advertise can say why.
+     */
+    public String panelUnavailableReason(String panelId) {
+        return availability == null ? null : availability.panelUnavailableReason(panelId);
     }
 
     /** All tools in advertised order. */

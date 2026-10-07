@@ -221,6 +221,10 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 | `2` | BootUI declined to run the tool: its panel is disabled, or read-only and the tool is an action. |
 | `3` | Reserved for a future severity threshold. |
 
+A command whose tool this application does not advertise exits `1` and says why: "This application does not expose
+'get_kafka_activity'." followed by the panel's own reason, such as a missing library or the Java agent, or the stacks
+that do offer it. It is not `2`, because no panel policy refused it; nothing here can serve it.
+
 A tool that runs and rejects what you asked for — `bootui exceptions show` on an id that is not in the
 buffer, say — exits `1` and prints the application's own message. That is the same code as a usage error
 because it is the same kind of mistake: the command exists and BootUI was willing to run it, but the
@@ -255,6 +259,11 @@ $ bootui --help
       Example: bootui insights impact 'OrderService#total'
 ...
 ```
+
+Every action, a command that changes the application's state, is tagged `[action - needs approval]` in the listing and
+in its own help, so an agent asks the user before running it. A command's own help keeps the warnings the listing
+shortens, such as `memory scan` triggering a full GC or `probe start` needing separate approval and recording metadata
+only.
 
 Values in angle brackets in an example, such as `<id>` or `<scanId>`, come from the command the `<id>` line names;
 every other value is typed as shown. A command without arguments is shown as it runs, and one that only some stacks
@@ -458,6 +467,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui hibernate report` | `get_hibernate_report` | — | read | all |
 | `bootui hibernate violations` | `get_hibernate_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui hibernate scan` | `hibernate_scan` | — | action | all |
+| `bootui hibernate statistics` | `get_hibernate_statistics` | — | read | all |
 | `bootui http exchanges` | `get_http_exchanges` | `--limit` | read | all |
 | `bootui http routes` | `get_http_routes` | `--limit` | read | all |
 | `bootui http sessions` | `get_http_sessions` | — | read | Spring MVC |
@@ -483,7 +493,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui pentest report` | `get_pentest_report` | — | read | all |
 | `bootui pentest scan` | `pentest_scan` | — | action | all |
 | `bootui probe show` | `get_method_probe` | `<id>` | read | all |
-| `bootui probe start` | `start_method_probe` | `<id>` (the method, `binary.Class#name`) | action | all |
+| `bootui probe start` | `start_method_probe` | `<id>` (the method, `binary.Class#name`); ask the user for separate approval first | action | all |
 | `bootui profile diff` | `get_profile_diff` | — | read | all |
 | `bootui rabbitmq` | `get_rabbitmq_activity` | — | read | all |
 | `bootui repositories` | `get_spring_data_repositories` | — | read | Spring MVC, WebFlux |
@@ -520,6 +530,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui tx resume` | `resume_transaction_recording` | — | action | Spring MVC, WebFlux |
 | `bootui vulnerabilities report` | `get_vulnerabilities_report` | — | read | all |
 | `bootui vulnerabilities scan` | `vulnerabilities_scan` | — | action | all |
+| `bootui websockets` | `get_websockets` | — | read | all |
 
 ## Building on it
 

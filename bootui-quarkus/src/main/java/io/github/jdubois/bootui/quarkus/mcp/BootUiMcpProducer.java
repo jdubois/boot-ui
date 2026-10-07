@@ -46,7 +46,8 @@ public class BootUiMcpProducer {
                 maxResults,
                 maxConcurrentCalls,
                 executionTimeoutMillis,
-                failureReporter);
+                failureReporter,
+                tools::panelUnavailableReason);
     }
 
     public static int maxConcurrentCalls(Config config) {

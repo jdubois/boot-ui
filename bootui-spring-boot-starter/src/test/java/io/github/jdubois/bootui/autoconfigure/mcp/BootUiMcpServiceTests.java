@@ -219,6 +219,50 @@ class BootUiMcpServiceTests {
     }
 
     @Test
+    void toolsListRendersHintsAndPerToolArgumentSchemas() {
+        JsonNode tools =
+                service.handle(request("tools/list", 2, null)).path("result").path("tools");
+
+        assertThat(tools.get(0).path("annotations").toString())
+                .isEqualTo("{\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,"
+                        + "\"openWorldHint\":false}");
+        assertThat(tools.get(1).path("annotations").path("readOnlyHint").asBoolean())
+                .isFalse();
+        JsonNode properties = advisorService(args -> args)
+                .handle(request("tools/list", 3, null))
+                .path("result")
+                .path("tools")
+                .get(0)
+                .path("inputSchema")
+                .path("properties");
+        assertThat(properties.path("id").path("description").asString())
+                .isEqualTo("The rule id, from get_architecture_report.");
+        assertThat(properties.path("offset").path("default").asInt()).isZero();
+        assertThat(properties.path("limit").path("default").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void anUnadvertisedCatalogToolAnswersWithItsPanelsReasonInMessageAndData() {
+        BootUiMcpService empty = new BootUiMcpService(
+                List::of,
+                panelId -> "No KafkaTemplate bean is available",
+                properties,
+                objectMapper,
+                "1.2.3",
+                (operation, failure) -> {
+                    throw new AssertionError(failure);
+                });
+        JsonNode response = empty.handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,"
+                + "\"method\":\"tools/call\",\"params\":{\"name\":\"get_kafka_activity\"}}"));
+
+        assertThat(response.path("error").toString())
+                .isEqualTo("{\"code\":-32602,\"message\":\"Tool not available in this application: "
+                        + "get_kafka_activity. Its Kafka panel is unavailable: No KafkaTemplate bean is available.\","
+                        + "\"data\":{\"tool\":\"get_kafka_activity\",\"panel\":\"kafka\","
+                        + "\"reason\":\"No KafkaTemplate bean is available\"}}");
+    }
+
+    @Test
     void initializeFallsBackToDefaultProtocolVersion() {
         JsonNode response = service.handle(request("initialize", 1, JsonNodeFactory.instance.objectNode()));
 
