@@ -10,6 +10,7 @@ public final class McpRuntimeStats {
     private final LongAdder capacityRefusals = new LongAdder();
     private final LongAdder timeouts = new LongAdder();
     private final LongAdder responseLimitRefusals = new LongAdder();
+    private final LongAdder cancellations = new LongAdder();
 
     void recordCall(long latencyNanos) {
         callCount.increment();
@@ -24,6 +25,10 @@ public final class McpRuntimeStats {
         timeouts.increment();
     }
 
+    void recordCancellation() {
+        cancellations.increment();
+    }
+
     public void recordResponseLimitRefusal() {
         responseLimitRefusals.increment();
     }
@@ -34,7 +39,8 @@ public final class McpRuntimeStats {
                 totalLatencyNanos.sum() / 1_000_000,
                 capacityRefusals.sum(),
                 timeouts.sum(),
-                responseLimitRefusals.sum());
+                responseLimitRefusals.sum(),
+                cancellations.sum());
     }
 
     public record Snapshot(
@@ -42,5 +48,6 @@ public final class McpRuntimeStats {
             long totalLatencyMillis,
             long capacityRefusals,
             long timeouts,
-            long responseLimitRefusals) {}
+            long responseLimitRefusals,
+            long cancellations) {}
 }
