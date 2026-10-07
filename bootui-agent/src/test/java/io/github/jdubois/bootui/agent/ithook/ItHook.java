@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The forked-JVM tests' hook, packaged only into the test variant of the agent jar: system properties enable the
@@ -45,4 +46,15 @@ public final class ItHook implements AgentTestHook {
             retained = Thread.currentThread().getContextClassLoader();
         }
     }
+
+    /** Mutation: the first side-effect sensors' job installing this sensor fails, as a broken install would. */
+    @Override
+    public void installingSideEffects(Set<String> sensors) {
+        String sensor = System.getProperty("bootui.agent.it.fail-side-effects-install", "");
+        if (!sensor.isEmpty() && sensors.contains(sensor) && FAILED_INSTALL.compareAndSet(false, true)) {
+            throw new IllegalStateException("injected install failure for " + sensor);
+        }
+    }
+
+    private static final AtomicBoolean FAILED_INSTALL = new AtomicBoolean();
 }

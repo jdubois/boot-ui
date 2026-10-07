@@ -351,7 +351,8 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
 
     private SideEffectsSensor sideEffects() {
         if (sideEffects == null) {
-            sideEffects = new SideEffectsSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
+            sideEffects =
+                    new SideEffectsSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks(), hook);
         }
         return sideEffects;
     }

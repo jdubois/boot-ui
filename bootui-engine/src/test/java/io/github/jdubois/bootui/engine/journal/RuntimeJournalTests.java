@@ -322,6 +322,57 @@ class RuntimeJournalTests {
         assertThat(status.oldestRetainedEpochMillis()).isEqualTo(1_000L + 90);
     }
 
+    /**
+     * §5.3's default history: at 88 events per second, the default 50,000-event bound keeps about 9.5 minutes once the
+     * count bound binds first, where 1.19.0's panel buffers kept about 2.3 seconds, and the oldest retained time is
+     * always reported.
+     */
+    @Test
+    void theDefaultCountBoundKeepsAboutNineAndAHalfMinutesAt88EventsPerSecond() {
+        RuntimeJournalSettings defaults = RuntimeJournalSettings.defaults();
+        RuntimeJournal journal = journal(
+                new RuntimeJournalSettings(
+                        true,
+                        defaults.maxEvents(),
+                        1024L * 1024 * 1024,
+                        defaults.queueCapacity(),
+                        defaults.reservedSharePercent(),
+                        defaults.reservedQueueSharePercent(),
+                        defaults.sources()),
+                false);
+        int events = 88 * 600;
+        long start = 1_000_000L;
+        for (int i = 0; i < events; i++) {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    start + i * 1_000L / 88,
+                    1_000,
+                    CorrelationContext.forRequest("0123456789abcdef"),
+                    "http-nio-8080-exec-1",
+                    ThreadKind.WORKER,
+                    false,
+                    () -> 64));
+            if (i % 1_000 == 999) {
+                journal.dispatchPending();
+            }
+        }
+        journal.dispatchPending();
+
+        JournalStatus status = journal.status();
+        assertThat(status.bindingBound()).isEqualTo("COUNT");
+        assertThat(journal.entries()).hasSize(RuntimeJournalSettings.DEFAULT_MAX_EVENTS);
+        long newest = start + (events - 1) * 1_000L / 88;
+        long kept = newest - status.oldestRetainedEpochMillis();
+        assertThat(kept)
+                .as("about 9.5 minutes: 50,000 events at 88 per second")
+                .isBetween(560_000L, 570_000L);
+        assertThat(status.oldestRetainedEpochMillis())
+                .isEqualTo(journal.entries()
+                        .get(journal.entries().size() - 1)
+                        .event()
+                        .epochMillis());
+    }
+
     @Test
     void theByteBoundRejectsAnOversizedEventWithoutDisplacingOlderEvidence() {
         int eventBytes = sql(0, false).estimatedBytes();

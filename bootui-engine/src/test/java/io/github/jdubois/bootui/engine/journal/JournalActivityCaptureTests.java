@@ -233,6 +233,38 @@ class JournalActivityCaptureTests {
                 .satisfies(entry -> assertThat(entry.parentId()).isEqualTo("r1"));
     }
 
+    /**
+     * §5.3's loss with persistence on: below the queue bound nothing is lost, even at a rate whose events the journal's
+     * retained rows have already evicted before anything reads them, because persistence is a listener of every
+     * recorded batch rather than a poller of a window, as 1.x was above about 100 events per second.
+     */
+    @Test
+    void everyRequestBelowTheQueueBoundIsWrittenEvenOnceTheRetainedRowsEvictedIt() {
+        start(null);
+        int requests = 2_500;
+        for (int i = 0; i < requests; i++) {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000 + i,
+                    1_000_000,
+                    CorrelationContext.forRequest("r" + i),
+                    "t",
+                    null,
+                    false,
+                    http("/api/orders")));
+            if (i % 500 == 499) {
+                journal.dispatchPending();
+            }
+        }
+        journal.dispatchPending();
+
+        assertThat(journal.entries()).as("the retained rows' bound").hasSize(1_000);
+        assertThat(journal.status().droppedTotal()).isZero();
+        assertThat(store.entries()).hasSize(requests).allSatisfy(entry -> assertThat(entry.type())
+                .isEqualTo("REQUEST"));
+        assertThat(store.entries()).extracting(ActivityEntryDto::id).doesNotHaveDuplicates();
+    }
+
     private JournalActivityCapture start(Predicate<String> panelEnabled) {
         ActivityPersistenceSettings settings = new ActivityPersistenceSettings(
                 true,

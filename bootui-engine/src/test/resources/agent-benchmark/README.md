@@ -2,7 +2,7 @@
 
 These fixtures extend the local agent benchmark of PLAN-v2 §2.2 ("Agent effectiveness") with the BootUI Java agent
 (§5.17): the eleventh scripted investigation and the sixth refusal fixture. The first ten investigations and five
-refusal fixtures are described in [the validation report](../../../../../docs/V2-VALIDATION-REPORT.md#agent-investigations).
+refusal fixtures are described in [the validation report](../../../../../docs/V2-VALIDATION-REPORT.md#agent-investigations-1).
 
 They live here, not under `validation/`, on purpose: every file under `validation/` belongs to the protocol registered by
 the immutable tag `m4-20-protocol-2`, and adding a file there would make the registered scorer refuse to score. These

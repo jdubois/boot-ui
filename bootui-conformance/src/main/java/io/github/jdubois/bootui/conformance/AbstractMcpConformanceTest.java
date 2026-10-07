@@ -563,6 +563,73 @@ public abstract class AbstractMcpConformanceTest {
         }
     }
 
+    /**
+     * The agent's tools without the BootUI agent ({@code docs/PLAN-v2.md} M5-10's acceptance pass): only
+     * {@code get_agent_status} is advertised, and it says the agent is not attached and why; a tool that needs one of
+     * the agent's sensors is not advertised, so calling it is the protocol's unknown tool rather than a tool failure or
+     * an empty success; and Runtime Insights lists its agent-gated checks among the checks not run, with the agent as
+     * the reason, and compares runs without a code changes or side effects section.
+     */
+    @Test
+    void testMcpAgentToolsSayTheAgentIsNotAttachedAndTheOthersAreNotAdvertised() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                JavaAgentPresence.detached(), "this JVM runs with the BootUI agent attached");
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response list = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/list\"}");
+            List<String> advertised = new java.util.ArrayList<>();
+            list.json().path("result").path("tools").forEach(tool -> advertised.add(tool.path("name")
+                    .asText()));
+            assertThat(advertised).contains("get_agent_status");
+            assertThat(advertised).doesNotContainAnyElementsOf(JavaAgentPresence.AGENT_SENSOR_TOOLS);
+
+            JsonNode status = callTool("get_agent_status", "{}");
+            assertThat(status.path("state").asText()).isEqualTo("NOT_ATTACHED");
+            assertThat(status.path("reason").asText()).isNotBlank();
+            assertThat(status.path("sensors")).isEmpty();
+
+            for (String tool : JavaAgentPresence.AGENT_SENSOR_TOOLS) {
+                Response call = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                Map.of("Content-Type", "application/json"),
+                                "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\""
+                                        + tool + "\",\"arguments\":{}}}");
+                assertThat(call.status()).isEqualTo(200);
+                assertThat(call.json().path("result").isMissingNode())
+                        .as("%s answers no result without the agent: %s", tool, call.json())
+                        .isTrue();
+                assertThat(call.json().path("error").path("message").asText())
+                        .as("%s without the agent", tool)
+                        .isEqualTo("Unknown tool: " + tool);
+            }
+
+            JsonNode insights = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
+            if (insights.path("available").asBoolean(false)) {
+                List<String> notRun = new java.util.ArrayList<>();
+                insights.path("checksNotRun").forEach(check -> notRun.add(check.asText()));
+                for (String kind : JavaAgentPresence.AGENT_CHECKS) {
+                    assertThat(notRun)
+                            .as("%s is a check not run, naming the agent", kind)
+                            .anySatisfy(check -> assertThat(check)
+                                    .startsWith(kind + ": NOT_APPLICABLE, ")
+                                    .contains("requires the BootUI agent's"));
+                }
+            }
+            JsonNode comparison = callTool("get_runtime_run_comparison", "{}");
+            for (String section : List.of("codeChanges", "sideEffects")) {
+                JsonNode value = comparison.path(section);
+                assertThat(value.isNull() || value.isMissingNode())
+                        .as("the comparison has no %s section without the agent: %s", section, value)
+                        .isTrue();
+            }
+        }
+    }
+
     private JsonNode callTool(String name, String arguments) throws Exception {
         Response response = probe().request(
                         "POST",

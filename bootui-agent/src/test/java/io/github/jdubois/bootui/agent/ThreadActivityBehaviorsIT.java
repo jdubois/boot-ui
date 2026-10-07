@@ -115,6 +115,38 @@ class ThreadActivityBehaviorsIT {
         assertAllPass(run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "behaviors"));
     }
 
+    /**
+     * A side-effect sensors' job that fails disables only the transformer group it touched (#1323): the IT hook makes
+     * the job installing {@code files} throw, and thread-activity, in the other group, keeps its state, its verdict,
+     * its install and self-test durations, and its recording.
+     */
+    @Test
+    void aFailedSideEffectJobDisablesOnlyTheGroupItTouched() throws Exception {
+        ChildJvm.Output output = run(
+                List.of(
+                        "-Dbootui.agent.it.fail-side-effects-install=" + "files",
+                        ChildJvm.javaAgent(ChildJvm.AGENT)),
+                "worker-failure");
+
+        assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertThat(output.text().lines().filter(line -> line.startsWith("  FAIL")))
+                .as(output.toString())
+                .isEmpty();
+        List<String> passed =
+                output.text().lines().filter(line -> line.startsWith("  PASS ")).toList();
+        for (String behavior : List.of(
+                "a failed side-effect job disables only the group it touched",
+                "a thread the application started for a request and still running when it ended is reported left"
+                        + " running")) {
+            assertThat(passed)
+                    .as("%s in %s", behavior, output)
+                    .anySatisfy(line -> assertThat(line).startsWith("  PASS " + behavior));
+        }
+        assertThat(output.value("STATUS"))
+                .as("the injected failure is counted: " + output)
+                .contains("injected install failure for files");
+    }
+
     /** M5-2's executors and threads sensors transform Thread and the executors too: both keep working, both orders. */
     @Test
     void everyThreadActivityBehaviorPassesBesideThePropagationSensors() throws Exception {

@@ -88,6 +88,39 @@ class GcEventSourceTests {
                 .isEqualTo(7_000_000);
     }
 
+    /**
+     * §5.11 on every collector BootUI supports: each GarbageCollectorMXBean the JDK registers for G1, Parallel, Serial,
+     * ZGC (generational or not), and Shenandoah is a pause collector or a concurrent cycle, and a concurrent cycle is
+     * never counted as a pause.
+     */
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0}: {1}")
+    @org.junit.jupiter.params.provider.CsvSource({
+        "G1, G1 Young Generation, true",
+        "G1, G1 Old Generation, true",
+        "G1, G1 Concurrent GC, true",
+        "Parallel, PS Scavenge, true",
+        "Parallel, PS MarkSweep, true",
+        "Serial, Copy, true",
+        "Serial, MarkSweepCompact, true",
+        "ZGC, ZGC Pauses, true",
+        "ZGC, ZGC Cycles, false",
+        "ZGC, ZGC Minor Pauses, true",
+        "ZGC, ZGC Minor Cycles, false",
+        "ZGC, ZGC Major Pauses, true",
+        "ZGC, ZGC Major Cycles, false",
+        "Shenandoah, Shenandoah Pauses, true",
+        "Shenandoah, Shenandoah Cycles, false"
+    })
+    void everyCollectorsBeansAreClassifiedAndItsConcurrentCyclesAreNeverPauses(
+            String collector, String bean, boolean pause) {
+        GcPayload gc = (GcPayload) GcEventSource.event(bean, 4, "end of GC", "Allocation Failure", 0, 12, 90, 40)
+                .payload();
+
+        assertThat(gc.pause()).as(collector + "'s " + bean).isEqualTo(pause);
+        assertThat(gc.collector()).isEqualTo(bean);
+        assertThat(gc.gcId()).isEqualTo(4);
+    }
+
     @Test
     void theJournalStartsItsGcSourceOnlyWhenItRecordsGcAndStopsItWhenTheRunEnds() {
         RuntimeJournalSettings withoutGc = RuntimeJournalSettings.of(true, 1_000, null, 100, "http,sql");
