@@ -105,6 +105,7 @@ import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
+import io.quarkus.deployment.builditem.GeneratedServiceProviderBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
@@ -118,7 +119,6 @@ import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import jakarta.inject.Singleton;
 import java.lang.reflect.Modifier;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2715,7 +2715,7 @@ class BootUiQuarkusProcessor {
     void registerRestClientTrace(
             LaunchModeBuildItem launchMode,
             Capabilities capabilities,
-            BuildProducer<GeneratedResourceBuildItem> generatedResources,
+            BuildProducer<GeneratedServiceProviderBuildItem> generatedServiceProviders,
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
@@ -2726,9 +2726,8 @@ class BootUiQuarkusProcessor {
             excludedTypes.produce(new ExcludedTypeBuildItem(REST_CLIENT_TRACE_LISTENER_CLASS));
             return;
         }
-        generatedResources.produce(new GeneratedResourceBuildItem(
-                "META-INF/services/" + REST_CLIENT_LISTENER_SERVICE,
-                (REST_CLIENT_TRACE_LISTENER_CLASS + System.lineSeparator()).getBytes(StandardCharsets.UTF_8)));
+        generatedServiceProviders.produce(
+                new GeneratedServiceProviderBuildItem(REST_CLIENT_LISTENER_SERVICE, REST_CLIENT_TRACE_LISTENER_CLASS));
     }
 
     /**

@@ -483,7 +483,6 @@ class QuarkusAppMetadataCollectorTest {
         processor.registerScopes();
         var registration = processor.registerBeans();
         processor.registerSyntheticInjectionPoints(registration);
-        processor.getBeanDeployment().initBeanByTypeMap();
         processor.registerSyntheticObservers();
         processor.initialize(ignored -> {}, List.of());
         var context = processor.validate(ignored -> {});
