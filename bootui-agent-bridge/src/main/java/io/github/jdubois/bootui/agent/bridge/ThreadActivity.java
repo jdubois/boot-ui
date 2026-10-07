@@ -108,7 +108,7 @@ public final class ThreadActivity {
         final long generation;
         final ConcurrentHashMap<Key, Sighting> sightings = new ConcurrentHashMap<Key, Sighting>();
         final ConcurrentHashMap<String, Integer> targets = new ConcurrentHashMap<String, Integer>();
-        /** Started threads' names to their family's target, so a name seen again builds no family string. */
+        /** Started threads' names that are their own family to its target, so a name seen again builds no string. */
         final ConcurrentHashMap<String, Integer> names = new ConcurrentHashMap<String, Integer>();
 
         State(long generation) {
@@ -593,14 +593,18 @@ public final class ThreadActivity {
         return owner;
     }
 
-    /** The target of a started thread's family, by its name, building the family's string only for a name not seen. */
-    private static int nameTarget(State state, String name) {
+    /**
+     * The target of a started thread's family, by its name. Only a name that is its own family, which recurs, is
+     * remembered: a name carrying an id, as {@code Thread-7}, is unique, so remembering it would only fill the cache.
+     */
+    static int nameTarget(State state, String name) {
         Integer known = state.names.get(name);
         if (known != null) {
             return known.intValue();
         }
-        int target = target(state, name.isEmpty() ? UNNAMED : SideEffects.threadFamily(name));
-        if (state.names.size() < MAX_SIGHTINGS) {
+        String family = name.isEmpty() ? UNNAMED : SideEffects.threadFamily(name);
+        int target = target(state, family);
+        if (family.equals(name) && state.names.size() < MAX_SIGHTINGS) {
             state.names.putIfAbsent(name, Integer.valueOf(target));
         }
         return target;
