@@ -108,7 +108,7 @@ shows an information or warning bubble, but does not infer a smaller native-stac
 property to generated snippets.
 
 JVM input arguments go through the same secret masking and `bootui.expose-values` / `bootui.mask-secrets` policy as
-configuration values, in the panel, the REST API, the `get_jvm_tuning` and `get_live_memory` MCP tools, and the CLI.
+configuration values, in the panel, the REST API, the `get_jvm_tuning` MCP tool, and the CLI.
 Keys stay visible and only values are replaced: with the default `MASKED` mode a secret-named or secret-looking value
 is shown as `******` (for example `-Dspring.datasource.password=******`), including `key=value` options of
 `-javaagent:`, `-agentlib:`, and `-agentpath:` arguments. The shell commands of `-XX:OnError` and

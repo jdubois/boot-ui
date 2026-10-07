@@ -685,7 +685,7 @@ Features:
   later, and the first route; a declared jar with no class loaded is **not loaded in this run**, never unused.
 - `GET /bootui/api/code-inventory`, `/changes`, `/methods`, and `/dependencies`; `get_code_inventory` and
   `bootui code inventory` take `query` (`changed` by default, `never-executed`, `not-tracked`, `executed`,
-  `dependencies`, or a package or class) and `limit`.
+  `dependencies`, or a package, class, or method name) and `limit`.
 
 Acceptance criteria:
 
@@ -1909,17 +1909,18 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
-  Every check carries `validation` and `validationReason`, its kind's external validation ([PLAN-v2.md](PLAN-v2.md)
-  M4-20, recorded once in the engine's `ExternalValidation`): `PASSED` (`errors-behind-2xx`,
-  `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on the validation applications)
-  are listed by default, the latter marked in the panel; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
+  Each kind's external validation ([PLAN-v2.md](PLAN-v2.md) M4-20, recorded once in the engine's `ExternalValidation`)
+  decides whether its rows are listed by default, and is never exposed: no check, row, limitation, MCP or CLI text
+  names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
+  `PASSED` (`errors-behind-2xx`, `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on
+  the validation applications) are listed by default; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
   `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
   reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` (M4-19, M4-20): the kind's validation reason for a kind that is not listed, or else the kind's
-  own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
+  not, `unlistedReason` (M4-19, M4-20): for a kind that is not listed, where its evidence is shown (the panel it is
+  folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
   groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
   three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves

@@ -105,8 +105,9 @@ that stays silent on every application stays listed, marked as not externally va
 | `changed-code-not-executed` | 4 | 2 | 2 of 4 (50 %), all four from the agent runs | 0 | Pass | **Listed** |
 
 **Applied** by M4-24 ([v2 plan](PLAN-v2.md)): each outcome above is recorded once in the engine's
-`ExternalValidation` registry, which decides the default list on Spring MVC, Spring WebFlux, and Quarkus, and is shown
-with each kind in the panel (`validation` and `validationReason` on every check) and to agents. The four failed kinds
+`ExternalValidation` registry, which decides the default list on Spring MVC, Spring WebFlux, and Quarkus. The outcomes
+stay in this report and the plan: the panel, the JSON, and agent answers never show them, and a row left out of the
+default list says only where its evidence is shown (maintainer decision, 2026-10-07). The four failed kinds
 are folded: `route-time-breakdown` into Live Activity's **Why this route is slow**, `exception-hotspots` into the
 Exceptions panel, `connections-per-request` into Database Connection Pools, and `ai-usage-by-route` into the AI
 Framework panel, each of which links to the kind's rows; every row stays in the full report. Applying a gate as
