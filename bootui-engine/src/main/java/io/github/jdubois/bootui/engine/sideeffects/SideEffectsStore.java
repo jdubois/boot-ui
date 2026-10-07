@@ -279,6 +279,8 @@ final class SideEffectsStore {
                 network(record);
             } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
                 threads(record, requestId);
+            } else if (record.sensor() == SideEffectsCatalog.RECORD_RESOURCES) {
+                resources(record, requestId);
             } else if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
                 completed += record.count();
                 if (record.outcome() == SideEffectsCatalog.OUTCOME_EXITED) {
@@ -340,20 +342,7 @@ final class SideEffectsStore {
             switch (record.kind()) {
                 case SideEffectsCatalog.KIND_THREAD_START, SideEffectsCatalog.KIND_EXECUTOR_CREATE -> {
                     count += record.count();
-                    String request = record.requestId();
-                    if (request != null) {
-                        if (recentRequests == null) {
-                            recentRequests = new LinkedHashSet<>();
-                        }
-                        if (recentRequests.add(request)) {
-                            requests++;
-                            if (recentRequests.size() > RECENT_REQUESTS) {
-                                Iterator<String> oldest = recentRequests.iterator();
-                                oldest.next();
-                                oldest.remove();
-                            }
-                        }
-                    }
+                    countRequest(record.requestId());
                 }
                 case SideEffectsCatalog.KIND_THREAD_LEFT_RUNNING, SideEffectsCatalog.KIND_EXECUTOR_LEFT_RUNNING ->
                     leftRunning += record.count();
@@ -365,6 +354,51 @@ final class SideEffectsStore {
                 case SideEffectsCatalog.KIND_EXECUTOR_RECLAIMED -> failed += record.count();
                 default -> {
                     // A kind of a later bridge: counted nowhere.
+                }
+            }
+        }
+
+        /**
+         * A resources record: its first report counts the resource, with its distinct request; still open after its
+         * request ({@code leftRunning}), closed after it, handed off ({@code completed}, with how long it stayed open),
+         * or reclaimed by the collector never closed ({@code failed}).
+         */
+        private void resources(SideEffectRecord record, String requestId) {
+            if ((record.exitStatus() & SideEffectsCatalog.DETAIL_FIRST_REPORT) != 0) {
+                count += record.count();
+                countRequest(record.requestId());
+            }
+            switch (record.kind()) {
+                case SideEffectsCatalog.KIND_RESOURCE_LEFT_OPEN -> leftRunning += record.count();
+                case SideEffectsCatalog.KIND_RESOURCE_CLOSED_LATE -> {
+                    completed += record.count();
+                    nanos += record.nanos();
+                    maxNanos = Math.max(maxNanos, record.maxNanos());
+                }
+                case SideEffectsCatalog.KIND_RESOURCE_RECLAIMED -> {
+                    failed += record.count();
+                    maxNanos = Math.max(maxNanos, record.maxNanos());
+                }
+                default -> {
+                    // A kind of a later bridge: counted nowhere.
+                }
+            }
+        }
+
+        /** Counts {@code request} once among the latest {@value #RECENT_REQUESTS} distinct requests. */
+        private void countRequest(String request) {
+            if (request == null) {
+                return;
+            }
+            if (recentRequests == null) {
+                recentRequests = new LinkedHashSet<>();
+            }
+            if (recentRequests.add(request)) {
+                requests++;
+                if (recentRequests.size() > RECENT_REQUESTS) {
+                    Iterator<String> oldest = recentRequests.iterator();
+                    oldest.next();
+                    oldest.remove();
                 }
             }
         }
@@ -959,6 +993,11 @@ final class SideEffectsStore {
                 // Another thread's early work may land on either side of the end of startup from run to run.
                 continue;
             }
+            if (SideEffectsCatalog.RESOURCES_ID.equals(key.sensor()) && row.failed == 0) {
+                // Only a resource reclaimed never closed is a key: one still open after its request, or closed after
+                // it, is a pool's or a cache's, handed off on purpose.
+                continue;
+            }
             addKey(
                     merged,
                     omitted,
@@ -970,10 +1009,16 @@ final class SideEffectsStore {
                     key.client(),
                     key.captureKey(),
                     key.origin(),
-                    row.count > 0 ? row.count : row.completed);
+                    SideEffectsCatalog.RESOURCES_ID.equals(key.sensor())
+                            ? row.failed
+                            : row.count > 0 ? row.count : row.completed);
         }
         for (Pending waiting : pending) {
             Observation observation = waiting.observation();
+            if (observation.record().sensor() == SideEffectsCatalog.RECORD_RESOURCES
+                    && observation.record().kind() != SideEffectsCatalog.KIND_RESOURCE_RECLAIMED) {
+                continue;
+            }
             String scope;
             String owner;
             if (waiting.key() == null) {

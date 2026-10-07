@@ -133,6 +133,48 @@ test.describe('Side Effects view', () => {
     await expect(row.first()).toContainText('BackgroundWork#startRefresher')
     await expect(row.first().locator('.side-effects-left-running')).toBeVisible()
   })
+
+  test('shows a stream a request never closed, never one it closed nor a pooled connection as a leak', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the resources sensor needs the BootUI agent')
+    // The resources seeds (M5-5g): a FileInputStream dropped without close(), reclaimed by the collector, with a stream
+    // closed in try-with-resources and the JDK HttpClient's pooled connection as counterexamples.
+    for (const path of ['leaked-stream', 'closed-stream', 'pooled-client']) {
+      expect((await page.request.get(`/api/resources/${path}`)).ok()).toBeTruthy()
+    }
+    const rows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=resources&limit=500')).json()).rows ?? []
+    const seeded = (list, path) => list.filter((candidate) => candidate.attribution === `GET /api/resources/${path}`)
+    await expect
+      .poll(
+        async () => {
+          await page.request.get('/api/resources/collect')
+          return seeded(await rows(), 'leaked-stream').find((candidate) => candidate.failed > 0)?.failed ?? 0
+        },
+        {timeout: 60_000}
+      )
+      .toBeGreaterThan(0)
+    const all = await rows()
+    const leaked = seeded(all, 'leaked-stream').find((candidate) => candidate.failed > 0)
+    expect(leaked.kind).toBe('file input stream')
+    expect(leaked.origin).toBe('application')
+    expect(leaked.target).toMatch(/bootui-resource-seed/)
+    expect(leaked.callSite).toMatch(/ResourceSeeds#leakStream$/)
+    expect(seeded(all, 'closed-stream')).toEqual([])
+    for (const pooled of seeded(all, 'pooled-client')) {
+      expect(pooled.failed).toBe(0)
+      expect(pooled.origin).toBe('library')
+    }
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Threads and leaks/}).click()
+    const row = page.locator('.side-effects-table tbody tr').filter({hasText: 'GET /api/resources/leaked-stream'})
+    await expect(row.first()).toContainText('Opened by the application')
+    await expect(row.first().locator('.side-effects-reclaimed')).toBeVisible()
+  })
 })
 
 /**

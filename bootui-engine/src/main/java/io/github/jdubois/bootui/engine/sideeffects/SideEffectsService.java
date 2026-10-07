@@ -94,6 +94,17 @@ public final class SideEffectsService implements AutoCloseable {
                     + " thread's family with the call site of its first sighting. Never a thread-local, a task, or anything a"
                     + " thread holds.";
 
+    static final String LIMITATION_RESOURCES = "Resources: the streams, channels, and sockets the files and network"
+            + " sensors record opening, so files only while the files sensor is on: FileInputStream, FileOutputStream,"
+            + " RandomAccessFile, FileChannel (Files.newByteChannel, newInputStream, newOutputStream, and lines included),"
+            + " Socket, and SocketChannel, the JDK's own channel and socket classes only. Tracked when a request's or a"
+            + " job's work opened one with an application frame on the stack: the application's when the first frame"
+            + " outside the JDK is in the application's packages, else a library's the application called. Reported open"
+            + " after its request when still open 250 ms after the response completed, closed after it (handed off, as a"
+            + " pool's connection) once closed later, and reclaimed without close() when the collector found it"
+            + " unreachable while still open; a resource closed before its request ended is never reported. At most"
+            + " 1,024 at a time. Never a byte read or written.";
+
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
             + " recorded only when the JVM's address cache misses it (networkaddress.cache.ttl, 30 s by default), so its"
@@ -227,7 +238,10 @@ public final class SideEffectsService implements AutoCloseable {
 
     private boolean closed;
 
-    /** The current run's claim while it asks for the thread-activity sensor, read on every request's end. */
+    /**
+     * The current run's claim, read on every request's end, which the bridge hands to the thread-activity and
+     * resources sensors, each by its own switch.
+     */
     private volatile AgentClaim threadActivityClaim;
 
     private RequestPhases phases;
@@ -421,12 +435,13 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 // The thread that finished starting may hold the end of startup's records in its table (M5-7b).
                 access.sideEffectsFlushThread();
-                // Whatever the claim asked for: thread-activity can be switched on at run time, and the bridge
-                // ignores a request's end while the sensor is off, with one volatile read.
+                // Whatever the claim asked for: thread-activity and resources can be switched on at run time, and the
+                // bridge ignores a request's end while both are off, with a volatile read each.
                 threadActivityClaim = access.threadActivitySupported() ? claim : null;
                 run = new Run(claim, clock.getAsLong());
                 // The bridge's thread-activity counters last for the JVM: the panel reports this run's increase.
                 run.threadBaseline = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
+                run.resourceBaseline = sensorCounters(AgentSensorSettings.RESOURCES);
                 publish(run);
                 run.start();
             }
@@ -490,7 +505,8 @@ public final class SideEffectsService implements AutoCloseable {
 
     /**
      * Hears each request's end from {@code requestPhases}, where the adapters mark it once the response is complete,
-     * so the thread-activity sensor checks what the request left running (M5-5e). Idempotent; {@link #close()} stops
+     * so the thread-activity sensor checks what the request left running (M5-5e), and the resources sensor what it left
+     * open (M5-5g). Idempotent; {@link #close()} stops
      * listening.
      */
     public void listenToRequestEnds(RequestPhases requestPhases) {
@@ -507,7 +523,8 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     /**
-     * A request ended: when this run claimed the thread-activity sensor, the bridge notes it without a lock. Called on
+     * A request ended: the bridge notes it without a lock for the thread-activity and resources sensors that are on.
+     * Called on
      * the thread that ended the request, an event loop on Spring WebFlux and Quarkus: one volatile read otherwise.
      */
     void requestEnded(String requestId) {
@@ -1277,6 +1294,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_ENVIRONMENT,
                 LIMITATION_BLOCKING,
                 LIMITATION_THREADS,
+                LIMITATION_RESOURCES,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().blocking()) {
             if (serverEventLoops() && eventLoops() == 0) {
@@ -1326,6 +1344,11 @@ public final class SideEffectsService implements AutoCloseable {
                         + " was switched off.");
             }
         }
+        if (current != null
+                && (current.claim.uses(AgentSensorSettings.RESOURCES)
+                        || current.claim.sensorOverrides().containsKey(AgentSensorSettings.RESOURCES))) {
+            resourceLimitations(current, limitations);
+        }
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
         }
@@ -1369,6 +1392,39 @@ public final class SideEffectsService implements AutoCloseable {
 
     /** A side-effect sensor's counter in the bridge's status, 0 when absent. */
     /** The bridge's counters of {@code sensor}, read once; empty when it reports none. */
+    /** What the resources sensor could not track or check in this run. */
+    private void resourceLimitations(Run current, List<String> limitations) {
+        Map<String, Object> counters = sensorCounters(AgentSensorSettings.RESOURCES);
+        Map<String, Object> baseline = current.resourceBaseline;
+        if (current.claim.uses(AgentSensorSettings.RESOURCES) && !current.claim.uses(AgentSensorSettings.FILES)) {
+            limitations.add("The resources sensor sees files only while the files sensor is on: switch files on to"
+                    + " track the streams and channels requests open.");
+        }
+        long untracked = increase(counters, baseline, "untracked");
+        if (untracked > 0) {
+            limitations.add(untracked + (untracked == 1 ? " resource was" : " resources were")
+                    + " not tracked: the sensor tracks at most 1,024 open resources at a time.");
+        }
+        long missed = increase(counters, baseline, "closeMissed");
+        if (missed > 0) {
+            limitations.add(missed + (missed == 1 ? " close was" : " closes were")
+                    + " not seen by the sensor's hooks: resources of that kind reclaimed by the collector are no longer"
+                    + " reported in this run.");
+        }
+        long unresolved = increase(counters, baseline, "unresolved");
+        long endsLost = increase(counters, baseline, "requestEndsLost");
+        if (unresolved + endsLost > 0) {
+            limitations.add((unresolved + endsLost)
+                    + " request ends did not reach the resources sensor in time, so whether their resources stayed open"
+                    + " after them is unknown.");
+        }
+        long dropped = increase(counters, baseline, "dropped");
+        if (dropped > 0) {
+            limitations.add(dropped + (dropped == 1 ? " open resource was" : " open resources were")
+                    + " forgotten when the resources sensor was switched off.");
+        }
+    }
+
     private Map<String, Object> sensorCounters(String sensor) {
         try {
             return AgentBridgeAccess.map(access.status(), sensor);
@@ -1601,6 +1657,7 @@ public final class SideEffectsService implements AutoCloseable {
         long malformed;
         long bootUi;
         Map<String, Object> threadBaseline = Map.of();
+        Map<String, Object> resourceBaseline = Map.of();
         long clears;
         long cleared;
         long clearedAt = lastClearedAt;
@@ -1727,6 +1784,8 @@ public final class SideEffectsService implements AutoCloseable {
                             normalizer.threadFamily(string(record.threadName()))));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
                     store.add(threads(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_RESOURCES) {
+                    store.add(resources(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
                     // The target is the event loop's thread name: shown as its family, as a thread row's is.
                     String loop = normalizer.threadFamily(target);
@@ -1802,6 +1861,45 @@ public final class SideEffectsService implements AutoCloseable {
                     normalizer.threadFamily(string(record.threadName())),
                     origin,
                     null);
+        }
+
+        /**
+         * A resources record's observation: the resource's kind, its target as the files or network sensor's row shows
+         * it (a masked path pattern, or a host and port), its origin (the application's code opened it, or a library
+         * the application called), and its call site the first application frame, else the first frame outside the
+         * JDK. Every report of a resource carries its open's target, frames, and detail, so it lands on one row.
+         */
+        private SideEffectsStore.Observation resources(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            int detail = record.exitStatus();
+            boolean file = SideEffectsCatalog.fileResource(detail);
+            String shown;
+            String location = null;
+            if (target == null) {
+                shown = file ? TOO_MANY_PATHS : UNKNOWN_TARGET;
+            } else if (file) {
+                shown = SideEffectOrigins.maskPath(normalizer.target(target));
+                location = SideEffectOrigins.location(target);
+            } else {
+                shown = normalizer.networkTarget(target);
+            }
+            String origin = (detail & SideEffectsCatalog.DETAIL_ORIGIN) == SideEffectsCatalog.ORIGIN_APPLICATION
+                    ? SideEffectOrigins.APPLICATION
+                    : SideEffectOrigins.LIBRARY;
+            return new SideEffectsStore.Observation(
+                    record,
+                    sensor.id(),
+                    SideEffectsCatalog.resourceKind(detail),
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    origin,
+                    location);
         }
 
         /**

@@ -42,7 +42,8 @@ const OPT_IN = {
   files: 'the path patterns of the files the application opens, deletes, moves, and copies',
   environment: 'the names read',
   'thread-activity':
-    'the threads the application starts and the executors it creates per route, and those a request left running'
+    'the threads the application starts and the executors it creates per route, and those a request left running',
+  resources: 'the streams, channels, and sockets a request left open or never closed, files only while files is on'
 }
 
 const STATE = {
@@ -111,6 +112,14 @@ const SENSOR_COLUMNS = {
     failedLabel: 'Reclaimed without shutdown',
     time: 'Executor lifetime (total / max ms)'
   },
+  resources: {
+    target: 'Resource',
+    count: 'Resources',
+    origin: true,
+    resources: true,
+    failed: true,
+    failedLabel: 'Reclaimed without close()'
+  },
   blocking: {
     target: 'Event loop / operation',
     count: 'Calls',
@@ -126,7 +135,14 @@ const EMPTY_TEXT = {
   files: 'No file has been opened yet in this run.',
   environment: 'No environment variable or system property has been read yet in this run.',
   blocking: 'No blocking call has started on an event loop yet in this run.',
-  'thread-activity': 'No thread has been started and no executor created yet in this run.'
+  'thread-activity': 'No thread has been started and no executor created yet in this run.',
+  resources: 'No resource has been left open after its request or reclaimed without close() in this run.'
+}
+
+/** Who opened a resources row's resource: the application's code, or a library the application called. */
+const RESOURCE_ORIGINS = {
+  application: 'Opened by the application',
+  library: 'Opened by a library the application called'
 }
 
 const summary = ref(null)
@@ -333,7 +349,8 @@ function columnCount(sensor) {
     (columns.time ? 1 : 0) +
     (columns.origin ? 1 : 0) +
     (columns.network ? 3 : 0) +
-    (columns.threads ? 3 : 0)
+    (columns.threads ? 3 : 0) +
+    (columns.resources ? 2 : 0)
   )
 }
 
@@ -367,7 +384,8 @@ function sections(report) {
   return list
 }
 
-function originLabel(origin) {
+function originLabel(origin, sensor) {
+  if (sensor === 'resources' && RESOURCE_ORIGINS[origin]) return RESOURCE_ORIGINS[origin]
   return ORIGIN_LABELS[origin] ?? origin
 }
 
@@ -552,6 +570,13 @@ function hookStatus(value, label) {
               </template>
             </div>
 
+            <p v-if="sensor.id === 'resources'" class="small text-muted side-effects-resources-note">
+              <strong>Reclaimed without close()</strong> counts resources the garbage collector found unreachable while
+              still open: a leak. <strong>Open after request</strong> and <strong>Closed after request</strong> are
+              resources handed off past their request, as a connection pool's sockets or a cache's file, which is often
+              intended.
+            </p>
+
             <div v-if="sensorErrors[sensor.id]" class="alert alert-danger" role="alert">
               {{ sensorErrors[sensor.id] }}
             </div>
@@ -608,6 +633,10 @@ function hookStatus(value, label) {
                             <th scope="col" class="text-end">Per request</th>
                             <th scope="col" class="text-end">Left running</th>
                             <th scope="col" class="text-end">Shut down</th>
+                          </template>
+                          <template v-if="columnsOf(sensor).resources">
+                            <th scope="col" class="text-end">Open after request</th>
+                            <th scope="col" class="text-end">Closed after request</th>
                           </template>
                           <th v-if="columnsOf(sensor).failed" scope="col" class="text-end">
                             {{ columnsOf(sensor).failedLabel || 'Failed' }}
@@ -681,7 +710,7 @@ function hookStatus(value, label) {
                           </td>
                           <td v-if="columnsOf(sensor).origin">
                             <span v-if="row.origin" class="badge text-bg-light border side-effects-origin">{{
-                              originLabel(row.origin)
+                              originLabel(row.origin, row.sensor)
                             }}</span>
                             <span v-else class="text-muted">—</span>
                           </td>
@@ -701,8 +730,28 @@ function hookStatus(value, label) {
                               {{ row.kind === 'executor' ? formatNumber(row.completed) : '—' }}
                             </td>
                           </template>
+                          <template v-if="columnsOf(sensor).resources">
+                            <td class="text-end">
+                              <span
+                                v-if="row.leftRunning > 0"
+                                class="badge text-bg-light border side-effects-left-open"
+                                title="Still open 250 ms after its request's response completed: handed off, as a pool's connection, or not closed yet"
+                                >{{ formatNumber(row.leftRunning) }}</span
+                              >
+                              <span v-else>0</span>
+                            </td>
+                            <td class="text-end">{{ formatNumber(row.completed) }}</td>
+                          </template>
                           <td v-if="columnsOf(sensor).failed" class="text-end">
-                            {{ columnsOf(sensor).threads && row.kind !== 'executor' ? '—' : formatNumber(row.failed) }}
+                            <span
+                              v-if="columnsOf(sensor).resources && row.failed > 0"
+                              class="badge text-bg-danger side-effects-reclaimed"
+                              title="Reclaimed by the garbage collector while still open: never closed"
+                              >{{ formatNumber(row.failed) }}</span
+                            >
+                            <template v-else>{{
+                              columnsOf(sensor).threads && row.kind !== 'executor' ? '—' : formatNumber(row.failed)
+                            }}</template>
                           </td>
                           <td v-if="columnsOf(sensor).exits" class="text-end">
                             {{ formatNumber(row.completed) }}

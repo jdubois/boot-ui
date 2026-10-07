@@ -41,7 +41,7 @@ export function agentConfig({companion} = {}) {
   // purpose: the sensor-switch spec and the side-effects spec switch it on at run time (M5-14), and back off.
   const bootUi = [
     `-javaagent:${agentJar()}`,
-    '-Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,thread-activity,caught-exceptions'
+    '-Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,thread-activity,resources,caught-exceptions'
   ]
   const companionOptions = companionAgent(companion, baseUrl)
   const agents =

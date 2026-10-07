@@ -498,6 +498,9 @@ public final class ThreadActivity {
      * adapter: noted without a lock, for the drain thread to check what it left running. Never throws.
      */
     public static void requestEnded(long requested, long request) {
+        // The engine's one request-end call feeds every sensor that checks a request's end, each by its own switch:
+        // the resources sensor hears it whether this one is on or not.
+        Resources.requestEnded(requested, request);
         try {
             if ((SideEffects.mask & SideEffects.MASK_THREADS) == 0
                     || requested != SideEffects.generation

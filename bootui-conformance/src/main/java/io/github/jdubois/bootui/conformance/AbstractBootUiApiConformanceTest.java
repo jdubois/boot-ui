@@ -2113,9 +2113,11 @@ public abstract class AbstractBootUiApiConformanceTest {
                         "blocking",
                         "security-sinks");
         report.path("sensors").forEach(sensor -> {
-            if (java.util.Set.of("processes", "network", "files", "environment", "blocking", "thread-activity")
+            if (java.util.Set.of(
+                            "processes", "network", "files", "environment", "blocking", "thread-activity", "resources")
                     .contains(sensor.path("id").asText())) {
-                // Shipped sensors (M5-5a to M5-5e): unavailable with the Java Agent panel's reason without the agent.
+                // Shipped sensors (M5-5a to M5-5e, M5-5g): unavailable with the Java Agent panel's reason without the
+                // agent.
                 assertThat(sensor.path("state").asText()).isEqualTo("unavailable");
                 assertThat(sensor.path("reason").asText()).startsWith("Requires the BootUI agent");
             } else {

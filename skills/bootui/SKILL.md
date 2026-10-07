@@ -246,9 +246,12 @@ opt-in `environment` records variable and property names, never values; `blockin
 Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC; the opt-in
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request
 starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
-pools apart, never what a thread holds. Pass `--query not-captured` to list the
+pools apart, never what a thread holds; the opt-in `resources` records the streams, channels, and sockets a request or
+a job opened (files only while `files` is on), by resource kind, target, and origin: `failed` counts those the garbage
+collector reclaimed never closed, the leak, while `leftRunning` (still open after the request) and `completed` (closed
+after it) are a pool's or a cache's hand-off, never contents. Pass `--query not-captured` to list the
 outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`,
-`thread-activity`, a route, target,
+`thread-activity`, `resources`, a route, target,
 client, or call site to narrow it. The other sensor groups are listed as not available in this version.
 
 ### Read MySQL operational evidence

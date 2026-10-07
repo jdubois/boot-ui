@@ -39,7 +39,7 @@ function agentJar() {
 // The default sensors, the opt-in files, environment, and thread-activity sensors, and blocking, named whatever its
 // default, whose Side Effects seeds the side-effects spec asserts (M5-5c, M5-5d, M5-5e), and the opt-in caught-exceptions
 // sensor, whose Exceptions panel seeds the caught-exceptions spec asserts (M5-6a2).
-const JVM_ARGS = ` "-Djvm.args=-javaagent:${agentJar()}" -Dside-effects-seed.scheduled-every=20s -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity,caught-exceptions`
+const JVM_ARGS = ` "-Djvm.args=-javaagent:${agentJar()}" -Dside-effects-seed.scheduled-every=20s -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity,resources,caught-exceptions`
 const webServers = Array.isArray(base.webServer) ? base.webServer : base.webServer ? [base.webServer] : []
 
 export default defineConfig({
