@@ -304,7 +304,9 @@ later return remains the body boundary, including a `CountedCompleter` whose `ex
 completed or cancelled task whose computation is skipped does not acquire a body-return marker.
 A body that ends after the response counts all of its
 attributed SQL, REST, and message evidence, including an earlier write followed by computation and a fast task that
-started after the response. A waited-for body is not reported merely because its handoff closes late.
+started after the response. A waited-for body is not reported merely because its handoff closes late, and neither
+Live Activity's **after response** badge nor the request profile's **Handoffs** marks it so: the JDK releases the
+waiting handler before the task's run returns, so its handoff can close just after the response started.
 The full handoff lifetime remains visible: `FutureTask.done()` and synchronous dependent stages can still do real
 work after result publication. A failure observed escaping the task's result-publication tail is timed separately
 from a body failure stored in its future, using the same 2 ms clock slack as unconfirmed late I/O; the escaping

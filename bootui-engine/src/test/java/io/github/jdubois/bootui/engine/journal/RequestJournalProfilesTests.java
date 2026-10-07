@@ -14,7 +14,11 @@ import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -552,6 +556,165 @@ class RequestJournalProfilesTests {
                         tuple(journal.eventId(asyncEntry(1_020)), "r1", List.of("AFTER_RESPONSE", "CAPPED")))
                 .noneMatch(row -> "running:async-8".equals(row.toList().get(0)));
         assertThat(feed.typeCounts()).containsEntry(JournalActivityFeed.TYPE_ASYNC, 5);
+    }
+
+    /**
+     * A waited-for task's handoff can close just after its handler answered, since the JDK releases the handler before
+     * the task's run returns: its confirmed body completion decides, never that race. A late result-publication tail
+     * counts only by its own late I/O, and a handoff without body evidence keeps its run's end.
+     */
+    @Test
+    void aHandoffIsAfterTheResponseByItsBodyNotByItsCloseRacingTheResponse() {
+        CorrelationContext waited = CorrelationContext.forRequest("r1").withExecutionId("async-1");
+        CorrelationContext later = CorrelationContext.forRequest("r1").withExecutionId("async-2");
+        CorrelationContext tail = CorrelationContext.forRequest("r1").withExecutionId("async-3");
+        CorrelationContext unconfirmed = CorrelationContext.forRequest("r1").withExecutionId("async-4");
+        CorrelationContext quietTail = CorrelationContext.forRequest("r1").withExecutionId("async-5");
+        CorrelationContext failedTail = CorrelationContext.forRequest("r1").withExecutionId("async-6");
+        long responseAt = 1_030_000L;
+        offer(sql(waited, 1_010, 1_000_000));
+        // Its body ended before the response; its handoff closed 50 µs after it.
+        offer(bodyHandoff(waited, 1_010, 20_100_000, true, 50L, false, 0L, responseAt));
+        offer(sql(later, 1_020, 1_000_000));
+        offer(bodyHandoff(later, 1_020, 210_000_000, true, 200_000L, true, 199_000L, responseAt));
+        // Its body ended before the response, then a dependent stage it published to ran SQL 15 ms after it.
+        offer(sql(tail, 1_045, 1_000_000));
+        offer(bodyHandoff(tail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt));
+        offer(handoff(unconfirmed, 1_025, 10, true, 5_000L, false, null));
+        // Its body ended before the response and its tail ran no I/O: only the close raced the response.
+        offer(bodyHandoff(quietTail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt));
+        // Its body ended before the response, then its done() callback threw after it.
+        offer(bodyHandoff(failedTail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt, "IllegalStateException"));
+        offer(http("r1", 1_000, 40_000_000, null));
+
+        journal.dispatchPending();
+
+        assertThat(profiles(null).profile("r1").handoffs())
+                .extracting(
+                        RequestHandoffDto::executionId,
+                        RequestHandoffDto::afterResponse,
+                        RequestHandoffDto::afterResponseMicros)
+                .containsExactlyInAnyOrder(
+                        tuple("async-1", false, 0L),
+                        tuple("async-2", true, 199_000L),
+                        tuple("async-3", true, 25_000L),
+                        tuple("async-4", true, 5_000L),
+                        tuple("async-5", false, 0L),
+                        tuple("async-6", true, 25_000L));
+
+        JournalActivityFeed.Feed feed = new JournalActivityFeed(1_000, 5, null)
+                .render(journal.entries(), journal::eventId, journal.run().id(), JournalActivityFeed.Filter.NONE, 0);
+        assertThat(feed.entries())
+                .filteredOn(entry -> entry.type().equals(JournalActivityFeed.TYPE_ASYNC))
+                .extracting(ActivityEntryDto::id, ActivityEntryDto::badges)
+                .containsExactlyInAnyOrder(
+                        tuple(journal.eventId(asyncEntry("async-1")), List.of()),
+                        tuple(journal.eventId(asyncEntry("async-2")), List.of("AFTER_RESPONSE")),
+                        tuple(journal.eventId(asyncEntry("async-3")), List.of("AFTER_RESPONSE")),
+                        tuple(journal.eventId(asyncEntry("async-4")), List.of("AFTER_RESPONSE")),
+                        tuple(journal.eventId(asyncEntry("async-5")), List.of()),
+                        tuple(journal.eventId(asyncEntry("async-6")), List.of("AFTER_RESPONSE")));
+        // Captured one event per batch, as recorded: the tail's statement is in an earlier batch than its handoff.
+        JournalActivityFeed capture = new JournalActivityFeed(1_000, 5, null);
+        Map<String, Map<String, Integer>> pendingSelects = new HashMap<>();
+        Map<String, Long> pendingWorkEnds = new HashMap<>();
+        List<String> captured = new ArrayList<>();
+        List<JournalEntry> oldestFirst = new ArrayList<>(journal.entries());
+        Collections.reverse(oldestFirst);
+        for (JournalEntry entry : oldestFirst) {
+            capture
+                    .renderForCapture(List.of(entry), journal::eventId, pendingSelects, pendingWorkEnds, count -> {})
+                    .stream()
+                    .filter(row -> row.type().equals(JournalActivityFeed.TYPE_ASYNC))
+                    .filter(row -> row.badges().contains("AFTER_RESPONSE"))
+                    .forEach(row -> captured.add(row.id()));
+        }
+        assertThat(captured)
+                .as("captured batch by batch, it decides as the live feed does")
+                .containsExactlyInAnyOrder(
+                        journal.eventId(asyncEntry("async-2")),
+                        journal.eventId(asyncEntry("async-3")),
+                        journal.eventId(asyncEntry("async-4")),
+                        journal.eventId(asyncEntry("async-6")));
+        assertThat(pendingWorkEnds).as("each handoff's entry is forgotten once it renders").isEmpty();
+    }
+
+    private JournalEntry asyncEntry(String executionId) {
+        return journal.entries().stream()
+                .filter(entry -> entry.event().payload() instanceof AsyncHandoffPayload handoff
+                        && executionId.equals(handoff.executionId()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static RuntimeEvent sql(CorrelationContext context, long start, long nanos) {
+        return RuntimeEvent.of(
+                JournalSource.SQL,
+                start,
+                nanos,
+                context,
+                "pool-1-thread-1",
+                null,
+                false,
+                new SqlPayload("select count(*) from orders", null, "orders", false));
+    }
+
+    private static RuntimeEvent bodyHandoff(
+            CorrelationContext context,
+            long start,
+            long nanos,
+            boolean afterResponse,
+            long afterResponseMicros,
+            boolean bodyAfterResponse,
+            long bodyAfterResponseMicros,
+            long responseAtMicros) {
+        return bodyHandoff(
+                context,
+                start,
+                nanos,
+                afterResponse,
+                afterResponseMicros,
+                bodyAfterResponse,
+                bodyAfterResponseMicros,
+                responseAtMicros,
+                null);
+    }
+
+    private static RuntimeEvent bodyHandoff(
+            CorrelationContext context,
+            long start,
+            long nanos,
+            boolean afterResponse,
+            long afterResponseMicros,
+            boolean bodyAfterResponse,
+            long bodyAfterResponseMicros,
+            long responseAtMicros,
+            String tailFailure) {
+        return RuntimeEvent.of(
+                JournalSource.AGENT_EXECUTORS,
+                start,
+                nanos,
+                context,
+                "pool-1-thread-1",
+                null,
+                tailFailure != null,
+                new AsyncHandoffPayload(
+                        context.executionId(),
+                        null,
+                        "java.util.concurrent.FutureTask",
+                        "ThreadPoolExecutor.runWorker",
+                        start,
+                        0,
+                        null,
+                        tailFailure != null,
+                        tailFailure,
+                        afterResponse,
+                        afterResponseMicros,
+                        false,
+                        bodyAfterResponse,
+                        bodyAfterResponseMicros,
+                        responseAtMicros,
+                        tailFailure == null ? null : Boolean.TRUE));
     }
 
     private JournalEntry asyncEntry(long start) {

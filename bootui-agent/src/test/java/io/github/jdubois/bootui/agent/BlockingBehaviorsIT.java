@@ -140,24 +140,36 @@ class BlockingBehaviorsIT {
     }
 
     /**
-     * The park hook's cost off event loops, with an event loop registered: the advised {@code park} against the same
-     * JVM's restored one, per call, with the permit given so each returns at once. Printed; asserted only against a
-     * generous bound, since a forked JVM's timing is noisy.
+     * The park hook's cost off event loops, with an event loop registered: the advised {@code park} against the JDK's
+     * unadvised park primitive in the same JVM, per call, with the permit given so each returns at once. The median of
+     * 41 alternating paired rounds, so a shared runner's load or JIT shifts single pairs, not the result.
      */
     @Test
     void theParkHookOffEventLoopsStaysWithinItsBudget() throws Exception {
-        ChildJvm.Output output = run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), null, "bench");
+        ChildJvm.Output output = run(
+                List.of(ChildJvm.javaAgent(ChildJvm.AGENT), "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED"),
+                null,
+                "bench");
 
         assertThat(output.exitCode()).as(output.toString()).isZero();
         double hooked = Double.parseDouble(output.value("PARK_NANOS_HOOKED"));
         double plain = Double.parseDouble(output.value("PARK_NANOS_PLAIN"));
+        double added = Double.parseDouble(output.value("PARK_NANOS_ADDED"));
         System.out.printf(
                 Locale.ROOT,
-                "BENCH park off event loops: %.1f ns hooked, %.1f ns restored, %.1f ns added%n",
+                "BENCH park off event loops: %.1f ns hooked, %.1f ns unadvised, %.1f ns added (median of pairs %s);"
+                        + " released gap %s ns%n",
                 hooked,
                 plain,
-                hooked - plain);
-        assertThat(hooked - plain).as(output.toString()).isLessThan(50.0);
+                added,
+                output.value("PARK_NANOS_ADDED_PAIRS"),
+                output.value("PARK_NANOS_RELEASED_GAP"));
+        assertThat(added).as(output.toString()).isLessThan(50.0);
+        // The control must stay a fair one: unadvised, the two arms cost alike, and the hook never reads as a saving.
+        assertThat(added).as(output.toString()).isGreaterThan(-25.0);
+        assertThat(Math.abs(Double.parseDouble(output.value("PARK_NANOS_RELEASED_GAP"))))
+                .as(output.toString())
+                .isLessThan(25.0);
     }
 
     private static void assertAllPass(ChildJvm.Output output) {

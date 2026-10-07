@@ -14,10 +14,11 @@ package io.github.jdubois.bootui.core.dto;
  * @param hook the agent hook that propagated it, such as {@code ThreadPoolExecutor.runWorker}
  * @param failed whether it failed
  * @param exceptionClass the class of its failure, or {@code null}; never its message
- * @param afterResponse whether it was still running once the response started, or, when that is unknown, after the
- *     request ended
- * @param afterResponseMicros how long it ran after the response started, or after the request ended when the response
- *     start is unknown
+ * @param afterResponse whether it worked once the response started: its body was still running, or, after a body that
+ *     ended before, its result-publication tail ran I/O or failed after it; without body evidence, whether it was still
+ *     running then, or, when the response start is unknown, after the request ended
+ * @param afterResponseMicros how long it worked after the response started, by the same rule, or after the request
+ *     ended when the response start is unknown
  * @param capped whether it ended more than {@code bootui.agent.executors.max-handoff} after it started, after which
  *     its work is not attributed
  * @param sqlCount the SQL statements recorded under its execution id

@@ -200,8 +200,10 @@ events are left out, and an event's fields are never recorded. Change impact acc
 the auto-flushes that wrote before a query, and the most entities its persistence context held, under the request that
 opened it; **WEBSOCKET** rows are inbound WebSocket messages, each an execution owning what its handler did. With the
 [BootUI agent](java-agent.md) attached, **ASYNC** rows are the tasks a request handed to a JDK executor, nested under it:
-the task's class, the hook that propagated it, its queue time, and its outcome, badged **after response** when it was
-still running once the response started, **running** while it still runs, and **past deadline** when it ended more
+the task's class, the hook that propagated it, its queue time, and its outcome, badged **after response** when it worked
+once the response started (its body was still running, or, after a body that ended before, a dependent stage or
+`done()` callback ran SQL, a REST call, or a message, or failed, after it: a handler waiting for the task is never
+mistaken for one that answered first), **running** while it still runs, and **past deadline** when it ended more
 than `bootui.agent.executors.max-handoff` after it started. The request's journal profile lists them under
 **Handoffs**, each with its thread, duration, queue time, what it did (its SQL statements, REST calls, and messages),
 its outcome, and its allocated bytes; a task that started more than `max-handoff` after the request ended is only

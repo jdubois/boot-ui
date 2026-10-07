@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.correlation.HandoffWindow;
+
 /**
  * A task the BootUI agent propagated through a JDK executor, as it ran on its worker ({@code docs/PLAN-v2.md} M5-2,
  * D32): the child execution it opened, the execution that submitted it, and what is known about its run. Its event's
@@ -112,6 +114,49 @@ public record AsyncHandoffPayload(
                 bodyAfterResponseMicros,
                 responseAtMicros,
                 null);
+    }
+
+    /**
+     * Whether the task worked once its request's response had started, as Live Activity badges it and the request
+     * profile lists it: a confirmed body completion first, which is ordered before the JDK releases a waiting handler,
+     * so a handler that waited for the task never reads as answered before it however its handoff's close races the
+     * response. After a body that ended before the response, only I/O of its result-publication tail, such as a
+     * synchronous dependent stage, ending at least {@link HandoffWindow#RESPONSE_TIMESTAMP_SLACK_MICROS} past the
+     * response counts, or a failure the agent timed after it. Without a confirmed body, the run's end decides.
+     *
+     * @param lastWorkEndMicros when the last SQL statement, REST call, or message recorded under the task's execution
+     *     ended, or {@link Long#MIN_VALUE} when none was
+     * @return {@code null} when the agent did not know the response's start
+     */
+    public Boolean workedAfterResponse(long lastWorkEndMicros) {
+        if (bodyAfterResponse == null) {
+            return afterResponse;
+        }
+        return bodyAfterResponse || tailWorkedAfterResponse(lastWorkEndMicros);
+    }
+
+    /**
+     * How long the task worked after its request's response started, by the rule of
+     * {@link #workedAfterResponse(long)}: its body's time after the response, its run's for a late tail, else 0.
+     */
+    public Long workedAfterResponseMicros(long lastWorkEndMicros) {
+        if (bodyAfterResponse == null) {
+            return afterResponseMicros;
+        }
+        if (bodyAfterResponse) {
+            return bodyAfterResponseMicros != null ? bodyAfterResponseMicros : afterResponseMicros;
+        }
+        return tailWorkedAfterResponse(lastWorkEndMicros) ? afterResponseMicros : Long.valueOf(0L);
+    }
+
+    private boolean tailWorkedAfterResponse(long lastWorkEndMicros) {
+        if (Boolean.TRUE.equals(failureAfterResponse)) {
+            return true;
+        }
+        return Boolean.TRUE.equals(afterResponse)
+                && responseAtMicros != null
+                && lastWorkEndMicros != Long.MIN_VALUE
+                && lastWorkEndMicros - responseAtMicros >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS;
     }
 
     /** This handoff with its task class, hook, and exception class replaced by the run's shared copies. */

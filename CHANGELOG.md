@@ -707,6 +707,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **A task its handler waited for is no longer badged "after response".** With the BootUI agent, Live Activity's
+  **after response** badge and the request profile's **Handoffs** compared the task's run end with the response, and
+  the JDK releases a waiting handler before that run returns, so on virtual threads about one waited-for `FutureTask`
+  in twenty under load read as finishing after its response. Both now use the task body's own completion, as Runtime
+  Insights does, plus I/O or a failure its result-publication tail had after the response
+  ([Java Agent](docs/features/java-agent.md#the-executors-sensor)).
 - **The runtime journal records the sample applications' logs.** Its Spring appender skipped every logger under
   `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
