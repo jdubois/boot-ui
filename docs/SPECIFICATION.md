@@ -3601,8 +3601,8 @@ collapsible:
   - Database Connection Pools.
   - PostgreSQL.
   - MySQL.
-  - Transactions.
   - SQL Trace.
+  - Transactions.
   - Hibernate Statistics.
   - Spring Data.
   - Flyway.
