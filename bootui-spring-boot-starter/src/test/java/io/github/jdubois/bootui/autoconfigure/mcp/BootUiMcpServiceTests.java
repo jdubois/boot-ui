@@ -309,8 +309,11 @@ class BootUiMcpServiceTests {
         assertThat(toolsArray.get(0).path("name").asString()).isEqualTo("get_overview");
         assertThat(toolsArray.get(0).path("inputSchema").path("type").asString())
                 .isEqualTo("object");
-        assertThat(toolsArray.get(0).path("outputSchema").path("description").asString())
-                .contains("get_overview");
+        // The output schema says only that the result is an object: a per-tool placeholder sentence cost every
+        // client about 9 KB of tools/list for no information.
+        assertThat(toolsArray.get(0).path("outputSchema").path("type").asString())
+                .isEqualTo("object");
+        assertThat(toolsArray.get(0).path("outputSchema").has("description")).isFalse();
     }
 
     @Test
@@ -627,12 +630,7 @@ class BootUiMcpServiceTests {
     void modernToolCallsAreUncacheableCompleteResults() {
         BootUiMcpService.Reply call = modern("tools/call", 4, "get_overview", true);
         assertThat(call.status()).isEqualTo(200);
-        assertThat(call.body().toString())
-                .isEqualTo(
-                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
-                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
-                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
-                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+        assertThat(call.body().toString()).isEqualTo(McpModernParity.TOOL_CALL_DEMO);
         properties.panel(BootUiPanels.OVERVIEW).setEnabled(false);
         JsonNode refused = modern("tools/call", 5, "get_overview", true).body().path("result");
         assertThat(refused.path("resultType").asString()).isEqualTo("complete");

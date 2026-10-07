@@ -354,7 +354,9 @@ public abstract class AbstractMcpConformanceTest {
                     .isEqualTo("Evaluating architecture rules");
             JsonNode final_ = progress.get(progress.size() - 1).path("params");
             assertThat(final_.path("message").asText()).isEqualTo("Locating violations");
-            assertThat(final_.path("progress").asDouble()).isEqualTo(total);
+            assertThat(final_.path("progress").asDouble())
+                    .as("the final response, not a notification, marks completion")
+                    .isEqualTo(total - 1);
             double previous = -1;
             for (JsonNode notification : progress) {
                 assertThat(notification.has("id"))

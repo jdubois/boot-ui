@@ -141,6 +141,15 @@ describe('RunComparison', () => {
     expect(rows[1].text().replace(/\s+/g, ' ')).toContain('OrderService#total ran in this run on GET /api/orders')
     expect(code.find('details').text()).toContain('2 removed methods are counted')
 
+    // Each changed or added method offers its change impact, named for a screen reader, by its full key.
+    const see = rows[1].get('.insight-comparison-impact')
+    expect(see.text()).toBe('See its impact')
+    expect(see.attributes('aria-label')).toBe('See its impact: OrderService#total')
+    await see.trigger('click')
+    expect(wrapper.emitted('impact')).toEqual([
+      [{symbol: 'com.example.OrderService#total(J)J', name: 'OrderService#total'}]
+    ])
+
     wrapper.unmount()
     vi.stubGlobal(
       'fetch',
@@ -169,6 +178,47 @@ describe('RunComparison', () => {
     await flushPromises()
     expect(wrapper.find('[data-section="code-changes"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="code-changes-unavailable"]').exists()).toBe(false)
+  })
+
+  it('offers the impact of a method only, never of a constructor or a lambda change impact cannot check', async () => {
+    const method = (name, descriptor) => ({
+      key: `com.example.OrderService#${name}${descriptor}`,
+      className: 'com.example.OrderService',
+      name,
+      descriptor,
+      change: 'CHANGED',
+      status: 'EXECUTED',
+      notTrackedReason: null,
+      routes: [],
+      routesTotal: 0,
+      routesNote: null
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...compared,
+          codeChanges: {
+            available: true,
+            unavailableReason: null,
+            counts: {changed: 3, added: 0, removed: 0, executed: 3, notExecuted: 0},
+            methods: [
+              method('<init>', '(Ljava/lang/String;)V'),
+              method('lambda$total$0', '(J)J'),
+              method('total', '(J)J')
+            ],
+            methodsTotal: 3,
+            limitations: []
+          }
+        })
+      )
+    )
+    wrapper = mount(RunComparison)
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-section="code-changes"] .insight-comparison-row')
+    expect(rows).toHaveLength(3)
+    expect(rows.map((row) => row.find('.insight-comparison-impact').exists())).toEqual([false, false, true])
   })
 
   it('says what changed outside the JVM per sensor, and why a sensor or the whole section is not compared', async () => {

@@ -25,5 +25,13 @@ public final class McpModernParity {
     public static final String LIST_ENVELOPE =
             "{\"resultType\":\"complete\",\"_meta\":" + RESULT_META + ",\"ttlMs\":60000,\"cacheScope\":\"private\"}";
 
+    /**
+     * A modern {@code tools/call} with id {@code 4} whose tool returned {@code {"name":"demo"}}: an uncacheable complete
+     * result with the server's identity in {@code _meta}.
+     */
+    public static final String TOOL_CALL_DEMO = "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
+            + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+            + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,\"_meta\":" + RESULT_META + "}}";
+
     private McpModernParity() {}
 }
