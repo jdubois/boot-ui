@@ -944,7 +944,9 @@ request ended is not waited for, when that end was written; one whose request's 
 static initializer, as a lazy holder's first use inside a request, Spring's `DefaultSingletonBeanRegistry.getSingleton`,
 as a `@Lazy` singleton or an `ObjectProvider` lookup creating its bean on first use, and ArC's shared contexts, which
 create `@ApplicationScoped` and `@Singleton` beans on first use, again after each Quarkus live reload. Request-scoped and
-prototype beans are created through neither, so what they start is still tracked. The panel says when threads were not
+prototype beans are created through neither, so what they start is still tracked. The walk reads at most 64 frames: a
+singleton's creation deeper than that, under a long chain of interceptors or proxies, is not seen, and what the bean
+starts inside a request is still reported left running. The panel says when threads were not
 checked because their request's end never came or was lost, and when tracked threads or executors were dropped because
 the sensor was switched off. An
 executor's shutdown lands on its creation's row with its lifetime; one the collector reclaims without a shutdown, or

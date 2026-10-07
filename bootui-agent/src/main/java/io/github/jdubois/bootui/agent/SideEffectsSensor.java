@@ -192,10 +192,19 @@ final class SideEffectsSensor {
     /** Why each failed sensor failed. */
     private final Map<String, String> sensorErrors = new LinkedHashMap<String, String>();
 
-    private volatile String state = "off";
-    private volatile long installMillis = -1;
-    private volatile long selfTestMillis = -1;
-    private volatile boolean selfTestPassed;
+    /**
+     * Each transformer group's state and last self-test verdict: every sensor but thread-activity's, and thread-activity's
+     * own, so a job on one group never changes what the other reports or records.
+     */
+    private volatile String restState = "off";
+
+    private volatile String threadState = "off";
+    private volatile boolean restPassed;
+    private volatile boolean threadPassed;
+    /** Each group's last install and self-test durations, {@code [shared, thread-activity]}, -1 until measured. */
+    private final long[] installMillis = {-1L, -1L};
+
+    private final long[] selfTestMillis = {-1L, -1L};
     private volatile String selfTestError;
     private volatile Map<String, String> selfTest = new LinkedHashMap<String, String>();
     private volatile Map<String, String> selfTestSteps = new LinkedHashMap<String, String>();
@@ -219,7 +228,7 @@ final class SideEffectsSensor {
         }
         int effective = mask & ~failedSensors;
         // Only while no job runs: a release the worker is running would remove the hooks after this enabled them.
-        if (installed() && installedMask == effective && selfTestPassed && worker == null) {
+        if (installed() && installedMask == effective && passed(effective) && worker == null) {
             SideEffects.enable(effective);
             return;
         }
@@ -255,6 +264,67 @@ final class SideEffectsSensor {
     /** Whether the worker has no job left. */
     synchronized boolean idle() {
         return worker == null && pending == 0;
+    }
+
+    /**
+     * The transformer groups of {@code mask}, as group masks: {@code ~MASK_THREADS} for the shared transformer's sensors,
+     * {@code MASK_THREADS} for thread-activity's own.
+     */
+    static int groups(int mask) {
+        return ((mask & SideEffects.MASK_THREADS) != 0 ? SideEffects.MASK_THREADS : 0)
+                | ((mask & ~SideEffects.MASK_THREADS) != 0 ? ~SideEffects.MASK_THREADS : 0);
+    }
+
+    /** Sets the state of the groups {@code groups} (group masks). */
+    private void state(int groups, String value) {
+        if ((groups & ~SideEffects.MASK_THREADS) != 0) {
+            restState = value;
+        }
+        if ((groups & SideEffects.MASK_THREADS) != 0) {
+            threadState = value;
+        }
+    }
+
+    /** Sets the self-test verdict of the groups {@code groups} (group masks). */
+    private void passed(int groups, boolean value) {
+        if ((groups & ~SideEffects.MASK_THREADS) != 0) {
+            restPassed = value;
+        }
+        if ((groups & SideEffects.MASK_THREADS) != 0) {
+            threadPassed = value;
+        }
+    }
+
+    /** Sets a duration of the groups {@code groups} (group masks), in {@code durations}. */
+    private static void millis(long[] durations, int groups, long value) {
+        synchronized (durations) {
+            if ((groups & ~SideEffects.MASK_THREADS) != 0) {
+                durations[0] = value;
+            }
+            if ((groups & SideEffects.MASK_THREADS) != 0) {
+                durations[1] = value;
+            }
+        }
+    }
+
+    /** The duration of the group of sensor {@code bit}, in {@code durations}. */
+    private static long millis(long[] durations, int bit) {
+        synchronized (durations) {
+            return durations[(bit & SideEffects.MASK_THREADS) != 0 ? 1 : 0];
+        }
+    }
+
+    /** Whether every group of the sensors {@code mask} passed its last self-test. */
+    private boolean passed(int mask) {
+        int groups = groups(mask);
+        return ((groups & ~SideEffects.MASK_THREADS) == 0 || restPassed)
+                && ((groups & SideEffects.MASK_THREADS) == 0 || threadPassed);
+    }
+
+    /** The groups installed and passing their last self-test, whose hooks need no new test. */
+    private int settled() {
+        return (transformer != null && restPassed ? ~SideEffects.MASK_THREADS : 0)
+                | (threadTransformer != null && threadPassed ? SideEffects.MASK_THREADS : 0);
     }
 
     /** Whether either transformer is installed. */
@@ -306,24 +376,36 @@ final class SideEffectsSensor {
             int job;
             while ((job = nextJob()) != 0) {
                 int mask = effective();
+                int before = installedMask;
+                // Only the transformer whose sensors changed is removed: switching files never retransforms
+                // java.lang.Thread, nor switching thread-activity the files' classes.
+                int stale = (job & RELEASE) != 0 ? -1 : (job & INSTALL) != 0 ? stale(mask) : 0;
+                boolean installing = (job & INSTALL) != 0 && mask != 0;
+                // The groups this job changes, as group masks: on a failure, only they are marked and disabled.
+                int touched = stale | (installing ? groups(mask) & ~(settled() & ~stale) : 0);
                 try {
-                    // Only the transformer whose sensors changed is removed: switching files never retransforms
-                    // java.lang.Thread, nor switching thread-activity the files' classes.
-                    int stale = (job & RELEASE) != 0 ? -1 : (job & INSTALL) != 0 ? stale(mask) : 0;
                     if (stale != 0) {
                         SideEffects.disable(installedMask & stale, null);
                         reset(stale);
                     }
-                    if ((job & INSTALL) != 0 && !stuck && mask != 0) {
-                        // Only the groups installed now are self-tested: the other keeps its verdict and stays on.
-                        int fresh = install(mask);
-                        selfTest(fresh != 0 ? fresh : mask, 1);
+                    if (installing && !stuck) {
+                        // Only the groups not installed and passing are installed and self-tested: the other keeps
+                        // its verdict and goes on recording, never tested again by another group's job.
+                        int untested = groups(mask) & ~settled();
+                        install(mask);
+                        if ((mask & untested) != 0) {
+                            selfTest(mask & untested, 1);
+                        } else {
+                            SideEffects.enable(mask);
+                            state(groups(mask), "installed");
+                        }
                     }
                 } catch (Throwable ex) {
-                    selfTestPassed = false;
+                    int broken = touched != 0 ? touched : groups(mask);
+                    passed(broken, false);
                     selfTestError = "side-effect sensors error: " + ex;
-                    SideEffects.disable(mask, selfTestError);
-                    state = "failed";
+                    SideEffects.disable((mask | before) & broken, selfTestError);
+                    state(broken, "failed");
                     stats.failure("side effects: " + ex);
                     AgentBridge.message("the BootUI agent could not install its side-effect sensors: " + ex);
                 }
@@ -340,8 +422,11 @@ final class SideEffectsSensor {
         }
         int fresh = 0;
         long started = System.nanoTime();
-        state = "installing";
-        selfTestMillis = -1;
+        int installing = (rest != 0 && transformer == null ? ~SideEffects.MASK_THREADS : 0)
+                | (threads != 0 && threadTransformer == null ? SideEffects.MASK_THREADS : 0);
+        passed(installing, false);
+        state(installing, "installing");
+        millis(selfTestMillis, installing, -1L);
         SideEffects.warm();
         startExitWorker();
         Set<String> left = leftOut();
@@ -359,9 +444,9 @@ final class SideEffectsSensor {
         } finally {
             long elapsed = System.nanoTime() - started;
             stats.retransformedFor(elapsed);
-            installMillis = elapsed / 1_000_000L;
+            millis(installMillis, installing, elapsed / 1_000_000L);
         }
-        state = "testing";
+        state(installing, "testing");
         return fresh;
     }
 
@@ -413,6 +498,7 @@ final class SideEffectsSensor {
     void reset(int groups) {
         ResettableClassFileTransformer rest = null;
         ResettableClassFileTransformer threads = null;
+        int removed = groups;
         synchronized (this) {
             if ((groups & ~SideEffects.MASK_THREADS) != 0) {
                 rest = transformer;
@@ -424,10 +510,10 @@ final class SideEffectsSensor {
                 threadTransformer = null;
                 installedMask &= ~SideEffects.MASK_THREADS;
             }
-            selfTestPassed = false;
+            passed(removed, false);
         }
         if (rest == null && threads == null) {
-            state = stuck ? "release-failed" : "released";
+            state(removed, stuck ? "release-failed" : "released");
             return;
         }
         long started = System.nanoTime();
@@ -441,8 +527,11 @@ final class SideEffectsSensor {
             // The hooks stay in the JDK's classes: the bridge keeps their sensors off for good.
             stuck = true;
             SideEffects.disable(-1, "the side-effect sensors' transformer could not be removed");
+            passed(-1, false);
+            state(-1, "release-failed");
+            return;
         }
-        state = restored ? "released" : "release-failed";
+        state(removed, "released");
     }
 
     private boolean restore(ResettableClassFileTransformer installed) {
@@ -737,9 +826,10 @@ final class SideEffectsSensor {
     // ---- self-test -----------------------------------------------------------------------------------------------
 
     void selfTest(int mask, int round) {
-        selfTestPassed = false;
+        int tested = groups(mask);
+        passed(tested, false);
         selfTestError = null;
-        state = "testing";
+        state(tested, "testing");
         long started = System.nanoTime();
         Map<String, String> steps = new LinkedHashMap<String, String>();
         Map<String, Object> hits;
@@ -766,7 +856,7 @@ final class SideEffectsSensor {
         } finally {
             hits = SideEffects.endSelfTest();
         }
-        selfTestMillis = (System.nanoTime() - started) / 1_000_000L;
+        millis(selfTestMillis, tested, (System.nanoTime() - started) / 1_000_000L);
         Set<String> left = leftOut();
         Map<String, String> results = merged(selfTest, evaluate(mask, hits, steps, left), mask);
         selfTestSteps = merged(selfTestSteps, steps, mask);
@@ -792,9 +882,9 @@ final class SideEffectsSensor {
         }
         if (failed.isEmpty()) {
             SideEffects.enable(mask);
-            state = "installed";
-            selfTestPassed = true;
             selfTest = results;
+            passed(tested, true);
+            state(tested, "installed");
             return;
         }
         String error = "self-test failed for " + failed + " " + steps;
@@ -814,22 +904,23 @@ final class SideEffectsSensor {
         } else {
             AgentBridge.message("the BootUI agent left side-effect hooks out after their self-test failed: " + error);
         }
+        // Only the transformer carrying a failed hook is reinstalled; the other group tested now passed.
+        int groups = groups(hit);
         // The verdict before the transformer's removal, which takes a while: status reports it at once, the sensors
         // that did not fail reading as installing again.
-        state = "self-test-failed";
+        state(groups, "self-test-failed");
         selfTestError = error;
         selfTest = results;
-        // Only the transformer carrying a failed hook is reinstalled; the other group tested now passed.
-        int groups = ((hit & SideEffects.MASK_THREADS) != 0 ? SideEffects.MASK_THREADS : 0)
-                | ((hit & ~SideEffects.MASK_THREADS) != 0 ? ~SideEffects.MASK_THREADS : 0);
         SideEffects.disable(mask & ~failedNow & groups, null);
         if ((mask & ~groups) != 0) {
             SideEffects.enable(mask & ~groups);
+            passed(tested & ~groups, true);
+            state(tested & ~groups, "installed");
         }
         reset(groups);
         int remaining = effective();
         if (stuck) {
-            state = "self-test-failed (release-failed)";
+            state(groups, "self-test-failed (release-failed)");
             return;
         }
         int lost = remaining & groups;
@@ -852,12 +943,7 @@ final class SideEffectsSensor {
             }
             SideEffects.disable(lost, error);
         }
-        if (installed()) {
-            selfTestPassed = true;
-            state = "installed";
-            return;
-        }
-        state = "self-test-failed";
+        state(groups, "self-test-failed");
     }
 
     /**
@@ -1233,10 +1319,12 @@ final class SideEffectsSensor {
                     "state",
                     failed ? (stuck ? "self-test-failed (release-failed)" : "self-test-failed") : sensorState(bit));
             map.put("idle", Boolean.valueOf(idle()));
-            map.put("durationMillis", Long.valueOf(ExecutorSensor.durationMillis(installMillis, selfTestMillis)));
-            map.put("installMillis", Long.valueOf(installMillis));
-            map.put("selfTestMillis", Long.valueOf(selfTestMillis));
-            map.put("selfTestPassed", Boolean.valueOf(!failed && selfTestPassed && (installedMask & bit) != 0));
+            long install = millis(installMillis, bit);
+            long test = millis(selfTestMillis, bit);
+            map.put("durationMillis", Long.valueOf(ExecutorSensor.durationMillis(install, test)));
+            map.put("installMillis", Long.valueOf(install));
+            map.put("selfTestMillis", Long.valueOf(test));
+            map.put("selfTestPassed", Boolean.valueOf(!failed && passed(bit) && (installedMask & bit) != 0));
             String error;
             synchronized (this) {
                 error = failed ? sensorErrors.get(id) : null;
@@ -1273,9 +1361,16 @@ final class SideEffectsSensor {
         return rows;
     }
 
-    /** A sensor's state while it has not failed: the transformer's, or {@code released} when it carries another set. */
+    /**
+     * A sensor's state while it has not failed: its transformer group's, or {@code released} when the group's
+     * transformer carries another set.
+     */
     private String sensorState(int bit) {
-        String current = state;
+        String current = (bit & SideEffects.MASK_THREADS) != 0 ? threadState : restState;
+        if ((wantedMask & bit) == 0 && !current.contains("release-failed")) {
+            // Switched off, or asked for by an earlier claim only: its hooks are not in the transformer.
+            return "released";
+        }
         if ("installed".equals(current) && (installedMask & bit) == 0) {
             return "released";
         }

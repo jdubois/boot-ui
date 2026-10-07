@@ -66,6 +66,7 @@ public final class ThreadActivityBehaviors {
             lazySpringSingleton();
             springPrototype();
             lazyArcSingleton();
+            arcApplicationScoped();
             unowned();
             virtualThreads();
             reclaimed();
@@ -304,6 +305,41 @@ public final class ThreadActivityBehaviors {
                 left != null && !isStatic(left) && left[SideEffects.R_REQUEST] == request);
     }
 
+    /** An {@code @ApplicationScoped} bean whose constructor creates an executor it keeps, used through a client proxy. */
+    public static final class ScopedPools implements Runnable {
+        static volatile ExecutorService pool;
+
+        public ScopedPools() {
+            pool = Executors.newSingleThreadExecutor();
+        }
+
+        @Override
+        public void run() {
+            try {
+                pool.submit(() -> 1).get();
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        }
+    }
+
+    static void arcApplicationScoped() throws Exception {
+        RECORDS.clear();
+        Runnable proxy =
+                new io.quarkus.arc.impl.ItSingletonContext().applicationScoped("scoped-pools", () -> new ScopedPools());
+        long request = request();
+        proxy.run();
+        proxy.run();
+        endRequest(request);
+        long[] created = await(kind(SideEffects.KIND_EXECUTOR_CREATE));
+        settle();
+        ScopedPools.pool.shutdown();
+        check(
+                "an ArC @ApplicationScoped bean's executor created through its client proxy on first use inside a"
+                        + " request is a singleton's, never left running (" + describe(RECORDS) + ")",
+                created != null && isStatic(created) && none(kind(SideEffects.KIND_EXECUTOR_LEFT_RUNNING)));
+    }
+
     static void lazyArcSingleton() throws Exception {
         RECORDS.clear();
         io.quarkus.arc.impl.ItSingletonContext context = new io.quarkus.arc.impl.ItSingletonContext();
@@ -326,23 +362,54 @@ public final class ThreadActivityBehaviors {
         Thread thread = new Thread(() -> await(release), "switch-survivor-1");
         thread.setDaemon(true);
         thread.start();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
         Map<String, Object> on = AgentBridge.switchSensor(token, SideEffects.FILES, true);
-        Map<String, Object> files = SensorWait.awaitSettled(SideEffects.FILES);
+        Map<String, Object> files = watch(seen, () -> {
+            Map<String, Object> sensor = sensor(SideEffects.FILES);
+            return SensorWait.settled(sensor) ? sensor : null;
+        });
         endRequest(request);
         long[] left = await(kind(SideEffects.KIND_THREAD_LEFT_RUNNING));
         Map<String, Object> off = AgentBridge.switchSensor(token, SideEffects.FILES, false);
-        Object released = SideEffectsBehaviors.awaitState(SideEffects.FILES, "released");
+        Object released = watch(seen, () -> {
+            Map<String, Object> sensor = sensor(SideEffects.FILES);
+            return "released".equals(sensor.get("state")) && Boolean.TRUE.equals(sensor.get("idle"))
+                    ? "released"
+                    : null;
+        });
         release.countDown();
         thread.join();
         check(
-                "switching another side-effect sensor at run time keeps what thread-activity waits to check (" + on
-                        + " " + files.get("state") + " " + off + " " + released + " " + describe(RECORDS) + ")",
+                "switching another side-effect sensor at run time keeps what thread-activity waits to check, and"
+                        + " thread-activity reads installed and passed throughout, never tested again (" + on + " "
+                        + (files == null ? null : files.get("state")) + " " + off + " " + released + " " + seen + " "
+                        + describe(RECORDS) + ")",
                 AgentBridge.ARMED.equals(on.get("status"))
+                        && files != null
                         && "installed".equals(files.get("state"))
                         && "released".equals(released)
+                        && seen.equals(java.util.Set.of("installed true"))
                         && left != null
                         && left[SideEffects.R_REQUEST] == request
                         && "switch-survivor-{n}".equals(string(left[SideEffects.R_TARGET])));
+    }
+
+    /**
+     * Polls {@code done} every 5 ms for at most 30 s, noting thread-activity's state and self-test verdict at each poll
+     * in {@code seen}; returns {@code done}'s first non-null answer, or {@code null}.
+     */
+    static <T> T watch(java.util.Set<String> seen, Supplier<T> done) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() - deadline < 0) {
+            Map<String, Object> threads = sensor(SideEffects.THREAD_ACTIVITY);
+            seen.add(threads.get("state") + " " + threads.get("selfTestPassed"));
+            T answer = done.get();
+            if (answer != null) {
+                return answer;
+            }
+            Thread.sleep(5);
+        }
+        return null;
     }
 
     static void libraryThread() throws Exception {
