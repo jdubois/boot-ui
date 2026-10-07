@@ -912,6 +912,96 @@ final class SideEffectsStore {
         recentRequestEntries += (row.recentRequests == null ? 0 : row.recentRequests.size()) - remembered;
     }
 
+    /** The prefix of the key that marks a thread local's rows while its holder is not resolved. */
+    static final String UNRESOLVED_THREAD_LOCAL = "thread-local-unresolved:";
+
+    /** The key marking the rows of the thread local the bridge registered as {@code id} with hash code {@code hash}. */
+    static String unresolvedThreadLocal(int id, int hash) {
+        return UNRESOLVED_THREAD_LOCAL + id + ':' + hash;
+    }
+
+    private static boolean unresolvedThreadLocal(String captureKey) {
+        return captureKey != null && captureKey.startsWith(UNRESOLVED_THREAD_LOCAL);
+    }
+
+    /**
+     * The thread local whose rows {@code marker} marks while its holder was not resolved is resolved after all: its rows
+     * and waiting observations move to {@code target}, {@code kind}, and {@code origin}, merged with what they already
+     * hold, or are removed when {@code drop}, as a framework's or a per-thread cache's. How often it was left set in what
+     * was removed.
+     */
+    long resolveThreadLocal(String marker, String kind, String target, String origin, boolean drop) {
+        long removed = 0;
+        List<Row> moved = new ArrayList<>();
+        Iterator<Map.Entry<Key, Row>> iterator = rows.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Row row = iterator.next().getValue();
+            if (!marker.equals(row.key.captureKey())) {
+                continue;
+            }
+            iterator.remove();
+            rowsPerSensor.merge(row.key.sensor(), -1, Integer::sum);
+            removed += row.count;
+            if (!drop) {
+                moved.add(row);
+            }
+        }
+        for (Row row : moved) {
+            Key key = new Key(
+                    row.key.scope(),
+                    row.key.attribution(),
+                    row.key.sensor(),
+                    kind,
+                    target,
+                    row.key.callSite(),
+                    row.key.insideMethod(),
+                    row.key.client(),
+                    null,
+                    origin,
+                    row.key.location(),
+                    row.key.startupThread());
+            Row existing = rows.get(key);
+            if (existing == null) {
+                existing = new Row(key);
+                rows.put(key, existing);
+                rowsPerSensor.merge(key.sensor(), 1, Integer::sum);
+            }
+            existing.merge(row, true);
+        }
+        int size = pending.size();
+        for (int i = 0; i < size; i++) {
+            Pending waiting = pending.poll();
+            Observation observation = waiting.observation();
+            if (!marker.equals(observation.captureKey())) {
+                pending.add(waiting);
+                continue;
+            }
+            if (drop) {
+                removed += observation.record().count();
+                continue;
+            }
+            pending.add(new Pending(
+                    new Observation(
+                            observation.record(),
+                            observation.sensor(),
+                            kind,
+                            target,
+                            observation.callSite(),
+                            observation.insideMethod(),
+                            observation.threadFamily(),
+                            observation.client(),
+                            null,
+                            observation.host(),
+                            observation.port(),
+                            origin,
+                            observation.location()),
+                    waiting.key(),
+                    waiting.since()));
+        }
+        version++;
+        return drop ? removed : 0L;
+    }
+
     private void drop(String sensor, long count) {
         droppedPerSensor.merge(sensor, count, Long::sum);
     }
@@ -947,7 +1037,7 @@ final class SideEffectsStore {
                     row.key.callSite(),
                     hideMethod ? null : row.key.insideMethod(),
                     row.key.client(),
-                    row.key.captureKey(),
+                    unresolvedThreadLocal(row.key.captureKey()) ? null : row.key.captureKey(),
                     row.key.origin(),
                     row.key.location());
             // Always a copy: a read never changes the store's own rows.

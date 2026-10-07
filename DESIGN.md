@@ -293,6 +293,20 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **Contrast:** `themeContrast.test.js` holds every theme's labels to 4.5:1 at rest, hovered, selected, and disabled,
   and the selected tab's own indicator to 3:1 against its tray, so selection never rests on text color alone.
 
+### Findings Panels
+- **Verdict first:** a panel that reports findings, such as Runtime Insights, opens on one sentence that answers the
+  developer's question, "9 things to check across 147 requests", followed by the facts that qualify it (how many are
+  proven, how many the default list leaves out, coverage, the comparison). The verdict counts the whole run, never the
+  current filter.
+- **One list, opened in place:** findings are one bordered list whose rows open their detail beneath themselves
+  (`aria-expanded`/`aria-controls`), so the detail never leaves its row on a narrow screen. Nothing opens on its own; a
+  deep link opens the row it names. Filters with counts sit above the list as `aria-pressed` buttons, not a second tab
+  strip.
+- **Everything else in tabs:** tools and caveats about the run (comparison, change impact, profiling, coverage, check
+  limits) move to `PanelTabs` beside the findings rather than stacking under them.
+- **Calm caveats:** a qualifier such as "Not externally validated" is a muted inline mark (glyph plus text, reason on
+  hover and in the open row), never a filled badge competing with the finding's own title.
+
 ### Signature: Brand Mark & Ambient Orbs
 - **Brand mark:** a solid Spring-green rounded square (1rem radius, 2.75rem) holding a white coffee-cup glyph (`bi-cup-hot-fill`), with a green glow (`0 0.6rem 1.2rem rgba(25,135,84,0.28)`). The "BootUI" wordmark sits beside it.
 - **Ambient orbs:** two large, softly blurred color fields (green + blue) rest **statically** behind the shell at `z-index: -1` as quiet ambient glows. They are pure atmosphere — they do not drift or animate (the room stays calm across long sessions), must never sit above content, and must never reduce text contrast.

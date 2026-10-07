@@ -161,6 +161,16 @@ test.describe('Side Effects view', () => {
         {timeout: 30_000}
       )
       .toBeGreaterThan(0)
+    // A pooled worker fills the date format at its first cache request: reported once per worker, flagged.
+    const format = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find((row) => row.attribution === 'GET /api/thread-locals/cache' && row.target === format)
+            ?.kind,
+        {timeout: 30_000}
+      )
+      .toBe('left set (with initial value)')
     const rows = await read()
     const leak = rows.find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
     expect(leak.kind).toBe('left set')
@@ -170,8 +180,6 @@ test.describe('Side Effects view', () => {
     for (const path of ['cleared', 'nulled', 'before']) {
       expect(rows.filter((row) => row.attribution === `GET /api/thread-locals/${path}`)).toEqual([])
     }
-    const cache = rows.find((row) => row.target === 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT')
-    if (cache) expect(cache.kind).toBe('left set (with initial value)')
     expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
     expect(JSON.stringify(rows)).not.toContain('tenant-secret')
 

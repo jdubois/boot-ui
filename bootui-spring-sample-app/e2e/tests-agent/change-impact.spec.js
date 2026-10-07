@@ -29,6 +29,7 @@ test.describe('Change impact by method, with the agent', () => {
       .toBeGreaterThan(0)
 
     await openView('runtime-insights', 'Runtime Insights')
+    await page.getByRole('tab', {name: /^Changes/}).click()
     const impact = page.locator('.insight-impact')
     await impact.getByRole('combobox', {name: /Symbol to check/}).fill('SampleController#products')
     await impact.getByRole('button', {name: 'Check impact'}).click()

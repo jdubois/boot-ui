@@ -128,6 +128,37 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
 }
 
 /**
+ * The theme filters above the list, each with the number of rows it would show under the current search and listing,
+ * led by every theme. A theme with nothing to show is left out unless it is the one selected, so no filter leads to an
+ * empty list by construction.
+ */
+export function themeFilters(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
+  const observations = groupObservations(report, {query, all, selectedId}).flatMap((group) => group.observations)
+  return [
+    {id: '', label: 'All', count: observations.length},
+    ...availableThemes(report)
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        count: observations.filter((observation) => themeOf(observation.kind) === entry.id).length
+      }))
+      .filter((entry) => entry.count > 0 || entry.id === theme)
+  ]
+}
+
+/**
+ * How many observations belong to a kind that passed its external validation (docs/PLAN-v2.md M4-20) and how many to
+ * one marked as not passing it, so the run's verdict says how far to trust the list before a row is opened. A kind not
+ * listed by design, or a server that predates validation, counts as neither.
+ */
+export function validationCounts(report, observations) {
+  const checks = new Map((report?.checks ?? []).map((check) => [check.kind, check]))
+  const validated = observations.filter((observation) => checks.get(observation.kind)?.validation === 'PASSED').length
+  const unvalidated = observations.filter((observation) => validationOf(checks.get(observation.kind))).length
+  return {total: observations.length, validated, unvalidated}
+}
+
+/**
  * The observations the current filters leave out only because the default list does not show them, counted per check
  * in the report's check order, so the panel can say what **Show all routes** would add. Empty when every row is shown.
  */

@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Resources sensor in the BootUI agent.** The `resources` sensor, on by default, shows the sockets, and with `files`
   the streams, a request left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor), M5-5g).
+- **Runtime Insights buttons in the Spring sample.** The welcome page generates each main finding with one click, or all
+  at once, and links to it in the panel ([sample README](bootui-spring-sample-app/README.md#runtime-insights-demo)).
 - **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
   became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
   above, and incomplete evidence is shown as unknown with its reason, never as swallowed
@@ -365,6 +367,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check, how many come
+  from externally validated checks, and how many the default list leaves out. Findings are one list filtered by theme,
+  whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
+  limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
+  [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
 - **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
   RabbitMQ metadata test fixture compatible with the managed SmallRye API.
 

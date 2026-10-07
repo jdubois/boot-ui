@@ -943,7 +943,9 @@ Acceptance criteria:
   three samples' `GET /api/thread-locals/leak` shows `TenantContext.CURRENT` left set; the counterexamples
   `GET /api/thread-locals/cleared` (removed in `finally`), `GET /api/thread-locals/nulled` (set to `null`), and, on
   Spring MVC and Quarkus, `GET /api/thread-locals/before` (set by a filter before BootUI's scope) never appear, and
-  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`.
+  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`. The Quarkus sample's
+  `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
+  scheduled run: a row of scope `execution` with no request.
 - The `resources` sensor (M5-5g, D46), on by default (D47), tracks the streams, channels, and sockets the `files` and
   `network` sensors record opening (sockets by default, file streams only while the opt-in `files` is on) for a request or a job with an application frame on the
   stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input

@@ -45,6 +45,16 @@ public class InsightSeedController {
         return Map.of("tags", tags.countThenSave());
     }
 
+    @GetMapping("/tags/export")
+    public Map<String, Object> exportEveryTag() {
+        return Map.of("tags", tags.exportEveryTag());
+    }
+
+    @GetMapping("/tags/export-labels")
+    public Map<String, Object> exportTagLabels() {
+        return Map.of("tags", tags.exportLabels());
+    }
+
     @GetMapping("/orders")
     public List<Map<String, Object>> ordersLineByLine() {
         return orders.ordersLineByLine();
