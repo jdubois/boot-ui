@@ -1664,10 +1664,12 @@ Acceptance criteria:
 - Overhead note (2026-10-07): each benchmark report now carries a distribution-free 95 % interval of its median. One
   run's cumulative I/O-route median moves by about 2 points on unchanged sensors (3.6–11.4 % over 33 CI runs), so the
   10.7 % and 11.7 % of #1326's resources A/B (intervals [7.2, 12.7] and [4.2, 12.9] %) were runner noise, not a
-  regression: no default sensor's own leave-one-out increment was above zero on one machine (15 pairs each), and the
-  runs before and after #1299 and #1323 averaged 7.6 % and 8.5 % (t = 1.3). A sensor's default follows its own
-  increment's A/B; the cumulative median is report-only and shows a regression only when its interval's lower bound
-  exceeds 10 %, or when it stays above 10 % across runs ([Java Agent](features/java-agent.md#overhead)).
+  regression: no default sensor's own leave-one-out increment had an interval above zero on one machine (15 pairs
+  each), and the runs before and after #1299 and #1323 averaged 7.6 % and 8.5 % (t = 1.3). Proposed, for the
+  maintainer's decision: a sensor's default follows its own increment's A/B, and a cumulative median shows a regression
+  only when its interval's lower bound exceeds 10 %, or when it stays above 10 % across runs. Today the I/O route's
+  cumulative figure only warns, while M5-5c's blocking check still fails on the default route's 5-pair cumulative median
+  above 10 % ([Java Agent](features/java-agent.md#overhead)).
 
 ### 5.14 Code Paths — Diagnostics 🚧 In progress
 

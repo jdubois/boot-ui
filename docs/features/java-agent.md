@@ -1135,8 +1135,10 @@ itself. Forked-JVM tests redefine an instrumented bean class both ways, through 
 The `agent-overhead` jobs of `build.yml` measure the agent with the sample's executable jar, in pairs whose order
 alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
 by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
-4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route warns above
-10 %; each sensor's own A/B against the others enforces its own increment.
+4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route only warns
+above 10 %. Two checks fail a build: the blocking sensor's default, when its own increment's median is above 3 % or the
+default route's cumulative median (5 pairs) is above 10 % (M5-5c), and a sensor whose A/B is enforced while it is on by
+default, as `caught-exceptions` and `thread-activity` would be.
 
 The cumulative median varies by itself: across 33 CI runs between 2026-10-05 and 2026-10-07 it ranged from 3.6 % to
 11.4 % on unchanged sensors, with a standard deviation of about 2 points, and its 95 % interval in a single run is about
@@ -1147,10 +1149,10 @@ thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19
 whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
 network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
 
-So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. A sensor's
-default is decided by its own increment's A/B; the cumulative figure is reported with its interval, and is evidence
-of a regression only when the interval's lower bound is above the 10 % budget, or when the same median stays above it
-across runs.
+So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. The proposed rule
+(PLAN-v2 §5.13): a sensor's default follows its own increment's A/B, and a cumulative figure counts as a regression
+only when its interval's lower bound is above the 10 % budget, or when its median stays above it across runs; until
+then the blocking check above still reads the plain 5-pair median.
 
 ## Coexistence and class data sharing
 
