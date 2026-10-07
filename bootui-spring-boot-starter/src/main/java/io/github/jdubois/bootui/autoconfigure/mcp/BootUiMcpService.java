@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestKey;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta.Field;
 import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
@@ -203,7 +204,7 @@ public class BootUiMcpService {
     }
 
     /**
-     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a modern progress call from a client whose
+     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a progress call, in either era, from a client whose
      * {@code Accept} lists {@code text/event-stream} may answer with a {@link Stream}.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled, boolean acceptsEventStream) {
@@ -354,11 +355,6 @@ public class BootUiMcpService {
         }
     }
 
-    /** {@link #renderFinal(JsonNode, McpEra, McpDispatchOutcome)} for a modern stream. */
-    public String renderFinal(JsonNode id, McpDispatchOutcome outcome) {
-        return renderFinal(id, McpEra.MODERN, outcome);
-    }
-
     /** Parse raw request bytes into a Jackson node. */
     public JsonNode readTree(byte[] body) {
         try {
@@ -432,7 +428,20 @@ public class BootUiMcpService {
                 parsedArguments.scanId(),
                 parsedArguments.offset(),
                 serve.era(),
-                serve.progressToken());
+                serve.progressToken(),
+                requestKey(id),
+                "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null);
+    }
+
+    /** The canonical key of a JSON-RPC id, so a cancellation finds its request by value. */
+    private static String requestKey(JsonNode id) {
+        if (id == null) {
+            return null;
+        }
+        if (id.isString()) {
+            return McpRequestKey.text(id.asString());
+        }
+        return id.isNumber() ? McpRequestKey.number(id.decimalValue()) : null;
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {

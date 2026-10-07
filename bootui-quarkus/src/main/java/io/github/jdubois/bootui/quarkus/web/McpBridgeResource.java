@@ -101,13 +101,14 @@ public class McpBridgeResource {
 
     /**
      * The request-scoped event stream, written while this worker thread waits: the call's writer thread is the only
-     * one that writes. The client going away cancels the call, which MCP 2026-07-28 requires: Vert.x reports the
-     * closed connection through the routing context's end handler, and a write to a closed response, which Quarkus REST
-     * drops silently, fails instead. The frames are the same bytes the Spring transports write.
+     * one that writes. Vert.x reports the client going away through the routing context's end handler, and a write
+     * to a closed response, which Quarkus REST drops silently, fails instead; both reach {@link
+     * McpStreamingCall#clientClosed()}, which cancels a modern call (MCP 2026-07-28) and only stops writing a legacy one
+     * (MCP 2025-06-18). The frames are the same bytes the Spring transports write.
      */
     private StreamingOutput events(QuarkusMcpEnvelope.Stream stream, RoutingContext routing) {
         McpStreamingCall call = stream.call();
-        routing.addEndHandler(ended -> call.cancel());
+        routing.addEndHandler(ended -> call.clientClosed());
         return output -> {
             CountDownLatch closed = new CountDownLatch(1);
             try {
@@ -133,7 +134,7 @@ public class McpBridgeResource {
                                 routing,
                                 output,
                                 McpProtocol.SSE_DATA_PREFIX
-                                        + envelope.renderFinal(stream.id(), outcome)
+                                        + envelope.renderFinal(stream.id(), call.era(), outcome)
                                         + McpProtocol.SSE_EVENT_END);
                     }
 

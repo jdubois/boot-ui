@@ -405,6 +405,73 @@ public abstract class AbstractMcpConformanceTest {
         }
     }
 
+    private Response legacyProgressCall(String id, String accept, String token) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        headers.put("Accept", accept);
+        headers.put("MCP-Protocol-Version", "2025-06-18");
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":" + id
+                + ",\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\",\"arguments\":{}"
+                + (token == null ? "" : ",\"_meta\":{\"progressToken\":" + token + "}") + "}}";
+        return probe().request("POST", "/bootui/api/mcp", headers, body, java.time.Duration.ofSeconds(60));
+    }
+
+    @Test
+    void testLegacyProgressCallAnswersOnARequestScopedEventStream() throws Exception {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response response = legacyProgressCall("\"l-1\"", "application/json, text/event-stream", "7");
+
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.contentType()).startsWith("text/event-stream");
+            List<JsonNode> messages = new java.util.ArrayList<>();
+            ObjectMapper mapper = new ObjectMapper();
+            for (String event : response.body().split("\n\n")) {
+                if (!event.startsWith(":")) {
+                    assertThat(event).startsWith("data:").doesNotContain("\n");
+                    messages.add(mapper.readTree(event.substring("data:".length())));
+                }
+            }
+            assertThat(messages.size()).as(response.body()).isGreaterThanOrEqualTo(5);
+            for (JsonNode notification : messages.subList(0, messages.size() - 1)) {
+                assertThat(notification.path("method").asText()).isEqualTo("notifications/progress");
+                assertThat(notification.path("params").path("progressToken").isIntegralNumber())
+                        .as("a number token is echoed as a number")
+                        .isTrue();
+                assertThat(notification.path("params").path("progressToken").asLong())
+                        .isEqualTo(7);
+            }
+            JsonNode last = messages.get(messages.size() - 1);
+            assertThat(last.path("id").asText()).isEqualTo("l-1");
+            JsonNode result = last.path("result");
+            assertThat(result.path("isError").asBoolean()).as(last.toString()).isFalse();
+            assertThat(result.has("resultType"))
+                    .as("a legacy stream ends with a legacy result")
+                    .isFalse();
+            assertThat(result.has("_meta")).isFalse();
+        }
+    }
+
+    @Test
+    void testLegacyCallsWithoutAUsableTokenOrStreamSupportStayJson() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            for (Response response : List.of(
+                    legacyProgressCall("31", "application/json, text/event-stream", null),
+                    legacyProgressCall("32", "application/json", "\"t\""),
+                    legacyProgressCall("33", "application/json, text/event-stream", "{}"),
+                    legacyProgressCall("34", "application/json, text/event-stream", "null"))) {
+                assertThat(response.status()).as(response.body()).isEqualTo(200);
+                assertThat(response.contentType()).startsWith("application/json");
+                JsonNode result = response.json().path("result");
+                assertThat(result.path("isError").asBoolean())
+                        .as("a legacy request is never rejected because of its token")
+                        .isFalse();
+                assertThat(result.has("resultType")).isFalse();
+            }
+        }
+    }
+
     @Test
     void testNullAndNonStringEnvelopeFieldsAreTheSameClientErrorOnEveryStack() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();

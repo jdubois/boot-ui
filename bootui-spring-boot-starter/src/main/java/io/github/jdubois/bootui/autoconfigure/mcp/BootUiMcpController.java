@@ -105,8 +105,9 @@ public class BootUiMcpController {
 
     /**
      * Answers on a request-scoped {@code text/event-stream}. The servlet response is put in async mode so the
-     * container thread returns at once, and only the call's writer thread writes to it; a container-reported error,
-     * timeout, or completion (the client went away) cancels the call, which MCP 2026-07-28 requires.
+     * container thread returns at once, and only the call's writer thread writes to it. A container-reported error,
+     * timeout, or completion means the client went away: MCP 2026-07-28 makes that a cancellation, and MCP 2025-06-18
+     * does not ({@link McpStreamingCall#clientClosed()} decides).
      */
     private void stream(
             HttpServletRequest servletRequest, HttpServletResponse servletResponse, BootUiMcpService.Stream stream) {
@@ -123,18 +124,18 @@ public class BootUiMcpController {
             async.addListener(new AsyncListener() {
                 @Override
                 public void onComplete(AsyncEvent event) {
-                    call.cancel();
+                    call.clientClosed();
                 }
 
                 @Override
                 public void onTimeout(AsyncEvent event) {
-                    call.cancel();
+                    call.clientClosed();
                     complete(async, closed);
                 }
 
                 @Override
                 public void onError(AsyncEvent event) {
-                    call.cancel();
+                    call.clientClosed();
                     complete(async, closed);
                 }
 
@@ -161,7 +162,7 @@ public class BootUiMcpController {
                     write(
                             output,
                             McpProtocol.SSE_DATA_PREFIX
-                                    + service.renderFinal(stream.id(), outcome)
+                                    + service.renderFinal(stream.id(), call.era(), outcome)
                                     + McpProtocol.SSE_EVENT_END);
                 }
 

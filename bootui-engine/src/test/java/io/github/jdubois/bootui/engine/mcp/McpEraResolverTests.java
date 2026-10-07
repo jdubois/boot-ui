@@ -32,6 +32,20 @@ class McpEraResolverTests {
     }
 
     @Test
+    void aLegacyRequestKeepsAValidProgressTokenAndIgnoresAnInvalidOne() {
+        McpRequestMeta token =
+                new McpRequestMeta(Field.ABSENT, null, Field.ABSENT, Field.VALID, McpProgressToken.of("t"));
+        assertThat(resolve("tools/call", token, headers(List.of(), List.of(), List.of())))
+                .isEqualTo(new Serve(McpEra.LEGACY, null, McpProgressToken.of("t")));
+        assertThat(resolve("tools/call", token, headers(List.of(LEGACY), List.of(), List.of())))
+                .isEqualTo(new Serve(McpEra.LEGACY, LEGACY, McpProgressToken.of("t")));
+        McpRequestMeta invalid = new McpRequestMeta(Field.ABSENT, null, Field.ABSENT, Field.INVALID, null);
+        assertThat(resolve("tools/call", invalid, headers(List.of(), List.of(), List.of())))
+                .as("a legacy request is never refused or changed for its token")
+                .isEqualTo(new Serve(McpEra.LEGACY, null, null));
+    }
+
+    @Test
     void aModernHeaderWithoutModernMetaIsAMalformedModernRequest() {
         assertThat(resolve(
                         "tools/list", McpRequestMeta.NONE, headers(List.of(MODERN), List.of("tools/list"), List.of())))
