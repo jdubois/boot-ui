@@ -14,11 +14,19 @@ import {formatNumber} from '../../utils/format.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import InsightText from './InsightText.vue'
 
-// An agent or a link can open the panel on a symbol; nothing is read until a symbol is asked for or typed.
-const props = defineProps({initialSymbol: {type: String, default: ''}})
+// An agent or a link can open the panel on a symbol; nothing is read until a symbol is asked for or typed. The methods
+// the run comparison found changed are offered as the first things to check, and the panel's "See its impact" calls
+// check() directly.
+const props = defineProps({
+  initialSymbol: {type: String, default: ''},
+  changed: {type: /** @type {import('vue').PropType<{symbol: string, name: string}[]>} */ (Array), default: () => []}
+})
+
+const CHANGED_SHOWN = 6
 
 const SUGGEST_DELAY_MS = 150
 const listboxId = 'insight-impact-suggestions'
+const hintId = 'insight-impact-hint'
 
 const symbol = ref(props.initialSymbol)
 const impact = ref(null)
@@ -31,6 +39,8 @@ const suggestionsOpen = ref(false)
 const activeIndex = ref(-1)
 let suggestTimer = null
 let suggestSequence = 0
+// A check started from the comparison can overlap one still in flight; only the latest may write its answer.
+let checkSequence = 0
 
 const options = computed(() => (suggestions.value?.symbols ?? []).map(symbolOption))
 const hiddenMatches = computed(() => Math.max(0, (suggestions.value?.total ?? 0) - options.value.length))
@@ -55,16 +65,19 @@ async function check(value = symbol.value, shown = value) {
   if (!asked) return
   closeSuggestions()
   symbol.value = (shown ?? asked).trim()
+  const sequence = ++checkSequence
   loading.value = true
   error.value = null
   try {
     const result = await getJson(`api/runtime-insights/impact?symbol=${encodeURIComponent(asked)}`)
+    if (sequence !== checkSequence) return
     impact.value = isImpact(result) ? result : null
   } catch (e) {
+    if (sequence !== checkSequence) return
     impact.value = null
     error.value = formatLoadError(e, 'Unable to read the change impact')
   } finally {
-    loading.value = false
+    if (sequence === checkSequence) loading.value = false
   }
 }
 
@@ -141,6 +154,12 @@ function showList(id) {
   section?.focus({preventScroll: true})
 }
 
+defineExpose({check})
+
+const changedShown = computed(() => props.changed.slice(0, CHANGED_SHOWN))
+const changedMore = computed(() => Math.max(0, props.changed.length - CHANGED_SHOWN))
+const idle = computed(() => !impact.value && !error.value && !loading.value)
+
 const lists = computed(() => impactLists(impact.value))
 const node = computed(() => nodeParts(impact.value?.node))
 const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus))
@@ -151,12 +170,10 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
     <div class="card-body">
       <h2 id="insight-impact-title" class="h6 mb-1">Change impact</h2>
       <p class="small text-muted mb-2 insight-impact-intro">
-        Name what you are changing, a route, a bean, a class, a method such as <code>OrderService#total</code>, a
-        repository, a table, a cache, or a host, to see which routes this run exercised through it and which it did not.
-        Start typing to pick one from this run.
+        Which routes this run exercised through the code you are changing, and which it did not.
       </p>
       <form
-        class="d-flex flex-wrap gap-2 align-items-center"
+        class="d-flex flex-wrap gap-2 align-items-center insight-impact-form"
         role="search"
         aria-label="Change impact search"
         @submit.prevent="check()"
@@ -168,6 +185,7 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
             role="combobox"
             class="form-control form-control-sm insight-impact-input"
             aria-label="Symbol to check, such as a route, bean, class, method, repository, table, cache, or host"
+            :aria-describedby="hintId"
             aria-autocomplete="list"
             :aria-expanded="listVisible ? 'true' : 'false'"
             :aria-controls="listboxId"
@@ -210,6 +228,28 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
         </div>
         <button type="submit" class="btn btn-sm btn-primary" :disabled="loading || !symbol.trim()">Check impact</button>
       </form>
+      <p :id="hintId" class="small text-muted mt-2 mb-0 insight-impact-hint">
+        Name a route, a bean, a class, a method such as <code>OrderService#total</code>, a repository, a table, a cache,
+        or a host. Start typing to pick one from this run.
+      </p>
+      <div v-if="idle && changedShown.length" class="insight-impact-changed" data-testid="impact-changed">
+        <h3 id="insight-impact-changed-title" class="small fw-semibold mb-1">Changed since the previous run</h3>
+        <ul class="list-unstyled d-flex flex-wrap gap-1 mb-0" aria-labelledby="insight-impact-changed-title">
+          <li v-for="method in changedShown" :key="method.symbol">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary insight-impact-candidate"
+              :title="method.symbol"
+              @click="check(method.symbol, method.name)"
+            >
+              <code>{{ method.name }}</code>
+            </button>
+          </li>
+          <li v-if="changedMore > 0" class="small text-muted align-self-center">
+            and {{ formatNumber(changedMore) }} more in Changes
+          </li>
+        </ul>
+      </div>
 
       <div aria-live="polite" :aria-busy="loading">
         <div v-if="error" class="alert alert-warning small mt-3 mb-0" role="alert">{{ error }}</div>
@@ -319,15 +359,20 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
 
 <style scoped>
 .insight-impact-intro,
+.insight-impact-hint,
 .insight-impact-reason,
 .insight-impact-list {
   max-width: 80ch;
 }
 
 .insight-impact-combobox {
-  flex: 1 1 16rem;
-  max-width: 22rem;
+  flex: 1 1 18rem;
+  max-width: 36rem;
   position: relative;
+}
+
+.insight-impact-changed {
+  margin-top: 1rem;
 }
 
 /* The suggestions float over the panel's later cards and Bootstrap's raised list items (z-index 2 and 3), and stay

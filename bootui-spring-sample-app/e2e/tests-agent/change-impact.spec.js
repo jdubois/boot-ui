@@ -29,7 +29,7 @@ test.describe('Change impact by method, with the agent', () => {
       .toBeGreaterThan(0)
 
     await openView('runtime-insights', 'Runtime Insights')
-    await page.getByRole('tab', {name: /^Changes/}).click()
+    await page.getByRole('tab', {name: /^Change impact/}).click()
     const impact = page.locator('.insight-impact')
     await impact.getByRole('combobox', {name: /Symbol to check/}).fill('SampleController#products')
     await impact.getByRole('button', {name: 'Check impact'}).click()
@@ -41,6 +41,7 @@ test.describe('Change impact by method, with the agent', () => {
     await expect(observed).toContainText(/ran it of \d+ requests?/)
     await expect(impact.locator('[data-list="not-observed"]')).toBeVisible()
 
+    await page.getByRole('tab', {name: /^Changes/}).click()
     const comparison = page.locator('.insight-comparison')
     await expect(
       comparison.locator('[data-section="code-changes"], [data-testid="code-changes-unavailable"]')

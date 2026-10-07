@@ -683,18 +683,103 @@ describe('Runtime Insights panel', () => {
     click.mockRestore()
   })
 
-  it('opens the Changes tab when a deep link names a symbol to check', async () => {
+  it('opens the Change impact tab, checked, when a deep link names a symbol', async () => {
     routeState.query = {impact: 'OrderService#total'}
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('#insights-tab-impact').attributes('aria-selected')).toBe('true')
+    expect(shown(wrapper.get('#insights-panel-impact'))).toBe(true)
+    expect(shown(wrapper.get('#insights-panel-changes'))).toBe(false)
+    expect(shown(wrapper.get('#insights-panel-findings'))).toBe(false)
+    expect(wrapper.get('#insights-panel-impact').find('.insight-impact').exists()).toBe(true)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('impact?symbol=OrderService%23total'))).toBe(true)
+  })
+
+  it('opens the tab a deep link names, and ignores one it does not know', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report)))
     )
+    routeState.query = {tab: 'impact'}
     wrapper = mountPanel()
     await flushPromises()
+    expect(wrapper.get('#insights-tab-impact').attributes('aria-selected')).toBe('true')
 
-    expect(wrapper.get('#insights-tab-changes').attributes('aria-selected')).toBe('true')
-    expect(shown(wrapper.get('#insights-panel-changes'))).toBe(true)
-    expect(shown(wrapper.get('#insights-panel-findings'))).toBe(false)
+    wrapper.unmount()
+    routeState.query = {tab: 'nope'}
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.get('#insights-tab-findings').attributes('aria-selected')).toBe('true')
+  })
+
+  it("opens Change impact on a changed method from the comparison's See its impact", async () => {
+    const comparison = {
+      status: 'COMPARED',
+      reason: null,
+      notComparableReasons: [],
+      previous: {runId: 'run-0', ordinal: 4, startedAt: 1, endedAt: 2, closedBy: 'SHUTDOWN'},
+      runs: [],
+      behavior: [],
+      edges: [],
+      restartCost: {status: 'UNAVAILABLE', reason: 'Quarkus', beans: []},
+      latency: [],
+      limitations: [],
+      codeChanges: {
+        available: true,
+        unavailableReason: null,
+        counts: {changed: 1, added: 0, removed: 0, executed: 1, notExecuted: 0},
+        methods: [
+          {
+            key: 'com.example.OrderService#total(J)J',
+            className: 'com.example.OrderService',
+            name: 'total',
+            descriptor: '(J)J',
+            change: 'CHANGED',
+            status: 'EXECUTED',
+            notTrackedReason: null,
+            routes: ['GET /api/orders'],
+            routesTotal: 1,
+            routesNote: null
+          }
+        ],
+        methodsTotal: 1,
+        limitations: []
+      }
+    }
+    const fetchMock = vi.fn((url) => {
+      const target = String(url)
+      if (target.includes('/comparison')) return Promise.resolve(jsonResponse(comparison))
+      if (target.includes('/impact')) return Promise.resolve(jsonResponse({status: 'NOT_FOUND', reason: 'Nothing.'}))
+      return Promise.resolve(jsonResponse(target.includes('/insights/') ? detail : report))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    // Before any check, Change impact offers the changed method too.
+    expect(wrapper.get('#insights-panel-impact').find('[data-testid="impact-changed"]').text()).toContain(
+      'OrderService#total'
+    )
+
+    await wrapper.get('#insights-tab-changes').trigger('click')
+    await wrapper.get('.insight-comparison-impact').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#insights-tab-impact').attributes('aria-selected')).toBe('true')
+    expect(shown(wrapper.get('#insights-panel-impact'))).toBe(true)
+    expect(document.activeElement?.id).toBe('insights-panel-impact')
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes(encodeURIComponent('OrderService#total(J)J')))
+    ).toBe(true)
+    expect(wrapper.get('#insights-panel-impact input').element.value).toBe('OrderService#total')
   })
 
   it('counts each theme filter and closes an open row the filter leaves out', async () => {

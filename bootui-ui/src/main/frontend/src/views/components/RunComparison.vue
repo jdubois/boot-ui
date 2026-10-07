@@ -20,7 +20,8 @@ import InsightText from './InsightText.vue'
 const props = defineProps({refreshKey: {type: [Number, String], default: 0}})
 // 'loaded' carries the comparison once a fetch settles, null on error or an unexpected shape, so a caller showing a
 // summary of this comparison never keeps a stale one from a request that failed after an earlier success.
-const emit = defineEmits(['loaded'])
+// 'impact' asks the panel to open Change impact on a changed method, by its full key and its short name.
+const emit = defineEmits(['loaded', 'impact'])
 
 const comparison = ref(null)
 const error = ref(null)
@@ -112,7 +113,7 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
           </h3>
           <p v-if="code.rows.length === 0" class="small text-muted mb-0">No method changed or was added.</p>
           <ul v-else class="list-unstyled mb-0 insight-comparison-rows">
-            <li v-for="row in code.rows" :key="row.key" class="insight-comparison-row">
+            <li v-for="row in code.rows" :key="row.key" class="insight-comparison-row insight-comparison-row-action">
               <span class="insight-comparison-marker" :title="changeMarker(row.change).label">
                 <i class="bi" :class="changeMarker(row.change).icon" aria-hidden="true"></i>
                 <span class="visually-hidden">{{ row.changeLabel }}:{{ ' ' }}</span>
@@ -135,6 +136,13 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
                 <span v-if="row.note" class="d-block small text-muted">{{ row.note }}</span>
                 <span v-if="row.notTrackedReason" class="d-block small text-muted">{{ row.notTrackedReason }}</span>
               </span>
+              <button
+                type="button"
+                class="btn btn-link btn-sm p-0 insight-comparison-impact"
+                @click="emit('impact', {symbol: row.key, name: row.name})"
+              >
+                See its impact<span class="visually-hidden">: {{ row.name }}</span>
+              </button>
             </li>
           </ul>
           <p v-if="code.more" class="small text-muted mb-0 mt-1">{{ formatNumber(code.more) }} more not listed.</p>
@@ -334,6 +342,26 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--bootui-border);
   font-size: 0.875rem;
+}
+
+/* A code change row ends on its "See its impact" action. */
+.insight-comparison-row.insight-comparison-row-action {
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+}
+
+.insight-comparison-impact {
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .insight-comparison-row.insight-comparison-row-action {
+    grid-template-columns: 1.5rem minmax(0, 1fr);
+  }
+
+  .insight-comparison-impact {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 
 .insight-comparison-marker {

@@ -141,6 +141,14 @@ describe('RunComparison', () => {
     expect(rows[1].text().replace(/\s+/g, ' ')).toContain('OrderService#total ran in this run on GET /api/orders')
     expect(code.find('details').text()).toContain('2 removed methods are counted')
 
+    // Each changed or added method offers its change impact, named for a screen reader, by its full key.
+    const see = rows[1].get('.insight-comparison-impact')
+    expect(see.text()).toBe('See its impact: OrderService#total')
+    await see.trigger('click')
+    expect(wrapper.emitted('impact')).toEqual([
+      [{symbol: 'com.example.OrderService#total(J)J', name: 'OrderService#total'}]
+    ])
+
     wrapper.unmount()
     vi.stubGlobal(
       'fetch',
