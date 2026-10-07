@@ -4,6 +4,7 @@ import {useRouter} from 'vue-router'
 import {routes} from '../../routes.js'
 import {
   createPanelLookup,
+  navigationGroup,
   resolveRouteTitle,
   routeAvailabilityLabel,
   routeNavigationGroup,
@@ -40,9 +41,16 @@ function keywordMatch(keywords, needle) {
   return keywords.some((k) => k.split(/\s+/).some((word) => word.startsWith(needle)))
 }
 
+// A route matches by its sidebar group title, by the group it is shown under (which may be "Disabled /
+// unavailable"), and by its raw group key, which earlier versions displayed and searched.
+function groupTerms(route) {
+  return [navigationGroup(route.meta.group).title, routeGroup(route), route.meta.group]
+    .filter(Boolean)
+    .map((term) => term.toLowerCase())
+}
+
 function score(route, q) {
   const title = (routeTitle(route) || '').toLowerCase()
-  const group = (route.meta.group || '').toLowerCase()
   const shortcut = (route.meta.shortcut || '').toLowerCase()
   const keywords = (route.meta.keywords || []).map((k) => k.toLowerCase())
   const needle = q.toLowerCase()
@@ -51,7 +59,7 @@ function score(route, q) {
   if (title.includes(needle)) return 4
   if (keywordMatch(keywords, needle)) return 3
   if (shortcut.includes(needle)) return 2
-  if (group.includes(needle)) return 1
+  if (groupTerms(route).some((term) => term.includes(needle))) return 1
   return 0
 }
 
@@ -84,7 +92,7 @@ function routeLabel(route) {
 }
 
 function routeGroup(route) {
-  return routeNavigationGroup(route, panelLookup.value)
+  return routeNavigationGroup(route, panelLookup.value).title
 }
 
 watch(results, (currentResults) => {

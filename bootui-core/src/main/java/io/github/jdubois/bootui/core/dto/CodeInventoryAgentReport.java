@@ -7,7 +7,8 @@ import java.util.List;
  * then at most {@code limit} rows of the requested view.
  *
  * @param summary the panel's summary
- * @param view {@code changed}, {@code never-executed}, {@code dependencies}, or {@code package} for a package or class
+ * @param view {@code changed}, {@code never-executed}, {@code dependencies}, or {@code package} for a package, class, or
+ *     method name
  * @param query the query as given, or {@code null}
  * @param methods the view's methods, for every view but {@code dependencies}
  * @param dependencies the view's dependencies, for {@code dependencies}

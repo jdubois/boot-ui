@@ -563,6 +563,18 @@ class CodeInventoryServiceTests {
             CodeInventoryAgentReport agent = service.agentReport(null, 5);
             assertThat(agent.view()).isEqualTo("changed");
             assertThat(agent.methods()).extracting(CodeInventoryMethodDto::key).containsExactly(GREET);
+            for (String query : List.of("greet", "OrderService#greet", "shop.OrderService#greet", "greet(Ljava")) {
+                assertThat(service.agentReport(query, 5).methods())
+                        .as("a method named by %s", query)
+                        .extracting(CodeInventoryMethodDto::key)
+                        .containsExactly(GREET);
+            }
+            assertThat(service.agentReport("Other#greet", 5).methods())
+                    .as("another class's method of that name")
+                    .isEmpty();
+            assertThat(service.agentReport("gree", 5).methods())
+                    .as("a method name is matched whole")
+                    .isEmpty();
         }
     }
 

@@ -687,7 +687,9 @@ public class LiveActivityService {
                 false,
                 parentId,
                 null,
-                false);
+                false,
+                List.of(),
+                group.id());
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {

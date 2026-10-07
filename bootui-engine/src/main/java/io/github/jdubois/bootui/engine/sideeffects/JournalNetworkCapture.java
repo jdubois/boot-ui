@@ -91,15 +91,20 @@ public final class JournalNetworkCapture implements NetworkCapture {
             byHost.clear();
             order.clear();
         }
+        // Both reads list the newest first: walked oldest first, so every new call is indexed, not only the newest
+        // event's, and the index drops its oldest calls first.
         List<JournalEntry> entries =
                 lastSequence == Long.MIN_VALUE ? journal.entries() : journal.entriesAfter(lastSequence);
-        for (JournalEntry entry : entries) {
+        long newest = lastSequence;
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            JournalEntry entry = entries.get(i);
             if (entry.sequence() <= lastSequence) {
                 continue;
             }
-            lastSequence = entry.sequence();
+            newest = Math.max(newest, entry.sequence());
             learn(entry.event());
         }
+        lastSequence = newest;
     }
 
     /** Indexes one event; public for tests that build the index without a journal. */
