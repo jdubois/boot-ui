@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
@@ -381,6 +382,102 @@ class QuarkusMcpEnvelopeTest {
 
         assertThat(response.path("error").path("code").asInt()).isEqualTo(McpProtocol.RESPONSE_TOO_LARGE);
         assertThat(dispatcher.runtimeStats().snapshot().responseLimitRefusals()).isEqualTo(1);
+    }
+
+    @Test
+    void modernResultsAndErrorsMatchTheSpringAdapterByteForByte() throws Exception {
+        QuarkusMcpEnvelope envelope =
+                envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
+        QuarkusMcpEnvelope.Reply discover = modern(envelope, "server/discover", "1", null, "2026-07-28", true);
+        assertThat(discover.status()).isEqualTo(200);
+        List<String> fields = new java.util.ArrayList<>();
+        discover.body().path("result").fieldNames().forEachRemaining(fields::add);
+        assertThat(fields)
+                .containsExactly(
+                        "resultType",
+                        "supportedVersions",
+                        "capabilities",
+                        "instructions",
+                        "_meta",
+                        "ttlMs",
+                        "cacheScope");
+        assertThat(discover.body().path("result").path("_meta").toString())
+                .isEqualTo("{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}");
+
+        assertThat(modern(envelope, "tools/call", "4", "get_overview", "2026-07-28", true)
+                        .body()
+                        .toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
+                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+
+        QuarkusMcpEnvelope.Reply unknown = modern(envelope, "ping", "6", null, "2026-07-28", true);
+        assertThat(unknown.status()).isEqualTo(404);
+        assertThat(unknown.body().toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":-32601,\"message\":\"Unknown method: ping\"}}");
+        assertThat(modern(envelope, "tools/list", "7", null, "2026-07-28", false)
+                        .body()
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(-31000);
+
+        QuarkusMcpEnvelope.Reply unsupported = modern(envelope, "tools/list", "\"a\"", null, "2099-01-01", true);
+        assertThat(unsupported.status()).isEqualTo(400);
+        assertThat(unsupported.body().toString())
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"error\":{\"code\":-32022,"
+                        + "\"message\":\"Unsupported protocol version\","
+                        + "\"data\":{\"supported\":[\"2026-07-28\",\"2025-06-18\"],\"requested\":\"2099-01-01\"}}}");
+
+        QuarkusMcpEnvelope.Reply legacy = envelope.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"ping\"}"),
+                new McpRequestHeaders(List.of("2099-01-01"), List.of(), List.of()),
+                true);
+        assertThat(legacy.status()).isEqualTo(400);
+        assertThat(legacy.body().toString())
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,"
+                        + "\"message\":\"Unsupported MCP-Protocol-Version\"}}");
+    }
+
+    @Test
+    void containerValuedEnvelopeFieldsAreClientErrorsLikeOnSpring() throws Exception {
+        QuarkusMcpEnvelope envelope =
+                envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
+        for (String method : List.of("{}", "[]")) {
+            JsonNode notification = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"method\":" + method + "}");
+            assertThat(envelope.exchange(notification, McpRequestHeaders.NONE, true))
+                    .isEqualTo(new QuarkusMcpEnvelope.Reply(202, null));
+            JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+            QuarkusMcpEnvelope.Reply reply = envelope.exchange(request, McpRequestHeaders.NONE, true);
+            assertThat(reply.status()).isEqualTo(200);
+            assertThat(reply.body().toString())
+                    .isEqualTo(
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Missing 'method'\"}}");
+        }
+        JsonNode objectName = objectMapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":{}}}");
+        assertThat(envelope.exchange(objectName, McpRequestHeaders.NONE, true)
+                        .body()
+                        .toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Missing tool name\"}}");
+    }
+
+    private QuarkusMcpEnvelope.Reply modern(
+            QuarkusMcpEnvelope envelope, String method, String id, String name, String version, boolean enabled)
+            throws Exception {
+        String params = (name == null ? "" : "\"name\":\"" + name + "\",\"arguments\":{},")
+                + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"" + version + "\","
+                + "\"io.modelcontextprotocol/clientCapabilities\":{}}";
+        JsonNode request = objectMapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"" + method + "\",\"params\":{" + params + "}}");
+        return envelope.exchange(
+                request,
+                new McpRequestHeaders(List.of(version), List.of(method), name == null ? List.of() : List.of(name)),
+                enabled);
     }
 
     private QuarkusMcpEnvelope envelope(McpTool tool, RecordingFailureReporter diagnostics) {

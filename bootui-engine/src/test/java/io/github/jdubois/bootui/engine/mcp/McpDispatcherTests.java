@@ -192,6 +192,22 @@ class McpDispatcherTests {
     }
 
     @Test
+    void modernRequestsDiscoverTheServerAndHaveNoHandshakeOrPing() {
+        McpDispatcher dispatcher = dispatcher();
+        assertThat(dispatcher.dispatch(modern("server/discover")))
+                .isEqualTo(new McpDispatchOutcome.DiscoverResult(
+                        List.of("2026-07-28", "2025-06-18"), "bootui", "1.2.3", "instructions text"));
+        assertThat(dispatcher.dispatch(modern("ping")))
+                .isEqualTo(new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: ping"));
+        assertThat(dispatcher.dispatch(modern("initialize")))
+                .isEqualTo(new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: initialize"));
+        assertThat(dispatcher.dispatch(modern("tools/list"))).isInstanceOf(ToolsListResult.class);
+        assertThat(dispatcher.dispatch(method("server/discover")))
+                .as("legacy clients never see the modern discovery method")
+                .isEqualTo(new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: server/discover"));
+    }
+
+    @Test
     void pingReturnsPingResult() {
         assertThat(dispatcher().dispatch(method("ping"))).isInstanceOf(PingResult.class);
     }
@@ -780,6 +796,11 @@ class McpDispatcherTests {
 
     private static McpRequest method(String method) {
         return new McpRequest(JSONRPC, method, false, null, null, null, null, null);
+    }
+
+    private static McpRequest modern(String method) {
+        return new McpRequest(
+                JSONRPC, method, false, null, null, null, null, null, Set.of(), null, null, null, McpEra.MODERN, null);
     }
 
     private static McpRequest call(String toolName) {

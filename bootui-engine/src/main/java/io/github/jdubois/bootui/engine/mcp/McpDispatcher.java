@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.mcp;
 
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.DiscoverResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
@@ -229,6 +230,11 @@ public final class McpDispatcher {
         return List.copyOf(toolSupplier.get());
     }
 
+    /** The server version advertised in {@code initialize}, {@code server/discover}, and modern result metadata. */
+    public String serverVersion() {
+        return serverVersion;
+    }
+
     /** Operational counters exposed by the MCP Server panel. */
     public McpRuntimeStats runtimeStats() {
         return runtimeStats;
@@ -257,19 +263,38 @@ public final class McpDispatcher {
                     : new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_METHOD_MESSAGE);
         }
         McpDispatchOutcome outcome =
-                switch (method) {
-                    case "initialize" -> initialize(request);
-                    case "ping" -> new PingResult();
-                    case "tools/list" ->
-                        new ToolsListResult(tools().stream()
-                                .map(tool -> tool.describe(maxResults))
-                                .toList());
-                    case "tools/call" -> callTool(request);
-                    case "prompts/list" -> new PromptsListResult(prompts);
-                    case "prompts/get" -> getPrompt(request);
-                    default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
-                };
+                request.era() == McpEra.MODERN ? dispatchModern(request, method) : dispatchLegacy(request, method);
         return request.notification() ? new NoResponse() : outcome;
+    }
+
+    /** MCP 2025-06-18: the {@code initialize} handshake and {@code ping}, as in BootUI 1.x. */
+    private McpDispatchOutcome dispatchLegacy(McpRequest request, String method) {
+        return switch (method) {
+            case "initialize" -> initialize(request);
+            case "ping" -> new PingResult();
+            default -> dispatchShared(request, method);
+        };
+    }
+
+    /** MCP 2026-07-28: no handshake and no {@code ping}; {@code server/discover} advertises the server instead. */
+    private McpDispatchOutcome dispatchModern(McpRequest request, String method) {
+        if ("server/discover".equals(method)) {
+            return new DiscoverResult(
+                    McpProtocol.SUPPORTED_VERSIONS, McpProtocol.SERVER_NAME, serverVersion, instructions);
+        }
+        return dispatchShared(request, method);
+    }
+
+    private McpDispatchOutcome dispatchShared(McpRequest request, String method) {
+        return switch (method) {
+            case "tools/list" ->
+                new ToolsListResult(
+                        tools().stream().map(tool -> tool.describe(maxResults)).toList());
+            case "tools/call" -> callTool(request);
+            case "prompts/list" -> new PromptsListResult(prompts);
+            case "prompts/get" -> getPrompt(request);
+            default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
+        };
     }
 
     private McpDispatchOutcome initialize(McpRequest request) {

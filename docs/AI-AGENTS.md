@@ -121,6 +121,12 @@ The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/
 (fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless non-loopback access is
 explicitly enabled, which requires authentication.
 
+The endpoint speaks both MCP eras. A client that opens with `initialize` gets MCP 2025-06-18 exactly as before; a client
+that sends MCP 2026-07-28 per-request `_meta` (with the matching `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
+headers) can call `server/discover` and gets `resultType`, the server's identity, and cache hints on every result. Both
+eras see the same tools, prompts, policies, and limits, and every response is a single JSON object. There is no `GET`
+stream in either era (`405`). See [Protocol eras](#protocol-eras) for the details a client implementer needs.
+
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
    classpath). See [Setup](SETUP.md).
 2. **Enable the server.** Set `bootui.mcp.enabled=ON`, or flip the toggle at the top of the **MCP Server** panel
@@ -698,6 +704,32 @@ See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](f
 description. `get_agent_status` is read-only and reports only the local BootUI Java agent state, setup snippets, and
 claim metadata.
 
+
+## Protocol eras
+
+BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, as MCP 2026-07-28's backward
+compatibility rules describe:
+
+- **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
+  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes
+  `-32000` (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An
+  `MCP-Protocol-Version` header other than `2025-06-18` is refused with `400` and `-32600`.
+- **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
+  being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
+  (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
+  `data.requested`; `io.modelcontextprotocol/clientCapabilities` must be an object (`-32602`); `Mcp-Method` must be sent
+  once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
+  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
+  (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
+- **Modern results.** Every result carries `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`.
+  `server/discover`, `tools/list`, and `prompts/list` also carry `ttlMs: 60000` and `cacheScope: "private"`; tools stay
+  in catalog order. Modern clients have no `initialize` or `ping`; an unknown method answers `404` with `-32601`.
+  BootUI's own server errors move out of the JSON-RPC reserved range for modern clients: `-31000` (disabled), `-31001`
+  (at capacity), `-31002` (timeout), and `-31003` (response too large), with the same messages.
+- **Unchanged in both eras.** Loopback, Host, cross-site write, token, panel enable and read-only, masking,
+  payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
+  answer `202`. Responses are single JSON objects; request-scoped progress over `text/event-stream` is planned
+  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 ## Assess an application and approve an action plan
 
 When you do not know which panel to investigate first, ask your coding agent for an application assessment:
