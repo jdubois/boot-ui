@@ -103,6 +103,16 @@ class McpExchangeTests {
                 .isEqualTo(new Plan.Dispatch(new Serve(McpEra.LEGACY, null, null)));
     }
 
+    @Test
+    void oversizedResponsesAreReplacedWithTheEraWireCode() {
+        assertThat(McpExchange.checkResponseSize(McpEra.LEGACY, 100, 100)).isNull();
+        assertThat(McpExchange.checkResponseSize(McpEra.LEGACY, 101, 100))
+                .isEqualTo(reject200(
+                        McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE, IdEcho.AS_SENT));
+        assertThat(McpExchange.checkResponseSize(McpEra.MODERN, 101, 100).code())
+                .isEqualTo(-31003);
+    }
+
     private static Plan.Reject reject200(int code, String message, IdEcho echo) {
         return new Plan.Reject(McpEra.LEGACY, 200, code, message, List.of(), null, echo);
     }

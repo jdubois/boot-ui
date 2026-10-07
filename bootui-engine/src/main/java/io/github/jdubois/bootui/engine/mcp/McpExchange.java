@@ -11,7 +11,7 @@ import java.util.Objects;
  *
  * <p>The adapter extracts the {@link Envelope} with its own JSON library, renders the returned {@link Plan}, and never
  * re-decides it. What stays adapter-side is only what needs the JSON library: parsing the arguments into an {@link
- * McpRequest}, rendering the outcome, and measuring the rendered bytes against {@code bootui.mcp.max-response-bytes}.
+ * McpRequest}, rendering the outcome, and measuring the rendered bytes, which {@link #checkResponseSize} judges.
  * The HTTP status of a dispatched outcome is {@link McpProtocol#httpStatus(McpEra, McpDispatchOutcome)}.
  */
 public final class McpExchange {
@@ -137,6 +137,23 @@ public final class McpExchange {
                     era, 200, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE, IdEcho.AS_SENT);
         }
         return null;
+    }
+
+    /**
+     * The refusal of a rendered response of {@code renderedBytes} bytes in {@code era}, or {@code null} when it fits in
+     * {@code maxResponseBytes}. The JSON response and the final event of a stream obey the same rule: the response is
+     * replaced, with HTTP {@code 200} on the JSON path, by {@link McpProtocol#RESPONSE_TOO_LARGE} echoing the request id.
+     */
+    public static Plan.Reject checkResponseSize(McpEra era, long renderedBytes, int maxResponseBytes) {
+        if (renderedBytes <= Math.max(1, maxResponseBytes)) {
+            return null;
+        }
+        return Plan.Reject.of(
+                era,
+                200,
+                McpProtocol.wireErrorCode(era, McpProtocol.RESPONSE_TOO_LARGE),
+                McpProtocol.RESPONSE_TOO_LARGE_MESSAGE,
+                IdEcho.AS_SENT);
     }
 
     /** The decision {@link #plan} makes for one request body. */
