@@ -567,6 +567,10 @@ class LiveActivityServiceTests {
                 new BootUiProperties());
 
         assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isEqualTo("r1");
+        assertThat(service.report(null, null, 0, 0).entries())
+                .filteredOn(entry -> entry.id().equals("exc-e1"))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.exceptionGroupId()).isEqualTo("e1"));
     }
 
     @Test

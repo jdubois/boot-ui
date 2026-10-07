@@ -416,7 +416,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions or get_live_activity.",
+      "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity.",
       "example": "bootui exceptions show <id>",
       "idHelp": "An exception group id from 'bootui exceptions list' or 'bootui activity'."
     },
@@ -597,7 +597,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates.",
+      "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload, or a bare method name), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each with totals, a limitation naming the rest, or AMBIGUOUS with candidates.",
       "example": "bootui insights impact 'OrderService#total'",
       "idHelp": "A route, bean, class, Class#method, repository, table, cache, host, or event type."
     },
@@ -655,7 +655,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the current JVM sizing facts and generated tuning recommendations using detected defaults.",
+      "summary": "Return the current JVM sizing facts and generated tuning recommendations using detected defaults: the JVM's arguments, the memory calculation, suggested options, and the Kubernetes recommendation; per-pool usage comes from get_live_memory.",
       "example": "bootui jvm tuning"
     },
     {
@@ -767,7 +767,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and thread measurements without requesting GC or a class histogram.",
+      "summary": "Return a passive snapshot of current JVM heap, non-heap, and per-memory-pool usage without requesting GC or a class histogram.",
       "example": "bootui memory live"
     },
     {

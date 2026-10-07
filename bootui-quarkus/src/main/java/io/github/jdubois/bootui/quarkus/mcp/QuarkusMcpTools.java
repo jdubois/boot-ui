@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.AiResource;
 import io.github.jdubois.bootui.quarkus.web.ArchitectureResource;
@@ -571,14 +572,14 @@ public class QuarkusMcpTools {
                 tool(
                         "get_live_memory",
                         McpToolDescriptions.quarkus("get_live_memory"),
-                        args -> liveMemory.memory(null, null, null, null, null)));
+                        args -> MemoryAgentViews.liveMemory(liveMemory.memory(null, null, null, null, null))));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_jvm_tuning",
                         McpToolDescriptions.quarkus("get_jvm_tuning"),
-                        args -> jvmTuning.jvmTuning(null, null, null, null, null)));
+                        args -> MemoryAgentViews.jvmTuning(jvmTuning.jvmTuning(null, null, null, null, null))));
         addIfAvailable(
                 registry,
                 availability,
