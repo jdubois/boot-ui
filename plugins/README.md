@@ -1,8 +1,17 @@
-# `plugins/` — the Claude Code plugin payload
+# `plugins/` — the portable agent plugin payload
 
-`plugins/bootui` is the [Claude Code plugin](https://www.julien-dubois.com/boot-ui/ai-agents)
-published by the marketplace manifest at [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json).
-Users install it with:
+`plugins/bootui` is the curated, user-facing plugin payload documented in the
+[AI agents guide](https://www.julien-dubois.com/boot-ui/ai-agents). It carries two manifests because the same directory
+serves two compatible plugin systems:
+
+- [`plugin.json`](bootui/plugin.json) and [`mcp.json`](bootui/mcp.json) follow Agent Plugins 1.0.0. Cursor and other
+  compatible clients discover the skill and Streamable HTTP server from these files.
+- [`.claude-plugin/plugin.json`](bootui/.claude-plugin/plugin.json) uses Claude Code's client-specific manifest,
+  including its `BOOTUI_MCP_URL` override.
+
+The repository advertises that directory through both
+[`.cursor-plugin/marketplace.json`](../.cursor-plugin/marketplace.json) and
+[`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json). Claude Code users install it with:
 
 ```
 /plugin marketplace add jdubois/boot-ui
@@ -34,13 +43,16 @@ was measured: it copies the entire monorepo — 396 MB from a working tree with 
 version**. Since the plugin is versioned by commit SHA, every push to `main` would land another full
 copy of the Java sources on every user's disk. The curated directory installs 36 KB.
 
-## Why `plugin.json` carries no `version`
+## Why neither plugin manifest carries a `version`
 
 `claude plugin validate` warns about this on purpose — please don't "fix" it. Without a `version`,
 Claude Code versions the plugin by the git commit SHA, so every push to `main` reaches installed
 users as an update. Pinning a version would mean the plugin only refreshes when someone remembers to
 bump it, which would leave a one-line skill fix waiting for the next Java release, and would couple
 the release workflow to an artefact it otherwise knows nothing about.
+
+The portable Agent Plugins manifest follows the same policy. Its schema makes `version` optional, and omitting it keeps
+the two views of one payload from acquiring separate release lifecycles.
 
 ## Why only the `bootui` skill
 

@@ -44,9 +44,12 @@ test.describe('Runtime Insights view', () => {
     await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
 
+    // Change impact is a tab of its own, search first.
     const products = await page.request.get('/api/sample/products')
     expect(products.ok()).toBeTruthy()
+    await page.getByRole('tab', {name: /^Change impact/}).click()
     const impact = page.locator('.insight-impact')
+    await expect(page.getByRole('tab', {name: /^Change impact/})).toHaveAttribute('aria-selected', 'true')
     const symbol = impact.getByRole('combobox', {name: /Symbol to check/})
     await symbol.fill('ProductRepository')
     await impact.getByRole('button', {name: 'Check impact'}).click()
@@ -84,6 +87,11 @@ test.describe('Runtime Insights view', () => {
     await page.getByRole('tab', {name: /^Findings/}).click()
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
+
+    // ?impact=<symbol> opens the Change impact tab already checked.
+    await openView('runtime-insights?impact=ProductRepository', 'Runtime Insights')
+    await expect(page.getByRole('tab', {name: /^Change impact/})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.insight-impact .insight-impact-node')).toContainText('productRepository')
   })
 
   test('profiles resources only when asked, and splits the samples by route', async ({openView, page}) => {
