@@ -417,8 +417,8 @@ class RequestValuesTests {
                 (java.util.concurrent.atomic.AtomicLongArray) requestsField.get(null);
         Field locksField = RequestValues.class.getDeclaredField("LOCKS");
         locksField.setAccessible(true);
-        java.util.concurrent.atomic.AtomicIntegerArray locks =
-                (java.util.concurrent.atomic.AtomicIntegerArray) locksField.get(null);
+        java.util.concurrent.atomic.AtomicLongArray locks =
+                (java.util.concurrent.atomic.AtomicLongArray) locksField.get(null);
         int index = -1;
         for (int i = 0; i < RequestValues.ENTRIES; i++) {
             if (requests.get(i) != 0L) {
@@ -426,7 +426,7 @@ class RequestValuesTests {
             }
         }
         // A holder that died inside: its token stays in the lock.
-        int dead = -7;
+        long dead = -7L;
         locks.set(index, dead);
 
         RequestValues.end(REQUEST);
@@ -440,12 +440,12 @@ class RequestValuesTests {
 
         // The next request takes the entry; the dead holder's unlock, were it to run now, releases nothing.
         RequestValues.begin(REQUEST, names("q"), values("next-value"), null, null);
-        locks.set(index, 99);
-        java.lang.reflect.Method unlock = RequestValues.class.getDeclaredMethod("unlock", int.class, int.class);
+        locks.set(index, 99L);
+        java.lang.reflect.Method unlock = RequestValues.class.getDeclaredMethod("unlock", int.class, long.class);
         unlock.setAccessible(true);
         unlock.invoke(null, index, dead);
-        assertThat(locks.get(index)).isEqualTo(99);
-        locks.set(index, 0);
+        assertThat(locks.get(index)).isEqualTo(99L);
+        locks.set(index, 0L);
         RequestValues.end(REQUEST);
         RequestValues.end(REQUEST);
         assertThat(RequestValues.status().get("live"))
@@ -462,7 +462,7 @@ class RequestValuesTests {
         String third = new String("third-" + System.nanoTime());
         RequestValues.begin(REQUEST, names("q"), new String[] {first}, null, null);
         java.util.concurrent.atomic.AtomicLongArray requests = field("REQUESTS");
-        java.util.concurrent.atomic.AtomicIntegerArray locks = field("LOCKS");
+        java.util.concurrent.atomic.AtomicLongArray locks = field("LOCKS");
         java.util.concurrent.atomic.AtomicReferenceArray<?> table = field("TABLE");
         int index = -1;
         for (int i = 0; i < RequestValues.ENTRIES; i++) {
@@ -481,7 +481,7 @@ class RequestValuesTests {
         String nextRequest = String.format("%016x", next);
 
         // The first request's holder stalls inside; its end takes the lock over and detaches the entry.
-        locks.set(index, -7);
+        locks.set(index, -7L);
         RequestValues.end(REQUEST);
         RequestValues.begin(nextRequest, names("q"), new String[] {third}, null, null);
         assertThat(requests.get(index)).isEqualTo(next);
@@ -504,6 +504,56 @@ class RequestValuesTests {
         List<Object> reached = new ArrayList<>();
         reach(RequestValues.class, seen, reached, 0);
         assertThat(reached).noneMatch(o -> o == first || o == stale || o == third || o == overtaken);
+    }
+
+    @Test
+    void aThreadRetakingTheLockInALoopIsNeverTakenOverByAWaiter() throws Exception {
+        java.util.concurrent.atomic.AtomicLongArray locks = field("LOCKS");
+        Method lock = RequestValues.class.getDeclaredMethod("lock", int.class);
+        lock.setAccessible(true);
+        Method tryLock = RequestValues.class.getDeclaredMethod("tryLock", int.class);
+        tryLock.setAccessible(true);
+        Method token = RequestValues.class.getDeclaredMethod("token");
+        token.setAccessible(true);
+        Method unlock = RequestValues.class.getDeclaredMethod("unlock", int.class, long.class);
+        unlock.setAccessible(true);
+        int index = 6;
+        long before = (Long) RequestValues.status().get("lockTakeovers");
+        long held = (Long) tryLock.invoke(null, index);
+        assertThat(held).isNotZero();
+        java.util.concurrent.atomic.AtomicLong waited = new java.util.concurrent.atomic.AtomicLong();
+        Thread waiter = new Thread(() -> {
+            try {
+                long mine = (Long) lock.invoke(null, index);
+                waited.set(mine);
+                unlock.invoke(null, index, mine);
+            } catch (ReflectiveOperationException ex) {
+                throw new IllegalStateException(ex);
+            }
+        });
+        waiter.start();
+        // The same thread releases and retakes the lock every 60 ms, never holding it for the wait, and the waiter
+        // misses
+        // every release: modeled by the lock word moving straight to this thread's next token.
+        for (int i = 0; i < 6; i++) {
+            Thread.sleep(60);
+            long next = (Long) token.invoke(null);
+            assertThat(next)
+                    .as("each acquisition's token is new, on the same thread")
+                    .isNotEqualTo(held);
+            assertThat(locks.compareAndSet(index, held, next)).isTrue();
+            held = next;
+        }
+        assertThat(waiter.isAlive())
+                .as("still waiting, after 360 ms of holds of 60 ms each")
+                .isTrue();
+        assertThat((Long) RequestValues.status().get("lockTakeovers")).isEqualTo(before);
+
+        unlock.invoke(null, index, held);
+        waiter.join(5_000);
+        assertThat(waited.get()).as("took it once released").isNotZero();
+        assertThat((Long) RequestValues.status().get("lockTakeovers")).isEqualTo(before);
+        assertThat(locks.get(index)).isZero();
     }
 
     @SuppressWarnings("unchecked")

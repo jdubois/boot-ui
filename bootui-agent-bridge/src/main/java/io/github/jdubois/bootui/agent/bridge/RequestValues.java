@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.LongAdder;
@@ -172,22 +171,23 @@ public final class RequestValues {
     /** The key of the per-process keyed hashes of raw sink texts (PLAN-v2 M5-6 design Important 11). */
     private static final long HASH_KEY = ThreadLocalRandom.current().nextLong() | 1L;
 
-    private static final int FREE = 0;
+    private static final long FREE = 0L;
 
-    /** The lock tokens, one per thread, never {@link #FREE}, so only a lock's holder ever releases it. */
+    /** The threads' ids in lock tokens, drawn once per thread, never 0. */
     private static final AtomicInteger TOKENS = new AtomicInteger();
 
     /**
-     * The calling thread's lock token, drawn once: a token only tells threads apart, as a thread overtaken inside an
-     * entry cannot take another lock until it resumes, so no counter is shared per acquisition.
+     * The calling thread's id and its acquisition sequence, {@code {id, sequence}}: each acquisition's token is new, the
+     * id in its high bits and the sequence in its low ones, so a waiter sees a lock that changed hands, even to the same
+     * thread, and no counter is shared per acquisition.
      */
-    static final ThreadLocal<int[]> THREAD_TOKEN = new ThreadLocal<int[]>();
+    static final ThreadLocal<long[]> THREAD_TOKEN = new ThreadLocal<long[]>();
 
     /** Each entry's request id, 0 when free; written only under the entry's lock, read without it to find an entry. */
     private static final AtomicLongArray REQUESTS = new AtomicLongArray(ENTRIES);
 
-    /** Each entry's try-lock: {@link #FREE}, or its holder's token. */
-    private static final AtomicIntegerArray LOCKS = new AtomicIntegerArray(ENTRIES);
+    /** Each entry's try-lock: {@link #FREE}, or its holder's token for this acquisition. */
+    private static final AtomicLongArray LOCKS = new AtomicLongArray(ENTRIES);
 
     /**
      * Each slot's entry, {@code null} when free. A wipe detaches the entry object by compare-and-set: a holder a takeover
@@ -352,15 +352,14 @@ public final class RequestValues {
             sweep(now);
             long generation = tableGeneration;
             int index = find(request);
-            int token;
+            long token;
             if (index < 0) {
-                long claimed = claimFree(request, generation, now);
-                if (claimed < 0L) {
+                index = claimFree(request, generation, now);
+                if (index < 0) {
                     TABLE_FULL.increment();
                     return -1;
                 }
-                index = (int) claimed;
-                token = (int) (claimed >>> 32);
+                token = currentToken();
                 BEGUN.increment();
             } else {
                 token = lock(index);
@@ -415,7 +414,7 @@ public final class RequestValues {
             sweep(System.nanoTime());
             for (int i = 0; i < ENTRIES; i++) {
                 if (REQUESTS.get(i) == request) {
-                    int token = lock(i);
+                    long token = lock(i);
                     try {
                         if (wipe(i, entry(i, request))) {
                             ENDED.increment();
@@ -437,7 +436,7 @@ public final class RequestValues {
         }
         for (int i = 0; i < ENTRIES; i++) {
             Entry candidate = TABLE.get(i);
-            int token;
+            long token;
             // The deadline first, read without the lock: a sweep takes no lock, and touches no shared counter, unless
             // an
             // entry looks expired.
@@ -458,7 +457,7 @@ public final class RequestValues {
     static void wipeAll() {
         for (int i = 0; i < ENTRIES; i++) {
             if (REQUESTS.get(i) != 0L || TABLE.get(i) != null) {
-                int token = lock(i);
+                long token = lock(i);
                 try {
                     if (wipe(i, TABLE.get(i))) {
                         WIPED.increment();
@@ -911,7 +910,7 @@ public final class RequestValues {
         String scanned = partial ? text.substring(0, MAX_SCAN) : text;
         long hash = textHash(text, scanned, kind);
         boolean spansFit = spans == null || spans.length >= SPANS_LENGTH;
-        int token = tryLock(index);
+        long token = tryLock(index);
         if (token == FREE) {
             return busy(spans);
         }
@@ -1280,20 +1279,20 @@ public final class RequestValues {
     }
 
     /**
-     * Takes a free slot for {@code request} with a new entry, and returns it locked: its lock token in the high 32 bits
-     * and its index in the low ones, or -1 when none is free. The entry is a new object, so nothing a holder overtaken
-     * by a takeover wrote into the slot's previous one is ever reachable from it.
+     * Takes a free slot for {@code request} with a new entry, and returns its index, locked under the calling thread's
+     * {@link #currentToken()}, or -1 when none is free. The entry is a new object, so nothing a holder overtaken by a
+     * takeover wrote into the slot's previous one is ever reachable from it.
      */
-    private static long claimFree(long request, long generation, long now) {
+    private static int claimFree(long request, long generation, long now) {
         int start = slot(request);
         for (int i = 0; i < ENTRIES; i++) {
             int index = (start + i) & (ENTRIES - 1);
-            int token;
+            long token;
             if (REQUESTS.get(index) == 0L && (token = tryLock(index)) != FREE) {
                 if (REQUESTS.compareAndSet(index, 0L, request)) {
                     if (TABLE.compareAndSet(index, null, new Entry(request, generation, now))) {
                         LIVE.incrementAndGet();
-                        return ((long) token << 32) | index;
+                        return index;
                     }
                     // A wipe still detaching the slot's previous entry: the slot is not free yet.
                     REQUESTS.compareAndSet(index, request, 0L);
@@ -1301,7 +1300,7 @@ public final class RequestValues {
                 unlock(index, token);
             }
         }
-        return -1L;
+        return -1;
     }
 
     private static int slot(long request) {
@@ -1309,26 +1308,33 @@ public final class RequestValues {
         return (int) (mixed >>> 57) & (ENTRIES - 1);
     }
 
-    /** The calling thread's lock token, never {@link #FREE}. */
-    private static int token() {
-        int[] held = THREAD_TOKEN.get();
-        if (held == null) {
-            int token;
+    /** A new lock token for the calling thread, never {@link #FREE}: its id, then the next of its own sequence. */
+    private static long token() {
+        long[] state = THREAD_TOKEN.get();
+        if (state == null) {
+            int id;
             do {
-                token = TOKENS.incrementAndGet();
-            } while (token == FREE);
-            held = new int[] {token};
-            THREAD_TOKEN.set(held);
+                id = TOKENS.incrementAndGet();
+            } while (id == 0);
+            state = new long[] {id, 0L};
+            THREAD_TOKEN.set(state);
         }
-        return held[0];
+        state[1] = (state[1] + 1L) & 0xFFFFFFFFL;
+        return (state[0] << 32) | state[1];
+    }
+
+    /** The calling thread's last lock token, as {@link #token()} returned it. */
+    private static long currentToken() {
+        long[] state = THREAD_TOKEN.get();
+        return state == null ? FREE : (state[0] << 32) | state[1];
     }
 
     /** The entry's lock, or {@link #FREE} when another thread holds it. */
-    private static int tryLock(int index) {
+    private static long tryLock(int index) {
         if (LOCKS.get(index) != FREE) {
             return FREE;
         }
-        int token = token();
+        long token = token();
         return LOCKS.compareAndSet(index, FREE, token) ? token : FREE;
     }
 
@@ -1338,16 +1344,16 @@ public final class RequestValues {
      * is never blocked: the overtaken holder, if it still runs, sees the lock is no longer its own before each write and
      * stops, and its unlock releases nothing.
      */
-    private static int lock(int index) {
-        int token = token();
+    private static long lock(int index) {
+        long token = token();
         if (LOCKS.compareAndSet(index, FREE, token)) {
             return token;
         }
         long deadline = System.nanoTime() + LOCK_WAIT_NANOS;
-        int seen = FREE;
+        long seen = FREE;
         int spins = 0;
         while (true) {
-            int held = LOCKS.get(index);
+            long held = LOCKS.get(index);
             if (held != seen) {
                 // Another holder took the lock: its own wait starts now, so a lock is taken over only from a holder
                 // that kept it the whole time, never from one that just took it.
@@ -1371,12 +1377,12 @@ public final class RequestValues {
     }
 
     /** Whether the caller still holds slot {@code index}, and the slot still holds {@code entry}: never after a takeover. */
-    private static boolean owns(int index, int token, Entry entry) {
+    private static boolean owns(int index, long token, Entry entry) {
         return LOCKS.get(index) == token && TABLE.get(index) == entry;
     }
 
     /** Releases the entry's lock if {@code token} still holds it: an overtaken holder releases nothing. */
-    private static void unlock(int index, int token) {
+    private static void unlock(int index, long token) {
         LOCKS.compareAndSet(index, token, FREE);
     }
 
@@ -1463,7 +1469,7 @@ public final class RequestValues {
         for (int i = 0; i < ENTRIES; i++) {
             Entry entry = TABLE.get(i);
             if (entry != null) {
-                int token = lock(i);
+                long token = lock(i);
                 try {
                     entry.begun -= DEADLINE_NANOS + 1L;
                 } finally {
