@@ -225,7 +225,14 @@ smoke_line_of() {
 }
 require_smoke_literal 'readonly EXPECTED_ORIGIN="bootui-staged"' 'staged-candidate origin'
 require_smoke_literal 'readonly EXPECTED_ORIGIN="central"' 'Maven Central origin'
-require_smoke_literal '"$(basename "$file")>${EXPECTED_ORIGIN}="' 'per-file origin check of every resolved BootUI artifact'
+require_smoke_literal 'readonly EXPECTED_ORIGIN_URL="file://${STAGED_REPOSITORY}"' 'staged-candidate origin URL'
+require_smoke_literal 'readonly EXPECTED_ORIGIN_URL="https://repo.maven.apache.org/maven2"' 'Maven Central origin URL'
+require_smoke_literal "EXPECTED_ORIGIN_KEY=\"\${EXPECTED_ORIGIN}-\$(printf '%s' \"\$EXPECTED_ORIGIN_URL\" | sha1_hex)\"" \
+  'Maven Resolver 2 origin key, the repository id and the SHA-1 of its URL'
+require_smoke_literal 'grep -Fxq -e "${name}>${EXPECTED_ORIGIN}=" -e "${name}>${EXPECTED_ORIGIN_KEY}=" \' \
+  'exact origin match of a resolved BootUI artifact'
+require_smoke_literal 'if ! resolved_from_source_under_test "$file"; then' \
+  'per-file origin check of every resolved BootUI artifact'
 require_smoke_literal 'if [[ "$RESOLVED_ARTIFACTS" != "$EXPECTED_ARTIFACTS" ]]; then' \
   'check that the consumers resolved exactly the published coordinates'
 require_smoke_literal 'create_spring_smoke_project "$MVC_SMOKE_DIR" "spring-boot-starter-web" "$MVC_PORT"' \
