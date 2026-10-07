@@ -927,14 +927,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  # The resources sensor's default (M5-5g): an A/B on one runner, in its own job so agent-overhead stays within its
+  # The resources sensor's budget (M5-5g, D47): an A/B on one runner, in its own job so agent-overhead stays within its
   # timeout. On the I/O route, which connects and closes one socket and reads one file per request, the default sensors
-  # plus resources against the default sensors (its own increment on sockets, fifteen pairs) and against no agent (the
-  # cumulative overhead with it, fifteen pairs), then, for the record, with files on both sides (its own increment on
-  # files too, which files alone keeps near the 10 % budget). It may be on by default only with its own median at most
-  # 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL, and fails the job when the verdict is
-  # FAIL while resources is among the default sensors. Pushes, manual runs, and pull requests labelled agent.
-  # The first run measured -0.5 % own, 0.3 % beside files, and 6.9 % cumulative: PASS; resources stays opt-in (D37).
+  # against the default sensors without resources (its own increment on sockets, fifteen pairs) and against no agent
+  # (the cumulative overhead, fifteen pairs), then, for the record, with files on both sides (its own increment on files
+  # too, which files alone keeps near the 10 % budget). resources is a default sensor, so its own median must stay at
+  # most 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL and fails the job on a FAIL, as
+  # for blocking. Pushes, manual runs, and pull requests labelled agent. The first run measured -0.5 % own, 0.3 % beside
+  # files, and 6.9 % cumulative: PASS, so D47 made it a default.
   agent-overhead-resources:
     name: Agent overhead, resources A/B (Java 17)
     runs-on: ubuntu-latest

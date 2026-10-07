@@ -402,7 +402,15 @@ class JavaAgentServiceTests {
         assertThat(stub.requests.get(0))
                 .as("the default claim asks for the inventory sensor and the ring's capacity")
                 .containsEntry(
-                        "sensors", List.of("executors", "inventory", "code-paths", "processes", "network", "blocking"))
+                        "sensors",
+                        List.of(
+                                "executors",
+                                "inventory",
+                                "code-paths",
+                                "processes",
+                                "network",
+                                "blocking",
+                                "resources"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat(report.sensors()).singleElement().satisfies(row -> {
             assertThat(row.id()).isEqualTo("inventory");
@@ -698,8 +706,7 @@ class JavaAgentServiceTests {
                         org.assertj.core.api.Assertions.tuple("files", true, true, false, "installing", true),
                         org.assertj.core.api.Assertions.tuple("environment", false, false, false, "off", true),
                         org.assertj.core.api.Assertions.tuple("thread-activity", false, false, false, "off", true),
-                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true),
-                        org.assertj.core.api.Assertions.tuple("resources", false, false, false, "off", true));
+                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true));
         assertThat(service.report().toggles())
                 .allSatisfy(toggle -> assertThat(toggle.optInReason()).startsWith("Off by default"));
 

@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`, `resources`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -792,9 +792,9 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
-  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e),
-  `thread-locals` (M5-5f), and `resources` (M5-5g) when opted in. The `security-sinks` sensor is still listed but reports
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b),
+  `blocking` (M5-5c), and `resources` (M5-5g, D47) sensors record by default, and `files` and `environment` (M5-5d),
+  `thread-activity` (M5-5e), and `thread-locals` (M5-5f) when opted in. The `security-sinks` sensor is still listed but reports
   `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
@@ -944,19 +944,18 @@ Acceptance criteria:
   `GET /api/thread-locals/cleared` (removed in `finally`), `GET /api/thread-locals/nulled` (set to `null`), and, on
   Spring MVC and Quarkus, `GET /api/thread-locals/before` (set by a filter before BootUI's scope) never appear, and
   `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`.
-- The opt-in `resources` sensor (M5-5g, D46) tracks the streams, channels, and sockets the `files` and `network`
-  sensors record opening (so files only while `files` is on) for a request or a job with an application frame on the
+- The `resources` sensor (M5-5g, D46), on by default (D47), tracks the streams, channels, and sockets the `files` and
+  `network` sensors record opening (sockets by default, file streams only while the opt-in `files` is on) for a request or a job with an application frame on the
   stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
   stream`, `file output stream`, `random access file`, `file channel`, `socket`, `socket channel`), target (the masked
   path pattern or host and port), call site, and origin (`Opened by the application`, or `Opened by a library the
   application called`), with how many were still open 250 ms after their request's response completed and closed after
   it (a hand-off, as a pool's connection), and how many the collector reclaimed without `close()`, the leak. With the
-  agent and `files` and `resources` opted in, the three samples' `GET /api/resources/leaked-stream` shows a `file input
+  agent and `files` opted in, the three samples' `GET /api/resources/leaked-stream` shows a `file input
   stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
   nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `resources` remain
-  opt-in.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and
+  `resources`; `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

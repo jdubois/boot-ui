@@ -43,8 +43,7 @@ const OPT_IN = {
   environment: 'the names read',
   'thread-activity':
     'the threads the application starts and the executors it creates per route, and those a request left running',
-  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values',
-  resources: 'the streams, channels, and sockets a request left open or never closed, files only while files is on'
+  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values'
 }
 
 const STATE = {

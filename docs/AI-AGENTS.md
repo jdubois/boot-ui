@@ -469,7 +469,7 @@ sensor, the blocking calls started on an event loop from the `blocking` sensor, 
 the executors it creates from the `thread-activity` sensor, with those a request left running when it ended
 (`leftRunning`) and how many a request starts (`count` / `requests`), and, opt-in, the thread locals a request or a job
 left set on its pooled thread from the `thread-locals` sensor, named by the static field holding them, never their
-values, and the streams, channels, and sockets from the `resources` sensor: those the collector reclaimed without
+values, and, by default, the sockets, and with `files` the file streams, from the `resources` sensor: those the collector reclaimed without
 `close()` (`failed`, the leak), and those still open after their request (`leftRunning`) or closed after it
 (`completed`), a pool's or a cache's hand-off. Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
 

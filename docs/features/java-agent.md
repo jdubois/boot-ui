@@ -72,7 +72,7 @@ best-effort.
 
 ## Switching opt-in sensors at run time
 
-The opt-in sensors, `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `resources`, can be switched on and off for the running application
+The opt-in sensors, `threads`, `files`, `environment`, `thread-activity`, and `thread-locals`, can be switched on and off for the running application
 without a restart, from the panel's **Opt-in sensors** card or from each opt-in sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
@@ -174,10 +174,10 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
-[`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
-[`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
-[`thread-activity`](#the-thread-activity-sensor), [`thread-locals`](#the-thread-locals-sensor), [`resources`](#the-resources-sensor), and
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor),
+[`blocking`](#the-blocking-sensor), and [`resources`](#the-resources-sensor), the defaults, and the opt-in
+[`threads`](#the-threads-sensor), [`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
+[`thread-activity`](#the-thread-activity-sensor), [`thread-locals`](#the-thread-locals-sensor), and
 [`caught-exceptions`](#the-caught-exceptions-sensor). The agent
 installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
@@ -1050,7 +1050,7 @@ scope; then resolves the plain one to its static field. Its two pseudo-hooks, `T
 
 ## The resources sensor
 
-The opt-in `resources` sensor reports the streams, channels, and sockets a request's or a job's work opened and left
+The `resources` sensor, on by default (D47), reports the streams, channels, and sockets a request's or a job's work opened and left
 open past its request, or never closed before the garbage collector reclaimed them, for the [Side
 Effects](#side-effects) panel's **Threads and leaks** tab, `get_side_effects`, and `bootui side-effects`. It never
 records a byte read or written: a row's target is the path pattern or the host and port the [`files`](#the-files-sensor)
@@ -1115,15 +1115,14 @@ newest verified JDK, alone and beside the OpenTelemetry agent in both orders, wi
 **Cost.** The `agent-overhead-resources` job of `build.yml` measures it on the benchmark's I/O route (one socket
 connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured its own
 median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
-median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets. It stays opt-in (D37) until the maintainer
-makes it a default. Add
-`resources` to `bootui.agent.sensors` with `files`, or switch it on at run time from the Java Agent or Side Effects
-panel; a resource opened before it was switched on is not tracked, and switching it off forgets what it tracked.
-
+median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets, so it is on by default (D47, an exception to
+D37's opt-in rule), and that job now fails CI when either figure exceeds its budget. It tracks sockets by default,
+through `network`; file streams and channels need the opt-in `files` sensor, and the panel says so while `files` is off.
+Like the other default sensors, it is not switched at run time: leave it out of `bootui.agent.sensors` to turn it off.
 
 ## The caught-exceptions sensor
 
-`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources,caught-exceptions` adds the opt-in `caught-exceptions`
 sensor, which reports the exceptions application code catches and which of them are thrown again. It records the
 events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel, whose
 [**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one.
@@ -1260,7 +1259,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `resources`, and `caught-exceptions`. The Side Effects sensor this version does not ship (`security-sinks`) is accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `resources`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `caught-exceptions`. The Side Effects sensor this version does not ship (`security-sinks`) is accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1561,7 +1560,7 @@ The Side Effects panel shows what application code starts outside the JVM or tou
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus, except
-that an opt-in sensor's section (`files`, `environment`, `thread-activity`, `resources`) carries its [runtime
+that an opt-in sensor's section (`files`, `environment`, `thread-activity`, `thread-locals`) carries its [runtime
 switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
 with `bootui.agent.sensors` as the other way to turn it on.
 
@@ -1576,7 +1575,7 @@ The panel has one tab per sensor group:
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
 | Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in or it is switched on. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
-| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | All three record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor), [the thread-locals sensor](#the-thread-locals-sensor), and [the resources sensor](#the-resources-sensor)). |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `resources` records by default, sockets through `network` and file streams once `files` is on (see [the resources sensor](#the-resources-sensor)); `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)). |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |
 

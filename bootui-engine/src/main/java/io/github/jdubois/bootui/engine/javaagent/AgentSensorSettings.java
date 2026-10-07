@@ -13,7 +13,8 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment},
+ *     {@code network}, {@code blocking}, and {@code resources}, and the opt-in {@code threads}, {@code files},
+ *     {@code environment},
  *     {@code thread-activity}, {@code resources}, and {@code caught-exceptions}; the Side Effects sensors this version does not ship are
  *     accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
@@ -99,9 +100,9 @@ public record AgentSensorSettings(
     /**
      * The Side Effects sensor reporting the streams, channels, and sockets a request's or a job's work opened and left
      * open past the request's end, or that became unreachable while never closed (M5-5g, §5.16, D46), never their
-     * contents. It tracks what the {@code files} and {@code network} sensors record, and advises the JDK's close
-     * methods; opt-in (D37) until a same-runner A/B of the agent's overhead benchmark shows its own increment at most
-     * 3 % and the cumulative overhead at most 10 %.
+     * contents. It tracks what the {@code files} and {@code network} sensors record, so sockets by default and file
+     * streams once {@code files} is on, and advises the JDK's close methods. On by default (D47, an exception to D37):
+     * its same-runner A/B measured -0.5 % own and 6.9 % cumulative, within the 3 % and 10 % budgets.
      */
     public static final String RESOURCES = "resources";
 
@@ -139,7 +140,7 @@ public record AgentSensorSettings(
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
-            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING, RESOURCES);
 
     /**
      * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
@@ -147,7 +148,7 @@ public record AgentSensorSettings(
      * run time: its visit of every application class is installed with the claim only.
      */
     public static final List<String> OPT_IN_SENSORS =
-            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS, RESOURCES);
+            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
 
     /**
      * Why {@code id}, one of {@link #OPT_IN_SENSORS}, is off by default, as the panels show it beside its switch; or
@@ -173,10 +174,6 @@ public record AgentSensorSettings(
             case THREAD_LOCALS ->
                 "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
                         + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
-            case RESOURCES ->
-                "Off by default (D37): it advises the JDK's stream, channel, and socket close methods, and sees files"
-                        + " only while the files sensor is on; on the benchmark's I/O route it measured about -0.5 % over the"
-                        + " default sensors, 6.9 % cumulative.";
             default -> null;
         };
     }

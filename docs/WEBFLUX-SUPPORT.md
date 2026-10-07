@@ -219,7 +219,7 @@ were already framework-neutral in practice, not just in the engine underneath th
     from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The opt-in
     `thread-activity` sensor (M5-5e) records too, capturing the owner the same way; a request's end, which it checks
     for what the request left running, is when its filter chain terminates. Reactor's and Reactor Netty's own threads
-    are a library's. The opt-in `resources` sensor (M5-5g) hears the same request end, whether `thread-activity` is on
+    are a library's. The `resources` sensor (M5-5g), on by default, hears the same request end, whether `thread-activity` is on
     or not. The opt-in `thread-locals` sensor (M5-5f) never scans an event loop: a Reactor schedule hook scans
     around each task a `boundedElastic` worker (or another scheduler's) runs, owned once Reactor's automatic context
     propagation makes a request's context current inside it, so it needs `spring.reactor.context-propagation=auto`, the

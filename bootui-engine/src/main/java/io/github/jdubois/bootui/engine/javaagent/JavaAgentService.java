@@ -671,10 +671,6 @@ public final class JavaAgentService {
                     "The attached BootUI agent predates the thread-activity sensor: attach the bootui-agent jar of"
                             + " BootUI " + settings.bootUiVersion() + ".";
         }
-        if (unavailable == null && AgentSensorSettings.RESOURCES.equals(id) && !access.resourcesSupported()) {
-            unavailable = "The attached BootUI agent predates the resources sensor: attach the bootui-agent jar of"
-                    + " BootUI " + settings.bootUiVersion() + ".";
-        }
         if (unavailable == null && !enabled && AgentSensorSettings.THREADS.equals(id) && threadsFailedThisRun(ours)) {
             unavailable = "The threads sensor failed in this run: it stays off until the application restarts.";
         }

@@ -213,9 +213,8 @@ public final class AgentBridge {
      * (PLAN-v2 M5-14): an override, never written anywhere, dropped once the application's own sensors agree with it. The
      * switches travel with the slot's claims, each claim in the same slot taking its predecessor's, and are kept by
      * {@link SlotSwitches} while another slot's claim, or none, is current.
-     * Only the opt-in {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, {@code thread-locals},
-     * and {@code resources}
-     * can be switched
+     * Only the opt-in {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, and
+     * {@code thread-locals} can be switched
      * ({@link #switchable}), since
      * the agent installs and removes them without a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
      * switches the agent receives. Re-enabling {@code threads} after it failed in this run is refused: its bridge
@@ -231,7 +230,7 @@ public final class AgentBridge {
                     FAILED,
                     "the " + sensor + " sensor cannot be switched at run time: only " + ThreadPropagation.SENSOR + ", "
                             + SideEffects.FILES + ", " + SideEffects.ENVIRONMENT + ", " + SideEffects.THREAD_ACTIVITY
-                            + ", " + SideEffects.THREAD_LOCALS + ", and " + SideEffects.RESOURCES + " can",
+                            + ", and " + SideEffects.THREAD_LOCALS + " can",
                     null);
         }
         Claim next;
@@ -266,9 +265,9 @@ public final class AgentBridge {
 
     /**
      * Whether {@code sensor} can be switched at run time: only the opt-in {@code threads}, {@code files},
-     * {@code environment}, {@code thread-activity}, {@code thread-locals}, and {@code resources}, which the agent installs
-     * and removes without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or disabled). Never a
-     * default sensor, nor
+     * {@code environment}, {@code thread-activity}, and {@code thread-locals}, which the agent installs and removes
+     * without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or disabled). Never a default
+     * sensor, as {@code resources}, nor
      * {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
      * nor {@code caught-exceptions}, whose visit is installed with the claim only.
      */
@@ -277,8 +276,7 @@ public final class AgentBridge {
                 || SideEffects.FILES.equals(sensor)
                 || SideEffects.ENVIRONMENT.equals(sensor)
                 || SideEffects.THREAD_ACTIVITY.equals(sensor)
-                || SideEffects.THREAD_LOCALS.equals(sensor)
-                || SideEffects.RESOURCES.equals(sensor);
+                || SideEffects.THREAD_LOCALS.equals(sensor);
     }
 
     /**

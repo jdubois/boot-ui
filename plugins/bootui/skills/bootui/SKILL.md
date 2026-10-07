@@ -247,7 +247,7 @@ Quarkus), by operation, loop family, and call site, with how long it blocked, no
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request
 starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
 pools apart, never what a thread holds; the opt-in `thread-locals` names the static field of each thread local a
-request or a job left set on its pooled thread, never its value; the opt-in `resources` records the streams, channels,
+request or a job left set on its pooled thread, never its value; `resources`, on by default, records the streams, channels,
 and sockets a request or a job opened (files only while `files` is on), by resource kind, target, and origin: `failed`
 counts those the garbage collector reclaimed never closed, the leak, while `leftRunning` (still open after the
 request) and `completed` (closed after it) are a pool's or a cache's hand-off, never contents. Pass `--query

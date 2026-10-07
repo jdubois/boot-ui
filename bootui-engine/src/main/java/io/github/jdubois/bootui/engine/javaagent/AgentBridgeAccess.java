@@ -45,7 +45,6 @@ public final class AgentBridgeAccess {
     static final String CAUGHT_EXCEPTIONS_CLASS = "io.github.jdubois.bootui.agent.bridge.CaughtExceptions";
 
     static final String THREAD_ACTIVITY_CLASS = "io.github.jdubois.bootui.agent.bridge.ThreadActivity";
-    static final String RESOURCES_CLASS = "io.github.jdubois.bootui.agent.bridge.Resources";
 
     /** The bridge protocol this engine speaks ({@code AgentBridge.PROTOCOL}). */
     public static final int EXPECTED_PROTOCOL = 1;
@@ -653,11 +652,6 @@ public final class AgentBridgeAccess {
         return sideEffectsSupported() && sideEffects.requestEnded() != null;
     }
 
-    /** Whether the bridge carries the resources sensor (M5-5g), whose request ends travel with thread-activity's. */
-    public boolean resourcesSupported() {
-        return threadActivitySupported() && sideEffects.resources();
-    }
-
     /**
      * Tells the bridge the recording of claim {@code generation} was cleared, so the files and environment sensors'
      * intern quotas count again; does nothing with a bridge from before M5-5d.
@@ -843,8 +837,7 @@ public final class AgentBridgeAccess {
             MethodHandle interned,
             MethodHandle recordingCleared,
             MethodHandle flushThread,
-            MethodHandle requestEnded,
-            boolean resources) {
+            MethodHandle requestEnded) {
 
         static SideEffectsHandles bind(Class<?> bridge) {
             try {
@@ -857,21 +850,10 @@ public final class AgentBridgeAccess {
                                 sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)),
                         recordingCleared(lookup, sideEffects),
                         flushThread(lookup, sideEffects),
-                        requestEnded(lookup, bridge),
-                        resources(bridge));
+                        requestEnded(lookup, bridge));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-5a: no side-effect sensors.
                 return null;
-            }
-        }
-
-        /** Whether the bridge carries the resources sensor (M5-5g), which hears request ends through thread-activity's. */
-        private static boolean resources(Class<?> bridge) {
-            try {
-                Class.forName(RESOURCES_CLASS, false, bridge.getClassLoader());
-                return true;
-            } catch (ReflectiveOperationException | LinkageError ex) {
-                return false;
             }
         }
 

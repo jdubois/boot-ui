@@ -467,8 +467,8 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 // The thread that finished starting may hold the end of startup's records in its table (M5-7b).
                 access.sideEffectsFlushThread();
-                // Whatever the claim asked for: thread-activity and resources can be switched on at run time, and the
-                // bridge ignores a request's end while both are off, with a volatile read each.
+                // Whatever the claim asked for: thread-activity can be switched on at run time, and the bridge ignores
+                // a request's end while it and resources are off, with a volatile read each.
                 threadActivityClaim = access.threadActivitySupported() ? claim : null;
                 run = new Run(claim, clock.getAsLong());
                 // The bridge's thread-activity counters last for the JVM: the panel reports this run's increase.

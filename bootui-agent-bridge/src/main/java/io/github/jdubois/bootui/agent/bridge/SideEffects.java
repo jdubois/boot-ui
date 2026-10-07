@@ -90,7 +90,7 @@ public final class SideEffects {
 
     /** The thread-locals sensor's id ({@link ThreadLocals}, M5-5f), opt-in (D37). */
     public static final String THREAD_LOCALS = "thread-locals";
-    /** The resources sensor's id ({@link Resources}, M5-5g), opt-in (D37). */
+    /** The resources sensor's id ({@link Resources}, M5-5g), on by default (D47). */
     public static final String RESOURCES = "resources";
 
     /** Sensor ids in records and bit positions in the mask: 0 is unused. */
