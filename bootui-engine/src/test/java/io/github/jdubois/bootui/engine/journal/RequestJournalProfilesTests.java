@@ -584,7 +584,8 @@ class RequestJournalProfilesTests {
         // Its body ended before the response and its tail ran no I/O: only the close raced the response.
         offer(bodyHandoff(quietTail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt));
         // Its body ended before the response, then its done() callback threw after it.
-        offer(bodyHandoff(failedTail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt, "IllegalStateException"));
+        offer(bodyHandoff(
+                failedTail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt, "IllegalStateException"));
         offer(http("r1", 1_000, 40_000_000, null));
 
         journal.dispatchPending();
@@ -636,7 +637,9 @@ class RequestJournalProfilesTests {
                         journal.eventId(asyncEntry("async-3")),
                         journal.eventId(asyncEntry("async-4")),
                         journal.eventId(asyncEntry("async-6")));
-        assertThat(pendingWorkEnds).as("each handoff's entry is forgotten once it renders").isEmpty();
+        assertThat(pendingWorkEnds)
+                .as("each handoff's entry is forgotten once it renders")
+                .isEmpty();
     }
 
     private JournalEntry asyncEntry(String executionId) {

@@ -112,13 +112,8 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         if (visible.isEmpty()) {
             return;
         }
-        coordinator.ingest(
-                feed.renderForCapture(
-                        visible,
-                        journal::eventId,
-                        pendingSelects,
-                        pendingWorkEnds,
-                        count -> overflowedSelects += count));
+        coordinator.ingest(feed.renderForCapture(
+                visible, journal::eventId, pendingSelects, pendingWorkEnds, count -> overflowedSelects += count));
     }
 
     /** Forgets the open {@code SELECT} counts of the cleared recording's requests. */

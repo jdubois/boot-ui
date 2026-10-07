@@ -158,6 +158,8 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright browsers
+        # apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets another runner.
+        timeout-minutes: 10
         working-directory: bootui-spring-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 

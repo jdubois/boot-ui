@@ -222,18 +222,17 @@ public final class JournalActivityFeed {
 
         List<Row> rows = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
-            ActivityEntryDto rendered =
-                    render(
-                            entry,
-                            eventId,
-                            requests,
-                            executions,
-                            aiCallOwners,
-                            selectsByRequest,
-                            lastWorkEnds,
-                            routes,
-                            false,
-                            rule);
+            ActivityEntryDto rendered = render(
+                    entry,
+                    eventId,
+                    requests,
+                    executions,
+                    aiCallOwners,
+                    selectsByRequest,
+                    lastWorkEnds,
+                    routes,
+                    false,
+                    rule);
             if (rendered != null) {
                 rows.add(
                         new Row(entry, rowDetails.apply(rendered, entry.event()), aiCallOwners.ownerOf(entry.event())));

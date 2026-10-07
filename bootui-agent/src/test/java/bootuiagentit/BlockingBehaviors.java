@@ -459,8 +459,7 @@ public final class BlockingBehaviors {
                 lockSupport[pair] = lockSupportParks();
             }
             differences[pair] = lockSupport[pair] - unsafe[pair];
-            listed.append(pair == 0 ? "" : ",")
-                    .append(String.format(java.util.Locale.ROOT, "%.1f", differences[pair]));
+            listed.append(pair == 0 ? "" : ",").append(String.format(java.util.Locale.ROOT, "%.1f", differences[pair]));
         }
         return new Pairs(median(lockSupport), median(unsafe), median(differences), listed.toString());
     }
@@ -528,7 +527,8 @@ public final class BlockingBehaviors {
      */
     @SuppressWarnings("unchecked")
     private static void requireLoopRegistered() {
-        Map<String, Object> blocking = (Map<String, Object>) AgentBridge.status().get(SideEffects.BLOCKING);
+        Map<String, Object> blocking =
+                (Map<String, Object>) AgentBridge.status().get(SideEffects.BLOCKING);
         Object loops = blocking == null ? null : blocking.get("eventLoops");
         if (!(loops instanceof Number number) || number.intValue() < 1) {
             throw new IllegalStateException("no event loop registered for the bench: " + blocking);

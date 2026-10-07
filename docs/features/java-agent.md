@@ -1130,6 +1130,28 @@ it again, or restart. Code Inventory hashes the application's class files when a
 is compared with the previous run only after the next DevTools restart or Quarkus live reload, never on the HotSwap
 itself. Forked-JVM tests redefine an instrumented bean class both ways, through JDI and through `Instrumentation`.
 
+## Overhead
+
+The `agent-overhead` jobs of `build.yml` measure the agent with the sample's executable jar, in pairs whose order
+alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
+by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
+4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route warns above
+10 %; each sensor's own A/B against the others enforces its own increment.
+
+The cumulative median varies by itself: across 33 CI runs between 2026-10-05 and 2026-10-07 it ranged from 3.6 % to
+11.4 % on unchanged sensors, with a standard deviation of about 2 points, and its 95 % interval in a single run is about
+6 points wide. In #1326's resources A/B, the cumulative medians of 10.7 % and 11.7 % had intervals of [7.2, 12.7] and
+[4.2, 12.9] %, while `resources`' own increment was 1.4 % and −0.2 %. The runs before and after the thread-locals and
+thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19 runs), a difference within noise
+(t = 1.3). A same-machine leave-one-out A/B of each default sensor on the I/O route (15 pairs each) found no sensor
+whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
+network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
+
+So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. A sensor's
+default is decided by its own increment's A/B; the cumulative figure is reported with its interval, and is evidence
+of a regression only when the interval's lower bound is above the 10 % budget, or when the same median stays above it
+across runs.
+
 ## Coexistence and class data sharing
 
 The BootUI agent coexists with the OpenTelemetry Java agent and with JaCoCo. Put JaCoCo's Surefire/Failsafe placeholder

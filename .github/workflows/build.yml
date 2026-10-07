@@ -325,6 +325,8 @@ jobs:
   spring-e2e:
     name: Spring end-to-end (${{ matrix.suite.name }}, Java 17)
     runs-on: ubuntu-latest
+    # A leg takes 4 to 11 minutes on v2; a hung one stops here, not at GitHub's 6-hour default.
+    timeout-minutes: 45
     needs: changes
     env:
       # An agent leg with nothing agent-related to check passes without starting anything (see the changes job).
@@ -457,6 +459,8 @@ jobs:
 
       - name: Install Playwright browsers
         if: env.SKIP_LEG != 'true'
+        # apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets another runner.
+        timeout-minutes: 10
         working-directory: bootui-spring-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
@@ -671,7 +675,9 @@ jobs:
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")
               own=$(sed -n 's/^budgetPercent=//p' "$directory/$report.properties")
               verdict=$(sed -n 's/^verdict=//p' "$directory/$report.properties")
-              echo "${verdict:-?}: ${report} median overhead ${overhead} % against its ${own:-$budget} % budget."
+              low=$(sed -n 's/^lowOverheadPercent=//p' "$directory/$report.properties")
+              high=$(sed -n 's/^highOverheadPercent=//p' "$directory/$report.properties")
+              echo "${verdict:-?}: ${report} median overhead ${overhead} % (95 % interval ${low:-?} to ${high:-?} %) against its ${own:-$budget} % budget."
               if awk -v overhead="$overhead" -v limit="${own:-$budget}" 'BEGIN { exit !(overhead > limit) }'; then
                 echo "::warning::The ${report} median overhead is ${overhead} %, above its ${own:-$budget} % limit."
               fi
@@ -930,6 +936,8 @@ jobs:
   quarkus-e2e:
     name: Quarkus end-to-end (${{ matrix.suite.name }}, Java 17)
     runs-on: ubuntu-latest
+    # A leg takes 4 to 11 minutes on v2; a hung one stops here, not at GitHub's 6-hour default.
+    timeout-minutes: 45
     needs: changes
     env:
       # An agent leg with nothing agent-related to check passes without starting anything (see the changes job).
@@ -1020,6 +1028,8 @@ jobs:
 
       - name: Install Playwright browsers
         if: env.SKIP_LEG != 'true'
+        # apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets another runner.
+        timeout-minutes: 10
         working-directory: bootui-quarkus-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
