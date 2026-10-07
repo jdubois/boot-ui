@@ -132,12 +132,22 @@ export function codeChangeCounts(counts) {
   return parts.join(' · ')
 }
 
+/**
+ * Whether change impact can check a method: never a constructor, an initializer, or a synthetic method such as a
+ * lambda's, which it cannot name (the engine's RuntimeInsightsAgentView.methodSymbol applies the same rule).
+ */
+export function checkableMethod(method) {
+  const name = method?.name
+  return Boolean(name && method.className && !name.startsWith('<') && !name.includes('$'))
+}
+
 /** One changed or added method as the comparison lists it: a short name, its change, whether it ran, and where. */
 export function codeChangeRow(method) {
   const className = method.className ?? ''
   const simple = className.slice(className.lastIndexOf('.') + 1)
   return {
     key: method.key,
+    checkable: checkableMethod(method),
     name: `${simple}#${method.name}`,
     change: method.change === 'ADDED' ? 'ADDED' : 'CHANGED',
     changeLabel: method.change === 'ADDED' ? 'Added' : 'Changed',

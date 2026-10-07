@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
+  comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
+  with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
 - **MCP 2026-07-28 beside MCP 2025-06-18.** The MCP endpoint also serves modern clients, with `server/discover`, result
   envelopes, and header checks, while existing clients answer as before ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 

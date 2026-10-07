@@ -186,6 +186,66 @@ describe('ChangeImpact', () => {
     expect(document.activeElement).toBe(target)
   })
 
+  it('offers the methods changed since the previous run until something is checked', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(resolved))
+    vi.stubGlobal('fetch', fetchMock)
+    const changed = Array.from({length: 8}, (_, index) => ({
+      symbol: `com.example.OrderService#m${index}()V`,
+      name: `OrderService#m${index}`
+    }))
+    wrapper = mountImpact({changed})
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    const picks = wrapper.find('[data-testid="impact-changed"]')
+    expect(picks.find('h3').text()).toBe('Changed since the previous run')
+    expect(picks.findAll('button').map((button) => button.text())).toHaveLength(6)
+    expect(picks.text()).toContain('and 2 more in Changes')
+    expect(wrapper.find('input').attributes('aria-describedby')).toBe('insight-impact-hint')
+
+    await picks.findAll('button')[1].trigger('click')
+    await flushPromises()
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `symbol=${encodeURIComponent('com.example.OrderService#m1()V')}`
+    )
+    expect(wrapper.find('input').element.value).toBe('OrderService#m1')
+    expect(wrapper.find('[data-testid="impact-changed"]').exists()).toBe(false)
+  })
+
+  it('checks a symbol the panel asks for, as "See its impact" does', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(resolved))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountImpact()
+    await flushPromises()
+
+    wrapper.vm.check('com.example.OrderService#total(J)J', 'OrderService#total')
+    await flushPromises()
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `symbol=${encodeURIComponent('com.example.OrderService#total(J)J')}`
+    )
+    expect(wrapper.find('input').element.value).toBe('OrderService#total')
+    expect(wrapper.find('.insight-impact-node').exists()).toBe(true)
+  })
+
+  it('keeps the latest check when an earlier one answers after it', async () => {
+    let answerFirst
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((resolve) => (answerFirst = resolve)))
+      .mockResolvedValueOnce(jsonResponse(resolved))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountImpact({initialSymbol: 'Slow'})
+    wrapper.vm.check('ProductRepository')
+    await flushPromises()
+    expect(wrapper.find('.insight-impact-node').text()).toContain('productRepository')
+
+    answerFirst(jsonResponse({...resolved, node: 'BEAN slowBean'}))
+    await flushPromises()
+    expect(wrapper.find('.insight-impact-node').text()).toContain('productRepository')
+    expect(wrapper.find('input').element.value).toBe('ProductRepository')
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
+  })
+
   it('offers the candidates of an ambiguous symbol and checks the one chosen', async () => {
     const fetchMock = vi
       .fn()
