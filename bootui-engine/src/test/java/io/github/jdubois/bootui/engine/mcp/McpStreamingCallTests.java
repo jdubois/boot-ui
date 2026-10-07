@@ -256,6 +256,32 @@ class McpStreamingCallTests {
     }
 
     @Test
+    void aWriterBlockedOnAStalledClientKeepsThePermitUntilItReturns() throws Exception {
+        CountDownLatch writing = new CountDownLatch(1);
+        CountDownLatch unblock = new CountDownLatch(1);
+        McpDispatcher dispatcher = dispatcher(args -> "done");
+        RecordingSink stalled = new RecordingSink() {
+            @Override
+            public void complete(McpDispatchOutcome outcome) throws IOException {
+                writing.countDown();
+                await(unblock);
+                super.complete(outcome);
+            }
+        };
+        stream(dispatcher.start(request(TOKEN), true)).start(stalled);
+
+        assertThat(writing.await(5, TimeUnit.SECONDS)).isTrue();
+        Thread.sleep(50);
+        assertThat(availablePermits(dispatcher))
+                .as("the tool returned, but its stream is still being written")
+                .isEqualTo(1);
+        unblock.countDown();
+        assertThat(stalled.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertAllPermitsFree(dispatcher, 2);
+        assertThat(dispatcher.runtimeStats().snapshot().callCount()).isEqualTo(1);
+    }
+
+    @Test
     void permitsAndOutcomesAreAccountedExactlyOnceUnderRaces() throws Exception {
         int calls = 300;
         McpDispatcher dispatcher = dispatcher(
@@ -379,7 +405,7 @@ class McpStreamingCallTests {
         }
     }
 
-    private static final class RecordingSink implements McpStreamSink {
+    private static class RecordingSink implements McpStreamSink {
         private final List<String> messages = Collections.synchronizedList(new ArrayList<>());
         private final CountDownLatch closed = new CountDownLatch(1);
         private final AtomicInteger closes = new AtomicInteger();

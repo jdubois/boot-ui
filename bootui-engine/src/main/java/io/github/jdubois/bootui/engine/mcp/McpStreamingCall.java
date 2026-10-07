@@ -31,8 +31,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>The call ends exactly once, through one atomic transition: the tool completes (with a result or a failure), the
  * absolute {@code bootui.mcp.execution-timeout} expires (final {@code -32002}, which modern rendering moves to {@code
  * -31002}), or the client disconnects ({@link #cancel()}, after which nothing more is written). Progress never extends
- * the timeout. The concurrency permit is released exactly once: by the tool thread when the tool really returns, or by
- * whichever ending happened before the tool started.
+ * the timeout. The concurrency permit is released exactly once, when both the tool and the writer are done: a tool
+ * holds it until it really returns, and a writer blocked on a client that stopped reading holds it too, so {@code
+ * bootui.mcp.max-concurrent-calls} also bounds stalled streams. A part that never started is done when the call ends.
  */
 public final class McpStreamingCall {
 
@@ -69,7 +70,10 @@ public final class McpStreamingCall {
     private final AtomicReference<Lifecycle> lifecycle = new AtomicReference<>(Lifecycle.CREATED);
     private final AtomicReference<End> end = new AtomicReference<>();
     private final AtomicBoolean permitReleased = new AtomicBoolean();
-    private final AtomicBoolean started = new AtomicBoolean();
+    /** The tool and the writer: the permit is released when both are done. */
+    private final AtomicInteger permitHolders = new AtomicInteger(2);
+
+    private final AtomicBoolean writerClaimed = new AtomicBoolean();
     private final McpProgressOutbox outbox = new McpProgressOutbox(new McpProgressThrottle());
     private final OperationProgress progress;
     private final ScheduledFuture<?> timeoutTask;
@@ -102,19 +106,20 @@ public final class McpStreamingCall {
     }
 
     /**
-     * Starts the tool and the writer. Call it once, after the response headers are committed.
-     *
-     * @throws IllegalStateException when called twice
+     * Starts the tool and the writer. Call it once, after the response headers are committed. A call that already
+     * ended (it timed out or was cancelled before it started), or a second start, only closes {@code sink}.
      */
     public void start(McpStreamSink sink) {
         Objects.requireNonNull(sink, "sink");
-        if (!started.compareAndSet(false, true)) {
-            throw new IllegalStateException("A streaming MCP call starts once");
+        if (!writerClaimed.compareAndSet(false, true)) {
+            sink.close();
+            return;
         }
         try {
             WRITERS.execute(() -> write(sink));
         } catch (RuntimeException | Error failure) {
             sink.close();
+            releasePart();
             fail(failure);
             return;
         }
@@ -169,7 +174,7 @@ public final class McpStreamingCall {
                 fail(failure);
             }
         } finally {
-            releasePermit();
+            releasePart();
         }
     }
 
@@ -185,8 +190,12 @@ public final class McpStreamingCall {
             timeoutTask.cancel(false);
         }
         Lifecycle before = lifecycle.getAndUpdate(state -> state == Lifecycle.CREATED ? Lifecycle.NOT_STARTED : state);
+        if (writerClaimed.compareAndSet(false, true)) {
+            // No writer will ever run for this call.
+            releasePart();
+        }
         if (before == Lifecycle.CREATED) {
-            releasePermit();
+            releasePart();
         } else if (kind != EndKind.COMPLETED) {
             Future<?> future = toolFuture;
             if (future != null) {
@@ -197,8 +206,8 @@ public final class McpStreamingCall {
         return true;
     }
 
-    private void releasePermit() {
-        if (permitReleased.compareAndSet(false, true)) {
+    private void releasePart() {
+        if (permitHolders.decrementAndGet() == 0 && permitReleased.compareAndSet(false, true)) {
             permits.release();
             stats.recordCall(System.nanoTime() - createdAt);
         }
@@ -242,6 +251,7 @@ public final class McpStreamingCall {
             cancel();
         } finally {
             sink.close();
+            releasePart();
         }
     }
 
