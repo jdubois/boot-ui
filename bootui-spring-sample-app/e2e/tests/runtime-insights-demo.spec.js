@@ -38,7 +38,7 @@ test.describe('Runtime Insights demo', () => {
 
     // Left out of the default list: the kinds that did not pass their external validation, or had too few facts to
     // judge (M4-20). Show all routes lists them, each in its own group, saying where they are shown.
-    const onRequest = 'only when every row is asked for'
+    const onRequest = 'when all rows are shown'
     const leftOut = [
       ['Repeated SELECTs', '/api/insights/orders', onRequest],
       ['Connections held together', '/api/insights/orders/{id}/confirm', 'Database connection pools panel'],

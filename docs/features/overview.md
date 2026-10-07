@@ -696,7 +696,7 @@ row left out of the default list says only where its evidence is shown:
 | Passed | `errors-behind-2xx`, `changed-code-not-executed` | Listed |
 | Silent or never exercised | `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response` | Listed |
 | Failed, folded into its panel | `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI) | Not listed; the panel links to its rows |
-| Too few facts to judge | `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed; shown only when every row is asked for |
+| Too few facts to judge | `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed; reached with **Show all routes**, a search, or a query naming it |
 | Not listed by design | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
 
 The observations planned with the BootUI agent are not judged yet: they are shown as rows of their own panel, such as
@@ -707,7 +707,8 @@ A row it leaves out stays in the report and its JSON, marked `listed: false` wit
 all routes**, any search, a deep link to the row, such as **Why this route is slow** in a request's drawer, and an agent
 query naming its kind or route, or `all`, reach it. The panel counts what it left out under the list, keeps the open row
 in view when a refresh leaves it out, marks such a row **Not listed by default**, and says why in its detail and in
-**Copy for AI**. A row of a kind that is not listed gives its kind's validation as the reason. Within the kinds, these
+**Copy for AI**. A row of a kind that is not listed gives where its evidence is shown as the reason: the panel it is
+folded into, the Memory panel, its own panel, or the full list. Within the kinds, these
 rules also apply, and are what **Show all routes** orders by:
 
 - a `route-time-breakdown` that is not prominent is left out: one is prominent when its warm median is 20 ms or more,

@@ -1918,7 +1918,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
   not, `unlistedReason` (M4-19, M4-20): for a kind that is not listed, where its evidence is shown (the panel it is
-  folded into, the Memory panel, its own panel, or only when every row is asked for), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
+  folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
   groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
   three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves

@@ -56,8 +56,9 @@ public final class ExternalValidation {
      */
     public record Entry(String kind, Outcome outcome, String unlistedReason) {}
 
-    /** Where the rows of an under-sampled kind are: in the full list only. */
-    static final String ON_REQUEST = "Rows of this check are shown only when every row is asked for.";
+    /** Where the rows of an under-sampled kind are: wherever every row, a search, or a query naming it asks for them. */
+    static final String ON_REQUEST =
+            "Its rows appear when all rows are shown, or when a search or a query names this check or its route.";
 
     /** Where the rows of a kind added after M4-20 are (D36): its own panel, until it passes the per-kind gate. */
     static final String OWN_PANEL = "Its rows are shown in their own panel rather than listed by default.";
