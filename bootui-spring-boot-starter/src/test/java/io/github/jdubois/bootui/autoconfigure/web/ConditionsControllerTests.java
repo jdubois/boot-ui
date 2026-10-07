@@ -255,7 +255,7 @@ class ConditionsControllerTests {
     }
 
     @Test
-    void conditionsPagesBothOutcomesTogetherAndFiltersTheClassListsWithoutAnOutcome() throws Exception {
+    void conditionsPagesBothOutcomesTogetherAndFiltersTheClassListsOnlyWithoutAnOutcome() throws Exception {
         MessageAndConditionDescriptor alpha = mock(MessageAndConditionDescriptor.class);
         when(alpha.getCondition()).thenReturn("OnClassCondition");
         when(alpha.getMessage()).thenReturn("alpha matched");
@@ -313,6 +313,15 @@ class ConditionsControllerTests {
                 .andExpect(jsonPath("$.exclusions[0]").value("org.example.ExcludedConfig"))
                 .andExpect(jsonPath("$.counts.unconditionalTotal").value(2))
                 .andExpect(jsonPath("$.counts.exclusionsTotal").value(2));
+
+        // The browser always asks for an outcome, and keeps the whole class lists.
+        mvc.perform(get("/bootui/api/conditions")
+                        .param("outcome", "positive")
+                        .param("q", "Config")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unconditionalClasses.length()").value(2))
+                .andExpect(jsonPath("$.exclusions.length()").value(2));
 
         mvc.perform(get("/bootui/api/conditions").param("limit", "1").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())

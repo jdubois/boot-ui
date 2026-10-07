@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.StartupReport;
 import io.github.jdubois.bootui.core.dto.StartupStepDto;
 import io.github.jdubois.bootui.core.dto.TagDto;
+import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -169,7 +170,7 @@ class McpAgentViewsTests {
     void agentStatusSummarizesSensorsAndDetailsTheOneAQueryNames() {
         JavaAgentReport report = agentReport(List.of(sensor("executors"), sensor("network")));
 
-        JavaAgentReport summary = McpAgentViews.agentStatus(report, null, 200);
+        JavaAgentReport summary = McpAgentViews.agentStatus(report, null);
         assertThat(summary.sensors()).extracting(JavaAgentSensorDto::id).containsExactly("executors", "network");
         assertThat(summary.sensors()).allSatisfy(sensor -> {
             assertThat(sensor.hooks()).isEmpty();
@@ -179,7 +180,7 @@ class McpAgentViewsTests {
         });
         assertThat(summary.state()).isEqualTo(JavaAgentReport.ARMED);
 
-        JavaAgentReport detail = McpAgentViews.agentStatus(report, "Network", 200);
+        JavaAgentReport detail = McpAgentViews.agentStatus(report, "Network");
         assertThat(detail.sensors()).singleElement().satisfies(sensor -> {
             assertThat(sensor.id()).isEqualTo("network");
             assertThat(sensor.hooks()).hasSize(1);
@@ -220,9 +221,48 @@ class McpAgentViewsTests {
         assertThat(McpAgentViews.liveActivityFetch(McpAgentViews.ActivityFilter.of(null), 25))
                 .isEqualTo(26);
         assertThat(McpAgentViews.liveActivityFetch(McpAgentViews.ActivityFilter.of("SQL"), 25))
-                .isZero();
+                .isEqualTo(JournalActivityReports.MAX_LIMIT);
         assertThat(McpAgentViews.liveActivityFetch(McpAgentViews.ActivityFilter.of("/orders"), 25))
-                .isZero();
+                .isEqualTo(JournalActivityReports.MAX_LIMIT);
+        assertThat(McpAgentViews.adapterType(McpAgentViews.ActivityFilter.of("slow")))
+                .as("severity and text are applied by the view, to the newest entries")
+                .isNull();
+        assertThat(McpAgentViews.adapterType(McpAgentViews.ActivityFilter.of("sql")))
+                .isEqualTo("SQL");
+    }
+
+    @Test
+    void aFilteredLiveActivityReadWhoseWindowMissedOlderEntriesSaysSoInsteadOfReportingNoMatch() {
+        // A buffers feed answers with its newest 200 entries of 300 retained: the only /old match is older.
+        List<ActivityEntryDto> window = new ArrayList<>();
+        for (int i = 300; i > 100; i--) {
+            window.add(activity(String.valueOf(i), "GET /new"));
+        }
+        LiveActivityReport report =
+                new LiveActivityReport(true, window, Map.of("REQUEST", 300), null, List.of(), List.of());
+
+        LiveActivityReport old = McpAgentViews.liveActivity(report, McpAgentViews.ActivityFilter.of("/old"), 25);
+
+        assertThat(old.entries()).isEmpty();
+        assertThat(old.pageInfo().hasMore()).as("not searched is not absent").isTrue();
+        assertThat(old.warnings())
+                .singleElement()
+                .asString()
+                .startsWith("Searched the newest 200 of 300 retained entries;");
+
+        LiveActivityReport requests =
+                McpAgentViews.liveActivity(report, McpAgentViews.ActivityFilter.of("REQUEST"), 25);
+        assertThat(requests.entries()).hasSize(25);
+        assertThat(requests.warnings())
+                .singleElement()
+                .asString()
+                .contains("200 of 300 retained entries of type REQUEST");
+
+        LiveActivityReport whole =
+                new LiveActivityReport(true, window.subList(0, 10), Map.of("REQUEST", 10), null, List.of(), List.of());
+        LiveActivityReport complete = McpAgentViews.liveActivity(whole, McpAgentViews.ActivityFilter.of("/old"), 25);
+        assertThat(complete.pageInfo().hasMore()).isFalse();
+        assertThat(complete.warnings()).isEmpty();
     }
 
     @Test

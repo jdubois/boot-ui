@@ -1593,6 +1593,8 @@ public abstract class AbstractBootUiApiConformanceTest {
         assumeTrue(failing != null, "this host application has no failing request to send");
         BootUiHttpProbe probe = probe();
         probe.get(failing);
+        // The entry's path omits the application's root path; another failing request's entry never counts.
+        String failingPath = failing.substring(applicationPath().length());
         for (String feed : List.of("/activity?source=journal&type=EXCEPTION&limit=50", "/activity?source=buffers")) {
             String groupId = null;
             for (int attempt = 0; attempt < 30 && groupId == null; attempt++) {
@@ -1601,7 +1603,8 @@ public abstract class AbstractBootUiApiConformanceTest {
                         assertThat(entry.has("exceptionGroupId"))
                                 .as("%s: an EXCEPTION entry carries exceptionGroupId", feed)
                                 .isTrue();
-                        if (!entry.path("exceptionGroupId").asText("").isBlank()) {
+                        if (entry.path("path").asText("").endsWith(failingPath)
+                                && !entry.path("exceptionGroupId").asText("").isBlank()) {
                             groupId = entry.path("exceptionGroupId").asText();
                             break;
                         }
@@ -1612,7 +1615,7 @@ public abstract class AbstractBootUiApiConformanceTest {
                 }
             }
             assertThat(groupId)
-                    .as("%s lists the failing request's exception with its group id", feed)
+                    .as("%s lists the exception of %s with its group id", feed, failingPath)
                     .isNotNull();
             Response detail = probe.get(api("/exceptions/" + groupId));
             assertThat(detail.status())

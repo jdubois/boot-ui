@@ -12,7 +12,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Newest events and entry ids only.",
-      "description": "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit (25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; pageInfo.hasMore means more entries matched, and typeCounts counts every retained entry.",
+      "description": "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit (25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; pageInfo.hasMore means more entries matched or older ones were not searched (a warning then names the window searched), and typeCounts counts every retained entry.",
       "example": "bootui activity --query SQL --limit 20",
       "queryHelp": "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method"
     },
@@ -28,7 +28,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it.",
-      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps.",
+      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is listed: limit does not apply.",
       "example": "bootui agent status --query executors",
       "queryHelp": "a sensor id, such as executors, for its hooks and self-test steps"
     },
@@ -137,7 +137,7 @@
       "summary": "Return Code Inventory: did the code that changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status).",
       "description": "Return Code Inventory: did the code that changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status). Counts first (N of M tracked methods executed, changed, added, removed, dependencies), then at most limit (25) rows of query: changed (the default; methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, with the first request id and route that ran each), never-executed, not-tracked, executed, dependencies (declared jars not loaded in this run first), or a package, class, or method name. NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is unused.",
       "example": "bootui code inventory --query changed",
-      "queryHelp": "changed (the default), never-executed, not-tracked, executed, dependencies, or a package or class"
+      "queryHelp": "changed (the default), never-executed, not-tracked, executed, dependencies, or a package, class, or method name"
     },
     {
       "name": "get_code_paths",
@@ -659,7 +659,7 @@
       "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload, or a bare method name), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each with totals, a limitation naming the rest, or AMBIGUOUS with candidates.",
       "description": "For a route, bean, class, method (Class#method, with parameter types for one overload, or a bare method name), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each with totals, a limitation naming the rest, or AMBIGUOUS with candidates. With the BootUI agent, a method's observed routes are those whose requests executed it; notObserved routes ran without showing it, which proves nothing. A checklist of what was and was not exercised, never a verdict that a change is safe. For AMBIGUOUS, NOT_FOUND, or UNAVAILABLE, next names the call that resolves it.",
       "example": "bootui insights impact 'OrderService#total'",
-      "idHelp": "A route, bean, class, Class#method, repository, table, cache, host, or event type."
+      "idHelp": "A route, bean, class, Class#method or a bare method name, repository, table, cache, host, or event type."
     },
     {
       "name": "get_runtime_insights",

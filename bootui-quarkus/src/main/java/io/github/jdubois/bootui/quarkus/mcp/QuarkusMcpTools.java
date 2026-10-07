@@ -339,9 +339,9 @@ public class QuarkusMcpTools {
                     return McpAgentViews.liveActivity(
                             liveActivity.activity(
                                     McpAgentViews.liveActivityFetch(filter, args.limit()),
-                                    filter.type(),
-                                    filter.severity(),
-                                    filter.text(),
+                                    McpAgentViews.adapterType(filter),
+                                    null,
+                                    null,
                                     null,
                                     null,
                                     null,
@@ -363,7 +363,7 @@ public class QuarkusMcpTools {
                 tool(
                         "get_agent_status",
                         McpToolDescriptions.quarkus("get_agent_status"),
-                        args -> McpAgentViews.agentStatus(javaAgent.report(), args.query(), args.limit())));
+                        args -> McpAgentViews.agentStatus(javaAgent.report(), args.query())));
         // Code Inventory, advertised while the BootUI agent's inventory sensor records this start (§5.15).
         addIfAvailable(
                 registry,

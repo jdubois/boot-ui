@@ -685,7 +685,7 @@ Features:
   later, and the first route; a declared jar with no class loaded is **not loaded in this run**, never unused.
 - `GET /bootui/api/code-inventory`, `/changes`, `/methods`, and `/dependencies`; `get_code_inventory` and
   `bootui code inventory` take `query` (`changed` by default, `never-executed`, `not-tracked`, `executed`,
-  `dependencies`, or a package or class) and `limit`.
+  `dependencies`, or a package, class, or method name) and `limit`.
 
 Acceptance criteria:
 

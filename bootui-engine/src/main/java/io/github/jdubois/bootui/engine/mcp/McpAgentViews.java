@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.StartupReport;
 import io.github.jdubois.bootui.core.dto.StartupStepDto;
 import io.github.jdubois.bootui.core.dto.TagDto;
+import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -124,14 +125,20 @@ public final class McpAgentViews {
 
     /**
      * At most {@code limit} of the newest Live Activity entries {@code filter} keeps, and a {@code pageInfo} whose
-     * {@code hasMore} says whether more entries matched. The filter is applied here as well as by the adapter, since not
-     * every adapter's feed source applies the type and severity; read the report with
-     * {@link #liveActivityFetch(ActivityFilter, int)} entries. {@code typeCounts} keeps counting every retained entry by
-     * type; agents cannot pass a cursor, so none is returned.
+     * {@code hasMore} says whether more entries matched or may match.
+     *
+     * <p>Read {@code report} with {@link #liveActivityFetch(ActivityFilter, int)} entries and only
+     * {@link #adapterType(ActivityFilter)} as the adapter's own filter: the type is applied before the adapter's window
+     * where its feed can, and the severity and text are applied here, to every entry the window holds. When a filter is
+     * set and the window did not reach every retained entry the filter could match, as {@code typeCounts} counts them,
+     * older entries were not searched: {@code hasMore} is then true and a warning names the window, so a miss is never
+     * read as "never ran". {@code typeCounts} keeps counting every retained entry by type; agents cannot pass a cursor,
+     * so none is returned.
      */
     public static LiveActivityReport liveActivity(LiveActivityReport report, ActivityFilter filter, int limit) {
+        List<ActivityEntryDto> window = report.entries();
         String needle = PagedList.normalize(filter.text());
-        List<ActivityEntryDto> matched = report.entries().stream()
+        List<ActivityEntryDto> matched = window.stream()
                 .filter(entry -> filter.type() == null || filter.type().equalsIgnoreCase(entry.type()))
                 .filter(entry -> filter.severity() == null || filter.severity().equalsIgnoreCase(entry.severity()))
                 .filter(entry -> PagedList.contains(entry.summary(), needle)
@@ -140,25 +147,64 @@ public final class McpAgentViews {
                         || PagedList.contains(entry.method(), needle))
                 .toList();
         ActivityPageInfo page = report.pageInfo();
-        boolean hasMore = matched.size() > limit || (page != null && page.hasMore());
+        boolean olderPages = page != null && page.hasMore();
+        boolean filtered = filter.type() != null || filter.severity() != null || filter.text() != null;
+        long searched;
+        long retained;
+        if (filter.type() != null) {
+            searched = window.stream()
+                    .filter(entry -> filter.type().equalsIgnoreCase(entry.type()))
+                    .count();
+            retained = report.typeCounts().entrySet().stream()
+                    .filter(count -> filter.type().equalsIgnoreCase(count.getKey()))
+                    .mapToLong(count -> count.getValue() == null ? 0 : count.getValue())
+                    .sum();
+        } else {
+            searched = window.size();
+            retained = report.typeCounts().values().stream()
+                    .mapToLong(count -> count == null ? 0 : count)
+                    .sum();
+        }
+        boolean partial = filtered && (searched < retained || olderPages);
+        List<String> warnings = report.warnings();
+        if (partial) {
+            warnings = new ArrayList<>(warnings);
+            warnings.add(
+                    searched < retained
+                            ? "Searched the newest " + searched + " of " + retained + " retained entries"
+                                    + (filter.type() == null ? "" : " of type " + filter.type())
+                                    + "; older ones may match too. Narrow the query, or open Live Activity."
+                            : "Searched the newest " + searched + " entries; older ones are kept but were not searched."
+                                    + " Narrow the query, or open Live Activity.");
+        }
+        boolean hasMore = matched.size() > limit || partial || (!filtered && olderPages);
         return new LiveActivityReport(
                 report.available(),
                 matched.subList(0, Math.min(limit, matched.size())),
                 report.typeCounts(),
                 report.kpis(),
                 report.sources(),
-                report.warnings(),
+                warnings,
                 new ActivityPageInfo(page != null && page.persistent(), null, hasMore),
                 report.persistenceOption());
     }
 
     /**
      * How many entries to read for {@link #liveActivity(LiveActivityReport, ActivityFilter, int)}: one past
-     * {@code limit}, to know whether more remain, or every retained entry ({@code 0}) when a filter must be applied
-     * first.
+     * {@code limit}, to know whether more remain, or, when a filter must be applied, as many as a report returns.
      */
     public static int liveActivityFetch(ActivityFilter filter, int limit) {
-        return filter.type() == null && filter.severity() == null && filter.text() == null ? limit + 1 : 0;
+        return filter.type() == null && filter.severity() == null && filter.text() == null
+                ? limit + 1
+                : JournalActivityReports.MAX_LIMIT;
+    }
+
+    /**
+     * The type to pass to the adapter, which every feed that can applies before its window; the severity and text are
+     * left to {@link #liveActivity(LiveActivityReport, ActivityFilter, int)}, so its window is the newest entries.
+     */
+    public static String adapterType(ActivityFilter filter) {
+        return filter.type();
     }
 
     /**
@@ -308,15 +354,13 @@ public final class McpAgentViews {
 
     /**
      * The agent's status, summary first: every sensor's state and counters without its hooks and self-test steps.
-     * A {@code query} keeps only the sensors whose id contains it, with their hooks and self-test steps.
+     * A {@code query} keeps only the sensors whose id contains it, with their hooks and self-test steps. Every sensor
+     * is listed, so the tool's {@code limit} does not apply: the list is short, and trimming it would hide a state.
      */
-    public static JavaAgentReport agentStatus(JavaAgentReport report, String query, int limit) {
+    public static JavaAgentReport agentStatus(JavaAgentReport report, String query) {
         String needle = PagedList.normalize(query);
         List<JavaAgentSensorDto> sensors = new ArrayList<>();
         for (JavaAgentSensorDto sensor : report.sensors()) {
-            if (sensors.size() >= limit) {
-                break;
-            }
             if (needle.isEmpty()) {
                 sensors.add(summary(sensor));
             } else if (PagedList.contains(sensor.id(), needle)) {

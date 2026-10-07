@@ -39,7 +39,8 @@ public final class McpToolDescriptions {
                             + "run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit "
                             + "(25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity "
                             + "(SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; "
-                            + "pageInfo.hasMore means more entries matched, and typeCounts counts every retained entry."),
+                            + "pageInfo.hasMore means more entries matched or older ones were not searched (a warning then names "
+                            + "the window searched), and typeCounts counts every retained entry."),
             Map.entry(
                     "get_runtime_insights",
                     "Return what this run did that no single panel shows, compacted: coverage first, the checks that "
@@ -295,7 +296,8 @@ public final class McpToolDescriptions {
                             + "DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, "
                             + "sensors, and setup snippets that attach it. This read never claims, installs, or "
                             + "changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such "
-                            + "as executors, to list only matching sensors with their hooks and self-test steps."),
+                            + "as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is "
+                            + "listed: limit does not apply."),
             Map.entry(
                     "get_code_inventory",
                     "Return Code Inventory: did the code that changed since the previous run execute in this run? "

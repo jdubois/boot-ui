@@ -677,7 +677,9 @@ An agent pays for every byte it reads, so the reads below answer with a short fi
 
 Totals such as the vulnerabilities report's `total` and `vulnerable` still count the whole report. Live Activity keeps
 its own shape: `typeCounts` counts every retained entry by type, and `pageInfo.hasMore` says whether more entries
-matched. `get_config` leaves
+matched. A filtered read searches the newest entries the feed returns (up to 5,000 from the runtime journal, or
+`bootui.activity.max-entries` from Spring's panel buffers); when older retained entries were not searched, `hasMore` is
+true and a warning names the window, so no match there does not mean the route never ran. `get_config` leaves
 out `propertySuggestions`, the browser's completion list of every known property. `get_agent_status` and
 `get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks, and Side Effects
 lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as

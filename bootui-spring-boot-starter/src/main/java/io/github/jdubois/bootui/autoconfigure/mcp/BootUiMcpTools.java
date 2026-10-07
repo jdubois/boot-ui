@@ -316,11 +316,11 @@ public class BootUiMcpTools {
                 McpAgentViews.ActivityFilter filter = McpAgentViews.ActivityFilter.of(args.query());
                 return McpAgentViews.liveActivity(
                         liveActivityBean.activity(
-                                filter.type(),
-                                filter.severity(),
+                                McpAgentViews.adapterType(filter),
+                                null,
                                 0,
                                 McpAgentViews.liveActivityFetch(filter, args.limit()),
-                                filter.text(),
+                                null,
                                 null,
                                 null,
                                 0),
@@ -337,7 +337,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_agent_status",
                     McpToolDescriptions.spring("get_agent_status"),
-                    args -> McpAgentViews.agentStatus(javaAgentBean.report(), args.query(), args.limit())));
+                    args -> McpAgentViews.agentStatus(javaAgentBean.report(), args.query())));
         }
         if (codeInventoryBean != null) {
             registry.add(tool(

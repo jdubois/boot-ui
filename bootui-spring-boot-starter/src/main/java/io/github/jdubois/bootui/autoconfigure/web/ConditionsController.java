@@ -119,15 +119,21 @@ public class ConditionsController {
                 unconditional.size(),
                 exclusions.size());
 
-        // The class lists carry no outcome: a query narrows them in every view, and their counts stay totals.
-        List<String> unconditionalShown = unconditional.stream()
-                .filter(name -> PagedList.contains(name, normalizedQuery))
-                .toList();
-        List<String> exclusionsShown = exclusions.stream()
-                .filter(name -> PagedList.contains(name, normalizedQuery))
-                .toList();
-
         String normalizedOutcome = PagedList.normalize(outcome);
+        // Without an outcome (the agents' read), a query also narrows the class lists, which carry no outcome; their
+        // counts stay totals. The browser always asks for an outcome and keeps the whole lists.
+        boolean narrowLists = normalizedOutcome.isEmpty();
+        List<String> unconditionalShown = narrowLists
+                ? unconditional.stream()
+                        .filter(name -> PagedList.contains(name, normalizedQuery))
+                        .toList()
+                : unconditional;
+        List<String> exclusionsShown = narrowLists
+                ? exclusions.stream()
+                        .filter(name -> PagedList.contains(name, normalizedQuery))
+                        .toList()
+                : exclusions;
+
         if ("positive".equals(normalizedOutcome)) {
             PagedList.Result<ConditionEntry> page =
                     PagedList.from(positive, entry -> matchesQuery(entry, normalizedQuery), offset, limit);

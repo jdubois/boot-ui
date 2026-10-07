@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed.Filter;
+import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.web.ExecutionProfileAssembler;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -87,6 +88,31 @@ class JournalActivityReportsTests {
         assertThat(reports.report(Filter.NONE, 3, null).entries()).hasSize(3);
         assertThat(reports.report(Filter.NONE, 1_000_000, null).entries())
                 .hasSize(JournalActivityReports.DEFAULT_LIMIT + 5);
+    }
+
+    @Test
+    void anAgentTextQueryFindsAMatchOlderThanTheNewestDefaultPage() {
+        offer("r-old", JournalSource.HTTP, new HttpPayload("GET", "/old-report", "/old-report", null, 200));
+        for (int i = 0; i < JournalActivityReports.DEFAULT_LIMIT + 50; i++) {
+            offer("r" + i, JournalSource.HTTP, new HttpPayload("GET", "/a", "/a", null, 200));
+        }
+        journal.dispatchPending();
+        JournalActivityReports reports = new JournalActivityReports(journal, 1_000, 5, null, null);
+        McpAgentViews.ActivityFilter filter = McpAgentViews.ActivityFilter.of("/old-report");
+
+        LiveActivityReport report = McpAgentViews.liveActivity(
+                reports.report(
+                        new Filter(McpAgentViews.adapterType(filter), null, 0, null, null, null, false),
+                        McpAgentViews.liveActivityFetch(filter, 25),
+                        null),
+                filter,
+                25);
+
+        assertThat(report.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.path()).isEqualTo("/old-report"));
+        assertThat(report.pageInfo().hasMore()).isFalse();
+        assertThat(report.warnings()).isEmpty();
     }
 
     @Test
