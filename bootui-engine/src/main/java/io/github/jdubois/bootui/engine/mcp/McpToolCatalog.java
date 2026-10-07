@@ -234,6 +234,7 @@ public final class McpToolCatalog {
                     BootUiPanels.DATABASE_CONNECTION_POOLS,
                     false,
                     ALL_STACKS),
+            entry("get_hibernate_statistics", McpToolSchema.NONE, BootUiPanels.HIBERNATE_STATISTICS, false, ALL_STACKS),
             entry("get_metrics", McpToolSchema.QUERY_LIMIT, BootUiPanels.METRICS, false, ALL_STACKS),
             entry("get_http_sessions", McpToolSchema.NONE, BootUiPanels.HTTP_SESSIONS, false, Set.of(Stack.SPRING_MVC)),
             entry("get_live_memory", McpToolSchema.NONE, BootUiPanels.LIVE_MEMORY, false, ALL_STACKS),
@@ -276,6 +277,7 @@ public final class McpToolCatalog {
                     BootUiPanels.JMS,
                     false,
                     Set.of(Stack.SPRING_MVC, Stack.SPRING_WEBFLUX)),
+            entry("get_websockets", McpToolSchema.NONE, BootUiPanels.WEBSOCKETS, false, ALL_STACKS),
             entry(
                     "get_devtools_status",
                     McpToolSchema.NONE,

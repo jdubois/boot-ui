@@ -20,10 +20,12 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
+import io.github.jdubois.bootui.engine.mcp.McpToolAnnotations;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
-import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
+import io.github.jdubois.bootui.engine.mcp.McpToolInputSchema;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import org.eclipse.microprofile.config.Config;
@@ -205,7 +207,7 @@ public class QuarkusMcpEnvelope {
             return null;
         }
         if (outcome instanceof ProtocolError e) {
-            return error(id, e.code(), e.message());
+            return error(id, e.code(), e.message(), e.data());
         }
         if (outcome instanceof InitializeResult r) {
             return result(id, renderInitialize(r));
@@ -260,7 +262,8 @@ public class QuarkusMcpEnvelope {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             node.put("name", tool.name());
             node.put("description", tool.description());
-            node.set("inputSchema", schema(tool.schema()));
+            node.set("inputSchema", inputSchema(tool.inputSchema()));
+            node.set("annotations", annotations(tool.annotations()));
             ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
             outputSchema.put("type", tool.outputSchemaType());
             node.set("outputSchema", outputSchema);
@@ -342,12 +345,21 @@ public class QuarkusMcpEnvelope {
     }
 
     private static ObjectNode error(JsonNode id, int code, String message) {
+        return error(id, code, message, null);
+    }
+
+    private static ObjectNode error(JsonNode id, int code, String message, Map<String, String> data) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
         response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
         ObjectNode err = JsonNodeFactory.instance.objectNode();
         err.put("code", code);
         err.put("message", message == null ? "Error" : message);
+        if (data != null && !data.isEmpty()) {
+            ObjectNode members = JsonNodeFactory.instance.objectNode();
+            data.forEach(members::put);
+            err.set("data", members);
+        }
         response.set("error", err);
         return response;
     }
@@ -356,102 +368,46 @@ public class QuarkusMcpEnvelope {
         return id == null ? JsonNodeFactory.instance.nullNode() : id;
     }
 
-    private static ObjectNode schema(McpToolSchema schema) {
-        return switch (schema) {
-            case NONE -> emptyObjectSchema();
-            case LIMIT -> limitSchema();
-            case QUERY_LIMIT -> querySchema();
-            case ID -> idSchema();
-            case OPTIONAL_ID -> optionalIdSchema();
-            case RULE_VIOLATIONS -> ruleViolationsSchema();
-        };
-    }
-
-    private static ObjectNode emptyObjectSchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        schema.set("properties", JsonNodeFactory.instance.objectNode());
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode limitSchema() {
+    private static ObjectNode inputSchema(McpToolInputSchema input) {
         ObjectNode schema = JsonNodeFactory.instance.objectNode();
         schema.put("type", "object");
         ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        properties.set("limit", limitProperty());
+        for (McpToolInputSchema.Property property : input.properties()) {
+            ObjectNode node = JsonNodeFactory.instance.objectNode();
+            node.put("type", property.type());
+            if (property.minimum() != null) {
+                node.put("minimum", property.minimum());
+            }
+            if (property.minLength() != null) {
+                node.put("minLength", property.minLength());
+            }
+            if (property.defaultValue() != null) {
+                node.put("default", property.defaultValue());
+            }
+            node.put("description", property.description());
+            if (!property.examples().isEmpty()) {
+                ArrayNode examples = JsonNodeFactory.instance.arrayNode();
+                property.examples().forEach(examples::add);
+                node.set("examples", examples);
+            }
+            properties.set(property.name(), node);
+        }
         schema.set("properties", properties);
+        if (!input.required().isEmpty()) {
+            ArrayNode required = JsonNodeFactory.instance.arrayNode();
+            input.required().forEach(required::add);
+            schema.set("required", required);
+        }
         schema.put("additionalProperties", false);
         return schema;
     }
 
-    private static ObjectNode querySchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        ObjectNode query = JsonNodeFactory.instance.objectNode();
-        query.put("type", "string");
-        query.put("description", "Optional case-insensitive filter applied to the results.");
-        properties.set("query", query);
-        properties.set("limit", limitProperty());
-        schema.set("properties", properties);
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode limitProperty() {
-        ObjectNode limit = JsonNodeFactory.instance.objectNode();
-        limit.put("type", "integer");
-        limit.put("minimum", 1);
-        limit.put(
-                "description",
-                "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit.");
-        return limit;
-    }
-
-    private static ObjectNode idSchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        ObjectNode id = JsonNodeFactory.instance.objectNode();
-        id.put("type", "string");
-        id.put("description", "Exact identifier of the resource to fetch.");
-        properties.set("id", id);
-        schema.set("properties", properties);
-        ArrayNode required = JsonNodeFactory.instance.arrayNode();
-        required.add("id");
-        schema.set("required", required);
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode optionalIdSchema() {
-        ObjectNode schema = idSchema();
-        schema.remove("required");
-        ((ObjectNode) schema.get("properties").get("id"))
-                .put("description", "Optional run id; omitted or previous selects the newest kept run.");
-        return schema;
-    }
-
-    private static ObjectNode ruleViolationsSchema() {
-        ObjectNode schema = idSchema();
-        ObjectNode properties = (ObjectNode) schema.get("properties");
-        ((ObjectNode) properties.get("id")).put("minLength", 1);
-        ObjectNode scanId = JsonNodeFactory.instance.objectNode();
-        scanId.put("type", "string");
-        scanId.put("minLength", 1);
-        scanId.put("description", "The cached report's violationDetails.scanId. Never starts a scan.");
-        properties.set("scanId", scanId);
-        ((ArrayNode) schema.get("required")).add("scanId");
-        ObjectNode offset = JsonNodeFactory.instance.objectNode();
-        offset.put("type", "integer");
-        offset.put("minimum", 0);
-        offset.put("default", 0);
-        properties.set("offset", offset);
-        ObjectNode limit = limitProperty();
-        limit.put("default", 100);
-        limit.put("description", "Page size, default 100, capped at min(1000, bootui.mcp.max-results).");
-        properties.set("limit", limit);
-        return schema;
+    private static ObjectNode annotations(McpToolAnnotations hints) {
+        ObjectNode annotations = JsonNodeFactory.instance.objectNode();
+        annotations.put("readOnlyHint", hints.readOnlyHint());
+        annotations.put("destructiveHint", hints.destructiveHint());
+        annotations.put("idempotentHint", hints.idempotentHint());
+        annotations.put("openWorldHint", hints.openWorldHint());
+        return annotations;
     }
 }

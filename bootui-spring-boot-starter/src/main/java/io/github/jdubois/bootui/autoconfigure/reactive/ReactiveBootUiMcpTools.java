@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
@@ -533,7 +534,9 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<DevServicesController> devServices,
             ObjectProvider<GitHubController> github,
             ObjectProvider<ReactiveCopilotController> copilot,
-            ObjectProvider<ReactiveClaudeCodeController> claudeCode) {
+            ObjectProvider<ReactiveClaudeCodeController> claudeCode,
+            ObjectProvider<HibernateStatisticsController> hibernateStatistics,
+            ObjectProvider<ReactiveWebSocketController> webSockets) {
         List<McpTool> registry = new ArrayList<>(tools);
 
         ReactiveSecurityController securityBean = security.getIfAvailable();
@@ -709,6 +712,18 @@ public class ReactiveBootUiMcpTools {
                     McpToolDescriptions.spring("get_claude_code_sessions"),
                     args -> McpAgentViews.sessions(claudeCodeBean.sessions(null, null), args.query(), args.limit())));
         }
+        HibernateStatisticsController hibernateStatisticsBean = hibernateStatistics.getIfAvailable();
+        if (hibernateStatisticsBean != null) {
+            registry.add(tool(
+                    "get_hibernate_statistics",
+                    McpToolDescriptions.spring("get_hibernate_statistics"),
+                    args -> hibernateStatisticsBean.statistics()));
+        }
+        ReactiveWebSocketController webSocketsBean = webSockets.getIfAvailable();
+        if (webSocketsBean != null) {
+            registry.add(tool(
+                    "get_websockets", McpToolDescriptions.spring("get_websockets"), args -> webSocketsBean.report()));
+        }
 
         this.panelsController = panels.getIfAvailable();
         this.tools = List.copyOf(registry);
@@ -717,6 +732,21 @@ public class ReactiveBootUiMcpTools {
     ReactiveBootUiMcpTools(List<McpTool> tools) {
         this.panelsController = null;
         this.tools = List.copyOf(tools);
+    }
+
+    /**
+     * Why a panel is unavailable in this application, in the panel manifest's own words, or {@code null} when it is
+     * available or not known, so a call to a tool this registry does not advertise can say why.
+     */
+    public String panelUnavailableReason(String panelId) {
+        if (panelsController == null) {
+            return null;
+        }
+        return panelsController.panels().panels().stream()
+                .filter(panel -> panel.id().equals(panelId) && !panel.available())
+                .map(panel -> panel.unavailableReason() == null ? "" : panel.unavailableReason())
+                .findFirst()
+                .orElse(null);
     }
 
     public List<McpTool> tools() {

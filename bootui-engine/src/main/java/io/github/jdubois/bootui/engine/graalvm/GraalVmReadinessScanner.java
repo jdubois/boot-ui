@@ -88,7 +88,8 @@ public final class GraalVmReadinessScanner {
         BasePackageDetection basePackages = detectBasePackages();
         GraalVmReadinessReport report = report(
                 "NOT_SCANNED",
-                "Readiness checks have not run yet. Click Run readiness checks to analyse the application.",
+                "Readiness checks have not run yet. Run readiness checks in the panel, or call graalvm_scan"
+                        + " (bootui graalvm scan), to analyse the application.",
                 null,
                 basePackages.packages(),
                 true,

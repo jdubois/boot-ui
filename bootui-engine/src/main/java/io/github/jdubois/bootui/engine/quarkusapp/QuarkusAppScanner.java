@@ -57,7 +57,8 @@ public final class QuarkusAppScanner {
     public SpringReport initialReport() {
         return report(
                 "NOT_SCANNED",
-                "Quarkus checks have not run yet. Click Run Quarkus checks to evaluate the application.",
+                "Quarkus checks have not run yet. Run Quarkus checks in the panel, or call spring_scan"
+                        + " (bootui spring scan), to evaluate the application.",
                 null,
                 List.of(),
                 0,

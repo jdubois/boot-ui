@@ -133,7 +133,8 @@ public final class HibernateScanner {
     public HibernateReport initialReport() {
         return report(
                 "NOT_SCANNED",
-                "Hibernate Advisor has not run yet. Click Run Hibernate checks to inspect mapped entities.",
+                "Hibernate Advisor has not run yet. Run Hibernate checks in the panel, or call hibernate_scan"
+                        + " (bootui hibernate scan), to inspect mapped entities.",
                 null,
                 List.of(),
                 0,

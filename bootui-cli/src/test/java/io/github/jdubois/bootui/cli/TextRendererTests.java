@@ -81,6 +81,16 @@ class TextRendererTests {
     }
 
     @Test
+    void valuesOutsideATableArePrintedWhole() {
+        String reason = "repeated-selects did not run: " + "its external validation is not complete yet ".repeat(3)
+                + "so this check stays out of the default list.";
+        String text = render("{\"summary\":\"" + reason + "\",\"checksNotRun\":[\"" + reason + "\"]}");
+
+        assertThat(text).doesNotContain("\u2026");
+        assertThat(text).isEqualTo("summary: " + reason + "\nchecksNotRun (1)\n  - " + reason);
+    }
+
+    @Test
     void newlinesInsideACellDoNotBreakTheTable() {
         String text = render("{\"rows\":[{\"message\":\"first\\nsecond\"}]}");
 

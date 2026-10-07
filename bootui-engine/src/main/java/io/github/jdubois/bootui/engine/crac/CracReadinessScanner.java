@@ -79,7 +79,8 @@ public final class CracReadinessScanner {
         BasePackageDetection basePackages = detectBasePackages();
         return new CracScanResult(
                 "NOT_SCANNED",
-                "Readiness checks have not run yet. Click Run readiness checks to analyse the application.",
+                "Readiness checks have not run yet. Run readiness checks in the panel, or call crac_scan (bootui crac scan),"
+                        + " to analyse the application.",
                 null,
                 basePackages.packages(),
                 0,

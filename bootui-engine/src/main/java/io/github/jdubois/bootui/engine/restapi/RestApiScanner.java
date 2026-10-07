@@ -162,8 +162,8 @@ public final class RestApiScanner {
         return report(
                 "NOT_SCANNED",
                 failures.isEmpty()
-                        ? "REST API rules have not run yet. Click Run REST API checks to analyse the application"
-                                + " controllers."
+                        ? "REST API rules have not run yet. Run REST API checks in the panel, or call rest_api_scan"
+                                + " (bootui rest-api scan), to analyse the application controllers."
                         : "REST API rules have not run yet. Application base packages could not be read; retry the"
                                 + " scan.",
                 null,
