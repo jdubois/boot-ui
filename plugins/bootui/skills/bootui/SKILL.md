@@ -141,6 +141,8 @@ bootui agent status --json                      # optional BootUI Java agent att
 bootui code inventory --json                    # with the agent: did the methods changed since the last restart run?
 bootui code paths --json                        # with the agent: which methods each route spends its time in
 bootui side-effects --json                      # with the agent: processes, hosts, files, env reads per route or work
+bootui hibernate statistics --json              # Hibernate ORM counters, when statistics are enabled
+bootui websockets --json                        # WebSocket endpoints, sessions, and frame metadata
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -152,13 +154,17 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
 - **Always pass `--json` when parsing.** The human table rendering is not a contract, and terminal auto-detection is
   unreliable on JDK 22 or later.
 - `bootui tools` prints a human table whose `status` column reads `ready`, `action`, `read-only`, or `panel disabled`.
-  With `--json` it prints the endpoint's own document instead, where each entry in `tools` carries `name`, `panel`,
-  `action`, `arguments`, `panelEnabled`, and `panelReadOnly` — but no `status` or `command` field. Derive availability
-  from those: `panelEnabled: false` means unavailable, `action: true` with `panelReadOnly: true` means the call would be
-  refused. Read this before concluding a stack or panel lacks a capability.
+  With `--json` it prints the endpoint's own document instead, where each entry in `tools` carries `name`, `command`,
+  `description`, `panel`, `action`, `schema`, `arguments`, `panelEnabled`, and `panelReadOnly`, but no `status`.
+  `panelEnabled: false` means the panel is disabled, and `action: true` with `panelReadOnly: true` means the call would
+  be refused. A tool missing from the list is not available in this application. Read this before concluding a stack or
+  panel lacks a capability.
 - Exit codes: `0` answered, `1` usage error or unreachable application or a request the tool rejected, `2` BootUI
-  declined because the panel is disabled or read-only. Treat `2` as "not available here", not as a failure to work
-  around by loosening configuration.
+  declined because the panel is disabled or read-only. A command whose tool this application does not advertise exits
+  `1` with "This application does not expose …" and the panel's reason, such as a missing library or the Java agent.
+  Treat `2` and that answer as "not available here", not as a failure to work around by loosening configuration.
+- `bootui --help` and each command's `--help` tag every action `[action - needs approval]`: it changes the
+  application's state, so name it to the user and wait for approval before running it.
 - Prefer the `BOOTUI_TOKEN` environment variable over `--token`, which exposes the token to shell history and process
   listings. Never echo a token or copy it into a report.
 - Scan payloads differ: `pentest scan` names its array `findings`, the rule-based advisors name it `results`. Every scan
@@ -173,8 +179,11 @@ Quarkus.
 
 ### Attach the optional Java agent
 
-Use the BootUI Java agent only when the user asks for executor-propagation diagnostics or wants to prepare the
-Java Agent panel. It is optional, local-only, and development-time only; never add it to a production or AOT-cached JVM.
+The BootUI Java agent powers Code Inventory, Code Paths, Side Effects, method probes, caught-exception findings, and
+executor-propagation diagnostics. When the user asks whether a change ran, where a route's handler time goes, what the
+application starts or contacts, or which exceptions code catches, and the agent is not attached, propose attaching it
+and ask permission first: it changes how the application is launched. It is optional, local-only, and development-time
+only; never add it to a production or AOT-cached JVM.
 Read `bootui agent status --json` / `get_agent_status` first: the report includes the exact jar path and copyable
 Maven, Gradle, Quarkus dev, Surefire/Failsafe, IntelliJ, and `JAVA_TOOL_OPTIONS` snippets. If the jar is missing, follow
 the report's `maven-download` snippet before adding `-javaagent:<path>`.
@@ -202,9 +211,9 @@ With the agent attached, a "did my change run?" question is one named workflow, 
    run.
 4. Report plainly whether the change ran and on which route; never report it verified while it is `NEVER_EXECUTED`.
 
-Without the agent these commands are not available here (exit code `2` or an unknown tool):
-`bootui agent status --json` says why, and whether the change ran is not measured. Say so, rather than calling the
-change verified.
+Without the agent these commands are not available here: they exit `1` with the panel's reason (`2` when the panel is
+disabled), and MCP answers with the same reason. `bootui agent status --json` says why, and whether the change ran is
+not measured. Say so, rather than calling the change verified.
 
 ### Find where a slow route's handler time goes
 
@@ -355,6 +364,11 @@ DTOs.
 Treat unavailable panels honestly. Their backing library, capability, configuration, or adapter support may be absent.
 Do not install unrelated infrastructure solely to light up a panel unless the user asks.
 
+Some things are in the browser only, with no command or MCP tool: HTTP Probe (it sends requests the user composes),
+Profile resources and its JDK Flight Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets
+capture switch, the Java agent's sensor switches, and other panel controls such as changing a logger level. Point the
+user to the panel rather than improvising one.
+
 ### Analyze what a run did
 
 Runtime Insights reports what the application actually did at runtime — repeated SELECTs, writes split across
@@ -412,7 +426,10 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    exceptions, security events, REST calls, cache accesses, timing, and correlation notes. `source: none` with
    `available: false` means neither retains the id; it is an answer, not an error to retry.
 3. For each exception in a present `buffers` profile, read its stack trace and cause chain with
-   `bootui exceptions show <exceptionGroupId> --json` (`get_exception_detail`).
+   `bootui exceptions show <exceptionGroupId> --json` (`get_exception_detail`). With the Java agent's opt-in
+   `caught-exceptions` sensor, `bootui exceptions list --json` (`get_exceptions`) also returns `caughtInCode`: the
+   exceptions application code caught. A finding was not seen rethrown or logged at `WARN` or above while the evidence
+   was complete; `unknown` counts incomplete evidence, never a swallowed exception.
 4. Check each section's `truncated` count and the `notes` before concluding a statement or call did not happen, and
    treat a `TIME_WINDOW` tier as approximate.
 
@@ -573,8 +590,9 @@ When BootUI MCP tools are available:
 2. Use targeted diagnostic reads such as `get_live_activity`, `get_request_profile` (a journal-first selection for one
    retained request or execution, with its journal timeline and optional HTTP-exchange `buffers` profile),
    `get_agent_status` (BootUI Java agent attachment/claim state), `get_exceptions`,
-   `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
-   counts, status classes, and p50/p95/p99 latency over the retained window). Their buffers are bounded: before
+   `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes` (per-route request
+   counts, status classes, and p50/p95/p99 latency over the retained window), `get_hibernate_statistics`, and
+   `get_websockets`. Their buffers are bounded: before
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.
    For what a run did across requests, use `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
    `get_runtime_run_comparison`, as described in the two Runtime Insights workflows above.

@@ -104,7 +104,11 @@ public final class McpToolGuide {
             "get_code_inventory",
             "changed (the default), never-executed, not-tracked, executed, dependencies, or a package or class",
             "get_code_paths",
-            "empty (the slowest routes), or a route or method name");
+            "empty (the slowest routes), or a route or method name",
+            "get_side_effects",
+            "a sensor id such as processes, network, files, environment, blocking, thread-activity, or"
+                    + " thread-locals, not captured (outbound calls no panel captured), or part of a route, target,"
+                    + " client, or call site");
 
     private McpToolGuide() {}
 

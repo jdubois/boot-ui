@@ -218,6 +218,21 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(first.path("description").isTextual()).isTrue();
             assertThat(first.path("inputSchema").isObject()).isTrue();
             assertThat(first.path("outputSchema").path("type").asText()).isEqualTo("object");
+            tools.forEach(tool -> {
+                JsonNode hints = tool.path("annotations");
+                assertThat(hints.path("readOnlyHint").isBoolean())
+                        .as("%s readOnlyHint", tool.path("name").asText())
+                        .isTrue();
+                assertThat(hints.path("destructiveHint").isBoolean()).isTrue();
+                assertThat(hints.path("idempotentHint").isBoolean()).isTrue();
+                assertThat(hints.path("openWorldHint").isBoolean()).isTrue();
+                tool.path("inputSchema")
+                        .path("properties")
+                        .forEach(property -> assertThat(
+                                        property.path("description").asText())
+                                .as("%s argument description", tool.path("name").asText())
+                                .isNotBlank());
+            });
         } finally {
             disableMcp();
         }
@@ -424,6 +439,59 @@ public abstract class AbstractMcpConformanceTest {
             JsonNode error = response.json().path("error");
             assertThat(error.path("code").asInt()).isEqualTo(-32602);
             assertThat(error.path("message").asText()).isEqualTo("Unknown tool: does_not_exist");
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
+    void testMcpUnadvertisedCatalogToolSaysWhyItsPanelIsUnavailable() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try {
+            BootUiHttpProbe probe = probe();
+            java.util.Set<String> advertised = new java.util.HashSet<>();
+            probe.request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")
+                    .json()
+                    .path("result")
+                    .path("tools")
+                    .forEach(tool -> advertised.add(tool.path("name").asText()));
+            Map<String, String> unavailable = new java.util.LinkedHashMap<>();
+            probe.get("/bootui/api/panels").json().path("panels").forEach(panel -> {
+                if (!panel.path("available").asBoolean(true)
+                        && !panel.path("unavailableReason").asText("").isBlank()) {
+                    unavailable.put(
+                            panel.path("id").asText(),
+                            panel.path("unavailableReason").asText().trim());
+                }
+            });
+            io.github.jdubois.bootui.engine.mcp.McpToolCatalog.Entry entry =
+                    io.github.jdubois.bootui.engine.mcp.McpToolCatalog.entries().stream()
+                            .filter(candidate -> !advertised.contains(candidate.name()))
+                            .filter(candidate -> unavailable.containsKey(candidate.panelId()))
+                            .findFirst()
+                            .orElse(null);
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                    entry != null, "every panel backing a catalog tool is available in this application");
+
+            JsonNode error = probe.request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\""
+                                    + entry.name() + "\"}}")
+                    .json()
+                    .path("error");
+            assertThat(error.path("code").asInt()).isEqualTo(-32602);
+            assertThat(error.path("message").asText())
+                    .startsWith("Tool not available in this application: " + entry.name() + ".")
+                    .contains(unavailable.get(entry.panelId()));
+            assertThat(error.path("data").path("tool").asText()).isEqualTo(entry.name());
+            assertThat(error.path("data").path("panel").asText()).isEqualTo(entry.panelId());
+            assertThat(error.path("data").path("reason").asText()).isEqualTo(unavailable.get(entry.panelId()));
         } finally {
             disableMcp();
         }

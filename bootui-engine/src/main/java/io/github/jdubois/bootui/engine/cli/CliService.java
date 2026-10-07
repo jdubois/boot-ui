@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -61,6 +62,36 @@ public final class CliService {
             int maxConcurrentCalls,
             long executionTimeoutMillis,
             McpFailureReporter failureReporter) {
+        this(
+                enabled,
+                tools,
+                policy,
+                serverVersion,
+                endpoint,
+                maxResults,
+                maxConcurrentCalls,
+                executionTimeoutMillis,
+                failureReporter,
+                panelId -> null);
+    }
+
+    /**
+     * Creates the facade with the adapter's panel availability, so a command whose tool this application does not
+     * advertise is answered with its panel's reason.
+     *
+     * @param panelUnavailableReason the reason a panel is unavailable here, or {@code null} when it is available
+     */
+    public CliService(
+            boolean enabled,
+            Supplier<List<McpTool>> tools,
+            McpPanelPolicy policy,
+            String serverVersion,
+            String endpoint,
+            int maxResults,
+            int maxConcurrentCalls,
+            long executionTimeoutMillis,
+            McpFailureReporter failureReporter,
+            Function<String, String> panelUnavailableReason) {
         this.enabled = enabled;
         this.tools = Objects.requireNonNull(tools, "tools");
         this.policy = Objects.requireNonNull(policy, "policy");
@@ -76,7 +107,8 @@ public final class CliService {
                 this.maxResults,
                 maxConcurrentCalls,
                 executionTimeoutMillis,
-                failureReporter);
+                failureReporter,
+                panelUnavailableReason);
     }
 
     /** Whether tool invocation is currently accepted. */

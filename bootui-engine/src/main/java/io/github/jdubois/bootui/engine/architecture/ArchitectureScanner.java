@@ -140,8 +140,8 @@ public final class ArchitectureScanner {
         }
         return report(
                 "NOT_SCANNED",
-                "Architecture rules have not run yet. Click Run architecture checks to analyse the application"
-                        + " classes.",
+                "Architecture rules have not run yet. Run architecture checks in the panel, or call architecture_scan"
+                        + " (bootui architecture scan), to analyse the application classes.",
                 null,
                 basePackages,
                 0,

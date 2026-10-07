@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
+  `get_websockets` (`bootui websockets`) are passive reads on Spring MVC, Spring WebFlux, and Quarkus; enabling
+  statistics and the capture switch stay in the panels ([AI agents](docs/AI-AGENTS.md#tools-the-agent-can-call)).
+- **MCP tool hints and per-tool argument schemas.** `tools/list` carries `annotations` (`readOnlyHint`,
+  `destructiveHint`, `idempotentHint`, `openWorldHint`) derived from each tool's kind, and each argument says what it
+  means for that tool, with an example and the `default` page size a call gets.
+
 - **Runtime Insights buttons in the Spring sample.** The welcome page generates each main finding with one click, or all
   at once, and links to it in the panel ([sample README](bootui-spring-sample-app/README.md#runtime-insights-demo)).
 - **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
@@ -364,6 +371,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compared with the previous one after a full restart.
 
 ### Changed
+
+- **A tool this application does not advertise says why.** MCP answers a known BootUI tool whose panel is unavailable
+  with `Tool not available in this application: <tool>.` and the panel's reason, also in `error.data`, instead of
+  `Unknown tool`; the CLI facade still answers `404`.
+- **Whole CLI help per command.** `bootui <command> --help` prints the tool's whole description, so `probe start` keeps
+  its approval and metadata-only wording and `memory scan` its full-GC warning; every action is tagged
+  `[action - needs approval]` in the listing and in its help. The readable output no longer cuts a value outside a table,
+  such as a `checksNotRun` reason.
+- **Agent guidance.** The MCP instructions say the default `get_runtime_insights` list leaves some kinds out and
+  that `start_method_probe` needs separate approval; the skill proposes the Java agent for
+  Code Inventory, Code Paths, Side Effects, probes, and caught exceptions, lists the browser-only controls, and documents
+  `bootui tools --json` and the exit code of a command whose tool is not exposed. An advisor that has not run yet names
+  the tool and command to run it.
 
 - **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check and how many
   the default list leaves out. Findings are one list filtered by theme,
