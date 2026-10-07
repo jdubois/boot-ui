@@ -1,11 +1,11 @@
 package io.smallrye.reactive.messaging.rabbitmq;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import com.rabbitmq.client.BasicProperties;
 import com.rabbitmq.client.Envelope;
 import io.vertx.rabbitmq.RabbitMQMessage;
-
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 public final class IncomingRabbitMQMetadataTestFactory {
 
