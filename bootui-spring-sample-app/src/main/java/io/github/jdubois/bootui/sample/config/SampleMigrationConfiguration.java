@@ -23,6 +23,11 @@ class SampleMigrationConfiguration {
     private static final String LIQUIBASE_MASTER_CHANGELOG = "classpath:db/changelog/db.changelog-master.xml";
 
     @Bean
+    static DeferredJpaInitializationOrder deferredJpaInitializationOrder() {
+        return new DeferredJpaInitializationOrder();
+    }
+
+    @Bean
     @ConditionalOnProperty(prefix = "spring.flyway", name = "enabled", matchIfMissing = true)
     FlywayMigrationStrategy sampleFlywayStartupStrategy() {
         return flyway -> {
