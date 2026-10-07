@@ -2,10 +2,14 @@ package io.github.jdubois.bootui.engine.sideeffects;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +56,40 @@ class JournalNetworkCaptureTests {
 
         assertThat(capture.restClient("proxy.corp", 3128, "r1", null, T, T)).isTrue();
         assertThat(capture.restClient("proxy.corp", 3128, "r9", null, T, T)).isFalse();
+    }
+
+    @Test
+    void aRefreshIndexesEveryCallRecordedSinceTheLastOneNotOnlyTheNewestEvent() throws InterruptedException {
+        // The journal lists its events newest first: a Reactor Netty event loop's unowned connect to localhost was
+        // never captured when other events followed the REST client call that made it.
+        try (RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start())) {
+            JournalNetworkCapture capture = new JournalNetworkCapture(journal, key -> null);
+            assertThat(journal.offer(rest("localhost:18731", "r1", null, T, 679)))
+                    .isTrue();
+            assertThat(journal.offer(rest(null, "r1", null, T + 700, 1))).isTrue();
+            assertThat(journal.offer(rest(null, "r2", null, T + 800, 1))).isTrue();
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+            capture.refresh();
+
+            assertThat(capture.restClient("localhost", 18731, null, null, T + 290, T + 291))
+                    .as("an unowned event-loop connect during the call")
+                    .isTrue();
+
+            assertThat(journal.offer(rest("api.example.com:8443", "r3", null, T + 2_000, 5)))
+                    .isTrue();
+            assertThat(journal.offer(rest(null, "r3", null, T + 2_100, 1))).isTrue();
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+            capture.refresh();
+
+            assertThat(capture.restClient("api.example.com", 8443, null, null, T + 2_001, T + 2_001))
+                    .as("a call recorded since the last refresh, followed by another event")
+                    .isTrue();
+            assertThat(capture.restClient("localhost", 18731, "r1", null, T, T))
+                    .as("the calls indexed before are kept")
+                    .isTrue();
+        }
     }
 
     @Test

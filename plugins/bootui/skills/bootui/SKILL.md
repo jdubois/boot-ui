@@ -381,11 +381,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work ran that
    `requests` does not count. A run-level observation with no exemplar does not. Then read `checksNotRun` and
    `limitations`, then each observation's sentence, `verify` line, and exemplar request. The empty query is the default
-   list the panel shows: only the kinds that passed their external validation (`errors-behind-2xx`,
-   `changed-code-not-executed`) or stayed silent on it, so no time breakdown, exception hotspot, repeated SELECT,
-   connection, AI, garbage collection, or heap row. A limitation names the kinds of the rows returned that are not
-   externally validated: verify such a row against the code before acting on it. Another counts what the default list
-   left out per kind; `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
+   list the panel shows, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated
+   SELECTs, and garbage collection and heap rows. A limitation names each kind the default list left out with its count;
+   verify any row against the code before acting on it. `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
    repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
    kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
 3. Follow `next`: every insights answer, an unknown id included, names at most three follow-up calls, each with the
@@ -604,7 +602,10 @@ When BootUI MCP tools are available:
 5. After making and testing a fix, rerun the same tool and compare results.
 
 Read tools honor panel enablement. Scan tools also honor panel and global read-only settings. Results are masked and
-paginated reads are capped by `bootui.mcp.max-results`. Log and exception messages have secret-like assignments and
+paginated reads are capped by `bootui.mcp.max-results`. Large reads (SQL traces, startup, log tail, sessions, the
+vulnerabilities report, activity, exchanges, configuration, beans, metrics, conditions, threads) return a short first page without `limit`;
+when `page.hasMore` is true, narrow `--query` or raise `--limit` instead of assuming you saw everything. Agent status
+and Side Effects summarize each sensor; pass `--query <sensor id>` for its hooks. Log and exception messages have secret-like assignments and
 authorization credentials masked, and are omitted under `bootui.expose-values=METADATA_ONLY`; a `get_log_tail` line
 with `messageOmitted: true` had its message withheld, not an empty one.
 

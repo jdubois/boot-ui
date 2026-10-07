@@ -16,18 +16,15 @@ import {
   isListed,
   numericColumns,
   themeFilters,
-  unlistedSummary,
-  validationCounts,
-  validationOf
+  unlistedSummary
 } from '../utils/runtimeInsights.js'
 import {insightMarkdown} from '../utils/markdownExport.js'
-import {comparisonSummary} from '../utils/runComparison.js'
+import {codeChanges, comparisonSummary} from '../utils/runComparison.js'
 import ChangeImpact from './components/ChangeImpact.vue'
 import InsightCheckLimits from './components/InsightCheckLimits.vue'
 import InsightCoverage from './components/InsightCoverage.vue'
 import InsightDetail from './components/InsightDetail.vue'
 import InsightNotExercised from './components/InsightNotExercised.vue'
-import InsightValidationMark from './components/InsightValidationMark.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import PanelTabs from './components/PanelTabs.vue'
@@ -36,8 +33,8 @@ import RunComparison from './components/RunComparison.vue'
 
 // Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained events projected into observations. Every
 // read is a GET of what the journal already recorded; opening the panel starts no capture, scan, or network call.
-// The panel leads with a verdict on the run, then one list of findings that open in place; the run's changes, the
-// resource profiler, and its coverage and limits each have a tab of their own.
+// The panel leads with a verdict on the run, then one list of findings that open in place; the run's changes, change
+// impact, the resource profiler, and its coverage and limits each have a tab of their own.
 const props = defineProps(panelProps)
 const {manifestAvailable, manifestUnavailableReason, readOnly, readOnlyReason} = usePanelState(props)
 
@@ -45,7 +42,7 @@ const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
 // Live Activity links here with ?q=<route> and, from a request's drawer, ?insight=<id> to open one observation;
-// ?impact=<symbol> opens the change impact of a symbol.
+// ?impact=<symbol> opens the change impact of a symbol, and ?tab=<id> one of the tabs.
 const route = useRoute()
 const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
 const theme = ref(typeof route?.query?.theme === 'string' ? route.query.theme : '')
@@ -55,7 +52,10 @@ const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.i
 const showAll = ref(route?.query?.all === '1' || route?.query?.all === 'true')
 let deepLinkChecked = false
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
-const tab = ref(initialImpact ? 'changes' : 'findings')
+const TAB_IDS = ['findings', 'changes', 'impact', 'profile', 'coverage']
+const linkedTab = typeof route?.query?.tab === 'string' && TAB_IDS.includes(route.query.tab) ? route.query.tab : null
+const tab = ref(initialImpact ? 'impact' : (linkedTab ?? 'findings'))
+const impactTool = ref(null)
 const detail = ref(null)
 // The "Copy for AI" preview of the open observation, built from the detail already loaded; copying sends nothing.
 const aiExport = ref(null)
@@ -69,6 +69,13 @@ const comparisonReady = ref(false)
 const comparisonText = computed(() => comparisonSummary(comparison.value))
 // Whether there is a previous run to show the changes of, rather than only a reason there is none.
 const compared = computed(() => ['COMPARED', 'INSUFFICIENT'].includes(comparison.value?.status))
+// The methods the comparison found changed or added that change impact can check, offered as the first things to check
+// there; the total counts every changed or added method, including those the comparison did not list.
+const code = computed(() => codeChanges(comparison.value))
+const changedMethods = computed(() =>
+  (code.value?.rows ?? []).filter((row) => row.checkable).map((row) => ({symbol: row.key, name: row.name}))
+)
+const changedTotal = computed(() => (code.value?.rows?.length ?? 0) + (code.value?.more ?? 0))
 
 function onComparisonLoaded(value) {
   comparison.value = value
@@ -106,11 +113,9 @@ const filters = computed(() => ({
   selectedId: selectedId.value
 }))
 const groups = computed(() => groupObservations(report.value, filters.value))
-// One list in the report's check order, each row carrying its check's title and external validation.
+// One list in the report's check order, each row carrying its check's title.
 const rows = computed(() =>
-  groups.value.flatMap((group) =>
-    group.observations.map((observation) => ({observation, title: group.title, validation: group.validation}))
-  )
+  groups.value.flatMap((group) => group.observations.map((observation) => ({observation, title: group.title})))
 )
 const visibleObservations = computed(() => rows.value.map((row) => row.observation))
 const themes = computed(() => themeFilters(report.value, filters.value))
@@ -120,7 +125,7 @@ const listed = computed(() =>
     (group) => group.observations
   )
 )
-const counts = computed(() => validationCounts(report.value, listed.value))
+const counts = computed(() => ({total: listed.value.length}))
 const unlisted = computed(() => unlistedSummary(report.value, filters.value))
 const anyUnlisted = computed(() => (report.value?.observations ?? []).some((observation) => !isListed(observation)))
 // The rows the default list leaves out, counted from the same source as the verdict: an open row it leaves out is
@@ -148,14 +153,12 @@ const notExercisedCount = computed(
   () => (report.value?.notExercised?.length ?? 0) + (report.value?.notExercisedOmitted ?? 0)
 )
 const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
-const selectedValidation = computed(() =>
-  validationOf(report.value?.checks?.find((check) => check.kind === selected.value?.kind))
-)
 watch(selectedId, () => (aiExport.value = null))
 
 const tabs = computed(() => [
   {id: 'findings', label: 'Findings', icon: 'bi-search', count: listed.value.length},
   {id: 'changes', label: 'Changes', icon: 'bi-arrow-left-right', count: null},
+  {id: 'impact', label: 'Change impact', icon: 'bi-diagram-3', count: null},
   {id: 'profile', label: 'Profile', icon: 'bi-cpu', count: null},
   {id: 'coverage', label: 'Coverage & limits', icon: 'bi-bullseye', count: null}
 ])
@@ -164,8 +167,7 @@ function openAiExport() {
   const check = report.value?.checks?.find((candidate) => candidate.kind === selected.value?.kind)
   aiExport.value = insightMarkdown(detail.value, {
     title: check?.title,
-    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null,
-    validation: validationOf(check)?.reason
+    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null
   })
 }
 // A breakdown's share column becomes bars, so the phase that took the time stands out before any number is read.
@@ -224,6 +226,12 @@ async function showTab(id, targetId) {
   const target = document.getElementById(targetId ?? `insights-panel-${id}`)
   target?.focus({preventScroll: true})
   target?.scrollIntoView?.({block: 'start', behavior: 'smooth'})
+}
+
+// "See its impact" on a changed method: Change impact opens on that method, checked at once.
+async function showImpact({symbol, name}) {
+  await showTab('impact')
+  impactTool.value?.check(symbol, name)
 }
 
 function toggle(id) {
@@ -292,7 +300,6 @@ provide(
     sources,
     unrun,
     selected,
-    selectedValidation,
     shares,
     numeric,
     windowText,
@@ -354,16 +361,6 @@ provide(
               </template>
             </h2>
             <ul class="insight-verdict-facts">
-              <li v-if="counts.validated > 0">
-                <i class="bi bi-patch-check" aria-hidden="true"></i>
-                {{ formatNumber(counts.validated) }} from {{ counts.validated === 1 ? 'a check' : 'checks' }} that
-                passed external validation
-              </li>
-              <li v-if="counts.unvalidated > 0">
-                <i class="bi bi-patch-question" aria-hidden="true"></i>
-                {{ formatNumber(counts.unvalidated) }} from {{ counts.unvalidated === 1 ? 'a check' : 'checks' }} not
-                externally validated
-              </li>
               <li v-if="hiddenByDefault > 0">
                 <i class="bi bi-eye-slash" aria-hidden="true"></i>
                 {{ formatNumber(hiddenByDefault) }} more not listed by default
@@ -442,8 +439,8 @@ provide(
                 v-model="query"
                 type="search"
                 class="form-control form-control-sm insight-search"
-                aria-label="Search observations by route, table, or logger"
-                placeholder="Search routes, tables, loggers…"
+                aria-label="Search observations by check, route, table, or logger"
+                placeholder="Search checks, routes, tables, loggers…"
               />
               <div class="d-flex flex-wrap gap-1" role="group" aria-label="Filter observations by theme">
                 <button
@@ -485,7 +482,7 @@ provide(
 
             <ul v-else class="list-unstyled mb-0 insight-list" aria-label="Observations">
               <li
-                v-for="{observation, title, validation} in rows"
+                v-for="{observation, title} in rows"
                 :id="rowId(observation.id)"
                 :key="observation.id"
                 class="insight-row"
@@ -510,7 +507,6 @@ provide(
                       {{ statusLabel(observation.status) }}
                     </span>
                     <span v-if="!isListed(observation)" class="insight-unlisted-label">Not listed by default</span>
-                    <InsightValidationMark v-if="validation" :validation="validation" />
                   </span>
                   <i class="bi bi-chevron-down insight-row-chevron" aria-hidden="true"></i>
                 </button>
@@ -541,8 +537,27 @@ provide(
           role="tabpanel"
           aria-labelledby="insights-tab-changes"
         >
-          <RunComparison class="mb-3" :refresh-key="lastFetched ?? 0" @loaded="onComparisonLoaded" />
-          <ChangeImpact :initial-symbol="initialImpact" />
+          <RunComparison
+            class="mb-3"
+            :refresh-key="lastFetched ?? 0"
+            @loaded="onComparisonLoaded"
+            @impact="showImpact"
+          />
+        </div>
+
+        <div
+          v-show="tab === 'impact'"
+          id="insights-panel-impact"
+          tabindex="-1"
+          role="tabpanel"
+          aria-labelledby="insights-tab-impact"
+        >
+          <ChangeImpact
+            ref="impactTool"
+            :initial-symbol="initialImpact"
+            :changed="changedMethods"
+            :changed-total="changedTotal"
+          />
         </div>
 
         <div

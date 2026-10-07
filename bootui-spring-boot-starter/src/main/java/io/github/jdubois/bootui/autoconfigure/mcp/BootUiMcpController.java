@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.mcp.McpPayloadReader;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader.PayloadTooLargeException;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,8 +26,11 @@ import tools.jackson.databind.node.JsonNodeFactory;
  * is initialized from {@code bootui.mcp.enabled} and can be toggled at runtime from the MCP Server
  * panel via {@link McpServerState}.
  *
- * <p>The {@code GET} variant returns 405 because BootUI does not offer a server-to-client SSE stream
- * at this endpoint. Human-readable status is available from {@code /bootui/api/mcp-server}.
+ * <p>The endpoint is dual-era: {@link BootUiMcpService#exchange} selects MCP 2025-06-18 or MCP 2026-07-28 from the
+ * request body and its {@code MCP-Protocol-Version}, {@code Mcp-Method}, and {@code Mcp-Name} headers, so the body is
+ * read before any header is judged. The {@code GET} variant returns 405 because BootUI offers no server-to-client
+ * stream at this endpoint, which MCP 2026-07-28 removed altogether. Human-readable status is available from
+ * {@code /bootui/api/mcp-server}.
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mcp")
@@ -45,13 +49,7 @@ public class BootUiMcpController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> rpc(
-            HttpServletRequest servletRequest,
-            @RequestHeader(value = McpProtocol.PROTOCOL_VERSION_HEADER, required = false) String protocolVersion) {
-        if (protocolVersion != null && !McpProtocol.KNOWN_VERSIONS.contains(protocolVersion)) {
-            return json(
-                    400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.UNSUPPORTED_PROTOCOL_VERSION_MESSAGE));
-        }
+    public ResponseEntity<String> rpc(HttpServletRequest servletRequest, @RequestHeader HttpHeaders headers) {
         byte[] requestBody;
         try {
             requestBody = McpPayloadReader.read(servletRequest.getInputStream(), maxPayloadBytes);
@@ -66,43 +64,17 @@ public class BootUiMcpController {
         } catch (IllegalArgumentException ex) {
             return json(400, error(null, McpProtocol.PARSE_ERROR, ex.getMessage()));
         }
-        if (request != null && request.isArray()) {
-            return json(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
-        }
-        if (!state.isEnabled()) {
-            if (isNotification(request)) {
-                return ResponseEntity.accepted().build();
-            }
-            return json(200, disabledError(request));
-        }
-        JsonNode response = service.handle(request);
-        if (response == null) {
+        BootUiMcpService.Reply reply = service.exchange(request, BootUiMcpService.headers(headers), state.isEnabled());
+        if (reply.body() == null) {
             // Notification (no id) — acknowledge with 202 and no body.
             return ResponseEntity.accepted().build();
         }
-        return json(200, response);
+        return json(reply.status(), reply.body());
     }
 
     @GetMapping
     public ResponseEntity<Void> getStream() {
         return ResponseEntity.status(405).build();
-    }
-
-    /**
-     * Builds a JSON-RPC error response indicating the server is disabled, preserving the request id
-     * when present so a compliant client can correlate it.
-     */
-    private static JsonNode disabledError(JsonNode request) {
-        JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-        return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);
-    }
-
-    private static boolean isNotification(JsonNode request) {
-        return request != null
-                && request.isObject()
-                && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asString())
-                && !request.path("method").asString().isBlank();
     }
 
     private static tools.jackson.databind.node.ObjectNode error(JsonNode id, int code, String message) {

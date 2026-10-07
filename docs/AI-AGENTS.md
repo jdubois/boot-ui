@@ -4,7 +4,8 @@ BootUI can expose its advisor findings and runtime diagnostics to a local AI cod
 your running application before proposing a fix and verify the fix afterwards. It works with GitHub Copilot, Claude
 Code, and any other client that speaks the [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
 
-This page covers installing the agent [skill](#install-the-bootui-agent-skill) or the
+This page covers installing the agent [skill](#install-the-bootui-agent-skill), the
+[Cursor plugin](#install-the-bootui-cursor-plugin), or the
 [Claude Code plugin](#install-the-bootui-claude-code-plugin), connecting an agent to the MCP server, choosing between
 that and the [CLI](CLI.md), a worked example that fixes Hibernate findings, and how BootUI pairs with
 [Coffilot](https://www.julien-dubois.com/coffilot/).
@@ -55,30 +56,61 @@ application from the [command line](CLI.md) or the
 [MCP server](#connect-an-agent-to-the-bootui-mcp-server), turn advisor findings into focused fixes, and verify
 those fixes.
 
-With GitHub CLI 2.90 or later, inspect the skill before installing it:
+Install the canonical skill in any [Agent Skills](https://agentskills.io)-compatible coding agent:
 
 ```bash
-gh skill preview jdubois/boot-ui bootui
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+The interactive installer detects supported agents and lets you select where to install the skill. Like any
+third-party skill, review its instructions before installation.
+
+With GitHub CLI 2.90 or later, GitHub Copilot users can inspect the skill before installing it:
+
+```bash
+gh skill preview jdubois/boot-ui skills/bootui
 ```
 
 Then install it for the current project:
 
 ```bash
-gh skill install jdubois/boot-ui bootui
+gh skill install jdubois/boot-ui skills/bootui
 ```
 
 The skill works with Copilot cloud agent, Copilot CLI, the GitHub Copilot app, Copilot code review, and agent mode in
-supported IDEs. Like any third-party skill, review its instructions before installation. You can also copy
-`skills/bootui` into a project's `.github/skills` directory manually.
+supported IDEs. You can also copy `skills/bootui` into a project's `.github/skills` directory manually.
 
-Agents that read skills from a project directory rather than from GitHub can install the same skill with:
+Cursor and Claude Code users should prefer their plugin, which installs this skill and wires up the MCP server in one
+step.
 
-```bash
-npx skills add jdubois/boot-ui
-```
+Repository-wide skill searches may show both `skills/bootui` and `plugins/bootui/skills/bootui`. Install
+`skills/bootui`: it is the canonical consumer skill. The second result is an identical copy kept inside the portable
+plugin because plugin clients install a self-contained directory and cannot follow a reference to the canonical file
+outside it. A build test prevents the two copies from drifting.
 
-Claude Code users should prefer the [plugin](#install-the-bootui-claude-code-plugin), which installs this skill and
-wires up the MCP server in one step.
+## Install the BootUI Cursor plugin
+
+BootUI ships an [Agent Plugins](https://agent-plugins.org) payload that Cursor loads as a plugin. It bundles the same
+agent skill and registers the local MCP endpoint, so it is the preferred Cursor setup once the plugin is available in
+the Cursor Marketplace:
+
+1. Open **Customize** in Cursor.
+2. Find **BootUI**, select **Install**, and choose user or project scope.
+3. Confirm that the `bootui` skill and MCP server appear.
+
+BootUI must already be running in your application, and its MCP server must be enabled with
+`bootui.mcp.enabled=ON` or from `/bootui/#/mcp-server`. The bundled connection points at
+`http://127.0.0.1:8080/bootui/api/mcp`.
+
+If the application uses another port or a custom [`bootui.api-path`](PROPERTIES.md), disable the bundled BootUI MCP
+server in **Customize** and use the manual `~/.cursor/mcp.json` entry below with the correct URL. Do the same for an
+application reached from a container or another host, adding its `Authorization` bearer token to your local
+configuration. Agent Plugins does not expand environment variables in remote URLs, and the portable plugin deliberately
+ships no credentials.
+
+Agent Plugins names BootUI's transport `streamable-http`; Claude Code and VS Code call the same transport `http`, while
+Cursor's personal MCP configuration omits the type. This is only client vocabulary: BootUI has always accepted
+JSON-RPC over Streamable HTTP at `POST /bootui/api/mcp`.
 
 ## Install the BootUI Claude Code plugin
 
@@ -121,6 +153,12 @@ The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/
 (fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless non-loopback access is
 explicitly enabled, which requires authentication.
 
+The endpoint speaks both MCP eras. A client that opens with `initialize` gets MCP 2025-06-18 exactly as before; a client
+that sends MCP 2026-07-28 per-request `_meta` (with the matching `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
+headers) can call `server/discover` and gets `resultType`, the server's identity, and cache hints on every result. Both
+eras see the same tools, prompts, policies, and limits, and every response is a single JSON object. There is no `GET`
+stream in either era (`405`). See [Protocol eras](#protocol-eras) for the details a client implementer needs.
+
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
    classpath). See [Setup](SETUP.md).
 2. **Enable the server.** Set `bootui.mcp.enabled=ON`, or flip the toggle at the top of the **MCP Server** panel
@@ -149,7 +187,8 @@ explicitly enabled, which requires authentication.
    claude mcp add --transport http bootui http://127.0.0.1:8080/bootui/api/mcp
    ```
 
-   Cursor (`~/.cursor/mcp.json`) keys a remote server on `url` and takes no `type`:
+   Cursor users should prefer the [plugin](#install-the-bootui-cursor-plugin). For a manual setup or an endpoint that
+   differs from the plugin default, `~/.cursor/mcp.json` keys a remote server on `url` and takes no `type`:
 
    ```json
    {
@@ -265,7 +304,7 @@ user; BootUI's own panel and read-only gates still apply.
   and a retained HTTP-exchange `buffers` profile accompanies it for HTTP requests (or is returned alone as a
   fallback). It is not the single legacy REST DTO — see
   [Investigate one request](#investigate-one-request); `get_exception_detail` takes a required `id`
-  (from `get_exceptions`, `get_live_activity`, or a profile exception's `exceptionGroupId`) and returns that exception
+  (from `get_exceptions`, an `EXCEPTION` entry's `exceptionGroupId` in `get_live_activity`, never the entry's own `id`, or a profile exception's `exceptionGroupId`) and returns that exception
   group's full stack trace, causes, and individual occurrences. With the BootUI agent's opt-in `caught-exceptions`
   sensor, `get_exceptions` also returns `caughtInCode`: counts and the top findings of the exceptions application code
   caught. A finding was not seen rethrown or logged at `WARN` or above while the evidence was complete; `unknown`
@@ -342,9 +381,9 @@ read tools return short, stable facts rather than a dashboard:
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, so only the kinds that passed their external validation or stayed silent on it (M4-20), and no time breakdown, exception hotspot, repeated SELECT, connection, AI, garbage collection, or heap row; a limitation names the returned rows' kinds that are not externally validated, and another counts what it left out per kind), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
-| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says why first among its limitations, and a row of a kind not externally validated says so |
-| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
+| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the default list: what the panel lists by default, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count), `all` (every observation), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
+| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says where its evidence is shown first among its limitations |
+| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each with their totals and a limitation naming the rest, or `AMBIGUOUS` with candidates. A bare method name, such as `applyDiscount`, resolves through Code Inventory, `AMBIGUOUS` when several classes declare it; parameters that match no overload return `NOT_FOUND` with the real overloads as `candidates`. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
 | `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects the newest kept run, including listener-only or idle runs. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then `sideEffects` (with the agent: hosts, file patterns, processes, and variable names new, gone, or whose owner was not exercised, per sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED` with the reason; at most 8), then at most 8 route/execution behavior rows and edges; latency is left out |
 
 **Every answer names the next call.** Each of the four answers carries `next`: at most three follow-up calls, each
@@ -386,8 +425,8 @@ known, runs the tests, calls
    routes whose requests ran the method itself; a route under `notObserved` ran without showing it, which is not proof
    it never does.
 2. After the edit and a DevTools restart or Quarkus live reload, run the tests, then
-   `bootui insights list --query repeated-selects --json`. The default list leaves repeated SELECTs out since their
-   external validation (M4-20), so that query shows whether a repeat is gone; a statement repeated after the handler
+   `bootui insights list --query repeated-selects --json`. The default list leaves repeated SELECTs out, so that
+   query shows whether a repeat is gone; a statement repeated after the handler
    returned is reported by `lazy-sql-after-handler` instead, with its cause. Absence is evidence only when the
    route it named ran again: check `requests` and `notExercised`.
 3. Then `bootui insights compare --json` (or `compare previous`), and stop. With the BootUI agent, its `codeChanges`
@@ -408,7 +447,7 @@ answers the question an agent most needs after an edit: did the method it change
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_code_inventory` | `bootui code inventory [--query Q] [--limit N]` | The summary first (this run, N of M tracked methods executed, changed, added, and removed counts, dependency counts, limitations), then at most `limit` (25) rows of `query`: `changed` (the default; the methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, each with its status and the first request id and route that ran it), `never-executed`, `not-tracked`, `executed`, `dependencies` (declared jars not loaded in this run first), or a package or class |
+| `get_code_inventory` | `bootui code inventory [--query Q] [--limit N]` | The summary first (this run, N of M tracked methods executed, changed, added, and removed counts, dependency counts, limitations), then at most `limit` (25) rows of `query`: `changed` (the default; the methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, each with its status and the first request id and route that ran it), `never-executed`, `not-tracked`, `executed`, `dependencies` (declared jars not loaded in this run first), or a package, class, or method name (`applyDiscount`, `OrderService#applyDiscount`) |
 
 The tool is advertised only while the agent's inventory sensor records this run, like every tool of an unavailable
 panel; read `get_agent_status` once to learn whether it can be, and why not. `summary.available: false`, from a run
@@ -490,7 +529,7 @@ values. Ask with `query` `not captured` for the outbound calls no panel shows (a
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, `blocking`, `thread-activity`, or `thread-locals`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, `blocking`, `thread-activity`, or `thread-locals`, `not captured`, part of a route, target, client, or call site, or a request id among a row's exemplars, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
 
 Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
@@ -653,6 +692,33 @@ property source enumerates under that literal name. Values are matched literally
 name and source its property source published. See the [Configuration panel](features/configuration.md#configuration)
 for the panel-side behavior.
 
+### Agent-sized defaults
+
+An agent pays for every byte it reads, so the reads below answer with a short first page when the call gives no
+`limit`, and keep the full payload for the browser. Each takes a `query` and carries the `page` envelope above:
+`hasMore: true` means rows were left out, so narrow the query or raise `limit` (still capped by `max-results`).
+
+| Tool (command) | Default | `query` matches |
+| --- | --- | --- |
+| `get_sql_traces` (`bootui sql traces`) | 20 newest statements | SQL text, category, call site, error, request, trace, or execution id |
+| `get_startup_timeline` (`bootui startup`) | 25 slowest steps; a parent includes its children | Step name or tag value, such as a bean name |
+| `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
+| `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions | Id, model, working directory, status, or last activity |
+| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first | Coordinates, severity, or an advisory id or alias |
+| `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
+| `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
+
+Totals such as the vulnerabilities report's `total` and `vulnerable` still count the whole report. Live Activity keeps
+its own shape: `typeCounts` counts every retained entry by type, and `pageInfo.hasMore` says whether more entries
+matched. A filtered read searches the newest entries the feed returns (up to 5,000 from the runtime journal, or
+`bootui.activity.max-entries` from Spring's panel buffers); when older retained entries were not searched, `hasMore` is
+true and a warning names the window, so no match there does not mean the route never ran. `get_config` leaves
+out `propertySuggestions`, the browser's completion list of every known property. `get_agent_status` and
+`get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks, and Side Effects
+lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
+`executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
+options, keeps working and gets the same first page.
+
 ### Safety model
 
 The MCP server inherits BootUI's full safety posture, so handing it to an agent stays safe by construction:
@@ -673,6 +739,32 @@ See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](f
 description. `get_agent_status` is read-only and reports only the local BootUI Java agent state, setup snippets, and
 claim metadata.
 
+
+## Protocol eras
+
+BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, as MCP 2026-07-28's backward
+compatibility rules describe:
+
+- **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
+  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes
+  `-32000` (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An
+  `MCP-Protocol-Version` header other than `2025-06-18` is refused with `400` and `-32600`.
+- **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
+  being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
+  (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
+  `data.requested`; `io.modelcontextprotocol/clientCapabilities` must be an object (`-32602`); `Mcp-Method` must be sent
+  once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
+  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
+  (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
+- **Modern results.** Every result carries `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`.
+  `server/discover`, `tools/list`, and `prompts/list` also carry `ttlMs: 60000` and `cacheScope: "private"`; tools stay
+  in catalog order. Modern clients have no `initialize` or `ping`; an unknown method answers `404` with `-32601`.
+  BootUI's own server errors move out of the JSON-RPC reserved range for modern clients: `-31000` (disabled), `-31001`
+  (at capacity), `-31002` (timeout), and `-31003` (response too large), with the same messages.
+- **Unchanged in both eras.** Loopback, Host, cross-site write, token, panel enable and read-only, masking,
+  payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
+  answer `202`. Responses are single JSON objects; request-scoped progress over `text/event-stream` is planned
+  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 ## Assess an application and approve an action plan
 
 When you do not know which panel to investigate first, ask your coding agent for an application assessment:

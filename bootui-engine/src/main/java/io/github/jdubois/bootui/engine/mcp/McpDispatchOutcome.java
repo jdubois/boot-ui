@@ -13,7 +13,7 @@ import java.util.Map;
  *
  * <ul>
  *   <li>{@link NoResponse} — a notification; the transport emits no body (HTTP 202).
- *   <li>{@link InitializeResult}/{@link PingResult}/{@link ToolsListResult}/{@link PromptsListResult}/
+ *   <li>{@link InitializeResult}/{@link DiscoverResult}/{@link PingResult}/{@link ToolsListResult}/{@link PromptsListResult}/
  *       {@link PromptGetResult}/{@link ToolCallResult} — a JSON-RPC {@code result} envelope.
  *   <li>{@link ToolCallError} — a {@code result} carrying {@code isError:true} (an in-band tool
  *       failure the agent can read).
@@ -23,6 +23,7 @@ import java.util.Map;
 public sealed interface McpDispatchOutcome
         permits McpDispatchOutcome.NoResponse,
                 McpDispatchOutcome.InitializeResult,
+                McpDispatchOutcome.DiscoverResult,
                 McpDispatchOutcome.PingResult,
                 McpDispatchOutcome.ToolsListResult,
                 McpDispatchOutcome.PromptsListResult,
@@ -44,6 +45,22 @@ public sealed interface McpDispatchOutcome
      */
     record InitializeResult(String protocolVersion, String serverName, String serverVersion, String instructions)
             implements McpDispatchOutcome {}
+
+    /**
+     * The modern {@code server/discover} result.
+     *
+     * @param supportedVersions every supported revision, newest first
+     * @param serverName the advertised server name
+     * @param serverVersion the advertised server version
+     * @param instructions the advertised usage instructions (framework-specific copy)
+     */
+    record DiscoverResult(List<String> supportedVersions, String serverName, String serverVersion, String instructions)
+            implements McpDispatchOutcome {
+
+        public DiscoverResult {
+            supportedVersions = List.copyOf(supportedVersions);
+        }
+    }
 
     /** The {@code ping} result (an empty object). */
     record PingResult() implements McpDispatchOutcome {}

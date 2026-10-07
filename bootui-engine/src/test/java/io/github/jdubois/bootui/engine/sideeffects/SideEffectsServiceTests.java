@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorToggleDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsAgentReport;
+import io.github.jdubois.bootui.core.dto.SideEffectsHookDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsReport;
 import io.github.jdubois.bootui.core.dto.SideEffectsRowDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
@@ -266,6 +268,17 @@ class SideEffectsServiceTests {
                 .satisfies(row -> assertThat(row.target()).isEqualTo("git"));
         assertThat(bySensor.rows()).hasSize(1);
         assertThat(bySensor.omitted()).isEqualTo(1);
+        assertThat(bySensor.sensors())
+                .extracting(SideEffectsSensorDto::id)
+                .containsExactlyElementsOf(service.report().sensors().stream()
+                        .map(SideEffectsSensorDto::id)
+                        .toList());
+        assertThat(all.rows())
+                .allSatisfy(row -> assertThat(row.exemplarRequestIds()).contains(REQUEST));
+        assertThat(service.agentReport(REQUEST, null).matched())
+                .as("a request id matches the rows naming it among their exemplars")
+                .isEqualTo(2);
+        assertThat(service.agentReport("00000000deadbeef", null).matched()).isZero();
         assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
             assertThat(store.store()).isEqualTo("side-effects");
             assertThat(store.retainedBytes()).isPositive();
@@ -285,6 +298,70 @@ class SideEffectsServiceTests {
         assertThat(service.sensor("processes", null, null).rows())
                 .singleElement()
                 .satisfies(row -> assertThat(row.target()).isEqualTo("git"));
+    }
+
+    @Test
+    void agentsGetEverySensorsCoverageAndOnlyTheNamedSensorsHooks() {
+        SideEffectsHookDto hook = new SideEffectsHookDto("connect", "java.net.Socket", true, true, "passed", 3);
+        JavaAgentSensorToggleDto toggle =
+                new JavaAgentSensorToggleDto("files", false, false, false, "off", "Opt-in", true, null, null);
+        List<SideEffectsSensorDto> sensors = List.of(
+                new SideEffectsSensorDto(
+                        "network", "Network", "Connects", SideEffectsSensorDto.RECORDING, null, 4, 9, 1, List.of(hook)),
+                new SideEffectsSensorDto(
+                        "files",
+                        "Files and processes",
+                        "Files",
+                        SideEffectsSensorDto.NOT_CLAIMED,
+                        "Off",
+                        0,
+                        0,
+                        0,
+                        List.of(hook),
+                        toggle));
+
+        List<SideEffectsSensorDto> summary = SideEffectsService.agentSensors(sensors, null);
+        List<SideEffectsSensorDto> network = SideEffectsService.agentSensors(sensors, "network");
+
+        assertThat(summary).allSatisfy(sensor -> assertThat(sensor.hooks()).isEmpty());
+        assertThat(summary.get(0))
+                .usingRecursiveComparison()
+                .ignoringFields("hooks")
+                .isEqualTo(sensors.get(0));
+        assertThat(summary.get(1).toggle()).isEqualTo(toggle);
+        assertThat(summary.get(1).reason()).isEqualTo("Off");
+        assertThat(network.get(0)).isEqualTo(sensors.get(0));
+        assertThat(network.get(1).hooks()).isEmpty();
+    }
+
+    @Test
+    void agentsGetTheFixedLimitationsOfTheSensorsTheySeeAndEveryRunSpecificOne() {
+        List<String> all = List.of(
+                SideEffectsService.LIMITATION_SCOPE,
+                SideEffectsService.LIMITATION_VALUES,
+                SideEffectsService.LIMITATION_NETWORK,
+                SideEffectsService.LIMITATION_CAPTURE,
+                SideEffectsService.LIMITATION_FILES,
+                SideEffectsService.LIMITATION_BLOCKING,
+                SideEffectsService.LIMITATION_ATTRIBUTION,
+                "3 threads or executors were not tracked.");
+
+        List<String> network = SideEffectsService.agentLimitations(all, java.util.Set.of("network"));
+
+        assertThat(network)
+                .containsExactly(
+                        SideEffectsService.LIMITATION_SCOPE,
+                        SideEffectsService.LIMITATION_NETWORK,
+                        SideEffectsService.LIMITATION_CAPTURE,
+                        SideEffectsService.LIMITATION_ATTRIBUTION,
+                        "3 threads or executors were not tracked.",
+                        SideEffectsService.LIMITATION_AGENT_OMITTED);
+        assertThat(SideEffectsService.agentLimitations(all, java.util.Set.of("files")))
+                .contains(SideEffectsService.LIMITATION_VALUES, SideEffectsService.LIMITATION_FILES)
+                .doesNotContain(SideEffectsService.LIMITATION_NETWORK);
+        assertThat(SideEffectsService.agentLimitations(
+                        List.of(SideEffectsService.LIMITATION_SCOPE), java.util.Set.of()))
+                .containsExactly(SideEffectsService.LIMITATION_SCOPE);
     }
 
     @Test

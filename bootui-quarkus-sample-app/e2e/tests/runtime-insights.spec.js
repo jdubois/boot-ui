@@ -44,6 +44,7 @@ test.describe('Runtime Insights view', () => {
     await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
 
+    await page.getByRole('tab', {name: /^Change impact/}).click()
     const impact = page.locator('.insight-impact')
     const symbol = impact.getByRole('combobox', {name: /Symbol to check/})
     await symbol.fill('noSuchSymbolAnywhere')

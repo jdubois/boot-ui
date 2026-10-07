@@ -137,6 +137,15 @@ class JdbcActivityStoreTests {
     }
 
     @Test
+    void aStoredExceptionEntryReadsItsGroupIdBackFromItsId() {
+        assertThat(JdbcActivityStore.exceptionGroupId("EXCEPTION", "exc-g-1")).isEqualTo("g-1");
+        assertThat(JdbcActivityStore.exceptionGroupId("EXCEPTION", "run-42")).isNull();
+        assertThat(JdbcActivityStore.exceptionGroupId("EXCEPTION", "exc-")).isNull();
+        assertThat(JdbcActivityStore.exceptionGroupId("SQL", "exc-g-1")).isNull();
+        assertThat(JdbcActivityStore.exceptionGroupId("EXCEPTION", null)).isNull();
+    }
+
+    @Test
     void insertsPreserveNullOptionalFields() {
         JdbcActivityStore store = new JdbcActivityStore(newDataSource(), "bootui_activity");
         ActivityEntryDto original = new ActivityEntryDto(

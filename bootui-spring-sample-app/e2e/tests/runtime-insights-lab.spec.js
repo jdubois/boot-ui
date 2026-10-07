@@ -64,7 +64,7 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
       await expect(card('work-after-response').locator('.insight-requirement')).toContainText('BootUI agent')
     }
 
-    // Each card says whether its finding is listed by default, from the kind's external validation.
+    // Each card says whether its finding is listed by default.
     for (const [key] of LISTED) {
       await expect(card(key).locator('.insight-tag')).toHaveText('listed by default')
     }

@@ -65,4 +65,9 @@ class SpringApiConformanceTest extends AbstractBootUiApiConformanceTest {
     protected Set<String> expectedErrorContractComponents() {
         return Set.of("SampleGlobalErrorHandler", "SampleErrorController");
     }
+
+    @Override
+    protected String exceptionProbePath() {
+        return applicationPath() + "/api/sample/boom";
+    }
 }

@@ -14,11 +14,12 @@ function mountLink(panels) {
 }
 
 describe('FoldedInsightsLink', () => {
-  it('links to every row of the folded kind and says why it is not listed by default (M4-20)', () => {
+  it('links to every row of the folded kind, which is not listed by default, without naming the validation (M4-20)', () => {
     const wrapper = mountLink()
 
     expect(wrapper.text()).toContain('Exception groups per route, from the runtime journal, are in Runtime Insights')
-    expect(wrapper.text()).toContain('did not pass their external validation')
+    expect(wrapper.text()).toContain('which does not list them by default.')
+    expect(wrapper.text()).not.toMatch(/validat/i)
     expect(JSON.parse(wrapper.find('a').attributes('data-to'))).toEqual({
       path: '/runtime-insights',
       query: {theme: 'errors', all: '1'}

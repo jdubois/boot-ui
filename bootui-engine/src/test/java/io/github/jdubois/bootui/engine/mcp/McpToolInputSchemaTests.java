@@ -77,6 +77,16 @@ class McpToolInputSchemaTests {
                         .properties()
                         .get(1)
                         .defaultValue())
+                .isEqualTo(McpAgentViews.INVENTORY_DEFAULT_LIMIT);
+        assertThat(McpToolInputSchema.of("get_sql_traces", McpToolSchema.QUERY_LIMIT, 200)
+                        .properties()
+                        .get(1)
+                        .defaultValue())
+                .isEqualTo(McpAgentViews.SQL_TRACES_DEFAULT_LIMIT);
+        assertThat(McpToolInputSchema.of("get_traces", McpToolSchema.LIMIT, 200)
+                        .properties()
+                        .get(0)
+                        .defaultValue())
                 .isEqualTo(200);
         McpToolInputSchema violations =
                 McpToolInputSchema.of("get_architecture_rule_violations", McpToolSchema.RULE_VIOLATIONS, 50);
