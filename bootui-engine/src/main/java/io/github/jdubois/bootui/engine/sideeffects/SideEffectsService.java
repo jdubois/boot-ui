@@ -121,10 +121,19 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final long HOLDER_WINDOW_MILLIS = 1_000L;
 
-    /** How long a thread local waits for its holder, at most, and how many wait. */
-    static final long HOLDER_WAIT_MILLIS = 10_000L;
+    /**
+     * How long a thread local waits for its holder, at most, and how many wait: longer than the agent's periodic index
+     * rebuild (10 s), which answers a miss its throttled forced rebuild left for later.
+     */
+    static final long HOLDER_WAIT_MILLIS = 15_000L;
 
     static final int MAX_HOLDER_WAITING = 1_024;
+
+    /** The answer of a thread local whose holder the agent had no time to name: "not resolved", never remembered. */
+    private static final String[] GAVE_UP = {null, "false", "false", null};
+
+    /** The holders and answers a run remembers, one per slot of the bridge's thread-local registry. */
+    static final int MAX_HOLDERS = 1_024;
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -1154,6 +1163,25 @@ public final class SideEffectsService implements AutoCloseable {
         };
     }
 
+    /** What a registry slot named, for the thread local whose hash code it was asked with. */
+    record Named<T>(int hash, T value) {
+
+        /** {@code named}'s value when it names the thread local with {@code hash}; {@code null} for another one. */
+        static <T> T of(Named<T> named, int hash) {
+            return named != null && named.hash() == hash ? named.value() : null;
+        }
+    }
+
+    /**
+     * Remembers {@code value} for registry slot {@code id}, replacing what a slot the bridge reused named before;
+     * nothing more once {@value #MAX_HOLDERS} slots are known, which the bridge's registry never exceeds.
+     */
+    static <T> void remember(Map<Integer, Named<T>> cache, int id, int hash, T value) {
+        if (cache.size() < MAX_HOLDERS || cache.containsKey(id)) {
+            cache.put(id, new Named<>(hash, value));
+        }
+    }
+
     /** One panel, for its visibility only. */
     private record PanelProbe(String panel) implements AgentEvidence.Store {
 
@@ -1695,6 +1723,7 @@ public final class SideEffectsService implements AutoCloseable {
                 int rows = current.store.rowCount();
                 current.store.clear();
                 current.excludedHolders.clear();
+                current.givenUp.clear();
                 current.claim.sideEffectsRecordingCleared();
                 // Buckets are the bridge's counters since the claim: counted from now on.
                 current.bucketBaseline = new HashMap<>(
@@ -1724,12 +1753,16 @@ public final class SideEffectsService implements AutoCloseable {
          */
         long indexBytes() {
             return strings.size() * STRING_BYTES
-                    + (methods.size() + holders.size()) * METHOD_BYTES
+                    + (methods.size() + holders.size() + givenUp.size()) * METHOD_BYTES
                     + holderWaiting.size() * SideEffectsStore.PENDING_BYTES;
         }
 
-        /** The thread locals' holders this run named, by registry id and hash code: at most the bridge's registry. */
-        final Map<Long, ThreadLocalHolders.Holder> holders = new HashMap<>();
+        /**
+         * The thread locals' holders this run named, by registry id, each with the hash code of the thread local it
+         * named: a slot the bridge reuses for another thread local replaces its entry, so there are at most
+         * {@value #MAX_HOLDERS}.
+         */
+        final Map<Integer, Named<ThreadLocalHolders.Holder>> holders = new HashMap<>();
 
         /** Thread-locals records waiting for the agent's time to name their holder. */
         final java.util.ArrayDeque<WaitingHolder> holderWaiting = new java.util.ArrayDeque<>();
@@ -1737,8 +1770,14 @@ public final class SideEffectsService implements AutoCloseable {
         /** Thread locals dropped, by framework holder or reason, with how often they were left set. */
         final Map<String, Long> excludedHolders = new java.util.TreeMap<>();
 
-        /** The agent's answers, by registry id and hash code, asked for outside the lock. */
-        final Map<Long, String[]> answers = new java.util.concurrent.ConcurrentHashMap<>();
+        /**
+         * The thread locals whose holder the engine gave up on, by registry id with their hash code: their rows are
+         * marked, and move to their holder, or go when it is a framework's, once a later record resolves it.
+         */
+        final Map<Integer, Integer> givenUp = new HashMap<>();
+
+        /** The agent's answers, by registry id with their thread local's hash code, asked for outside the lock. */
+        final Map<Integer, Named<String[]>> answers = new java.util.concurrent.ConcurrentHashMap<>();
 
         /** Guards the holders' time budget, never held while the agent resolves. */
         final Object holderBudget = new Object();
@@ -1949,7 +1988,7 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 answer = answer(record, true);
             }
-            observeThreadLocal(record, sensor, holder(record, target, answer));
+            observeThreadLocal(record, sensor, target, answer);
         }
 
         /**
@@ -1967,7 +2006,11 @@ public final class SideEffectsService implements AutoCloseable {
                 if (waiting == null) {
                     return;
                 }
-                String[] answer = answer(waiting.record(), now - waiting.since() > HOLDER_WAIT_MILLIS);
+                // Asked again first: retries are as sparse as the records, so one past the wait may be its first.
+                String[] answer = answer(waiting.record(), false);
+                if (answer == null && now - waiting.since() > HOLDER_WAIT_MILLIS) {
+                    answer = answer(waiting.record(), true);
+                }
                 if (answer == null) {
                     return;
                 }
@@ -1978,8 +2021,7 @@ public final class SideEffectsService implements AutoCloseable {
                     }
                     holderWaiting.poll();
                     if (waiting.record().firstMillis() > clearedAt) {
-                        observeThreadLocal(
-                                waiting.record(), waiting.sensor(), holder(waiting.record(), waiting.target(), answer));
+                        observeThreadLocal(waiting.record(), waiting.sensor(), waiting.target(), answer);
                     }
                     publish(this);
                 }
@@ -1988,22 +2030,18 @@ public final class SideEffectsService implements AutoCloseable {
 
         /**
          * The agent's answer naming a record's holder, within the time budget, never under the lock: {@code null} when
-         * out of time, unless {@code giveUp}, which answers "not resolved".
+         * out of time, unless {@code giveUp}, which answers "not resolved" without asking, and is never remembered.
          */
         String[] answer(SideEffectRecord record, boolean giveUp) {
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
-            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
-            String[] known = answers.get(key);
+            String[] known = Named.of(answers.get(id), hash);
             if (known != null) {
                 return known;
             }
             if (id == 0 || giveUp) {
-                String[] none = {null, "false", "false", null};
-                if (id != 0) {
-                    answers.putIfAbsent(key, none);
-                }
-                return none;
+                // Never remembered: a later record of the same thread local asks the agent again.
+                return GAVE_UP;
             }
             long left;
             synchronized (holderBudget) {
@@ -2029,7 +2067,7 @@ public final class SideEffectsService implements AutoCloseable {
                 holderSpentNanos += System.nanoTime() - started;
             }
             if (answer != null) {
-                answers.putIfAbsent(key, answer);
+                remember(answers, id, hash, answer);
             }
             return answer;
         }
@@ -2039,14 +2077,27 @@ public final class SideEffectsService implements AutoCloseable {
             int detail = record.exitStatus() & 0xFF;
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
-            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
-            ThreadLocalHolders.Holder known = holders.get(key);
+            ThreadLocalHolders.Holder known = Named.of(holders.get(id), hash);
             if (known != null) {
                 return known;
             }
             ThreadLocalHolders.Holder holder = ThreadLocalHolders.decide(answer, target, detail);
-            if (id != 0) {
-                holders.put(key, holder);
+            if (id != 0 && answer != GAVE_UP) {
+                remember(holders, id, hash, holder);
+                Integer gaveUpOn = givenUp.get(id);
+                if (gaveUpOn != null && gaveUpOn == hash) {
+                    // Resolved after a give-up: its "not resolved" rows move to the holder, or go with it.
+                    givenUp.remove(id);
+                    long removed = store.resolveThreadLocal(
+                            SideEffectsStore.unresolvedThreadLocal(id, hash),
+                            holder.kind(),
+                            holder.target(),
+                            holder.origin(),
+                            holder.excludedBy() != null);
+                    if (removed > 0) {
+                        excludedHolders.merge(holder.excludedBy(), removed, Long::sum);
+                    }
+                }
                 if (holder.excludedBy() != null) {
                     // Skipped by the bridge from now on, so it never takes an application's thread local's place.
                     threadLocalHolders.exclude(generation, id, hash);
@@ -2056,10 +2107,21 @@ public final class SideEffectsService implements AutoCloseable {
         }
 
         private void observeThreadLocal(
-                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, ThreadLocalHolders.Holder holder) {
+                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, String[] answer) {
+            ThreadLocalHolders.Holder holder = holder(record, target, answer);
             if (holder.excludedBy() != null) {
                 excludedHolders.merge(holder.excludedBy(), record.count(), Long::sum);
                 return;
+            }
+            int id = (record.exitStatus() >>> 8) & 0xFFFF;
+            int hash = (int) record.nanos();
+            String marker = null;
+            if (answer == GAVE_UP && id != 0) {
+                // Marked, so a later record resolving the same thread local can move or drop these rows.
+                marker = SideEffectsStore.unresolvedThreadLocal(id, hash);
+                if (givenUp.size() < MAX_HOLDERS || givenUp.containsKey(id)) {
+                    givenUp.put(id, hash);
+                }
             }
             store.add(new SideEffectsStore.Observation(
                     record,
@@ -2069,6 +2131,10 @@ public final class SideEffectsService implements AutoCloseable {
                     null,
                     null,
                     normalizer.threadFamily(string(record.threadName())),
+                    null,
+                    marker,
+                    null,
+                    -1,
                     holder.origin(),
                     null));
         }

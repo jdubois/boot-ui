@@ -35,7 +35,8 @@ function agentJar() {
   return join(target, jar)
 }
 
-// The sample's ScheduledJavaVersion seed is off unless its period is set: only this leg asserts its Side Effects row.
+// The sample's ScheduledJavaVersion and ScheduledTenant seeds are off unless their period is set: only this leg asserts
+// their Side Effects rows.
 // The default sensors, the opt-in files, environment, thread-activity, thread-locals, and security-sinks sensors (with
 // request-value matching), and blocking, named whatever its default, whose Side Effects seeds the side-effects spec
 // asserts (M5-5c, M5-5d, M5-5e, M5-5f, M5-6b), and the opt-in caught-exceptions sensor, whose Exceptions panel seeds the

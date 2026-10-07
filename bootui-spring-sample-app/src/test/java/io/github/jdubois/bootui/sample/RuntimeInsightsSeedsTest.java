@@ -88,6 +88,8 @@ class RuntimeInsightsSeedsTest {
                     .isEqualTo(200);
             assertThat(probe.post("/api/insights/tags/read-then-write", JSON).status())
                     .isEqualTo(200);
+            assertThat(probe.get("/api/insights/tags/export").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/tags/export-labels").status()).isEqualTo(200);
         }
         assertThat(probe.post("/api/insights/debug/reset-totals", JSON).status())
                 .isEqualTo(200);
@@ -200,6 +202,11 @@ class RuntimeInsightsSeedsTest {
     }
 
     @Test
+    void loadingEveryTagAsAnEntityIsALargePersistenceContextButReadingTheirLabelsIsNot() {
+        assertThat(subjects("large-persistence-context", "OBSERVED")).containsExactly("GET /api/insights/tags/export");
+    }
+
+    @Test
     void aStompHandlersRepeatedSelectsAreFoundUnderItsMessageButNotTheJoinedHandler() {
         assertThat(subjects("repeated-selects", "OBSERVED"))
                 .contains("consume websocket:/app/insights/rooms/{room}/orders")
@@ -234,6 +241,7 @@ class RuntimeInsightsSeedsTest {
                 "POST /api/insights/orders/{id}/restore",
                 Set.of("anonymous-data-reach", "connections-per-request", "split-transaction-writes"));
         justified.put("POST /api/insights/tags/read-then-write", anonymousWrite);
+        justified.put("GET /api/insights/tags/export-labels", Set.of());
         justified.put("consume websocket:/app/insights/rooms/{room}/orders-joined", Set.of());
 
         assertThat(justified.keySet())
@@ -307,6 +315,7 @@ class RuntimeInsightsSeedsTest {
         assertThat(listed("after-commit-writes")).contains("POST /api/insights/orders/{id}/archive");
         assertThat(listed("orm-auto-flush")).contains("POST /api/insights/tags/auto-flush");
         assertThat(listed("anonymous-success-on-restricted-route")).contains("GET /api/insights/reports/{name}");
+        assertThat(listed("large-persistence-context")).contains("GET /api/insights/tags/export");
         for (String kind : List.of(
                 "route-time-breakdown",
                 "exception-hotspots",

@@ -148,6 +148,87 @@ class ThreadLocalsSideEffectsTests {
     }
 
     @Test
+    void aRetryPastTheWaitStillAsksTheAgentFirst() {
+        start();
+        outOfTime = true;
+        leaveSet(TENANT);
+        assertThat(service.sensor("thread-locals", null, null).rows()).isEmpty();
+
+        // Retries are as sparse as the records: the first one comes after the wait, with the agent's time back.
+        outOfTime = false;
+        clock.addAndGet(SideEffectsService.HOLDER_WAIT_MILLIS + 1);
+
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo(getClass().getName() + ".TENANT"));
+    }
+
+    @Test
+    void aHolderGivenUpOnIsAskedAgainForItsNextRecord() {
+        start();
+        outOfTime = true;
+        leaveSet(TENANT);
+        assertThat(service.sensor("thread-locals", null, null).rows()).isEmpty();
+        clock.addAndGet(SideEffectsService.HOLDER_WAIT_MILLIS + 1);
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo("holder not resolved (java.lang.ThreadLocal)"));
+
+        outOfTime = false;
+        leaveSet(TENANT);
+
+        // The given-up row moved to the holder: one row, both records, no "not resolved" row left.
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.target()).isEqualTo(getClass().getName() + ".TENANT");
+                    assertThat(row.origin()).isEqualTo(SideEffectOrigins.APPLICATION);
+                    assertThat(row.count()).isEqualTo(2L);
+                });
+    }
+
+    @Test
+    void aFrameworksThreadLocalGivenUpOnIsDroppedOnceResolvedAndExcludedByTheBridge() {
+        start();
+        outOfTime = true;
+        leaveSet(FRAMEWORK);
+        assertThat(service.sensor("thread-locals", null, null).rows()).isEmpty();
+        clock.addAndGet(SideEffectsService.HOLDER_WAIT_MILLIS + 1);
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo("holder not resolved (java.lang.ThreadLocal)"));
+        assertThat(excluded).isEmpty();
+
+        outOfTime = false;
+        leaveSet(FRAMEWORK);
+
+        SideEffectsSensorReport report = service.sensor("thread-locals", null, null);
+        assertThat(report.rows()).isEmpty();
+        assertThat(report.limitations())
+                .anySatisfy(limitation -> assertThat(limitation)
+                        .contains("org.springframework.web.context.request.RequestContextHolder 2"));
+        assertThat(excluded).containsExactly(System.identityHashCode(FRAMEWORK));
+    }
+
+    @Test
+    void aReusedRegistrySlotReplacesWhatItNamedAndTheCachesStayBounded() {
+        Map<Integer, SideEffectsService.Named<String>> cache = new java.util.HashMap<>();
+        SideEffectsService.remember(cache, 7, 111, "first");
+        SideEffectsService.remember(cache, 7, 222, "reused");
+
+        assertThat(cache).hasSize(1);
+        assertThat(SideEffectsService.Named.of(cache.get(7), 111)).isNull();
+        assertThat(SideEffectsService.Named.of(cache.get(7), 222)).isEqualTo("reused");
+
+        for (int id = 1; id <= SideEffectsService.MAX_HOLDERS + 100; id++) {
+            SideEffectsService.remember(cache, id, id, "local-" + id);
+        }
+        assertThat(cache).hasSize(SideEffectsService.MAX_HOLDERS);
+        SideEffectsService.remember(cache, 1, 999, "replaced at the cap");
+        assertThat(SideEffectsService.Named.of(cache.get(1), 999)).isEqualTo("replaced at the cap");
+    }
+
+    @Test
     void decisionsNameTheKindAndKeepSpringSecuritysContext() {
         ThreadLocalHolders.Holder security = ThreadLocalHolders.decide(
                 new String[] {
@@ -189,6 +270,44 @@ class ThreadLocalsSideEffectsTests {
                                 0)
                         .excludedBy())
                 .isEqualTo("ch.qos.logback.classic.util.LogbackMDCAdapter");
+        assertThat(ThreadLocalHolders.decide(
+                                new String[] {
+                                    "io.opentelemetry.api.internal.TemporaryBuffers.CHAR_ARRAY", "false", "false", null
+                                },
+                                "java.lang.ThreadLocal",
+                                0)
+                        .excludedBy())
+                .as("OpenTelemetry's per-thread char buffer, filled on first use")
+                .isEqualTo("io.opentelemetry.api.internal.TemporaryBuffers");
+    }
+
+    @Test
+    void quarkusVertxMdcIsAFrameworksPerRequestMdcResolvedOrNot() {
+        assertThat(ThreadLocalHolders.decide(
+                                new String[] {
+                                    "io.quarkus.vertx.core.runtime.VertxMDC.inheritableThreadLocalMap (via"
+                                            + " io.quarkus.vertx.core.runtime.VertxMDC.INSTANCE)",
+                                    "false",
+                                    "false",
+                                    null
+                                },
+                                "io.quarkus.vertx.core.runtime.VertxMDC$1",
+                                SideEffectsCatalog.DETAIL_INHERITABLE)
+                        .excludedBy())
+                .as("resolved one level deep through its enum singleton")
+                .isEqualTo("io.quarkus.vertx.core.runtime.VertxMDC");
+        assertThat(ThreadLocalHolders.decide(
+                                new String[] {null, "false", "false", null},
+                                "io.quarkus.vertx.core.runtime.VertxMDC$1",
+                                SideEffectsCatalog.DETAIL_INHERITABLE)
+                        .excludedBy())
+                .as("its anonymous subclass, matched by its holder class when the holder is not resolved")
+                .isEqualTo("io.quarkus.vertx.core.runtime.VertxMDC");
+        assertThat(ThreadLocalHolders.decide(new String[] {null, "false", "false", null}, "com.example.Tenants$1", 0)
+                        .excludedBy())
+                .as("an application's own subclass stays reported")
+                .isNull();
+        assertThat(ThreadLocalHolders.HOLDER_CLASSES).contains("io.quarkus.vertx.core.runtime.VertxMDC");
     }
 
     private void leaveSet(ThreadLocal<String> local) {

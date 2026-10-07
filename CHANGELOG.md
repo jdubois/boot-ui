@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Runtime Insights buttons in the Spring sample.** The welcome page generates each main finding with one click, or all
+  at once, and links to it in the panel ([sample README](bootui-spring-sample-app/README.md#runtime-insights-demo)).
 - **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
   became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
   above, and incomplete evidence is shown as unknown with its reason, never as swallowed
