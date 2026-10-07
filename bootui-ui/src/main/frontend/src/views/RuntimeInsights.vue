@@ -557,6 +557,7 @@ provide(
             :initial-symbol="initialImpact"
             :changed="changedMethods"
             :changed-total="changedTotal"
+            @show-coverage="showTab('coverage', 'insight-not-exercised')"
           />
         </div>
 
@@ -598,7 +599,12 @@ provide(
               </section>
             </div>
             <div class="col-12">
-              <section class="card insight-not-exercised" aria-labelledby="insight-not-exercised-title">
+              <section
+                id="insight-not-exercised"
+                tabindex="-1"
+                class="card insight-not-exercised"
+                aria-labelledby="insight-not-exercised-title"
+              >
                 <div class="card-body">
                   <h2 id="insight-not-exercised-title" class="h6 mb-1">
                     Not exercised in this run
