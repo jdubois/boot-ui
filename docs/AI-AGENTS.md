@@ -56,7 +56,16 @@ application from the [command line](CLI.md) or the
 [MCP server](#connect-an-agent-to-the-bootui-mcp-server), turn advisor findings into focused fixes, and verify
 those fixes.
 
-With GitHub CLI 2.90 or later, inspect the skill before installing it:
+Install the canonical skill in any [Agent Skills](https://agentskills.io)-compatible coding agent:
+
+```bash
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+The interactive installer detects supported agents and lets you select where to install the skill. Like any
+third-party skill, review its instructions before installation.
+
+With GitHub CLI 2.90 or later, GitHub Copilot users can inspect the skill before installing it:
 
 ```bash
 gh skill preview jdubois/boot-ui skills/bootui
@@ -69,14 +78,7 @@ gh skill install jdubois/boot-ui skills/bootui
 ```
 
 The skill works with Copilot cloud agent, Copilot CLI, the GitHub Copilot app, Copilot code review, and agent mode in
-supported IDEs. Like any third-party skill, review its instructions before installation. You can also copy
-`skills/bootui` into a project's `.github/skills` directory manually.
-
-Agents that read skills from a project directory rather than from GitHub can install the same skill with:
-
-```bash
-npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
-```
+supported IDEs. You can also copy `skills/bootui` into a project's `.github/skills` directory manually.
 
 Cursor and Claude Code users should prefer their plugin, which installs this skill and wires up the MCP server in one
 step.

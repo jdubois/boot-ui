@@ -77,7 +77,11 @@ class AgentSkillDiscoverabilityTests {
                     .isNotEmpty()
                     .allSatisfy(path -> assertThat(path).isEqualTo(CANONICAL_SKILL_PATH));
             assertThat(matches(NPX_SKILLS_COMMAND, contents))
-                    .as("%s must point skills.sh at the canonical skill directory", surface)
+                    .as(
+                            "%s must promote the portable skills.sh installer and point it at the "
+                                    + "canonical skill directory",
+                            surface)
+                    .isNotEmpty()
                     .allSatisfy(path -> assertThat(path).isEqualTo(CANONICAL_SKILL_URL));
         }
     }
