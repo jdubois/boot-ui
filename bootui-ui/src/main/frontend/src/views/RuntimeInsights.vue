@@ -122,7 +122,16 @@ const listed = computed(() =>
 )
 const counts = computed(() => validationCounts(report.value, listed.value))
 const unlisted = computed(() => unlistedSummary(report.value, filters.value))
-const hiddenByDefault = computed(() => (report.value?.observations ?? []).filter((o) => !isListed(o)).length)
+const anyUnlisted = computed(() => (report.value?.observations ?? []).some((observation) => !isListed(observation)))
+// The rows the default list leaves out, counted from the same source as the verdict: an open row it leaves out is
+// already shown, so it is counted once, as listed.
+const hiddenByDefault = computed(() =>
+  showAll.value
+    ? 0
+    : (report.value?.observations ?? []).filter(
+        (observation) => !isListed(observation) && observation.id !== selectedId.value
+      ).length
+)
 const unlistedText = computed(() =>
   unlisted.value.groups.map((group) => `${formatNumber(group.count)} ${group.title}`).join(', ')
 )
@@ -206,6 +215,15 @@ function exportJson() {
   link.download = `runtime-insights-${report.value?.window?.runId ?? 'report'}.json`
   link.click()
   URL.revokeObjectURL(url)
+}
+
+// A verdict link opens its tab and moves focus there, so a keyboard or screen reader user lands on what it named.
+async function showTab(id, targetId) {
+  tab.value = id
+  await nextTick()
+  const target = document.getElementById(targetId ?? `insights-panel-${id}`)
+  target?.focus({preventScroll: true})
+  target?.scrollIntoView?.({block: 'start', behavior: 'smooth'})
 }
 
 function toggle(id) {
@@ -346,7 +364,7 @@ provide(
                 {{ formatNumber(counts.unvalidated) }} from {{ counts.unvalidated === 1 ? 'a check' : 'checks' }} not
                 externally validated
               </li>
-              <li v-if="!showAll && hiddenByDefault > 0">
+              <li v-if="hiddenByDefault > 0">
                 <i class="bi bi-eye-slash" aria-hidden="true"></i>
                 {{ formatNumber(hiddenByDefault) }} more not listed by default
               </li>
@@ -364,7 +382,7 @@ provide(
                   v-if="compared"
                   type="button"
                   class="btn btn-link btn-sm p-0 align-baseline insight-comparison-link"
-                  @click="tab = 'changes'"
+                  @click="showTab('changes', 'insight-comparison')"
                 >
                   {{ comparisonText }}
                 </button>
@@ -374,7 +392,7 @@ provide(
             <p v-if="report.limitations?.length" class="small text-muted mb-0 mt-2 insight-verdict-limits">
               {{ formatNumber(report.limitations.length) }}
               {{ report.limitations.length === 1 ? 'limit' : 'limits' }} on what this run can show:
-              <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="tab = 'coverage'">
+              <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="showTab('coverage')">
                 see Coverage &amp; limits
               </button>
             </p>
@@ -441,7 +459,7 @@ provide(
                 </button>
               </div>
               <button
-                v-if="hiddenByDefault > 0"
+                v-if="anyUnlisted"
                 type="button"
                 class="btn btn-sm insight-show-all"
                 :class="showAll ? 'btn-primary' : 'btn-outline-secondary'"
@@ -449,7 +467,9 @@ provide(
                 title="Also list short routes and the other rows the default list leaves out"
                 @click="showAll = !showAll"
               >
-                Show all routes<template v-if="!showAll"> · {{ formatNumber(hiddenByDefault) }} more</template>
+                Show all routes<template v-if="hiddenByDefault > 0">
+                  · {{ formatNumber(hiddenByDefault) }} more</template
+                >
               </button>
             </div>
 
@@ -473,7 +493,7 @@ provide(
               >
                 <button
                   type="button"
-                  class="insight-row-toggle insight-item"
+                  class="insight-row-toggle insight-item bootui-keyboard-target"
                   :aria-expanded="observation.id === selectedId ? 'true' : 'false'"
                   :aria-controls="`${rowId(observation.id)}-detail`"
                   @click="toggle(observation.id)"
@@ -537,6 +557,7 @@ provide(
         <div
           v-show="tab === 'coverage'"
           id="insights-panel-coverage"
+          tabindex="-1"
           role="tabpanel"
           aria-labelledby="insights-tab-coverage"
         >
@@ -611,7 +632,6 @@ provide(
 
 .insight-theme-count {
   font-variant-numeric: tabular-nums;
-  opacity: 0.85;
 }
 
 .insight-list {
@@ -638,6 +658,10 @@ provide(
   text-align: start;
   transition: background-color 150ms ease;
   width: 100%;
+}
+
+.insight-row-toggle:focus-visible {
+  outline-offset: -2px;
 }
 
 .insight-row-toggle:hover,

@@ -726,4 +726,64 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.find('.insight-detail').exists()).toBe(false)
     expect(wrapper.get('#insight-verdict-title').text()).toBe('2 things to check across 9 requests')
   })
+
+  it('counts an open row the default list leaves out once, as listed, after a search is cleared', async () => {
+    const fast = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:fast',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/fast',
+      listed: false,
+      unlistedReason: 'Its warm median is under 20 ms.'
+    }
+    const slow = {...fast, id: 'route-time-breakdown:slow', subject: 'GET /api/slow'}
+    const withHidden = {
+      ...report,
+      checks: [...report.checks, {...report.checks[0], kind: 'route-time-breakdown', title: 'Route time breakdown'}],
+      observations: [report.observations[0], fast, slow]
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).includes('/insights/') ? {...detail, observation: fast} : withHidden))
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 thing to check across 9 requests')
+    expect(wrapper.get('.insight-verdict-facts').text()).toContain('2 more not listed by default')
+
+    await wrapper.get('.insight-search').setValue('/api/fast')
+    await openRow(wrapper, 'GET /api/fast')
+    await wrapper.get('.insight-search').setValue('')
+    await flushPromises()
+
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('2 things to check across 9 requests')
+    expect(wrapper.get('.insight-verdict-facts').text()).toContain('1 more not listed by default')
+    expect(wrapper.get('.insight-show-all').text()).toBe('Show all routes · 1 more')
+    expect(wrapper.get('.insight-unlisted').text()).toContain('1 more not listed by default: 1 Route time breakdown.')
+  })
+
+  it('moves focus to what a verdict link names when it opens a tab', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/') ? detail : {...report, limitations: ['R2DBC is not recorded.']}
+          )
+        )
+      )
+    )
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    await wrapper.get('.insight-verdict-limits button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#insights-tab-coverage').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement?.id).toBe('insights-panel-coverage')
+  })
 })
