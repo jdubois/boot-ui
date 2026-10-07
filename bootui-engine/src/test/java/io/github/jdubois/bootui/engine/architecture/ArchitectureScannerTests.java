@@ -64,6 +64,12 @@ class ArchitectureScannerTests {
     @Test
     void cancellingBetweenRulesStopsTheScanAndKeepsThePreviousReport() {
         ArchitectureScanner scanner = scanner(List.of(FIXTURES));
+        ArchitectureReport previous = scanner.scan();
+        ArchitectureRuleResultDto violated = previous.results().stream()
+                .filter(result -> result.violationCount() > 0)
+                .findFirst()
+                .orElseThrow();
+        String scanId = previous.violationDetails().scanId();
         AtomicInteger reports = new AtomicInteger();
         OperationProgress[] progress = new OperationProgress[1];
         progress[0] = new OperationProgress(event -> {
@@ -77,7 +83,12 @@ class ArchitectureScannerTests {
                 .isInstanceOf(OperationCancelledException.class);
 
         assertThat(reports).as("nothing is reported once cancelled").hasValue(4);
-        assertThat(scanner.lastReport().scan().status()).isEqualTo("NOT_SCANNED");
+        assertThat(scanner.lastReport())
+                .as("the completed report is kept whole")
+                .isEqualTo(previous);
+        assertThat(scanner.ruleViolations(violated.id(), scanId, 0, 10).scanId())
+                .as("its retained violation details still answer")
+                .isEqualTo(scanId);
         assertThat(scanner.scan().scan().status())
                 .as("the single-flight claim is released")
                 .isEqualTo("SCANNED");
