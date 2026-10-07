@@ -105,6 +105,52 @@ public final class McpProtocol {
     }
 
     /**
+     * Prefix of the message reported when a {@code tools/call} names a BootUI tool this server does not advertise,
+     * because its panel is unavailable in this application or on this stack.
+     */
+    public static final String UNAVAILABLE_TOOL_PREFIX = "Tool not available in this application: ";
+
+    /**
+     * Canonical message for a BootUI tool this server does not advertise: the tool, then why, in the panel's own words
+     * when it gives a reason.
+     *
+     * @param name the tool name
+     * @param panelTitle the title of the panel backing it
+     * @param reason why that panel is unavailable here, or {@code null} when unknown
+     * @param stacks the request stacks that advertise the tool
+     */
+    public static String unavailableToolMessage(
+            String name, String panelTitle, String reason, Set<McpToolCatalog.Stack> stacks) {
+        StringBuilder message =
+                new StringBuilder(UNAVAILABLE_TOOL_PREFIX).append(name).append(". ");
+        if (reason != null && !reason.isBlank()) {
+            String trimmed = reason.trim();
+            message.append("Its ")
+                    .append(panelTitle)
+                    .append(" panel is unavailable: ")
+                    .append(trimmed)
+                    .append(".!?".indexOf(trimmed.charAt(trimmed.length() - 1)) >= 0 ? "" : ".");
+        } else if (stacks.size() < McpToolCatalog.Stack.values().length) {
+            message.append("Only ")
+                    .append(String.join(
+                            " and ",
+                            stacks.stream().sorted().map(McpProtocol::stackName).toList()))
+                    .append(stacks.size() == 1 ? " advertises it." : " advertise it.");
+        } else {
+            message.append("Its ").append(panelTitle).append(" panel does not provide it in this application.");
+        }
+        return message.toString();
+    }
+
+    private static String stackName(McpToolCatalog.Stack stack) {
+        return switch (stack) {
+            case SPRING_MVC -> "Spring MVC";
+            case SPRING_WEBFLUX -> "Spring WebFlux";
+            case QUARKUS -> "Quarkus";
+        };
+    }
+
+    /**
      * {@link #MISSING_ID_ARGUMENT_MESSAGE} or {@link #MISSING_SCAN_ID_ARGUMENT_MESSAGE}, followed by where the tool's id
      * comes from, so the error names the call to make first.
      */
