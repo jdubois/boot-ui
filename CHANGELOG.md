@@ -378,6 +378,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
+  when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
+  report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
+  conditions, which now pages both outcomes together. `get_config` drops the browser's property suggestions, agent status and Side Effects
+  summarize sensors until a query names one, and `tools/list` is smaller. A 1.x CLI keeps working
+  ([Agent-sized defaults](docs/AI-AGENTS.md#agent-sized-defaults)).
 - **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
   (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
   never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.

@@ -503,7 +503,6 @@ public class BootUiMcpService {
             node.set("annotations", annotations(tool.annotations()));
             ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
             outputSchema.put("type", tool.outputSchemaType());
-            outputSchema.put("description", tool.outputSchemaDescription());
             node.set("outputSchema", outputSchema);
             array.add(node);
         }
