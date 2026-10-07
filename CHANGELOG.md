@@ -382,6 +382,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (with the BootUI agent, **Reaches it, but didn't run it**), and a line says it holds only routes that reach what you
   checked, linking to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**. The
   `notExercised` field is unchanged.
+- **Timed-out architecture scans stop.** An MCP or CLI `architecture_scan` past its execution timeout now stops at the
+  next rule instead of running on, and the previous report is kept ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
   when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
   report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
@@ -723,6 +725,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
+  repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
+  documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`
+  with the request id rather than `-32600` with a `null` one ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Links between MCP and CLI results.** `get_runtime_impact` resolves a bare method name such as `applyDiscount`
   (`AMBIGUOUS` with each declaring class when several do), names the real overloads when the asked parameters match
   none, and names every route beyond the 8 it lists per list; `get_code_inventory` matches method names. Side Effects
