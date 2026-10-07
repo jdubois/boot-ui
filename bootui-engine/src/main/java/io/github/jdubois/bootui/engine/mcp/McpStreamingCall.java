@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class McpStreamingCall {
 
     /** Spacing of SSE keep-alive comments; also bounds how late a closed socket is noticed on a quiet stream. */
-    public static final long HEARTBEAT_MILLIS = 5_000;
+    public static final long HEARTBEAT_MILLIS = 2_000;
 
     private static final ScheduledThreadPoolExecutor TIMEOUTS = timeouts();
     private static final ExecutorService WRITERS = Executors.newCachedThreadPool(daemon("bootui-mcp-stream-"));

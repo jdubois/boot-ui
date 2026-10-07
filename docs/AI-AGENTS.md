@@ -717,14 +717,14 @@ compatibility rules describe:
   `text/event-stream` explicitly, answers `200` with `Content-Type: text/event-stream` and `X-Accel-Buffering: no`.
   The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
-  response, after which the stream closes. There are no event ids, and `:` comment lines every 5 seconds keep the
+  response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
   connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Any
   other call, including every refusal and a call without a token, stays a single JSON response, and a legacy request's
   `progressToken` is ignored.
 - **Cancellation by closing the stream.** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
   BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and
   frees the concurrency slot when the tool returns. WebFlux notices the disconnect at once; Spring MVC and Quarkus
-  notice it at the next write, within one keep-alive interval. `bootui.mcp.execution-timeout` stays the absolute bound,
+  notice it when a write fails, within two keep-alive intervals (about 4 seconds). `bootui.mcp.execution-timeout` stays the absolute bound,
   whatever progress flows: a timed-out stream ends with the timeout error as its final response.
 
 ## Assess an application and approve an action plan
