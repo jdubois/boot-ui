@@ -388,20 +388,45 @@ public final class BlockingBehaviors {
      * advised {@code LockSupport.park} costs, per call, against a run before the sensor records.
      */
     static void bench() throws Exception {
-        on("it-loop-bench", () -> null);
-        double hooked = parks();
+        // The two arms alternate, three pairs, and each keeps its best round, so both see the same machine load: a
+        // shared CI runner's load drifts over the minutes one arm would otherwise run before the other.
+        double hooked = Double.MAX_VALUE;
+        double plain = Double.MAX_VALUE;
+        for (int pair = 0; pair < 3; pair++) {
+            if (pair > 0) {
+                token = claim();
+                awaitSelfTest();
+            }
+            on("it-loop-bench", () -> null);
+            requireParkHooked(true);
+            hooked = Math.min(hooked, parks());
+            AgentBridge.release("blocking-behaviors", "dev");
+            awaitState("released");
+            requireParkHooked(false);
+            plain = Math.min(plain, parks());
+        }
         System.out.println("PARK_NANOS_HOOKED=" + hooked);
-        AgentBridge.release("blocking-behaviors", "dev");
-        awaitState("released");
-        double plain = parks();
         System.out.println("PARK_NANOS_PLAIN=" + plain);
+    }
+
+    /** Fails the run unless {@code LockSupport.park} is advised exactly when the arm says, so no arm is vacuous. */
+    private static void requireParkHooked(boolean expected) {
+        SideEffects.beginSelfTest();
+        LockSupport.parkNanos(1L);
+        Map<String, Object> hits = SideEffects.endSelfTest();
+        Object count = hits.get("LockSupport.park");
+        boolean hooked = count instanceof Number number && number.longValue() > 0L;
+        if (hooked != expected) {
+            throw new IllegalStateException(
+                    "LockSupport.park hooked=" + hooked + ", expected " + expected + ": " + hits);
+        }
     }
 
     private static double parks() {
         Thread self = Thread.currentThread();
         int calls = 2_000_000;
         long best = Long.MAX_VALUE;
-        for (int round = 0; round < 15; round++) {
+        for (int round = 0; round < 6; round++) {
             long started = System.nanoTime();
             for (int i = 0; i < calls; i++) {
                 LockSupport.unpark(self);
