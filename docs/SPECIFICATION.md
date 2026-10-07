@@ -942,7 +942,9 @@ Acceptance criteria:
   three samples' `GET /api/thread-locals/leak` shows `TenantContext.CURRENT` left set; the counterexamples
   `GET /api/thread-locals/cleared` (removed in `finally`), `GET /api/thread-locals/nulled` (set to `null`), and, on
   Spring MVC and Quarkus, `GET /api/thread-locals/before` (set by a filter before BootUI's scope) never appear, and
-  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`.
+  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`. The Quarkus sample's
+  `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
+  scheduled run: a row of scope `execution` with no request.
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
   `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
