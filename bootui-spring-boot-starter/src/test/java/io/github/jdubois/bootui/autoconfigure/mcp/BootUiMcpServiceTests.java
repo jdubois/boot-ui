@@ -644,6 +644,35 @@ class BootUiMcpServiceTests {
                         + "\"message\":\"Unsupported MCP-Protocol-Version\"}}");
     }
 
+    @Test
+    void containerValuedEnvelopeFieldsAreClientErrorsLikeOnQuarkus() {
+        for (String method : List.of("{}", "[]")) {
+            JsonNode notification = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"method\":" + method + "}");
+            assertThat(service.exchange(notification, McpRequestHeaders.NONE, true))
+                    .isEqualTo(new BootUiMcpService.Reply(202, null));
+            JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+            BootUiMcpService.Reply reply = service.exchange(request, McpRequestHeaders.NONE, true);
+            assertThat(reply.status()).isEqualTo(200);
+            assertThat(reply.body().toString())
+                    .isEqualTo(
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Missing 'method'\"}}");
+        }
+        JsonNode objectJsonrpc = objectMapper.readTree("{\"jsonrpc\":{},\"id\":2,\"method\":\"ping\"}");
+        assertThat(service.exchange(objectJsonrpc, McpRequestHeaders.NONE, true)
+                        .body()
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(McpProtocol.INVALID_REQUEST);
+        JsonNode objectName = objectMapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":{}}}");
+        assertThat(service.exchange(objectName, McpRequestHeaders.NONE, true)
+                        .body()
+                        .toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Missing tool name\"}}");
+    }
+
     private BootUiMcpService.Reply modern(String method, int id, String name, boolean enabled) {
         return service.exchange(
                 modernRequest(method, id, name, "2026-07-28"),

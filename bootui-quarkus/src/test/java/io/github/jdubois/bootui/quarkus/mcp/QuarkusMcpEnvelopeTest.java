@@ -404,6 +404,30 @@ class QuarkusMcpEnvelopeTest {
                         + "\"message\":\"Unsupported MCP-Protocol-Version\"}}");
     }
 
+    @Test
+    void containerValuedEnvelopeFieldsAreClientErrorsLikeOnSpring() throws Exception {
+        QuarkusMcpEnvelope envelope =
+                envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
+        for (String method : List.of("{}", "[]")) {
+            JsonNode notification = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"method\":" + method + "}");
+            assertThat(envelope.exchange(notification, McpRequestHeaders.NONE, true))
+                    .isEqualTo(new QuarkusMcpEnvelope.Reply(202, null));
+            JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+            QuarkusMcpEnvelope.Reply reply = envelope.exchange(request, McpRequestHeaders.NONE, true);
+            assertThat(reply.status()).isEqualTo(200);
+            assertThat(reply.body().toString())
+                    .isEqualTo(
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Missing 'method'\"}}");
+        }
+        JsonNode objectName = objectMapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":{}}}");
+        assertThat(envelope.exchange(objectName, McpRequestHeaders.NONE, true)
+                        .body()
+                        .toString())
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Missing tool name\"}}");
+    }
+
     private QuarkusMcpEnvelope.Reply modern(
             QuarkusMcpEnvelope envelope, String method, String id, String name, String version, boolean enabled)
             throws Exception {

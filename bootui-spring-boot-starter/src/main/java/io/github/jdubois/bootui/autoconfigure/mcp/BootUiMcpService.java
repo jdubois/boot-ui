@@ -253,8 +253,17 @@ public class BootUiMcpService {
         return request != null
                 && request.isObject()
                 && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asString())
-                && !request.path("method").asString().isBlank();
+                && McpProtocol.JSONRPC_VERSION.equals(text(request.path("jsonrpc")))
+                && !text(request.path("method")).isBlank();
+    }
+
+    /**
+     * The text of a scalar envelope field. Jackson 3's {@code asString()} throws on an object or array, where the Quarkus
+     * codec's Jackson 2 {@code asText()} returns an empty string; a malformed field must be the same client error on
+     * every stack, never a server failure.
+     */
+    private static String text(JsonNode node) {
+        return node.isContainer() ? "" : node.asString();
     }
 
     /** A modern rejection echoes a readable request id; a legacy one keeps BootUI 1.x's {@code null} id. */
@@ -302,7 +311,7 @@ public class BootUiMcpService {
         }
         JsonNode id = request.get("id");
         JsonNode jsonrpc = request.get("jsonrpc");
-        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(jsonrpc.asString())) {
+        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc))) {
             return error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\"");
         }
         if (id != null && !id.isNull() && !id.isString() && !id.isNumber()) {
@@ -331,13 +340,13 @@ public class BootUiMcpService {
     }
 
     private static McpRequest parse(JsonNode request, Serve serve) {
-        String jsonrpc = request.path("jsonrpc").asString();
-        String method = request.path("method").asString();
+        String jsonrpc = text(request.path("jsonrpc"));
+        String method = text(request.path("method"));
         JsonNode id = request.get("id");
         boolean notification = id == null || id.isNull();
         JsonNode params = request.path("params");
-        String requestedProtocolVersion = params.path("protocolVersion").asString();
-        String toolName = params.path("name").asString();
+        String requestedProtocolVersion = text(params.path("protocolVersion"));
+        String toolName = text(params.path("name"));
         JsonNode arguments = params.get("arguments");
         ParsedArguments parsedArguments = parseArguments(arguments);
         return new McpRequest(
