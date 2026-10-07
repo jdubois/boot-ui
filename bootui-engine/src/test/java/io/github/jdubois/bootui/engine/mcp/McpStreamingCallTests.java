@@ -282,6 +282,55 @@ class McpStreamingCallTests {
     }
 
     @Test
+    void aClientThatStopsReadingNeverDelaysTheTimeoutOrTheToolsInterruption() throws Exception {
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch unblock = new CountDownLatch(1);
+        CountDownLatch exited = new CountDownLatch(1);
+        McpDispatcher dispatcher = dispatcher(
+                args -> {
+                    try {
+                        for (int i = 1; ; i++) {
+                            // Each report is a handoff to the outbox, even while the writer is stuck on a socket.
+                            OperationProgress.current().report(PHASE, i, 0);
+                            OperationProgress.current().checkCancelled();
+                            Thread.sleep(2);
+                        }
+                    } catch (InterruptedException interrupted) {
+                        return "interrupted";
+                    } finally {
+                        exited.countDown();
+                    }
+                },
+                2,
+                300);
+        RecordingSink stuck = new RecordingSink() {
+            @Override
+            public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
+                blocked.countDown();
+                await(unblock);
+                super.progress(token, event);
+            }
+        };
+        long started = System.nanoTime();
+        stream(dispatcher.start(request(TOKEN), true)).start(stuck);
+
+        assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(exited.await(5, TimeUnit.SECONDS))
+                .as("the timeout still stops the tool")
+                .isTrue();
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(3_000);
+        assertThat(dispatcher.runtimeStats().snapshot().timeouts()).isEqualTo(1);
+        assertThat(availablePermits(dispatcher))
+                .as("the stuck writer still holds the permit")
+                .isEqualTo(1);
+        unblock.countDown();
+        assertThat(stuck.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(stuck.messages.get(stuck.messages.size() - 2))
+                .isEqualTo("complete " + new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE));
+        assertAllPermitsFree(dispatcher, 2);
+    }
+
+    @Test
     void permitsAndOutcomesAreAccountedExactlyOnceUnderRaces() throws Exception {
         int calls = 300;
         McpDispatcher dispatcher = dispatcher(

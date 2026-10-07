@@ -783,11 +783,13 @@ compatibility rules describe:
   `progressToken` is ignored.
 - **Cancellation by closing the stream.** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
   BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and frees
-  the concurrency slot when the tool returns. WebFlux and Quarkus notice the disconnect at once; Spring MVC notices it
-  when a write fails, within two keep-alive intervals (about 4 seconds). `bootui.mcp.execution-timeout` stays the
-  absolute bound, whatever progress flows: a timed-out stream ends with the timeout error as its final response. The
-  `GET /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` apart from
-  `timeouts`.
+  the concurrency slot once the tool has returned and the stream is written. WebFlux and Quarkus notice the disconnect
+  at once; Spring MVC notices it when a write fails, within two keep-alive intervals (about 4 seconds).
+  `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
+  timeout error as its final response. A blocking call that is cancelled rather than timed out (a tool that stops at a
+  cancellation checkpoint) answers the BootUI error `-32800` "MCP request cancelled", the code the Language Server
+  Protocol uses for the same outcome. The `GET /bootui/api/mcp-server` status reports `supportedProtocolVersions` and
+  counts `cancellations` (streams a client closed and cancelled calls) apart from `timeouts`.
 
 ## Assess an application and approve an action plan
 

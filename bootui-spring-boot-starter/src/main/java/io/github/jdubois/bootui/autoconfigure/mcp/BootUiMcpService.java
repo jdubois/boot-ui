@@ -341,10 +341,10 @@ public class BootUiMcpService {
         try {
             JsonNode response = render(outcome, id, era);
             byte[] bytes = objectMapper.writeValueAsBytes(response);
-            if (bytes.length > maxResponseBytes) {
+            McpExchange.Plan.Reject tooLarge = McpExchange.checkResponseSize(era, bytes.length, maxResponseBytes);
+            if (tooLarge != null) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return error(id, era, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE)
-                        .toString();
+                return error(id, tooLarge.code(), tooLarge.message()).toString();
             }
             return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
         } catch (RuntimeException | Error failure) {
@@ -389,10 +389,13 @@ public class BootUiMcpService {
             McpDispatchOutcome outcome = ((McpCallStart.Immediate) start).outcome();
             int status = McpProtocol.httpStatus(era, outcome);
             JsonNode response = render(outcome, id, era);
-            if (response != null && objectMapper.writeValueAsBytes(response).length > maxResponseBytes) {
+            McpExchange.Plan.Reject tooLarge = response == null
+                    ? null
+                    : McpExchange.checkResponseSize(
+                            era, objectMapper.writeValueAsBytes(response).length, maxResponseBytes);
+            if (tooLarge != null) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return new Reply(
-                        200, error(id, era, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE));
+                return new Reply(tooLarge.httpStatus(), error(id, tooLarge.code(), tooLarge.message()));
             }
             return new Reply(status, response);
         } catch (RuntimeException | Error failure) {

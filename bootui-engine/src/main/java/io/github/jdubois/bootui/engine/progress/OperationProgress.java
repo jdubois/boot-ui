@@ -15,7 +15,8 @@ import java.util.function.Supplier;
  * <p>Reports are filtered before they reach the listener: a non-finite or non-increasing {@code completed} is
  * dropped, and a non-finite or non-positive {@code total} is omitted. The cancellation check, the order check, and the
  * listener call happen under the lock {@link #cancel()} takes, so reports reach the listener in increasing order and
- * none starts once {@code cancel()} has returned. A phase label changes only together with an advance of {@code
+ * none starts once {@code cancel()} has returned. That is why a {@link ProgressListener} must be a non-blocking
+ * handoff. A phase label changes only together with an advance of {@code
  * completed}, because a report that does not advance is dropped.
  */
 public final class OperationProgress {

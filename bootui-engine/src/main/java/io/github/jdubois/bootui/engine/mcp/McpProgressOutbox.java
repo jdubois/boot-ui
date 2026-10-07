@@ -9,7 +9,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Hands one call's progress from the tool thread to its stream writer, through the request's {@link
  * McpProgressThrottle}, under one lock: an event the throttle released is always taken before the newer event it may
- * hold, so the writer sends strictly increasing progress.
+ * hold, so the writer sends strictly increasing progress. {@link #offer} never blocks: the writer holds this lock only
+ * while it picks the next event, never across a write to the client, which is what lets it serve as the progress
+ * listener that {@link io.github.jdubois.bootui.engine.progress.OperationProgress} calls under its own lock.
  */
 final class McpProgressOutbox {
 
