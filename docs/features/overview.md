@@ -646,6 +646,15 @@ call; it only re-reads what the journal already recorded, and caches the result 
 live exposure policy changes. Sentences and evidence that quote recorded text, such as a framework warning's message or
 a request path, follow the same rule as [Live Activity](#safety-and-limits).
 
+The panel leads with a **verdict** on the run: how many things it lists to check across how many requests, how many of
+them come from checks that passed their external validation and how many from checks that did not, how many rows the
+default list leaves out, the share of events linked to their request, and the comparison with the previous run. Four
+tabs follow. **Findings** is one list in the report's check order, searchable and filtered by theme, each theme counting
+its rows; a row opens in place on its sentence, what to check, the requests to open, its evidence, and its limits.
+**Changes** holds the comparison with the previous run and change impact, **Profile** the resource profiler, and
+**Coverage & limits** how the run's events were linked, the checks that did not fully run, and the routes not exercised.
+Nothing opens on its own: a deep link opens the row, the theme, or the change impact it names.
+
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 
 | Observation | What it counts |
@@ -690,7 +699,7 @@ and its outcome is recorded once in the engine, so every stack, the panel, and t
 | Not listed by design | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
 
 Each check in the JSON carries `validation` (`PASSED`, `NOT_VALIDATED`, `FAILED`, `UNDER_SAMPLED`, `NOT_LISTED`, or
-`NOT_JUDGED`) and `validationReason`. The panel marks a kind's group, and its selected row says why. The observations
+`NOT_JUDGED`) and `validationReason`. The panel marks each row of such a kind, its verdict counts them, and an open row says why. The observations
 planned with the BootUI agent are `NOT_JUDGED`: they are shown as rows of their own panel, such as Side Effects, until
 their own external run passes the gate (D36).
 

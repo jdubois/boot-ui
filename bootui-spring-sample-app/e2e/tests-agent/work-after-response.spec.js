@@ -85,13 +85,8 @@ test.describe('Work after the response', () => {
     ).toHaveCount(0)
 
     await openView('runtime-insights', 'Runtime Insights')
-    await expect(page.getByRole('heading', {name: 'Work after the response', level: 2, exact: true})).toBeVisible({
-      timeout: 15_000
-    })
-    const group = page
-      .locator('nav[aria-label="Observations"] > div')
-      .filter({has: page.getByRole('heading', {name: 'Work after the response', level: 2, exact: true})})
-    await expect(group.locator('.insight-item', {hasText: SEED}).first()).toBeVisible()
+    const group = page.locator('.insight-row').filter({has: page.getByText('Work after the response', {exact: true})})
+    await expect(group.locator('.insight-item', {hasText: SEED}).first()).toBeVisible({timeout: 15_000})
     await expect(group.locator('.insight-item', {hasText: `${SEED}/waits`})).toHaveCount(0)
   })
 })

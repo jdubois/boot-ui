@@ -16,6 +16,8 @@ test.describe('Runtime Insights demo', () => {
     }, 'mvc')
 
     await openView('runtime-insights', 'Runtime Insights')
+    // Each row names its check above its route or subject.
+    const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
     for (const [title, subject] of [
       ['Writes in GET requests', '/api/insights/orders/{id}'],
       ['Transactions open across remote calls', '/api/insights/orders/{id}/price-check'],
@@ -26,17 +28,15 @@ test.describe('Runtime Insights demo', () => {
       ['Writes after commit', '/api/insights/orders/{id}/archive'],
       ['Hibernate auto-flushes', '/api/insights/tags/auto-flush']
     ]) {
-      await expect(page.getByRole('heading', {name: title, level: 2, exact: true})).toBeVisible({timeout: 15_000})
-      await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()
+      await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
     }
 
-    const group = (title) =>
-      page
-        .locator('nav[aria-label="Observations"] > div')
-        .filter({has: page.getByRole('heading', {name: title, level: 2, exact: true})})
+    const group = kind
     // A kind that stayed silent on the validation applications is listed, marked as not externally validated; one
     // that passed is not marked.
-    await expect(group('Writes in GET requests').locator('.insight-validation')).toHaveText('Not externally validated')
+    await expect(group('Writes in GET requests').first().locator('.insight-validation')).toHaveText(
+      'Not externally validated'
+    )
     await expect(group('Errors behind 2xx responses').locator('.insight-validation')).toHaveCount(0)
 
     // Left out of the default list: the kinds that did not pass their external validation, or had too few facts to

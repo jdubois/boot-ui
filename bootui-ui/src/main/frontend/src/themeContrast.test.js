@@ -297,3 +297,23 @@ describe.each(['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win
     })
   }
 )
+
+// Opacity fades text toward its background, so a muted label that clears AA alone can fall below 4.5:1 once faded,
+// which no token check above would see. Runtime Insights' small counts and row metadata sit on tinted and outlined
+// controls, so its styles carry no opacity at all.
+it('never fades Runtime Insights text with opacity', () => {
+  const files = [
+    'views/RuntimeInsights.vue',
+    ...fs
+      .readdirSync(path.join(sourceRoot, 'views/components'))
+      .filter((name) => /^Insight.*\.vue$/.test(name))
+      .map((name) => `views/components/${name}`)
+  ]
+  const offenders = files.filter((file) => {
+    const source = fs.readFileSync(path.join(sourceRoot, file), 'utf8')
+    const styles = parseSfc(source, {filename: file}).descriptor.styles.map((style) => style.content)
+    return styles.some((content) => /(^|[\s;{])opacity\s*:/.test(content))
+  })
+  expect(files.length).toBeGreaterThan(1)
+  expect(offenders).toEqual([])
+})
