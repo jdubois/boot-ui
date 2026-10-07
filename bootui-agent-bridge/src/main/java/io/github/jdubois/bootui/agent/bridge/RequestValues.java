@@ -174,8 +174,14 @@ public final class RequestValues {
 
     private static final int FREE = 0;
 
-    /** The lock tokens: each acquisition takes a new one, never {@link #FREE}, so only its holder ever releases it. */
+    /** The lock tokens, one per thread, never {@link #FREE}, so only a lock's holder ever releases it. */
     private static final AtomicInteger TOKENS = new AtomicInteger();
+
+    /**
+     * The calling thread's lock token, drawn once: a token only tells threads apart, as a thread overtaken inside an
+     * entry cannot take another lock until it resumes, so no counter is shared per acquisition.
+     */
+    private static final ThreadLocal<int[]> THREAD_TOKEN = new ThreadLocal<int[]>();
 
     /** Each entry's request id, 0 when free; written only under the entry's lock, read without it to find an entry. */
     private static final AtomicLongArray REQUESTS = new AtomicLongArray(ENTRIES);
@@ -253,7 +259,9 @@ public final class RequestValues {
         int valueChars;
 
         int hashCount;
-        long begun;
+        /** Written under the lock; read without it by {@link #sweep}, which then checks again under the lock. */
+        volatile long begun;
+
         int checks;
         long comparisons;
         boolean stopped;
@@ -428,8 +436,12 @@ public final class RequestValues {
             return;
         }
         for (int i = 0; i < ENTRIES; i++) {
+            Entry candidate = TABLE.get(i);
             int token;
-            if (REQUESTS.get(i) != 0L && (token = tryLock(i)) != FREE) {
+            // The deadline first, read without the lock: a sweep takes no lock, and touches no shared counter, unless
+            // an
+            // entry looks expired.
+            if (candidate != null && now - candidate.begun > DEADLINE_NANOS && (token = tryLock(i)) != FREE) {
                 try {
                     Entry entry = TABLE.get(i);
                     if (entry != null && now - entry.begun > DEADLINE_NANOS && wipe(i, entry)) {
@@ -1297,17 +1309,25 @@ public final class RequestValues {
         return (int) (mixed >>> 57) & (ENTRIES - 1);
     }
 
-    /** A new lock token, never {@link #FREE}. */
+    /** The calling thread's lock token, never {@link #FREE}. */
     private static int token() {
-        int token;
-        do {
-            token = TOKENS.incrementAndGet();
-        } while (token == FREE);
-        return token;
+        int[] held = THREAD_TOKEN.get();
+        if (held == null) {
+            int token;
+            do {
+                token = TOKENS.incrementAndGet();
+            } while (token == FREE);
+            held = new int[] {token};
+            THREAD_TOKEN.set(held);
+        }
+        return held[0];
     }
 
     /** The entry's lock, or {@link #FREE} when another thread holds it. */
     private static int tryLock(int index) {
+        if (LOCKS.get(index) != FREE) {
+            return FREE;
+        }
         int token = token();
         return LOCKS.compareAndSet(index, FREE, token) ? token : FREE;
     }
