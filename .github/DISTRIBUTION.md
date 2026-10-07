@@ -182,6 +182,10 @@ None of this needs repeating.
   skill. The maintainer-only `bootui-java-development` skill is deliberately kept out of the plugin payload.
 - `ClaudeCodePluginPayloadTests` in `bootui-engine` — the drift guard. It fails the build if the shipped skill stops
   matching the canonical one, and if any skill other than `bootui` ever appears in the plugin payload.
+- `AgentSkillDiscoverabilityTests` in `bootui-engine` — the discoverability guard. It fails the build if the canonical
+  skill loses its installable frontmatter, if a documented `gh skill` or `npx skills add` command stops naming the
+  canonical `skills/bootui` path, if a document outside the checked set grows its own install command, or if the
+  advertised marketplace plugin stops carrying the skill. It runs offline, so it never asks whether a registry is up.
 - `docs/AI-AGENTS.md` and `plugins/README.md` — the user-facing installation instructions for the plugin, and the
   maintainer note explaining why the plugin payload is a curated copy rather than the repository root.
 - The exact-path
