@@ -236,6 +236,11 @@ public final class McpDispatcher {
         return serverVersion;
     }
 
+    /** Concurrency permits not held by a running or pending tool call. */
+    int availableCallPermits() {
+        return toolCallSemaphore.availablePermits();
+    }
+
     /** Operational counters exposed by the MCP Server panel. */
     public McpRuntimeStats runtimeStats() {
         return runtimeStats;
@@ -306,7 +311,77 @@ public final class McpDispatcher {
         return new InitializeResult(negotiated, McpProtocol.SERVER_NAME, serverVersion, instructions);
     }
 
+    /**
+     * Starts a {@code tools/call} that may answer on a request-scoped event stream. Only a modern call with a progress
+     * token, to a tool that {@linkplain McpTool#reportsProgress() reports progress}, from a client that accepts
+     * {@code text/event-stream}, and that passes every validation and policy gate and gets a concurrency permit, is
+     * {@link McpCallStart.Stream streamed}. Everything else, including every refusal, is the same {@link
+     * McpCallStart.Immediate immediate} outcome {@link #dispatch(McpRequest)} returns.
+     *
+     * <p>A returned stream holds a permit and has its absolute execution timeout already scheduled: the adapter must
+     * {@link McpStreamingCall#start start} it or {@link McpStreamingCall#cancel cancel} it, and the timeout still
+     * releases the permit if it does neither.
+     */
+    public McpCallStart start(McpRequest request, boolean acceptsEventStream) {
+        if (request == null
+                || request.era() != McpEra.MODERN
+                || request.progressToken() == null
+                || request.notification()
+                || !acceptsEventStream
+                || !"tools/call".equals(request.method())) {
+            return new McpCallStart.Immediate(dispatch(request));
+        }
+        try {
+            McpTool tool = request.toolName() == null ? null : findTool(request.toolName());
+            if (tool == null || !tool.reportsProgress()) {
+                return new McpCallStart.Immediate(dispatch(request));
+            }
+            Object prepared = prepareCall(request);
+            if (prepared instanceof McpDispatchOutcome refusal) {
+                return new McpCallStart.Immediate(refusal);
+            }
+            PreparedCall call = (PreparedCall) prepared;
+            if (!toolCallSemaphore.tryAcquire()) {
+                runtimeStats.recordCapacityRefusal();
+                return new McpCallStart.Immediate(
+                        new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE));
+            }
+            return new McpCallStart.Stream(new McpStreamingCall(
+                    call.tool(),
+                    call.arguments(),
+                    request.progressToken(),
+                    executionTimeoutMillis,
+                    toolCallSemaphore,
+                    runtimeStats,
+                    failureReporter,
+                    TOOL_EXECUTOR));
+        } catch (RuntimeException | Error failure) {
+            failureReporter.report("dispatching a request", failure);
+            return new McpCallStart.Immediate(
+                    new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE));
+        }
+    }
+
+    /** A validated tool call that may run. */
+    private record PreparedCall(McpTool tool, McpArguments arguments) {}
+
     private McpDispatchOutcome callTool(McpRequest request) {
+        Object prepared = prepareCall(request);
+        if (prepared instanceof McpDispatchOutcome refusal) {
+            return refusal;
+        }
+        if (!toolCallSemaphore.tryAcquire()) {
+            runtimeStats.recordCapacityRefusal();
+            return new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE);
+        }
+        return invokeBlocking(((PreparedCall) prepared).tool(), ((PreparedCall) prepared).arguments());
+    }
+
+    /**
+     * Validates a {@code tools/call} without running it: a {@link PreparedCall}, or the refusal {@link
+     * McpDispatchOutcome} (unknown tool, malformed arguments, panel policy).
+     */
+    private Object prepareCall(McpRequest request) {
         String name = request.toolName();
         if (name == null || name.isEmpty()) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_TOOL_NAME_MESSAGE);
@@ -358,10 +433,10 @@ public final class McpDispatcher {
                     McpProtocol.INVALID_PARAMS,
                     McpProtocol.missingArgumentMessage(McpProtocol.MISSING_SCAN_ID_ARGUMENT_MESSAGE, tool.name()));
         }
-        if (!toolCallSemaphore.tryAcquire()) {
-            runtimeStats.recordCapacityRefusal();
-            return new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE);
-        }
+        return new PreparedCall(tool, arguments);
+    }
+
+    private McpDispatchOutcome invokeBlocking(McpTool tool, McpArguments arguments) {
         long startedAt = System.nanoTime();
         AtomicInteger invocationState = new AtomicInteger(0);
         Future<Object> invocation;
@@ -411,20 +486,9 @@ public final class McpDispatcher {
             throw new IllegalStateException("Interrupted while invoking MCP tool", ex);
         } catch (ExecutionException ex) {
             Throwable cause = ex.getCause();
-            if (cause instanceof OperationCancelledException) {
-                // The tool stopped at a cancellation checkpoint because its thread was interrupted: an expected
-                // outcome, not a server fault, so it is never reported as one.
-                return new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
-            }
-            if (cause instanceof ActionBusyException busy) {
-                return new ToolCallError(busy.result().message(), McpDispatchOutcome.ToolErrorReason.ACTION_BUSY);
-            }
-            if (cause instanceof McpToolClientException clientError) {
-                return new ToolCallError(clientError.getMessage(), clientError.status());
-            }
-            if (cause instanceof AdvisorViolationException clientError
-                    && McpToolClientExceptions.isClientError(clientError.status())) {
-                return new ToolCallError(clientError.getMessage(), clientError.status());
+            McpDispatchOutcome expected = expectedToolFailure(cause);
+            if (expected != null) {
+                return expected;
             }
             if (cause instanceof RuntimeException runtime) {
                 throw runtime;
@@ -434,6 +498,30 @@ public final class McpDispatcher {
             }
             throw new IllegalStateException("MCP tool invocation failed", cause);
         }
+    }
+
+    /**
+     * The outcome of a tool failure that is the request's or the caller's doing rather than a server fault, or {@code
+     * null} for a server fault the caller must report: a busy single-flight action, a client error the tool raised,
+     * and a tool that stopped at a cancellation checkpoint.
+     */
+    static McpDispatchOutcome expectedToolFailure(Throwable cause) {
+        if (cause instanceof OperationCancelledException) {
+            // The tool stopped at a cancellation checkpoint because its thread was interrupted: an expected
+            // outcome, not a server fault, so it is never reported as one.
+            return new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
+        }
+        if (cause instanceof ActionBusyException busy) {
+            return new ToolCallError(busy.result().message(), McpDispatchOutcome.ToolErrorReason.ACTION_BUSY);
+        }
+        if (cause instanceof McpToolClientException clientError) {
+            return new ToolCallError(clientError.getMessage(), clientError.status());
+        }
+        if (cause instanceof AdvisorViolationException clientError
+                && McpToolClientExceptions.isClientError(clientError.status())) {
+            return new ToolCallError(clientError.getMessage(), clientError.status());
+        }
+        return null;
     }
 
     private McpDispatchOutcome getPrompt(McpRequest request) {
