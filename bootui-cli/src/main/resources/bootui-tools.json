@@ -3,7 +3,7 @@
     {
       "name": "get_live_activity",
       "command": "activity",
-      "schema": "LIMIT",
+      "schema": "QUERY_LIMIT",
       "panel": "activity",
       "action": false,
       "stacks": [
@@ -12,13 +12,14 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Newest events and entry ids only.",
-      "description": "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test run did not exercise, call get_runtime_insights or get_runtime_run_comparison first.",
-      "example": "bootui activity --limit 20"
+      "description": "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit (25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; pageInfo.hasMore means more entries matched or older ones were not searched (a warning then names the window searched), and typeCounts counts every retained entry.",
+      "example": "bootui activity --query SQL --limit 20",
+      "queryHelp": "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method"
     },
     {
       "name": "get_agent_status",
       "command": "agent status",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "java-agent",
       "action": false,
       "stacks": [
@@ -27,8 +28,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it.",
-      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent.",
-      "example": "bootui agent status"
+      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is listed: limit does not apply.",
+      "example": "bootui agent status --query executors",
+      "queryHelp": "a sensor id, such as executors, for its hooks and self-test steps"
     },
     {
       "name": "get_ai_overview",
@@ -72,7 +74,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively scan application classes for architecture and dependency violations.",
-      "description": "Actively scan application classes for architecture and dependency violations. Use for structural reviews; verify each finding against intended module boundaries before changing code. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_architecture_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code. sampleLocations aligns index-for-index with sampleViolations when non-empty (a null entry has no location): className, memberName, kind, sourceFile, line, sourcePath and precision (LINE, MEMBER or CLASS). Open sourcePath at line to go straight to the code; violationDetails.locationNotes says why a path is missing.",
+      "description": "Actively scan application classes for architecture and dependency violations. Use for structural reviews; verify each finding against intended module boundaries before changing code. It answers with the report get_architecture_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_architecture_rule_violations without scanning again.",
       "example": "bootui architecture scan"
     },
     {
@@ -103,7 +105,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Search Spring beans by name or type and return a bounded result.",
-      "description": "Search Spring beans by name or type and return a bounded result. Use this to verify runtime wiring, not as proof that a bean is exercised.",
+      "description": "Search Spring beans by name or type and return a bounded result. Use this to verify runtime wiring, not as proof that a bean is exercised. At most limit (25) beans; page.hasMore means more matched.",
       "example": "bootui beans --query dataSource"
     },
     {
@@ -164,7 +166,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return matched, unmatched, and unconditional entries.",
-      "description": "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return matched, unmatched, and unconditional entries. Use to confirm why a bean or auto-configuration was or was not applied, rather than guessing from source.",
+      "description": "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return matched, unmatched, and unconditional entries. Use to confirm why a bean or auto-configuration was or was not applied, rather than guessing from source. At most limit (25) entries, positive matches then negative ones; query also narrows unconditionalClasses and exclusions, whose counts stay totals.",
       "example": "bootui conditions --query DataSource"
     },
     {
@@ -179,7 +181,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Search effective configuration by name or displayed value and return a bounded result.",
-      "description": "Search effective configuration by name or displayed value and return a bounded result. Name search is relaxed-binding aware: it ignores case and treats `_` and `-` as `.`, so the dotted, kebab-case, and `UPPER_SNAKE_CASE` spellings of one property all find it — `bootui.mcp.enabled` also finds a value supplied as the environment variable `BOOTUI_MCP_ENABLED`, which is enumerated under that literal name. Values are matched literally, and each row reports the exact name and source its property source published. In `page`, `total` counts every property before filtering while `matched` counts the query hits, so `matched: 0` means this query found nothing, not that the property is absent — retry with a shorter query before concluding it is unset. Secret-like configuration values are masked; prefer a narrow query.",
+      "description": "Search effective configuration by name or displayed value and return a bounded result. Name search is relaxed-binding aware: it ignores case and treats `_` and `-` as `.`, so the dotted, kebab-case, and `UPPER_SNAKE_CASE` spellings of one property all find it — `bootui.mcp.enabled` also finds a value supplied as the environment variable `BOOTUI_MCP_ENABLED`, which is enumerated under that literal name. Values are matched literally, and each row reports the exact name and source its property source published. In `page`, `total` counts every property before filtering while `matched` counts the query hits, so `matched: 0` means this query found nothing, not that the property is absent — retry with a shorter query before concluding it is unset. Secret-like configuration values are masked; prefer a narrow query. At most limit (25) properties; propertySuggestions, the browser's completion list, is always empty here.",
       "example": "bootui config --query server.port"
     },
     {
@@ -342,7 +344,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available.",
-      "description": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available. The scan is bounded; anything it could not read is reported as a diagnostic rather than as a passing check. Verify findings against the live schema before changing it. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_database_advisor_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "description": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available. The scan is bounded; anything it could not read is reported as a diagnostic rather than as a passing check. Verify findings against the live schema before changing it. It answers with the report get_database_advisor_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_database_advisor_rule_violations without scanning again.",
       "example": "bootui db scan"
     },
     {
@@ -550,7 +552,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks.",
-      "description": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks. Verify findings against actual query paths and database behavior. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_hibernate_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code. sampleLocations aligns index-for-index with sampleViolations when non-empty (a null entry has no location): className, memberName, kind, sourceFile, line, sourcePath and precision (LINE, MEMBER or CLASS). Open sourcePath at line to go straight to the code; violationDetails.locationNotes says why a path is missing. When scan.status is PARTIAL, read diagnostics (source rule id or discovery, unit, level, message) for rules and units that failed or lacked evidence, and a result's coverageNote for units whose findings come from a partial evaluation; INFO diagnostics are advisor limits by design. Diagnostics are capped at 200: when capped, a final entry with source diagnostics states how many were omitted, so a missing unit entry does not prove complete coverage.",
+      "description": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks. Verify findings against actual query paths and database behavior. It answers with the report get_hibernate_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_hibernate_rule_violations without scanning again.",
       "example": "bootui hibernate scan"
     },
     {
@@ -596,7 +598,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return a bounded, newest-first snapshot of application HTTP request/response metadata.",
-      "description": "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate paths, statuses, and timings with live activity and traces. The retention object reports capacity and retained, reserved, and evicted counts: 5xx and slow exchanges are kept longer, so the window is not complete.",
+      "description": "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate paths, statuses, and timings with live activity and traces. The retention object reports capacity and retained, reserved, and evicted counts: 5xx and slow exchanges are kept longer, so the window is not complete. At most limit (25) exchanges; page.hasMore means more were retained.",
       "example": "bootui http exchanges --limit 20"
     },
     {
@@ -753,7 +755,7 @@
     {
       "name": "get_log_tail",
       "command": "logs tail",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "log-tail",
       "action": false,
       "stacks": [
@@ -762,8 +764,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the latest buffered application log snapshot.",
-      "description": "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: secret-like assignments are masked by default and messages are omitted under METADATA_ONLY, but other sensitive text may remain; use them only in the local diagnostic context.",
-      "example": "bootui logs tail"
+      "description": "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: secret-like assignments are masked by default and messages are omitted under METADATA_ONLY, but other sensitive text may remain; use them only in the local diagnostic context. At most limit (50) newest lines matching query (level, logger, thread, or message); page.hasMore means more lines matched.",
+      "example": "bootui logs tail --query WARN",
+      "queryHelp": "a level, logger, thread, or text in the message"
     },
     {
       "name": "get_emails",
@@ -867,7 +870,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively analyze JVM memory and return prioritized findings.",
-      "description": "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram and full GC, so run only when memory evidence is needed. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_memory_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "description": "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram and full GC, so run only when memory evidence is needed. It answers with the report get_memory_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_memory_rule_violations without scanning again.",
       "example": "bootui memory scan"
     },
     {
@@ -898,7 +901,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Search the current application metrics inventory and return a bounded page of local meter values.",
-      "description": "Search the current application metrics inventory and return a bounded page of local meter values. Use a narrow metric-name query when diagnosing one runtime signal.",
+      "description": "Search the current application metrics inventory and return a bounded page of local meter values. Use a narrow metric-name query when diagnosing one runtime signal. At most limit (25) meters; page.hasMore means more matched.",
       "example": "bootui metrics --query jvm.memory"
     },
     {
@@ -1065,7 +1068,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks.",
-      "description": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks. Verify recommendations against the public API contract. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_rest_api_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code. sampleLocations aligns index-for-index with sampleViolations when non-empty (a null entry has no location): className, memberName, kind, sourceFile, line, sourcePath and precision (LINE, MEMBER or CLASS). Open sourcePath at line to go straight to the code; violationDetails.locationNotes says why a path is missing.",
+      "description": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks. Verify recommendations against the public API contract. It answers with the report get_rest_api_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_rest_api_rule_violations without scanning again.",
       "example": "bootui rest-api scan"
     },
     {
@@ -1215,7 +1218,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively review application security configuration and return prioritized findings.",
-      "description": "Actively review application security configuration and return prioritized findings. Treat results as review evidence and verify exploitability before proposing a fix. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_security_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "description": "Actively review application security configuration and return prioritized findings. Treat results as review evidence and verify exploitability before proposing a fix. It answers with the report get_security_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_security_rule_violations without scanning again.",
       "example": "bootui security scan"
     },
     {
@@ -1237,7 +1240,7 @@
     {
       "name": "get_claude_code_sessions",
       "command": "sessions claude",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "claude-code",
       "action": false,
       "stacks": [
@@ -1246,13 +1249,14 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files.",
-      "description": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded.",
-      "example": "bootui sessions claude"
+      "description": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity).",
+      "example": "bootui sessions claude --limit 5",
+      "queryHelp": "a session id, model, working directory, status, or last activity"
     },
     {
       "name": "get_copilot_sessions",
       "command": "sessions copilot",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "copilot",
       "action": false,
       "stacks": [
@@ -1261,8 +1265,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files.",
-      "description": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded.",
-      "example": "bootui sessions copilot"
+      "description": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity).",
+      "example": "bootui sessions copilot --limit 5",
+      "queryHelp": "a session id, model, working directory, status, or last activity"
     },
     {
       "name": "get_side_effects",
@@ -1276,9 +1281,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, park, a blocking network or file operation) started on an event loop, and, opt-in, the files it opens, deletes, moves, and copies, the environment variables and system properties it reads, the threads it starts and executors it creates (thread-activity), and the thread locals a request or a job left set on its pooled thread (thread-locals).",
-      "description": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, park, a blocking network or file operation) started on an event loop, and, opt-in, the files it opens, deletes, moves, and copies, the environment variables and system properties it reads, the threads it starts and executors it creates (thread-activity), and the thread locals a request or a job left set on its pooled thread (thread-locals). Advertised only while the agent is armed for this run (see get_agent_status). Every sensor first, with its coverage (recording, not-claimed, not-available in this version, ...), then at most limit (20) rows, most frequent first, matching query: a sensor id such as processes, network, files, or blocking, 'not captured' for hidden outbound calls, or part of a route, target, client, or call site. A row is attributed to a request's route, work no request owns, startup, or a thread family, with the call site, the bean method it ran inside, counts, failures, exits or connections, times, and up to three request ids. A process row names the command's file name only, never its arguments or environment; a network row names a host and port, the client recognized from the calling frames, and whether a visible panel (REST Client Trace, SQL Trace, a broker's panel, Email) captured the work, never a byte sent or received; a file row a path pattern (./ for the working directory, $TMPDIR, ~, ids as {n}) with its kind, location, and origin (application, library, class-path, jdk, logging), never contents; an environment row a name, never its value; a blocking row the operation, the event loop's thread family, and how long it blocked, not-applicable on Spring MVC, which runs no event loop; a thread-activity row a thread's family or an executor's class, how many a request started (count / requests), how many were still running when their request ended (leftRunning), and executors shut down (completed) or reclaimed without a shutdown (failed), library and JDK pools by origin, never what a thread holds; a thread-locals row the static field holding a thread local left set (kind left set, inheritable, or with initial value), by how many requests, set during the request with no call site, never its value.",
+      "description": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, park, a blocking network or file operation) started on an event loop, and, opt-in, the files it opens, deletes, moves, and copies, the environment variables and system properties it reads, the threads it starts and executors it creates (thread-activity), and the thread locals a request or a job left set on its pooled thread (thread-locals). Advertised only while the agent is armed for this run (see get_agent_status). Every sensor first, with its coverage (recording, not-claimed, not-available in this version, ...), without its hooks or, when none of its rows is listed, its fixed limitations unless query names that sensor, then at most limit (20) rows, most frequent first, matching query: a sensor id such as processes, network, files, or blocking, 'not captured' for hidden outbound calls, or part of a route, target, client, or call site. A row is attributed to a request's route, work no request owns, startup, or a thread family, with the call site, the bean method it ran inside, counts, failures, exits or connections, times, and up to three request ids. A process row names the command's file name only, never its arguments or environment; a network row names a host and port, the client recognized from the calling frames, and whether a visible panel (REST Client Trace, SQL Trace, a broker's panel, Email) captured the work, never a byte sent or received; a file row a path pattern (./ for the working directory, $TMPDIR, ~, ids as {n}) with its kind, location, and origin (application, library, class-path, jdk, logging), never contents; an environment row a name, never its value; a blocking row the operation, the event loop's thread family, and how long it blocked, not-applicable on Spring MVC, which runs no event loop; a thread-activity row a thread's family or an executor's class, how many a request started (count / requests), how many were still running when their request ended (leftRunning), and executors shut down (completed) or reclaimed without a shutdown (failed), library and JDK pools by origin, never what a thread holds; a thread-locals row the static field holding a thread local left set (kind left set, inheritable, or with initial value), by how many requests, set during the request with no call site, never its value.",
       "example": "bootui side-effects --query processes --limit 20",
-      "queryHelp": "a sensor id such as processes, network, files, environment, blocking, thread-activity, or thread-locals, not captured (outbound calls no panel captured), or part of a route, target, client, or call site"
+      "queryHelp": "a sensor id such as processes, network, files, environment, blocking, thread-activity, or thread-locals, which also lists its hooks, not captured (outbound calls no panel captured), or part of a route, target, client, or call site"
     },
     {
       "name": "get_spring_report",
@@ -1307,7 +1312,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks.",
-      "description": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. Verify each finding against effective configuration before changing code. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_spring_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "description": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. Verify each finding against effective configuration before changing code. It answers with the report get_spring_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_spring_rule_violations without scanning again.",
       "example": "bootui spring scan"
     },
     {
@@ -1374,7 +1379,7 @@
     {
       "name": "get_sql_traces",
       "command": "sql traces",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "sql-trace",
       "action": false,
       "stacks": [
@@ -1383,13 +1388,14 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded SQL trace snapshot with statements and timings.",
-      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers. The retention object reports capacity and retained, reserved, and evicted counts: failed and slow statements are kept longer, so the window is not complete.",
-      "example": "bootui sql traces"
+      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers. The retention object reports capacity and retained, reserved, and evicted counts: failed and slow statements are kept longer, so the window is not complete. At most limit (20) newest entries matching query (SQL text, category, call site, error, or request, trace, or execution id); page.hasMore means narrow the query or raise limit.",
+      "example": "bootui sql traces --query orders",
+      "queryHelp": "text in the SQL, category, call site, or error, or a request, trace, or execution id"
     },
     {
       "name": "get_startup_timeline",
       "command": "startup",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "startup",
       "action": false,
       "stacks": [
@@ -1397,8 +1403,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the captured Spring startup-step timeline after filtering BootUI's own steps.",
-      "description": "Return the captured Spring startup-step timeline after filtering BootUI's own steps. This passive read does not restart the application or start a new recording.",
-      "example": "bootui startup"
+      "description": "Return the captured Spring startup-step timeline after filtering BootUI's own steps. This passive read does not restart the application or start a new recording. At most limit (25) slowest steps first (a parent includes its children) matching query (a step name or tag value, such as a bean name).",
+      "example": "bootui startup --limit 10",
+      "queryHelp": "a step name or tag value, such as a bean name"
     },
     {
       "name": "get_threads",
@@ -1412,7 +1419,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Search the current JVM thread snapshot and return a bounded page of thread states and stack summaries.",
-      "description": "Search the current JVM thread snapshot and return a bounded page of thread states and stack summaries. This does not generate or download the raw thread-dump artifact.",
+      "description": "Search the current JVM thread snapshot and return a bounded page of thread states and stack summaries. This does not generate or download the raw thread-dump artifact. At most limit (25) threads; page.hasMore means more matched.",
       "example": "bootui threads --query http --limit 10"
     },
     {
@@ -1504,7 +1511,7 @@
     {
       "name": "get_vulnerabilities_report",
       "command": "vulnerabilities report",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "vulnerabilities",
       "action": false,
       "stacks": [
@@ -1513,8 +1520,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service.",
-      "description": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the inventory provider's accounting, not shaded-library discovery or exploitability. With the BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory names, loaded in this JVM: a prioritization hint that never changes severity, and NOT_LOADED means not loaded yet, not unreachable.",
-      "example": "bootui vulnerabilities report"
+      "description": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the inventory provider's accounting, not shaded-library discovery or exploitability. With the BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory names, loaded in this JVM: a prioritization hint that never changes severity, and NOT_LOADED means not loaded yet, not unreachable. At most limit (10) dependencies, vulnerable first, matching query (coordinates, severity, or an advisory id or alias); totals stay whole-report counts and page.matched counts the query hits.",
+      "example": "bootui vulnerabilities report --query CRITICAL",
+      "queryHelp": "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE"
     },
     {
       "name": "vulnerabilities_scan",

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bootui",
+  "description": "Ask a running Spring Boot or Quarkus application about itself: architecture, Spring, Hibernate, memory, security, pentest, GraalVM and CRaC advisors plus live runtime diagnostics, over BootUI's local MCP server.",
+  "author": {
+    "name": "Julien Dubois",
+    "url": "https://github.com/jdubois"
+  },
+  "homepage": "https://www.julien-dubois.com/boot-ui/ai-agents",
+  "repository": "https://github.com/jdubois/boot-ui",
+  "license": "Apache-2.0",
+  "keywords": [
+    "spring-boot",
+    "quarkus",
+    "java",
+    "mcp",
+    "observability",
+    "diagnostics"
+  ]
+}

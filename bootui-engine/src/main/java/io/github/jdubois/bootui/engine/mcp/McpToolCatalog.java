@@ -159,8 +159,13 @@ public final class McpToolCatalog {
             entry("mysql_read", McpToolSchema.NONE, BootUiPanels.MYSQL, true, ALL_STACKS),
             entry("get_mysql_report", McpToolSchema.NONE, BootUiPanels.MYSQL, false, ALL_STACKS),
             entry("vulnerabilities_scan", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, true, ALL_STACKS),
-            entry("get_vulnerabilities_report", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, false, ALL_STACKS),
-            entry("get_live_activity", McpToolSchema.LIMIT, BootUiPanels.ACTIVITY, false, ALL_STACKS),
+            entry(
+                    "get_vulnerabilities_report",
+                    McpToolSchema.QUERY_LIMIT,
+                    BootUiPanels.VULNERABILITIES,
+                    false,
+                    ALL_STACKS),
+            entry("get_live_activity", McpToolSchema.QUERY_LIMIT, BootUiPanels.ACTIVITY, false, ALL_STACKS),
             entry("get_request_profile", McpToolSchema.ID, BootUiPanels.ACTIVITY, false, ALL_STACKS),
             entry("get_runtime_insights", McpToolSchema.QUERY_LIMIT, BootUiPanels.RUNTIME_INSIGHTS, false, ALL_STACKS),
             entry("get_runtime_insight", McpToolSchema.ID, BootUiPanels.RUNTIME_INSIGHTS, false, ALL_STACKS),
@@ -175,7 +180,7 @@ public final class McpToolCatalog {
             entry("get_exception_detail", McpToolSchema.ID, BootUiPanels.EXCEPTIONS, false, ALL_STACKS),
             entry("clear_exceptions", McpToolSchema.NONE, BootUiPanels.EXCEPTIONS, true, ALL_STACKS),
             entry("get_security_logs", McpToolSchema.LIMIT, BootUiPanels.SECURITY_LOGS, false, ALL_STACKS),
-            entry("get_sql_traces", McpToolSchema.NONE, BootUiPanels.SQL_TRACE, false, ALL_STACKS),
+            entry("get_sql_traces", McpToolSchema.QUERY_LIMIT, BootUiPanels.SQL_TRACE, false, ALL_STACKS),
             entry("clear_sql_traces", McpToolSchema.NONE, BootUiPanels.SQL_TRACE, true, ALL_STACKS),
             entry("pause_sql_trace_recording", McpToolSchema.NONE, BootUiPanels.SQL_TRACE, true, ALL_STACKS),
             entry("resume_sql_trace_recording", McpToolSchema.NONE, BootUiPanels.SQL_TRACE, true, ALL_STACKS),
@@ -205,7 +210,7 @@ public final class McpToolCatalog {
                     Set.of(Stack.SPRING_MVC, Stack.SPRING_WEBFLUX)),
             entry("get_traces", McpToolSchema.LIMIT, BootUiPanels.TRACES, false, ALL_STACKS),
             entry("clear_traces", McpToolSchema.NONE, BootUiPanels.TRACES, true, ALL_STACKS),
-            entry("get_log_tail", McpToolSchema.NONE, BootUiPanels.LOG_TAIL, false, ALL_STACKS),
+            entry("get_log_tail", McpToolSchema.QUERY_LIMIT, BootUiPanels.LOG_TAIL, false, ALL_STACKS),
             entry("get_http_exchanges", McpToolSchema.LIMIT, BootUiPanels.HTTP_EXCHANGES, false, ALL_STACKS),
             entry("get_http_routes", McpToolSchema.LIMIT, BootUiPanels.HTTP_EXCHANGES, false, ALL_STACKS),
             entry("get_overview", McpToolSchema.NONE, BootUiPanels.OVERVIEW, false, ALL_STACKS),
@@ -239,7 +244,7 @@ public final class McpToolCatalog {
             entry("get_threads", McpToolSchema.QUERY_LIMIT, BootUiPanels.THREADS, false, ALL_STACKS),
             entry(
                     "get_startup_timeline",
-                    McpToolSchema.NONE,
+                    McpToolSchema.QUERY_LIMIT,
                     BootUiPanels.STARTUP,
                     false,
                     Set.of(Stack.SPRING_MVC, Stack.SPRING_WEBFLUX)),
@@ -287,9 +292,9 @@ public final class McpToolCatalog {
                     Set.of(Stack.SPRING_MVC, Stack.SPRING_WEBFLUX)),
             entry("get_dev_services", McpToolSchema.NONE, BootUiPanels.DEV_SERVICES, false, ALL_STACKS),
             entry("get_github_dashboard", McpToolSchema.NONE, BootUiPanels.GITHUB, false, ALL_STACKS),
-            entry("get_copilot_sessions", McpToolSchema.NONE, BootUiPanels.COPILOT, false, ALL_STACKS),
-            entry("get_claude_code_sessions", McpToolSchema.NONE, BootUiPanels.CLAUDE_CODE, false, ALL_STACKS),
-            entry("get_agent_status", McpToolSchema.NONE, BootUiPanels.JAVA_AGENT, false, ALL_STACKS),
+            entry("get_copilot_sessions", McpToolSchema.QUERY_LIMIT, BootUiPanels.COPILOT, false, ALL_STACKS),
+            entry("get_claude_code_sessions", McpToolSchema.QUERY_LIMIT, BootUiPanels.CLAUDE_CODE, false, ALL_STACKS),
+            entry("get_agent_status", McpToolSchema.QUERY_LIMIT, BootUiPanels.JAVA_AGENT, false, ALL_STACKS),
             entry("get_code_inventory", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_INVENTORY, false, ALL_STACKS),
             entry("get_code_paths", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_PATHS, false, ALL_STACKS),
             entry("start_method_probe", McpToolSchema.ID, BootUiPanels.CODE_PATHS, true, ALL_STACKS),
@@ -303,15 +308,24 @@ public final class McpToolCatalog {
      * The tools whose answer is compacted for agents: a call without {@code limit} gets this short page rather than
      * {@code max-results} rows ({@code docs/PLAN-v2.md} §5.6).
      */
-    private static final Map<String, Integer> DEFAULT_LIMITS = Map.of(
-            "get_runtime_insights",
-            RuntimeInsightsAgentReportDto.DEFAULT_LIMIT,
-            "get_code_inventory",
-            CodeInventoryAgentReport.DEFAULT_LIMIT,
-            "get_code_paths",
-            CodePathsAgentReport.DEFAULT_LIMIT,
-            "get_side_effects",
-            SideEffectsAgentReport.DEFAULT_LIMIT);
+    private static final Map<String, Integer> DEFAULT_LIMITS = Map.ofEntries(
+            Map.entry("get_runtime_insights", RuntimeInsightsAgentReportDto.DEFAULT_LIMIT),
+            Map.entry("get_code_inventory", CodeInventoryAgentReport.DEFAULT_LIMIT),
+            Map.entry("get_code_paths", CodePathsAgentReport.DEFAULT_LIMIT),
+            Map.entry("get_side_effects", SideEffectsAgentReport.DEFAULT_LIMIT),
+            Map.entry("get_sql_traces", McpAgentViews.SQL_TRACES_DEFAULT_LIMIT),
+            Map.entry("get_startup_timeline", McpAgentViews.STARTUP_DEFAULT_LIMIT),
+            Map.entry("get_log_tail", McpAgentViews.LOG_TAIL_DEFAULT_LIMIT),
+            Map.entry("get_copilot_sessions", McpAgentViews.SESSIONS_DEFAULT_LIMIT),
+            Map.entry("get_claude_code_sessions", McpAgentViews.SESSIONS_DEFAULT_LIMIT),
+            Map.entry("get_vulnerabilities_report", McpAgentViews.VULNERABILITIES_DEFAULT_LIMIT),
+            Map.entry("get_live_activity", McpAgentViews.LIVE_ACTIVITY_DEFAULT_LIMIT),
+            Map.entry("get_http_exchanges", McpAgentViews.INVENTORY_DEFAULT_LIMIT),
+            Map.entry("get_beans", McpAgentViews.INVENTORY_DEFAULT_LIMIT),
+            Map.entry("get_metrics", McpAgentViews.INVENTORY_DEFAULT_LIMIT),
+            Map.entry("get_conditions", McpAgentViews.INVENTORY_DEFAULT_LIMIT),
+            Map.entry("get_config", McpAgentViews.INVENTORY_DEFAULT_LIMIT),
+            Map.entry("get_threads", McpAgentViews.INVENTORY_DEFAULT_LIMIT));
 
     /**
      * Tools whose operation reports measured phases through {@link

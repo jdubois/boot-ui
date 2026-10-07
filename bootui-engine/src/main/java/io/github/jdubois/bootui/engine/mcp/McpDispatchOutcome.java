@@ -30,7 +30,8 @@ public sealed interface McpDispatchOutcome
                 McpDispatchOutcome.PromptGetResult,
                 McpDispatchOutcome.ToolCallResult,
                 McpDispatchOutcome.ToolCallError,
-                McpDispatchOutcome.ProtocolError {
+                McpDispatchOutcome.ProtocolError,
+                McpDispatchOutcome.Cancelled {
 
     /** A notification: no response is emitted. */
     record NoResponse() implements McpDispatchOutcome {}
@@ -156,4 +157,11 @@ public sealed interface McpDispatchOutcome
             this(code, message, null);
         }
     }
+
+    /**
+     * A {@code tools/call} that its caller cancelled (or that stopped at a cancellation checkpoint), counted apart from
+     * timeouts and failures. Rendered as the JSON-RPC error {@link McpProtocol#REQUEST_CANCELLED}, which a client that
+     * cancelled ignores; it is never reported as a server fault.
+     */
+    record Cancelled() implements McpDispatchOutcome {}
 }

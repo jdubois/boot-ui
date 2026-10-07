@@ -168,7 +168,10 @@ public final class McpStreamingCall {
             end(EndKind.COMPLETED, new ToolCallResult(payload));
         } catch (RuntimeException | Error failure) {
             McpDispatchOutcome expected = McpDispatcher.expectedToolFailure(failure);
-            if (expected != null) {
+            if (expected instanceof McpDispatchOutcome.Cancelled) {
+                // Only a timeout or a disconnect stops a streaming tool, and each already ended the call.
+                cancel();
+            } else if (expected != null) {
                 end(EndKind.COMPLETED, expected);
             } else {
                 fail(failure);
