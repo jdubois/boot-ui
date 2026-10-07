@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.McpServerStatus;
 import io.github.jdubois.bootui.core.dto.McpToolInfo;
+import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRuntimeStats;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -73,12 +74,14 @@ public class McpServerController {
                 "http",
                 properties.getApiPath() + "/mcp",
                 BootUiMcpService.DEFAULT_PROTOCOL_VERSION,
+                McpProtocol.SUPPORTED_VERSIONS,
                 Math.max(1, properties.getMcp().getMaxResults()),
                 stats.callCount(),
                 stats.totalLatencyMillis(),
                 stats.capacityRefusals(),
                 stats.timeouts(),
                 stats.responseLimitRefusals(),
+                stats.cancellations(),
                 toolInfos.size(),
                 toolInfos);
     }

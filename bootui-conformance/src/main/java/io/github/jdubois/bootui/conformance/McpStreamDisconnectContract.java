@@ -106,6 +106,14 @@ public final class McpStreamDisconnectContract {
         assertThat(snapshot.callCount())
                 .as("the concurrency permit is released once")
                 .isEqualTo(1);
+        BootUiHttpProbe.Response status = new BootUiHttpProbe("http://localhost:" + port).get("/bootui/api/mcp-server");
+        assertThat(status.status()).isEqualTo(200);
+        assertThat(status.json().path("cancellations").asLong())
+                .as("the MCP Server status reports the cancellation")
+                .isEqualTo(1);
+        assertThat(status.json().path("timeouts").asLong()).isZero();
+        assertThat(status.json().path("supportedProtocolVersions").toString())
+                .isEqualTo("[\"2026-07-28\",\"2025-06-18\"]");
     }
 
     private static String readThroughFirstEvent(InputStream input) throws Exception {

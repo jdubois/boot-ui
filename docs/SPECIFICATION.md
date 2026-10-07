@@ -3500,8 +3500,9 @@ Design rules:
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
   fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
-  exactly once when it returns. The execution timeout stays absolute. Everything else, every refusal, and every legacy
-  request is one JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
+  exactly once when it returns. The `/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations`
+  apart from `timeouts`. The execution timeout stays absolute. Everything else, every refusal, and every legacy request
+  is one JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
