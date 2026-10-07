@@ -15,20 +15,49 @@ test.describe('Runtime Insights demo', () => {
       return response.status()
     }, 'mvc')
 
+    const seeded = [
+      ['safe-method-dml', 'Writes in GET requests', '/api/insights/orders/{id}'],
+      [
+        'transaction-across-remote-call',
+        'Transactions open across remote calls',
+        '/api/insights/orders/{id}/price-check'
+      ],
+      ['proxy-bypass', 'Proxy bypass', '/api/insights/orders/{id}/recalculate'],
+      ['errors-behind-2xx', 'Errors behind 2xx responses', '/api/insights/orders/{id}/import'],
+      [
+        'anonymous-success-on-restricted-route',
+        'Anonymous success on a restricted route',
+        '/api/insights/reports/{name}'
+      ],
+      ['transactional-listener-skipped', 'Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
+      ['after-commit-writes', 'Writes after commit', '/api/insights/orders/{id}/archive'],
+      ['orm-auto-flush', 'Hibernate auto-flushes', '/api/insights/tags/auto-flush'],
+      ['large-persistence-context', 'Large persistence contexts', '/api/insights/tags/export']
+    ]
+    // The journal records the seeded traffic asynchronously, so a freshly started server may answer before it has
+    // caught up: wait, bounded, until the report holds every expected finding rather than reading the panel once.
+    await expect
+      .poll(
+        async () => {
+          const report = await (await page.request.get('/bootui/api/runtime-insights')).json()
+          const observations = report.observations ?? []
+          return seeded
+            .filter(
+              ([kind, , subject]) =>
+                !observations.some(
+                  (observation) => observation.kind === kind && JSON.stringify(observation).includes(subject)
+                )
+            )
+            .map(([kind, , subject]) => `${kind} ${subject}`)
+        },
+        {timeout: 60_000, intervals: [500, 1_000, 2_000]}
+      )
+      .toEqual([])
+
     await openView('runtime-insights', 'Runtime Insights')
     // Each row names its check above its route or subject.
     const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
-    for (const [title, subject] of [
-      ['Writes in GET requests', '/api/insights/orders/{id}'],
-      ['Transactions open across remote calls', '/api/insights/orders/{id}/price-check'],
-      ['Proxy bypass', '/api/insights/orders/{id}/recalculate'],
-      ['Errors behind 2xx responses', '/api/insights/orders/{id}/import'],
-      ['Anonymous success on a restricted route', '/api/insights/reports/{name}'],
-      ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
-      ['Writes after commit', '/api/insights/orders/{id}/archive'],
-      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush'],
-      ['Large persistence contexts', '/api/insights/tags/export']
-    ]) {
+    for (const [, title, subject] of seeded) {
       await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
     }
 

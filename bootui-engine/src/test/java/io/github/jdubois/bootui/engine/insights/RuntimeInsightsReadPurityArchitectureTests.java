@@ -33,8 +33,7 @@ class RuntimeInsightsReadPurityArchitectureTests {
             .that()
             .resideInAnyPackage("io.github.jdubois.bootui.engine.insights..", "io.github.jdubois.bootui.engine.model..")
             .or()
-            .belongToAnyOf(
-                    RequestJournalProfiles.class, RequestProfileSelection.class, ExecutionProfileAssembler.class)
+            .belongToAnyOf(RequestJournalProfiles.class, RequestProfileSelection.class, ExecutionProfileAssembler.class)
             .should()
             .dependOnClassesThat(resideInAnyPackage(
                             "java.net.http..",
@@ -63,9 +62,10 @@ class RuntimeInsightsReadPurityArchitectureTests {
     /** Only {@link ResourceProfileService#start()}, the <b>Profile resources</b> action, starts a JFR session. */
     @ArchTest
     static void onlyTheProfileResourcesActionStartsAJfrSession(JavaClasses classes) {
-        Set<String> callers = classes.get(JfrProfiler.class).getMethod("start", Duration.class).getCallsOfSelf().stream()
-                .map(call -> call.getOrigin().getFullName())
-                .collect(Collectors.toSet());
+        Set<String> callers =
+                classes.get(JfrProfiler.class).getMethod("start", Duration.class).getCallsOfSelf().stream()
+                        .map(call -> call.getOrigin().getFullName())
+                        .collect(Collectors.toSet());
 
         assertThat(callers)
                 .as("a JFR session starts only when the user asks for one (docs/PLAN-v2.md §5.5, §5.11)")

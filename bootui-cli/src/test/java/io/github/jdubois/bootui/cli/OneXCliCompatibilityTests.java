@@ -8,7 +8,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-
 import org.junit.jupiter.api.Test;
 
 /**
@@ -29,7 +28,9 @@ class OneXCliCompatibilityTests {
         for (String[] tool : tools) {
             String name = tool[0];
             McpToolCatalog.Entry entry = McpToolCatalog.byName(name).orElse(null);
-            assertThat(entry).as("%s, which a 1.x CLI calls, is still a tool", name).isNotNull();
+            assertThat(entry)
+                    .as("%s, which a 1.x CLI calls, is still a tool", name)
+                    .isNotNull();
             assertThat(entry.schema().name()).as("%s's argument schema", name).isEqualTo(tool[1]);
             assertThat(entry.action()).as("%s's action flag", name).isEqualTo(Boolean.parseBoolean(tool[2]));
             assertThat(entry.stacks().stream().map(Enum::name).toList())

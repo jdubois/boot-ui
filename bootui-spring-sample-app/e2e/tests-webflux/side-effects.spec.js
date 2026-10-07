@@ -222,7 +222,9 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     expect(
       idle.rows.filter(
         (candidate) =>
-          candidate.kind === 'park' && /^reactor-http-/.test(candidate.target) && candidate.lastSeen >= idleStart &&
+          candidate.kind === 'park' &&
+          /^reactor-http-/.test(candidate.target) &&
+          candidate.lastSeen >= idleStart &&
           candidate.lastSeen < idleEnd
       )
     ).toEqual([])

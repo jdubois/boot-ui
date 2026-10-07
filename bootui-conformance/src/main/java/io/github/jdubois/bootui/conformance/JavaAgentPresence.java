@@ -10,8 +10,8 @@ import java.util.List;
 final class JavaAgentPresence {
 
     /** The MCP tools, and their CLI commands, a stack advertises only while the agent's sensor records this start. */
-    static final List<String> AGENT_SENSOR_TOOLS =
-            List.of("get_code_inventory", "get_code_paths", "start_method_probe", "get_method_probe", "get_side_effects");
+    static final List<String> AGENT_SENSOR_TOOLS = List.of(
+            "get_code_inventory", "get_code_paths", "start_method_probe", "get_method_probe", "get_side_effects");
 
     /** The Runtime Insights checks that need one of the agent's sensors, not applicable without it. */
     static final List<String> AGENT_CHECKS = List.of("changed-code-not-executed", "work-after-response");

@@ -363,9 +363,7 @@ class RuntimeJournalTests {
         assertThat(journal.entries()).hasSize(RuntimeJournalSettings.DEFAULT_MAX_EVENTS);
         long newest = start + (events - 1) * 1_000L / 88;
         long kept = newest - status.oldestRetainedEpochMillis();
-        assertThat(kept)
-                .as("about 9.5 minutes: 50,000 events at 88 per second")
-                .isBetween(560_000L, 570_000L);
+        assertThat(kept).as("about 9.5 minutes: 50,000 events at 88 per second").isBetween(560_000L, 570_000L);
         assertThat(status.oldestRetainedEpochMillis())
                 .isEqualTo(journal.entries()
                         .get(journal.entries().size() - 1)

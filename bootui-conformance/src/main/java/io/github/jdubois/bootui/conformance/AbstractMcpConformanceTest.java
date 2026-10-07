@@ -582,8 +582,10 @@ public abstract class AbstractMcpConformanceTest {
                             Map.of("Content-Type", "application/json"),
                             "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/list\"}");
             List<String> advertised = new java.util.ArrayList<>();
-            list.json().path("result").path("tools").forEach(tool -> advertised.add(tool.path("name")
-                    .asText()));
+            list.json()
+                    .path("result")
+                    .path("tools")
+                    .forEach(tool -> advertised.add(tool.path("name").asText()));
             assertThat(advertised).contains("get_agent_status");
             assertThat(advertised).doesNotContainAnyElementsOf(JavaAgentPresence.AGENT_SENSOR_TOOLS);
 

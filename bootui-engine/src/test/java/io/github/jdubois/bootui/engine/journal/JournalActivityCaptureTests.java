@@ -260,8 +260,9 @@ class JournalActivityCaptureTests {
 
         assertThat(journal.entries()).as("the retained rows' bound").hasSize(1_000);
         assertThat(journal.status().droppedTotal()).isZero();
-        assertThat(store.entries()).hasSize(requests).allSatisfy(entry -> assertThat(entry.type())
-                .isEqualTo("REQUEST"));
+        assertThat(store.entries())
+                .hasSize(requests)
+                .allSatisfy(entry -> assertThat(entry.type()).isEqualTo("REQUEST"));
         assertThat(store.entries()).extracting(ActivityEntryDto::id).doesNotHaveDuplicates();
     }
 

@@ -123,9 +123,7 @@ class ThreadActivityBehaviorsIT {
     @Test
     void aFailedSideEffectJobDisablesOnlyTheGroupItTouched() throws Exception {
         ChildJvm.Output output = run(
-                List.of(
-                        "-Dbootui.agent.it.fail-side-effects-install=" + "files",
-                        ChildJvm.javaAgent(ChildJvm.AGENT)),
+                List.of("-Dbootui.agent.it.fail-side-effects-install=files", ChildJvm.javaAgent(ChildJvm.TEST_AGENT)),
                 "worker-failure");
 
         assertThat(output.exitCode()).as(output.toString()).isZero();

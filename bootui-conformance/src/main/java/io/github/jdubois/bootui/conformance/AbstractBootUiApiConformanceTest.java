@@ -2173,15 +2173,17 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
 
         if (isPanelUsableInLiveManifest("activity")) {
-            JsonNode evidence = probe().get(api(BootUiApiContractCatalog.runtimeJournal()
-                                    .relativePath()))
+            JsonNode evidence = probe().get(
+                            api(BootUiApiContractCatalog.runtimeJournal().relativePath()))
                     .json()
                     .path("agentEvidence");
             if (!evidence.isNull() && !evidence.isMissingNode()) {
                 assertThat(evidence.path("retainedBytes").asLong())
                         .as("no agent evidence is retained")
                         .isZero();
-                assertThat(evidence.path("stores")).as("no agent evidence store reports").isEmpty();
+                assertThat(evidence.path("stores"))
+                        .as("no agent evidence store reports")
+                        .isEmpty();
             }
         }
     }

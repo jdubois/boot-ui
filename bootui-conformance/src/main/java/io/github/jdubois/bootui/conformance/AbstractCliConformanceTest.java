@@ -209,7 +209,10 @@ public abstract class AbstractCliConformanceTest {
         org.junit.jupiter.api.Assumptions.assumeTrue(
                 JavaAgentPresence.detached(), "this JVM runs with the BootUI agent attached");
         java.util.List<String> listed = new java.util.ArrayList<>();
-        probe().get(CLI).json().path("tools").forEach(tool -> listed.add(tool.path("name").asText()));
+        probe().get(CLI)
+                .json()
+                .path("tools")
+                .forEach(tool -> listed.add(tool.path("name").asText()));
         assertThat(listed).contains("get_agent_status");
         assertThat(listed).doesNotContainAnyElementsOf(JavaAgentPresence.AGENT_SENSOR_TOOLS);
 

@@ -221,7 +221,9 @@ test.describe('Side Effects view (Quarkus)', () => {
     expect(
       idle.rows.filter(
         (candidate) =>
-          candidate.kind === 'park' && /eventloop/.test(candidate.target) && candidate.lastSeen >= idleStart &&
+          candidate.kind === 'park' &&
+          /eventloop/.test(candidate.target) &&
+          candidate.lastSeen >= idleStart &&
           candidate.lastSeen < idleEnd
       )
     ).toEqual([])
