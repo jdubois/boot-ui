@@ -289,7 +289,7 @@ public final class McpDispatcher {
         return switch (method) {
             case "tools/list" ->
                 new ToolsListResult(
-                    tools().stream().map(tool -> tool.describe(maxResults)).toList());
+                        tools().stream().map(tool -> tool.describe(maxResults)).toList());
             case "tools/call" -> callTool(request);
             case "prompts/list" -> new PromptsListResult(prompts);
             case "prompts/get" -> getPrompt(request);
