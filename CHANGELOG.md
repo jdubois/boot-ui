@@ -363,6 +363,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
+  RabbitMQ metadata test fixture compatible with the managed SmallRye API.
+
 - **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
