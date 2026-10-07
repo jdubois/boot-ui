@@ -144,7 +144,8 @@ public final class DatabaseAdvisorScanner {
     public DatabaseAdvisorReport initialReport() {
         return new ReportBuilder()
                 .status("NOT_SCANNED")
-                .message("Database Advisor has not run yet. Click Run Database checks to inspect the physical schema.")
+                .message("Database Advisor has not run yet. Run Database checks in the panel, or call"
+                        + " database_advisor_scan (bootui db scan), to inspect the physical schema.")
                 .build();
     }
 

@@ -61,6 +61,9 @@ public final class ChangeImpactService {
     public static final String NOT_FOUND = "NOT_FOUND";
     public static final String UNAVAILABLE = "UNAVAILABLE";
 
+    /** The route names a truncated list names at most beyond its rows. */
+    static final int MAX_UNLISTED = 40;
+
     private static final Set<NodeType> SYMBOLS = EnumSet.of(
             NodeType.ROUTE,
             NodeType.GRAPHQL_OPERATION,
@@ -221,6 +224,13 @@ public final class ChangeImpactService {
             if (byMethod != null) {
                 return byMethod;
             }
+            // A bare name, such as applyDiscount, names that method of any class: one class resolves, several are
+            // ambiguous, each candidate naming its class.
+            MethodSymbol bare = MethodSymbol.anyClass(asked);
+            byMethod = bare == null ? null : method(asked, model, structure, bare, entries, visible, omitted, true);
+            if (byMethod != null) {
+                return byMethod;
+            }
             if (structure.beansUnavailable() != null) {
                 return unavailable(asked, structure.beansUnavailable());
             }
@@ -377,6 +387,9 @@ public final class ChangeImpactService {
         if (unrecordedEvents != null) {
             limitations.add(unrecordedEvents);
         }
+        addUnlisted(limitations, "observed", observed);
+        addUnlisted(limitations, "not exercised", notExercised);
+        addUnlisted(limitations, "sharing a resource", shared);
         return new RuntimeChangeImpactDto(
                 RESOLVED,
                 null,
@@ -503,6 +516,29 @@ public final class ChangeImpactService {
             }
             if (paths.failed()) {
                 return unavailable(asked, paths.unavailableReason());
+            }
+            List<String> overloads = overloads(method, lookup);
+            if (!overloads.isEmpty()) {
+                return new RuntimeChangeImpactDto(
+                        NOT_FOUND,
+                        "No overload of `" + method.name() + "` of `" + method.type() + "` matches `("
+                                + method.parameters() + ")" + (method.returns() == null ? "" : method.returns())
+                                + "`: this run's Code Inventory has " + String.join(", ", overloads)
+                                + ". Name one of them.",
+                        asked,
+                        null,
+                        overloads.stream()
+                                .limit(RuntimeChangeImpactDto.MAX_ROWS)
+                                .map(key -> MethodSymbol.KIND + " " + key)
+                                .toList(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        List.of(),
+                        0,
+                        limitations(model, omitted));
             }
             String reason = paths.available()
                     ? "No method `" + method.name() + "` of `" + method.type() + "` is in this run's Code Inventory or"
@@ -770,6 +806,10 @@ public final class ChangeImpactService {
             limitations.add("The route aggregate reached its cardinality limit: routes absent from its counts and"
                     + " the retained journal cannot be classified as not exercised.");
         }
+        addUnlisted(limitations, "observed", observed);
+        addUnlisted(limitations, "not observed", notObserved);
+        addUnlisted(limitations, "not exercised", notExercised);
+        addUnlisted(limitations, "sharing a resource", shared);
         List<String> methods = new ArrayList<>(keys.keySet());
         return new RuntimeChangeImpactDto(
                 RESOLVED,
@@ -846,6 +886,24 @@ public final class ChangeImpactService {
             why.add("the code-paths sensor adaptively excluded it in this run, so later calls are in no call tree");
         }
         return why;
+    }
+
+    /**
+     * The keys, {@code class#name+descriptor}, of the methods Code Inventory has of the asked class and name when the
+     * asked parameters match none of them, or empty when no parameters were asked or none is known.
+     */
+    private static List<String> overloads(MethodSymbol method, CodeInventoryService.MethodLookup lookup) {
+        if (!method.overloadNamed() || lookup == null) {
+            return List.of();
+        }
+        Set<String> keys = new java.util.TreeSet<>();
+        for (CodeInventoryService.InventoryMethod found : lookup.methods()) {
+            if (method.name().equals(found.method().name())
+                    && method.namesClass(found.method().className())) {
+                keys.add(found.method().key());
+            }
+        }
+        return List.copyOf(keys);
     }
 
     /** Code Inventory's word on the methods: executed if any ran, never executed if none did and all were tracked. */
@@ -1245,6 +1303,33 @@ public final class ChangeImpactService {
             }
         }
         return limits;
+    }
+
+    /**
+     * Names the routes a list holds beyond the {@value RuntimeChangeImpactDto#MAX_ROWS} it shows, at most {@value
+     * #MAX_UNLISTED} of them, so a caller sees every route without asking again.
+     */
+    private static void addUnlisted(List<String> limitations, String list, List<RuntimeImpactRouteDto> rows) {
+        String unlisted = unlisted(list, rows);
+        if (unlisted != null) {
+            limitations.add(unlisted);
+        }
+    }
+
+    /** The sentence naming the routes {@code rows} holds beyond those listed, or {@code null} when all are listed. */
+    static String unlisted(String list, List<RuntimeImpactRouteDto> rows) {
+        if (rows.size() <= RuntimeChangeImpactDto.MAX_ROWS) {
+            return null;
+        }
+        List<RuntimeImpactRouteDto> rest = rows.subList(RuntimeChangeImpactDto.MAX_ROWS, rows.size());
+        List<String> names = rest.stream()
+                .limit(MAX_UNLISTED)
+                .map(row -> "`" + row.route() + "`")
+                .toList();
+        int more = rest.size() - names.size();
+        return "Listed " + RuntimeChangeImpactDto.MAX_ROWS + " of the " + rows.size() + " routes " + list
+                + "; the other " + rest.size() + ": " + String.join(", ", names)
+                + (more > 0 ? ", and " + more + " more" : "") + ".";
     }
 
     private static List<RuntimeImpactRouteDto> capped(List<RuntimeImpactRouteDto> rows) {

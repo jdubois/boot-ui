@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {groups, routes} from './routes.js'
+import {HOME_NAVIGATION_GROUP, NAVIGATION_GROUPS, UNAVAILABLE_NAVIGATION_GROUP} from './utils/panelNavigation.js'
 
 const namedRoutes = routes.filter((route) => route.name)
 const repoRoot = findRepositoryRoot(path.dirname(fileURLToPath(import.meta.url)))
@@ -230,6 +231,33 @@ function parseFrameworkSupportQuarkusGaps(markdown) {
   return {notApplicable, notYet: new Set([notYet[1]])}
 }
 
+function sidebarGroupRoutes(groupTitle) {
+  const group = [HOME_NAVIGATION_GROUP, ...NAVIGATION_GROUPS].find((candidate) => candidate.title === groupTitle)
+  return group ? namedRoutes.filter((route) => route.meta.group === group.key) : []
+}
+
+/** Sidebar group titles, in menu order, each mapped to its panel titles in menu order. */
+function sidebarGroupInventory() {
+  return new Map(
+    [HOME_NAVIGATION_GROUP, ...NAVIGATION_GROUPS].map((group) => [
+      group.title,
+      sidebarGroupRoutes(group.title).map((route) => route.meta.title)
+    ])
+  )
+}
+
+function parseFeatureGroupTable(markdown) {
+  const rows = [...markdown.matchAll(/^\| \[([^\]]+)\]\(\.\/([^)]+\.md)\) \| ([^|]+) \|/gm)].map((match) => ({
+    group: match[1],
+    file: match[2],
+    panels: match[3].split(' · ').map((title) => title.trim())
+  }))
+  if (!rows.length) {
+    throw new Error('Missing the group table in docs/features/README.md')
+  }
+  return rows
+}
+
 function sorted(values) {
   return [...values].sort()
 }
@@ -439,28 +467,46 @@ describe('routes', () => {
   })
 
   it('keeps documented navigation groups aligned with route metadata', () => {
-    const expectedByGroup = new Map(
-      Object.entries({
-        Home: groups.home,
-        Advisors: groups.advisors,
-        Runtime: groups.runtime,
-        Configuration: groups.configuration,
-        Database: groups.database,
-        Security: groups.security,
-        Services: groups.services,
-        Diagnostics: groups.diagnostics,
-        Instrumentation: groups.agent,
-        'Developer Tools': groups.developerTools
-      }).map(([title, group]) => [
-        title,
-        namedRoutes.filter((route) => route.meta.group === group).map((route) => route.meta.title)
-      ])
-    )
+    const expectedByGroup = sidebarGroupInventory()
 
     const specification = parseSpecificationGroupInventory(readRepositoryFile('docs/SPECIFICATION.md'))
+    expect([...specification.keys()], 'docs/SPECIFICATION.md group order').toEqual([
+      ...expectedByGroup.keys(),
+      UNAVAILABLE_NAVIGATION_GROUP.title
+    ])
     for (const [group, expectedTitles] of expectedByGroup) {
-      const specificationGroup = group === 'Developer Tools' ? 'Developer tools' : group
-      expect(specification.get(specificationGroup), `docs/SPECIFICATION.md ${group}`).toEqual(expectedTitles)
+      expect(specification.get(group), `docs/SPECIFICATION.md ${group}`).toEqual(expectedTitles)
+    }
+  })
+
+  it('keeps the docs/features/ group table and panel sections in sidebar order', () => {
+    const expectedByGroup = sidebarGroupInventory()
+    const rows = parseFeatureGroupTable(readRepositoryFile('docs/features/README.md'))
+
+    expect(
+      rows.map((row) => row.group),
+      'docs/features/README.md group titles'
+    ).toEqual([...expectedByGroup.keys()])
+    for (const row of rows) {
+      const groupRoutes = sidebarGroupRoutes(row.group)
+      // A panel retitled per platform (Spring on Spring Boot, Quarkus on Quarkus) lists every title, in place.
+      const expectedPanels = groupRoutes.flatMap((route) => [
+        ...new Set([route.meta.title, ...Object.values(route.meta.titleByPlatform ?? {})])
+      ])
+      expect(row.panels, `docs/features/README.md ${row.group} panels`).toEqual(expectedPanels)
+
+      // Each panel's section in the group page follows the sidebar order. A title can head both the page and a
+      // section (Configuration), so only its first heading counts.
+      const page = readRepositoryFile(path.join('docs/features', row.file))
+      const panelTitles = new Set(expectedPanels)
+      const headings = [
+        ...new Set(
+          [...page.matchAll(/^#{1,2} (.+)$/gm)]
+            .map((match) => match[1].trim())
+            .filter((title) => panelTitles.has(title))
+        )
+      ]
+      expect(headings, `docs/features/${row.file} panel section order`).toEqual(expectedPanels)
     }
   })
 

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.DiscoverResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
@@ -13,20 +14,33 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
+import io.github.jdubois.bootui.engine.mcp.McpEra;
+import io.github.jdubois.bootui.engine.mcp.McpEraDecision;
+import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Rejected;
+import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Serve;
+import io.github.jdubois.bootui.engine.mcp.McpEraResolver;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpGuidance;
+import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
 import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
+import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestMeta;
+import io.github.jdubois.bootui.engine.mcp.McpRequestMeta.Field;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolAnnotations;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
-import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
+import io.github.jdubois.bootui.engine.mcp.McpToolInputSchema;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -37,9 +51,11 @@ import tools.jackson.databind.node.ObjectNode;
  * Spring Boot (Jackson 3) JSON-RPC envelope codec for the BootUI MCP server.
  *
  * <p>This is a transport-agnostic JSON-RPC 2.0 handler. {@link BootUiMcpController} adapts it to a
- * single loopback HTTP endpoint; the handler itself only understands JSON-RPC messages. Supported
- * methods: {@code initialize}, {@code notifications/initialized} (notification), {@code ping},
- * {@code tools/list}, {@code tools/call}, {@code prompts/list}, and {@code prompts/get}.
+ * single loopback HTTP endpoint; the handler itself only understands JSON-RPC messages. It is dual-era: a legacy
+ * MCP 2025-06-18 client uses {@code initialize}, {@code notifications/initialized} (notification), and {@code ping};
+ * a modern MCP 2026-07-28 client, recognized by its per-request {@code _meta} (see {@link McpEraResolver}), uses
+ * {@code server/discover} and receives {@code resultType}, server metadata, and cache hints on every result. Both
+ * eras share {@code tools/list}, {@code tools/call}, {@code prompts/list}, and {@code prompts/get}.
  *
  * <p>The protocol decisions (method routing, per-panel gating, tool lookup, argument capping, error
  * codes and canonical messages) live in the framework- and JSON-free engine {@link McpDispatcher};
@@ -75,7 +91,7 @@ public class BootUiMcpService {
 
     public BootUiMcpService(
             BootUiMcpTools tools, BootUiProperties properties, ObjectMapper objectMapper, String serverVersion) {
-        this(tools::tools, properties, objectMapper, serverVersion);
+        this(tools::tools, tools::panelUnavailableReason, properties, objectMapper, serverVersion);
     }
 
     public BootUiMcpService(
@@ -83,16 +99,18 @@ public class BootUiMcpService {
             BootUiProperties properties,
             ObjectMapper objectMapper,
             String serverVersion) {
-        this(tools::tools, properties, objectMapper, serverVersion);
+        this(tools::tools, tools::panelUnavailableReason, properties, objectMapper, serverVersion);
     }
 
     private BootUiMcpService(
             Supplier<List<McpTool>> tools,
+            Function<String, String> panelUnavailableReason,
             BootUiProperties properties,
             ObjectMapper objectMapper,
             String serverVersion) {
         this(
                 tools,
+                panelUnavailableReason,
                 properties,
                 objectMapper,
                 serverVersion,
@@ -114,6 +132,16 @@ public class BootUiMcpService {
             ObjectMapper objectMapper,
             String serverVersion,
             McpFailureReporter failureReporter) {
+        this(tools, panelId -> null, properties, objectMapper, serverVersion, failureReporter);
+    }
+
+    BootUiMcpService(
+            Supplier<List<McpTool>> tools,
+            Function<String, String> panelUnavailableReason,
+            BootUiProperties properties,
+            ObjectMapper objectMapper,
+            String serverVersion,
+            McpFailureReporter failureReporter) {
         this.objectMapper = objectMapper;
         this.failureReporter = failureReporter;
         this.maxResponseBytes = Math.max(1, properties.getMcp().getMaxResponseBytes());
@@ -130,7 +158,132 @@ public class BootUiMcpService {
                 maxResults,
                 maxConcurrentCalls,
                 executionTimeoutMillis,
-                failureReporter);
+                failureReporter,
+                panelUnavailableReason);
+    }
+
+    /**
+     * The HTTP outcome of one MCP {@code POST}.
+     *
+     * @param status the HTTP status
+     * @param body the JSON-RPC response, or {@code null} for {@code 202 Accepted} with no body
+     */
+    public record Reply(int status, JsonNode body) {}
+
+    /** Every value of the MCP request headers, read case-insensitively from Spring's headers. */
+    public static McpRequestHeaders headers(HttpHeaders headers) {
+        return new McpRequestHeaders(
+                headers.get(McpProtocol.PROTOCOL_VERSION_HEADER),
+                headers.get(McpProtocol.METHOD_HEADER),
+                headers.get(McpProtocol.NAME_HEADER));
+    }
+
+    /**
+     * Answers one parsed MCP {@code POST} body: refuses a batch, selects the protocol era and validates its metadata,
+     * short-circuits while the server is disabled, then dispatches. Shared by the Spring MVC and WebFlux controllers so
+     * both stacks answer byte-identically.
+     */
+    public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled) {
+        if (request != null && request.isArray()) {
+            return new Reply(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
+        }
+        McpEraDecision decision = resolveEra(request, headers);
+        if (decision instanceof Rejected rejected) {
+            return new Reply(rejected.httpStatus(), rejection(request, rejected));
+        }
+        Serve serve = (Serve) decision;
+        if (!enabled) {
+            if (isNotification(request)) {
+                return new Reply(202, null);
+            }
+            JsonNode id = request != null && request.isObject() ? request.get("id") : null;
+            return new Reply(
+                    200, error(id, serve.era(), McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE));
+        }
+        JsonNode response = handle(request, serve);
+        if (response == null) {
+            return new Reply(202, null);
+        }
+        JsonNode code = response.path("error").path("code");
+        int status = code.isIntegralNumber() ? McpProtocol.errorHttpStatus(serve.era(), code.asInt()) : 200;
+        return new Reply(status, response);
+    }
+
+    private static McpEraDecision resolveEra(JsonNode request, McpRequestHeaders headers) {
+        if (request == null || !request.isObject()) {
+            return McpEraResolver.resolve(null, false, null, McpRequestMeta.NONE, headers);
+        }
+        JsonNode method = request.get("method");
+        JsonNode name = request.path("params").get("name");
+        return McpEraResolver.resolve(
+                method != null && method.isString() ? method.asString() : null,
+                isNotification(request),
+                name != null && name.isString() ? name.asString() : null,
+                meta(request),
+                headers);
+    }
+
+    private static McpRequestMeta meta(JsonNode request) {
+        JsonNode meta = request.path("params").path("_meta");
+        if (!meta.isObject()) {
+            return McpRequestMeta.NONE;
+        }
+        JsonNode version = meta.get(McpProtocol.META_PROTOCOL_VERSION);
+        JsonNode capabilities = meta.get(McpProtocol.META_CLIENT_CAPABILITIES);
+        JsonNode token = meta.get(McpProtocol.META_PROGRESS_TOKEN);
+        McpProgressToken progressToken = null;
+        Field tokenField = Field.ABSENT;
+        if (token != null) {
+            if (token.isString()) {
+                progressToken = McpProgressToken.of(token.asString());
+            } else if (token.isIntegralNumber() && token.canConvertToLong()) {
+                progressToken = McpProgressToken.of(token.asLong());
+            }
+            tokenField = progressToken == null ? Field.INVALID : Field.VALID;
+        }
+        return new McpRequestMeta(
+                version == null ? Field.ABSENT : version.isString() ? Field.VALID : Field.INVALID,
+                version != null && version.isString() ? version.asString() : null,
+                capabilities == null ? Field.ABSENT : capabilities.isObject() ? Field.VALID : Field.INVALID,
+                tokenField,
+                progressToken);
+    }
+
+    private static boolean isNotification(JsonNode request) {
+        return request != null
+                && request.isObject()
+                && !request.hasNonNull("id")
+                && McpProtocol.JSONRPC_VERSION.equals(text(request.path("jsonrpc")))
+                && !text(request.path("method")).isBlank();
+    }
+
+    /**
+     * The text of a scalar envelope field. Jackson 3's {@code asString()} throws on an object or array, where the Quarkus
+     * codec's Jackson 2 {@code asText()} returns an empty string; a malformed field must be the same client error on
+     * every stack, never a server failure.
+     */
+    private static String text(JsonNode node) {
+        return node.isContainer() ? "" : node.asString();
+    }
+
+    /** A modern rejection echoes a readable request id; a legacy one keeps BootUI 1.x's {@code null} id. */
+    private static ObjectNode rejection(JsonNode request, Rejected rejected) {
+        JsonNode id = null;
+        if (rejected.era() == McpEra.MODERN && request != null && request.isObject()) {
+            JsonNode candidate = request.get("id");
+            if (candidate != null && (candidate.isString() || candidate.isNumber())) {
+                id = candidate;
+            }
+        }
+        ObjectNode response = error(id, rejected.era(), rejected.code(), rejected.message());
+        if (rejected.hasVersionData()) {
+            ObjectNode data = JsonNodeFactory.instance.objectNode();
+            ArrayNode supported = data.putArray("supported");
+            rejected.supportedVersions().forEach(supported::add);
+            data.put("requested", rejected.requestedVersion());
+            ((ObjectNode) response.get("error")).set("data", data);
+        }
+        return response;
     }
 
     /** Parse raw request bytes into a Jackson node. */
@@ -148,12 +301,17 @@ public class BootUiMcpService {
      * @return the JSON-RPC response, or {@code null} for notifications (which have no response)
      */
     public JsonNode handle(JsonNode request) {
+        return handle(request, new Serve(McpEra.LEGACY, null, null));
+    }
+
+    private JsonNode handle(JsonNode request, Serve serve) {
+        McpEra era = serve.era();
         if (request == null || !request.isObject()) {
             return error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE);
         }
         JsonNode id = request.get("id");
         JsonNode jsonrpc = request.get("jsonrpc");
-        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(jsonrpc.asString())) {
+        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc))) {
             return error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\"");
         }
         if (id != null && !id.isNull() && !id.isString() && !id.isNumber()) {
@@ -164,16 +322,16 @@ public class BootUiMcpService {
             return error(id, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE);
         }
         try {
-            McpDispatchOutcome outcome = dispatcher.dispatch(parse(request));
-            JsonNode response = render(outcome, id);
+            McpDispatchOutcome outcome = dispatcher.dispatch(parse(request, serve));
+            JsonNode response = render(outcome, id, era);
             if (response != null && objectMapper.writeValueAsBytes(response).length > maxResponseBytes) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return error(id, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE);
+                return error(id, era, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE);
             }
             return response;
         } catch (RuntimeException | Error failure) {
             failureReporter.report("rendering a response", failure);
-            return error(id, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
+            return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
         }
     }
 
@@ -181,14 +339,14 @@ public class BootUiMcpService {
         return dispatcher;
     }
 
-    private static McpRequest parse(JsonNode request) {
-        String jsonrpc = request.path("jsonrpc").asString();
-        String method = request.path("method").asString();
+    private static McpRequest parse(JsonNode request, Serve serve) {
+        String jsonrpc = text(request.path("jsonrpc"));
+        String method = text(request.path("method"));
         JsonNode id = request.get("id");
         boolean notification = id == null || id.isNull();
         JsonNode params = request.path("params");
-        String requestedProtocolVersion = params.path("protocolVersion").asString();
-        String toolName = params.path("name").asString();
+        String requestedProtocolVersion = text(params.path("protocolVersion"));
+        String toolName = text(params.path("name"));
         JsonNode arguments = params.get("arguments");
         ParsedArguments parsedArguments = parseArguments(arguments);
         return new McpRequest(
@@ -203,7 +361,9 @@ public class BootUiMcpService {
                 parsedArguments.names(),
                 parsedArguments.error(),
                 parsedArguments.scanId(),
-                parsedArguments.offset());
+                parsedArguments.offset(),
+                serve.era(),
+                serve.progressToken());
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {
@@ -262,35 +422,38 @@ public class BootUiMcpService {
         }
     }
 
-    private JsonNode render(McpDispatchOutcome outcome, JsonNode id) {
+    private JsonNode render(McpDispatchOutcome outcome, JsonNode id, McpEra era) {
         // McpDispatchOutcome is sealed; instanceof patterns (not a switch type pattern) keep this on
         // the project's Java 17 release level.
         if (outcome instanceof NoResponse) {
             return null;
         }
         if (outcome instanceof ProtocolError e) {
-            return error(id, e.code(), e.message());
+            return error(id, McpProtocol.wireErrorCode(era, e.code()), e.message(), e.data());
         }
         if (outcome instanceof InitializeResult r) {
-            return result(id, renderInitialize(r));
+            return result(id, era, renderInitialize(r), false);
+        }
+        if (outcome instanceof DiscoverResult r) {
+            return result(id, era, renderDiscover(r), true);
         }
         if (outcome instanceof PingResult) {
-            return result(id, JsonNodeFactory.instance.objectNode());
+            return result(id, era, JsonNodeFactory.instance.objectNode(), false);
         }
         if (outcome instanceof ToolsListResult r) {
-            return result(id, renderToolsList(r));
+            return result(id, era, renderToolsList(r), true);
         }
         if (outcome instanceof PromptsListResult r) {
-            return result(id, renderPromptsList(r));
+            return result(id, era, renderPromptsList(r), true);
         }
         if (outcome instanceof PromptGetResult r) {
-            return result(id, renderPrompt(r.prompt()));
+            return result(id, era, renderPrompt(r.prompt()), false);
         }
         if (outcome instanceof ToolCallError e) {
-            return result(id, toolError(e.message()));
+            return result(id, era, toolError(e.message()), false);
         }
         if (outcome instanceof ToolCallResult r) {
-            return renderToolCall(id, r);
+            return renderToolCall(id, era, r);
         }
         throw new IllegalStateException("Unknown MCP outcome: " + outcome);
     }
@@ -298,15 +461,7 @@ public class BootUiMcpService {
     private static ObjectNode renderInitialize(InitializeResult init) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
         response.put("protocolVersion", init.protocolVersion());
-
-        ObjectNode capabilities = JsonNodeFactory.instance.objectNode();
-        ObjectNode toolsCapability = JsonNodeFactory.instance.objectNode();
-        toolsCapability.put("listChanged", false);
-        capabilities.set("tools", toolsCapability);
-        ObjectNode promptsCapability = JsonNodeFactory.instance.objectNode();
-        promptsCapability.put("listChanged", false);
-        capabilities.set("prompts", promptsCapability);
-        response.set("capabilities", capabilities);
+        response.set("capabilities", capabilities());
 
         ObjectNode serverInfo = JsonNodeFactory.instance.objectNode();
         serverInfo.put("name", init.serverName());
@@ -317,6 +472,26 @@ public class BootUiMcpService {
         return response;
     }
 
+    private static ObjectNode capabilities() {
+        ObjectNode capabilities = JsonNodeFactory.instance.objectNode();
+        ObjectNode toolsCapability = JsonNodeFactory.instance.objectNode();
+        toolsCapability.put("listChanged", false);
+        capabilities.set("tools", toolsCapability);
+        ObjectNode promptsCapability = JsonNodeFactory.instance.objectNode();
+        promptsCapability.put("listChanged", false);
+        capabilities.set("prompts", promptsCapability);
+        return capabilities;
+    }
+
+    private static ObjectNode renderDiscover(DiscoverResult discover) {
+        ObjectNode response = JsonNodeFactory.instance.objectNode();
+        ArrayNode versions = response.putArray("supportedVersions");
+        discover.supportedVersions().forEach(versions::add);
+        response.set("capabilities", capabilities());
+        response.put("instructions", discover.instructions());
+        return response;
+    }
+
     private static ObjectNode renderToolsList(ToolsListResult list) {
         ObjectNode result = JsonNodeFactory.instance.objectNode();
         ArrayNode array = JsonNodeFactory.instance.arrayNode();
@@ -324,7 +499,8 @@ public class BootUiMcpService {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             node.put("name", tool.name());
             node.put("description", tool.description());
-            node.set("inputSchema", schema(tool.schema()));
+            node.set("inputSchema", inputSchema(tool.inputSchema()));
+            node.set("annotations", annotations(tool.annotations()));
             ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
             outputSchema.put("type", tool.outputSchemaType());
             outputSchema.put("description", tool.outputSchemaDescription());
@@ -364,7 +540,7 @@ public class BootUiMcpService {
         return result;
     }
 
-    private JsonNode renderToolCall(JsonNode id, ToolCallResult call) {
+    private JsonNode renderToolCall(JsonNode id, McpEra era, ToolCallResult call) {
         JsonNode payloadNode;
         String text;
         try {
@@ -372,7 +548,7 @@ public class BootUiMcpService {
             text = objectMapper.writeValueAsString(payloadNode);
         } catch (RuntimeException | Error failure) {
             failureReporter.report("serializing a tool result", failure);
-            return error(id, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
+            return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
         }
         ObjectNode result = JsonNodeFactory.instance.objectNode();
         ArrayNode content = JsonNodeFactory.instance.arrayNode();
@@ -383,7 +559,7 @@ public class BootUiMcpService {
         result.set("content", content);
         result.set("structuredContent", payloadNode);
         result.put("isError", false);
-        return result(id, result);
+        return result(id, era, result, false);
     }
 
     private static ObjectNode toolError(String message) {
@@ -398,21 +574,53 @@ public class BootUiMcpService {
         return result;
     }
 
-    private static ObjectNode result(JsonNode id, JsonNode payload) {
+    /**
+     * A JSON-RPC result. A modern result also carries {@code resultType}, the server's identity in {@code _meta}, and,
+     * for the cacheable discovery and list results, {@code ttlMs} and {@code cacheScope}.
+     */
+    private ObjectNode result(JsonNode id, McpEra era, ObjectNode payload, boolean cacheable) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
         response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
-        response.set("result", payload);
+        response.set("result", era == McpEra.MODERN ? modernResult(payload, cacheable) : payload);
         return response;
     }
 
+    private ObjectNode modernResult(ObjectNode payload, boolean cacheable) {
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        result.put("resultType", McpProtocol.RESULT_TYPE_COMPLETE);
+        result.setAll(payload);
+        ObjectNode serverInfo = JsonNodeFactory.instance.objectNode();
+        serverInfo.put("name", McpProtocol.SERVER_NAME);
+        serverInfo.put("version", dispatcher.serverVersion());
+        result.putObject("_meta").set(McpProtocol.META_SERVER_INFO, serverInfo);
+        if (cacheable) {
+            result.put("ttlMs", McpProtocol.CACHE_TTL_MILLIS);
+            result.put("cacheScope", McpProtocol.CACHE_SCOPE);
+        }
+        return result;
+    }
+
+    private static ObjectNode error(JsonNode id, McpEra era, int code, String message) {
+        return error(id, McpProtocol.wireErrorCode(era, code), message);
+    }
+
     private static ObjectNode error(JsonNode id, int code, String message) {
+        return error(id, code, message, null);
+    }
+
+    private static ObjectNode error(JsonNode id, int code, String message, Map<String, String> data) {
         ObjectNode response = JsonNodeFactory.instance.objectNode();
         response.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         response.set("id", normalizeId(id));
         ObjectNode err = JsonNodeFactory.instance.objectNode();
         err.put("code", code);
         err.put("message", message == null ? "Error" : message);
+        if (data != null && !data.isEmpty()) {
+            ObjectNode members = JsonNodeFactory.instance.objectNode();
+            data.forEach(members::put);
+            err.set("data", members);
+        }
         response.set("error", err);
         return response;
     }
@@ -421,102 +629,46 @@ public class BootUiMcpService {
         return id == null ? JsonNodeFactory.instance.nullNode() : id;
     }
 
-    private static ObjectNode schema(McpToolSchema schema) {
-        return switch (schema) {
-            case NONE -> emptyObjectSchema();
-            case LIMIT -> limitSchema();
-            case QUERY_LIMIT -> querySchema();
-            case ID -> idSchema();
-            case OPTIONAL_ID -> optionalIdSchema();
-            case RULE_VIOLATIONS -> ruleViolationsSchema();
-        };
-    }
-
-    private static ObjectNode emptyObjectSchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        schema.set("properties", JsonNodeFactory.instance.objectNode());
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode limitSchema() {
+    private static ObjectNode inputSchema(McpToolInputSchema input) {
         ObjectNode schema = JsonNodeFactory.instance.objectNode();
         schema.put("type", "object");
         ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        properties.set("limit", limitProperty());
+        for (McpToolInputSchema.Property property : input.properties()) {
+            ObjectNode node = JsonNodeFactory.instance.objectNode();
+            node.put("type", property.type());
+            if (property.minimum() != null) {
+                node.put("minimum", property.minimum());
+            }
+            if (property.minLength() != null) {
+                node.put("minLength", property.minLength());
+            }
+            if (property.defaultValue() != null) {
+                node.put("default", property.defaultValue());
+            }
+            node.put("description", property.description());
+            if (!property.examples().isEmpty()) {
+                ArrayNode examples = JsonNodeFactory.instance.arrayNode();
+                property.examples().forEach(examples::add);
+                node.set("examples", examples);
+            }
+            properties.set(property.name(), node);
+        }
         schema.set("properties", properties);
+        if (!input.required().isEmpty()) {
+            ArrayNode required = JsonNodeFactory.instance.arrayNode();
+            input.required().forEach(required::add);
+            schema.set("required", required);
+        }
         schema.put("additionalProperties", false);
         return schema;
     }
 
-    private static ObjectNode querySchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        ObjectNode query = JsonNodeFactory.instance.objectNode();
-        query.put("type", "string");
-        query.put("description", "Optional case-insensitive filter applied to the results.");
-        properties.set("query", query);
-        properties.set("limit", limitProperty());
-        schema.set("properties", properties);
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode limitProperty() {
-        ObjectNode limit = JsonNodeFactory.instance.objectNode();
-        limit.put("type", "integer");
-        limit.put("minimum", 1);
-        limit.put(
-                "description",
-                "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit.");
-        return limit;
-    }
-
-    private static ObjectNode idSchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        ObjectNode id = JsonNodeFactory.instance.objectNode();
-        id.put("type", "string");
-        id.put("description", "Exact identifier of the resource to fetch.");
-        properties.set("id", id);
-        schema.set("properties", properties);
-        ArrayNode required = JsonNodeFactory.instance.arrayNode();
-        required.add("id");
-        schema.set("required", required);
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode optionalIdSchema() {
-        ObjectNode schema = idSchema();
-        schema.remove("required");
-        ((ObjectNode) schema.get("properties").get("id"))
-                .put("description", "Optional run id; omitted or previous selects the newest kept run.");
-        return schema;
-    }
-
-    private static ObjectNode ruleViolationsSchema() {
-        ObjectNode schema = idSchema();
-        ObjectNode properties = (ObjectNode) schema.get("properties");
-        ((ObjectNode) properties.get("id")).put("minLength", 1);
-        ObjectNode scanId = JsonNodeFactory.instance.objectNode();
-        scanId.put("type", "string");
-        scanId.put("minLength", 1);
-        scanId.put("description", "The cached report's violationDetails.scanId. Never starts a scan.");
-        properties.set("scanId", scanId);
-        ((ArrayNode) schema.get("required")).add("scanId");
-        ObjectNode offset = JsonNodeFactory.instance.objectNode();
-        offset.put("type", "integer");
-        offset.put("minimum", 0);
-        offset.put("default", 0);
-        properties.set("offset", offset);
-        ObjectNode limit = limitProperty();
-        limit.put("default", 100);
-        limit.put("description", "Page size, default 100, capped at min(1000, bootui.mcp.max-results).");
-        properties.set("limit", limit);
-        return schema;
+    private static ObjectNode annotations(McpToolAnnotations hints) {
+        ObjectNode annotations = JsonNodeFactory.instance.objectNode();
+        annotations.put("readOnlyHint", hints.readOnlyHint());
+        annotations.put("destructiveHint", hints.destructiveHint());
+        annotations.put("idempotentHint", hints.idempotentHint());
+        annotations.put("openWorldHint", hints.openWorldHint());
+        return annotations;
     }
 }

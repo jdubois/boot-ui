@@ -16,9 +16,7 @@ import {
   isListed,
   numericColumns,
   themeFilters,
-  unlistedSummary,
-  validationCounts,
-  validationOf
+  unlistedSummary
 } from '../utils/runtimeInsights.js'
 import {insightMarkdown} from '../utils/markdownExport.js'
 import {codeChanges, comparisonSummary} from '../utils/runComparison.js'
@@ -27,7 +25,6 @@ import InsightCheckLimits from './components/InsightCheckLimits.vue'
 import InsightCoverage from './components/InsightCoverage.vue'
 import InsightDetail from './components/InsightDetail.vue'
 import InsightNotExercised from './components/InsightNotExercised.vue'
-import InsightValidationMark from './components/InsightValidationMark.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import PanelTabs from './components/PanelTabs.vue'
@@ -116,11 +113,9 @@ const filters = computed(() => ({
   selectedId: selectedId.value
 }))
 const groups = computed(() => groupObservations(report.value, filters.value))
-// One list in the report's check order, each row carrying its check's title and external validation.
+// One list in the report's check order, each row carrying its check's title.
 const rows = computed(() =>
-  groups.value.flatMap((group) =>
-    group.observations.map((observation) => ({observation, title: group.title, validation: group.validation}))
-  )
+  groups.value.flatMap((group) => group.observations.map((observation) => ({observation, title: group.title})))
 )
 const visibleObservations = computed(() => rows.value.map((row) => row.observation))
 const themes = computed(() => themeFilters(report.value, filters.value))
@@ -130,7 +125,7 @@ const listed = computed(() =>
     (group) => group.observations
   )
 )
-const counts = computed(() => validationCounts(report.value, listed.value))
+const counts = computed(() => ({total: listed.value.length}))
 const unlisted = computed(() => unlistedSummary(report.value, filters.value))
 const anyUnlisted = computed(() => (report.value?.observations ?? []).some((observation) => !isListed(observation)))
 // The rows the default list leaves out, counted from the same source as the verdict: an open row it leaves out is
@@ -158,9 +153,6 @@ const notExercisedCount = computed(
   () => (report.value?.notExercised?.length ?? 0) + (report.value?.notExercisedOmitted ?? 0)
 )
 const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
-const selectedValidation = computed(() =>
-  validationOf(report.value?.checks?.find((check) => check.kind === selected.value?.kind))
-)
 watch(selectedId, () => (aiExport.value = null))
 
 const tabs = computed(() => [
@@ -175,8 +167,7 @@ function openAiExport() {
   const check = report.value?.checks?.find((candidate) => candidate.kind === selected.value?.kind)
   aiExport.value = insightMarkdown(detail.value, {
     title: check?.title,
-    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null,
-    validation: validationOf(check)?.reason
+    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null
   })
 }
 // A breakdown's share column becomes bars, so the phase that took the time stands out before any number is read.
@@ -309,7 +300,6 @@ provide(
     sources,
     unrun,
     selected,
-    selectedValidation,
     shares,
     numeric,
     windowText,
@@ -371,16 +361,6 @@ provide(
               </template>
             </h2>
             <ul class="insight-verdict-facts">
-              <li v-if="counts.validated > 0">
-                <i class="bi bi-patch-check" aria-hidden="true"></i>
-                {{ formatNumber(counts.validated) }} from {{ counts.validated === 1 ? 'a check' : 'checks' }} that
-                passed external validation
-              </li>
-              <li v-if="counts.unvalidated > 0">
-                <i class="bi bi-patch-question" aria-hidden="true"></i>
-                {{ formatNumber(counts.unvalidated) }} from {{ counts.unvalidated === 1 ? 'a check' : 'checks' }} not
-                externally validated
-              </li>
               <li v-if="hiddenByDefault > 0">
                 <i class="bi bi-eye-slash" aria-hidden="true"></i>
                 {{ formatNumber(hiddenByDefault) }} more not listed by default
@@ -459,8 +439,8 @@ provide(
                 v-model="query"
                 type="search"
                 class="form-control form-control-sm insight-search"
-                aria-label="Search observations by route, table, or logger"
-                placeholder="Search routes, tables, loggers…"
+                aria-label="Search observations by check, route, table, or logger"
+                placeholder="Search checks, routes, tables, loggers…"
               />
               <div class="d-flex flex-wrap gap-1" role="group" aria-label="Filter observations by theme">
                 <button
@@ -502,7 +482,7 @@ provide(
 
             <ul v-else class="list-unstyled mb-0 insight-list" aria-label="Observations">
               <li
-                v-for="{observation, title, validation} in rows"
+                v-for="{observation, title} in rows"
                 :id="rowId(observation.id)"
                 :key="observation.id"
                 class="insight-row"
@@ -527,7 +507,6 @@ provide(
                       {{ statusLabel(observation.status) }}
                     </span>
                     <span v-if="!isListed(observation)" class="insight-unlisted-label">Not listed by default</span>
-                    <InsightValidationMark v-if="validation" :validation="validation" />
                   </span>
                   <i class="bi bi-chevron-down insight-row-chevron" aria-hidden="true"></i>
                 </button>

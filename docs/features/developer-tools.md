@@ -81,7 +81,7 @@ each exception's `exceptionGroupId`. `source` is `none` when neither retention w
 `get_spring_data_repositories`, `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`,
 `get_ai_overview`, `get_emails`, `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`,
 `get_agent_status`, `get_devtools_status`, `get_dev_services`, `get_github_dashboard`,
-`get_copilot_sessions`, and `get_claude_code_sessions`.
+`get_copilot_sessions`, `get_claude_code_sessions`, `get_hibernate_statistics`, and `get_websockets`.
 
 **Code Inventory read** — `get_code_inventory`: with the BootUI agent, whether the methods changed since the previous run
 executed in this run, then the never-executed, not-tracked, executed, or dependency rows a query asks for (see

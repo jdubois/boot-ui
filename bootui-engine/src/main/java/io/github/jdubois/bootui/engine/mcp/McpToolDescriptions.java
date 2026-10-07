@@ -48,10 +48,10 @@ public final class McpToolDescriptions {
                             + "requests counts completed HTTP exchanges only: zero is not proof nothing ran when "
                             + "an observation names a request or execution, a non-HTTP limitation, or eviction says "
                             + "otherwise. A run-level observation with no exemplar does not. The empty query is the "
-                            + "default list: only the kinds that passed their external validation or stayed silent "
-                            + "on it, so no time breakdown, exception hotspot, repeated SELECT, connection, AI, "
-                            + "garbage collection, or heap row; a limitation counts what it left out, names the "
-                            + "kinds not externally validated, and all, a kind, or a route lists it. An empty list "
+                            + "default list, which leaves several kinds out, for example time breakdowns, exception "
+                            + "hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names "
+                            + "each kind it left out with its count, and all, a kind, or a route lists them. An empty "
+                            + "list "
                             + "means not exercised only when limitations say so. INSUFFICIENT, PARTIAL, "
                             + "NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three follow-up "
                             + "calls, each a tool with its arguments and the equivalent bootui command."),
@@ -63,10 +63,10 @@ public final class McpToolDescriptions {
                             + "that lists the current ids."),
             Map.entry(
                     "get_runtime_impact",
-                    "For a route, bean, class, method (Class#method, with parameter types for one overload), "
-                            + "repository, table, cache, host, or event type id: the routes this run exercised through "
-                            + "it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS "
-                            + "with candidates. With the BootUI agent, a method's observed routes are those whose "
+                    "For a route, bean, class, method (Class#method, with parameter types for one overload, or a "
+                            + "bare method name), repository, table, cache, host, or event type id: the routes this run "
+                            + "exercised through it, those it did not, and those sharing a resource with it, at most 8 "
+                            + "each with totals, a limitation naming the rest, or AMBIGUOUS with candidates. With the BootUI agent, a method's observed routes are those whose "
                             + "requests executed it; notObserved routes ran without showing it, which proves nothing. "
                             + "A checklist of what was and was not exercised, never a verdict that a change is safe. For AMBIGUOUS, "
                             + "NOT_FOUND, or UNAVAILABLE, next names the call that resolves it."),
@@ -101,7 +101,7 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_exception_detail",
                     "Return stack frames, causes, and occurrences for one exact exception-group id obtained from "
-                            + "get_exceptions or get_live_activity."),
+                            + "get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity."),
             Map.entry(
                     "get_security_logs",
                     "Return a bounded, newest-first snapshot of authentication and authorization audit events. "
@@ -275,8 +275,9 @@ public final class McpToolDescriptions {
                             + "Use a narrow metric-name query when diagnosing one runtime signal."),
             Map.entry(
                     "get_live_memory",
-                    "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and "
-                            + "thread measurements without requesting GC or a class histogram."),
+                    "Return a passive snapshot of current JVM heap, non-heap, and per-memory-pool usage without "
+                            + "requesting GC or a class histogram. Sizing recommendations come from get_jvm_tuning; "
+                            + "garbage collection and class-loading meters from get_metrics; threads from get_threads."),
             Map.entry(
                     "get_agent_status",
                     "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, "
@@ -285,14 +286,15 @@ public final class McpToolDescriptions {
                             + "changes the agent."),
             Map.entry(
                     "get_code_inventory",
-                    "Return Code Inventory: did the code changed since the previous run execute in this run? "
+                    "Return Code Inventory: did the code that changed since the previous run execute in this run? "
                             + "Advertised only while the BootUI agent's inventory sensor records this run (see "
                             + "get_agent_status). Counts "
                             + "first (N of M tracked methods executed, changed, added, removed, dependencies), then at "
                             + "most limit (25) rows of query: changed (the default; methods changed or added since the "
                             + "previous DevTools restart or Quarkus live reload, not executed first, with the first "
                             + "request id and route that ran each), never-executed, not-tracked, executed, "
-                            + "dependencies (declared jars not loaded in this run first), or a package or class. "
+                            + "dependencies (declared jars not loaded in this run first), or a package, class, or "
+                            + "method name. "
                             + "NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is "
                             + "unused."),
             Map.entry(
@@ -362,8 +364,10 @@ public final class McpToolDescriptions {
                             + "request with no call site, never its value."),
             Map.entry(
                     "get_jvm_tuning",
-                    "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
-                            + "This is a passive calculation and does not change JVM or container settings."),
+                    "Return the current JVM sizing facts and generated tuning recommendations using detected defaults: "
+                            + "the JVM's arguments, the memory calculation, suggested options, and the Kubernetes "
+                            + "recommendation; per-pool usage comes from get_live_memory. This is a passive calculation "
+                            + "and does not change JVM or container settings."),
             Map.entry(
                     "get_heap_dump_report",
                     "Return passive heap-dump status, file metadata, and any already-cached analysis. This does not "
@@ -402,6 +406,23 @@ public final class McpToolDescriptions {
                     "get_kafka_activity",
                     "Return the bounded local Kafka activity snapshot captured from application producers and consumers. "
                             + "This does not publish, consume, clear, or contact a broker."),
+            Map.entry(
+                    "get_hibernate_statistics",
+                    "Return the live Hibernate ORM statistics of the application's persistence unit: sessions, "
+                            + "transactions, entity and collection loads, fetches, and writes, query executions with "
+                            + "the slowest query, and query and second-level cache hits, misses, and puts per region. "
+                            + "Counters are cumulative since startup or since statistics were enabled. available=false "
+                            + "with unavailableReason when no SessionFactory is found or statistics are off; this read "
+                            + "never enables them, and enableAvailable=true means the user can enable them for this "
+                            + "run from the Hibernate Statistics panel."),
+            Map.entry(
+                    "get_websockets",
+                    "Return the WebSocket endpoints, live sessions, STOMP subscriptions and broker prefixes, and a "
+                            + "bounded newest-first activity log of connects, disconnects, and frames, with aggregate "
+                            + "counters. Metadata only: a frame's size, never its payload. frameCaptureSupported and "
+                            + "sessionTrackingSupported say what this stack can observe, with the reason when not, so "
+                            + "an empty list is not proof no client connected; the *Truncated flags mark capped lists. "
+                            + "This read never opens, closes, or sends on a connection, and does not clear the log."),
             Map.entry(
                     "get_rabbitmq_activity",
                     "Return the bounded local RabbitMQ activity snapshot captured from application publishers and "

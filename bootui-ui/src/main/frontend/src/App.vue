@@ -27,12 +27,15 @@ import {describeLoadError} from './utils/loadError.js'
 import {
   buildDocumentTitle,
   createPanelLookup,
+  HOME_NAVIGATION_GROUP,
+  NAVIGATION_GROUPS as semanticNavigationGroups,
   panelDisabledReason,
   resolveRouteTitle,
   routeAvailabilityLabel as routeAccessibleLabel,
   routeMovesToUnavailableGroup as movesToUnavailableGroup,
   routeStatusIcon as panelStatusIcon,
-  routeUnavailable as isRouteUnavailable
+  routeUnavailable as isRouteUnavailable,
+  UNAVAILABLE_NAVIGATION_GROUP as unavailableNavigationGroup
 } from './utils/panelNavigation.js'
 import {recordRecentPanel} from './utils/recentPanels.js'
 import {safeLocalStorage} from './utils/safeStorage.js'
@@ -311,22 +314,6 @@ function onStorageChange(event) {
   }
 }
 
-const semanticNavigationGroups = [
-  {key: 'advisors', title: 'Advisors', icon: 'bi-clipboard2-check'},
-  {key: 'runtime', title: 'Runtime', icon: 'bi-activity'},
-  {key: 'configuration', title: 'Configuration', icon: 'bi-sliders'},
-  {key: 'database', title: 'Database', icon: 'bi-database'},
-  {key: 'security', title: 'Security', icon: 'bi-shield-lock'},
-  {key: 'services', title: 'Services', icon: 'bi-hdd-network'},
-  {key: 'diagnostics', title: 'Diagnostics', icon: 'bi-search'},
-  {key: 'agent', title: 'Instrumentation', icon: 'bi-cpu'},
-  {key: 'developer-tools', title: 'Developer tools', icon: 'bi-tools'}
-]
-const unavailableNavigationGroup = {
-  key: 'unavailable',
-  title: 'Disabled / unavailable',
-  icon: 'bi-slash-circle'
-}
 const routes = router.options.routes.filter((r) => r.name)
 const EXPANDED_GROUPS_STORAGE_KEY = 'bootui.expandedGroups'
 
@@ -422,12 +409,12 @@ function navTitle(r) {
   return resolveRouteTitle(r, panels.value?.platform)
 }
 const navigationSections = computed(() => {
+  /** @type {Array<{key: string, title: string, icon?: string, collapsible: boolean, unavailable?: boolean, routes: typeof routes}>} */
   const sections = [
     {
-      key: 'home',
-      title: 'Home',
+      ...HOME_NAVIGATION_GROUP,
       collapsible: false,
-      routes: routes.filter((r) => r.meta?.group === 'home')
+      routes: routes.filter((r) => r.meta?.group === HOME_NAVIGATION_GROUP.key)
     }
   ]
 

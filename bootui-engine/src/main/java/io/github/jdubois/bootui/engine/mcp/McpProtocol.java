@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -16,11 +17,49 @@ public final class McpProtocol {
     /** MCP protocol revision advertised when the client does not request a specific one. */
     public static final String DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 
-    /** Every protocol revision the BootUI MCP server understands. */
+    /**
+     * Every legacy (initialization-based) protocol revision the BootUI MCP server understands. A legacy client
+     * negotiates one of these through {@code initialize}.
+     */
     public static final Set<String> KNOWN_VERSIONS = Set.of(DEFAULT_PROTOCOL_VERSION);
+
+    /** The modern MCP revision, which carries its version, identity, and capabilities in every request's {@code _meta}. */
+    public static final String MODERN_PROTOCOL_VERSION = "2026-07-28";
+
+    /** Every modern (per-request metadata) protocol revision the BootUI MCP server understands. */
+    public static final Set<String> MODERN_VERSIONS = Set.of(MODERN_PROTOCOL_VERSION);
+
+    /** Every revision the server supports, newest first, as advertised by {@code server/discover} and version errors. */
+    public static final List<String> SUPPORTED_VERSIONS = List.of(MODERN_PROTOCOL_VERSION, DEFAULT_PROTOCOL_VERSION);
 
     /** HTTP header carrying the negotiated protocol revision on post-initialization requests. */
     public static final String PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version";
+    /** Modern HTTP header mirroring the JSON-RPC {@code method}. */
+    public static final String METHOD_HEADER = "Mcp-Method";
+    /** Modern HTTP header mirroring {@code params.name} of {@code tools/call} and {@code prompts/get}. */
+    public static final String NAME_HEADER = "Mcp-Name";
+
+    /** Required modern {@code _meta} key naming the request's protocol revision. */
+    public static final String META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion";
+    /** Required modern {@code _meta} key carrying the client's capabilities for the request. */
+    public static final String META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities";
+    /** Modern result {@code _meta} key identifying the server. */
+    public static final String META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
+    /** Request {@code _meta} key opting the request into progress notifications. */
+    public static final String META_PROGRESS_TOKEN = "progressToken";
+
+    /** The modern {@code resultType} of every final result BootUI returns. */
+    public static final String RESULT_TYPE_COMPLETE = "complete";
+    /**
+     * Freshness hint of the cacheable modern results ({@code server/discover}, {@code tools/list}, {@code prompts/list}).
+     * The catalog is fixed for the life of the JVM, but a DevTools restart can change it.
+     */
+    public static final long CACHE_TTL_MILLIS = 60_000;
+    /**
+     * Cache scope of the cacheable modern results: BootUI is a local, possibly token-protected endpoint whose catalog and
+     * instructions describe one application, so a shared cache must never keep them.
+     */
+    public static final String CACHE_SCOPE = "private";
 
     /** JSON-RPC version string required in every request. */
     public static final String JSONRPC_VERSION = "2.0";
@@ -57,6 +96,65 @@ public final class McpProtocol {
     public static final int TOOL_TIMEOUT = -32002;
     /** Server-defined: a rendered response exceeded its byte budget. */
     public static final int RESPONSE_TOO_LARGE = -32003;
+
+    // MCP 2026-07-28 protocol error codes.
+    /** The HTTP headers do not match the request body, or a required header is missing or malformed. */
+    public static final int HEADER_MISMATCH = -32020;
+    /** The request names a protocol revision the server does not support. */
+    public static final int UNSUPPORTED_PROTOCOL_VERSION_ERROR = -32022;
+
+    /**
+     * Offset that moves BootUI's server-defined codes out of the JSON-RPC reserved range for modern clients.
+     * MCP 2026-07-28 says new implementations SHOULD NOT use {@code -32000..-32019} and MUST NOT emit {@code -32002};
+     * the engine, the CLI facade, and legacy clients keep the original codes.
+     */
+    private static final int MODERN_SERVER_ERROR_OFFSET = 1_000;
+
+    /** Returned to a modern client whose request names an unsupported protocol revision. */
+    public static final String UNSUPPORTED_MODERN_PROTOCOL_VERSION_MESSAGE = "Unsupported protocol version";
+    /** Returned when the {@code MCP-Protocol-Version} header is missing, repeated, or differs from {@code _meta}. */
+    public static final String PROTOCOL_VERSION_HEADER_MISMATCH_MESSAGE =
+            "Header mismatch: MCP-Protocol-Version must be sent once and match _meta " + META_PROTOCOL_VERSION;
+    /** Returned when the {@code Mcp-Method} header is missing, repeated, or differs from the body. */
+    public static final String METHOD_HEADER_MISMATCH_MESSAGE =
+            "Header mismatch: Mcp-Method must be sent once and match the request method";
+    /** Returned when the {@code Mcp-Name} header is missing, repeated, malformed, or differs from the body. */
+    public static final String NAME_HEADER_MISMATCH_MESSAGE =
+            "Header mismatch: Mcp-Name must be sent once and match params.name";
+    /** Returned when a modern request's protocol version is not a string. */
+    public static final String META_PROTOCOL_VERSION_TYPE_MESSAGE =
+            "_meta " + META_PROTOCOL_VERSION + " must be a string";
+    /** Returned when a request carries a modern {@code MCP-Protocol-Version} header but no modern {@code _meta}. */
+    public static final String MISSING_META_PROTOCOL_VERSION_MESSAGE =
+            "Missing required _meta field: " + META_PROTOCOL_VERSION;
+    /** Returned when a modern request omits its client capabilities. */
+    public static final String MISSING_META_CLIENT_CAPABILITIES_MESSAGE =
+            "Missing required _meta field: " + META_CLIENT_CAPABILITIES;
+    /** Returned when a modern request's client capabilities are not an object. */
+    public static final String META_CLIENT_CAPABILITIES_TYPE_MESSAGE =
+            "_meta " + META_CLIENT_CAPABILITIES + " must be an object";
+    /** Returned when a progress token is neither a string nor an integer. */
+    public static final String PROGRESS_TOKEN_TYPE_MESSAGE = "_meta progressToken must be a string or an integer";
+
+    /**
+     * The JSON-RPC error code to put on the wire for {@code era}: modern clients receive BootUI's server-defined codes
+     * moved out of the reserved range, legacy clients receive them unchanged, and every standard or MCP-defined code
+     * is the same for both eras.
+     */
+    public static int wireErrorCode(McpEra era, int code) {
+        if (era == McpEra.MODERN && code <= SERVER_DISABLED && code >= RESPONSE_TOO_LARGE) {
+            return code + MODERN_SERVER_ERROR_OFFSET;
+        }
+        return code;
+    }
+
+    /**
+     * The HTTP status of a JSON-RPC error response for {@code era}. Modern Streamable HTTP answers an unknown method
+     * with {@code 404}; legacy keeps answering every in-band error with {@code 200}.
+     */
+    public static int errorHttpStatus(McpEra era, int code) {
+        return era == McpEra.MODERN && code == METHOD_NOT_FOUND ? 404 : 200;
+    }
 
     /** Returned when the request is not a JSON-RPC object. */
     public static final String MALFORMED_REQUEST_MESSAGE = "Request must be a JSON-RPC object";
@@ -102,6 +200,52 @@ public final class McpProtocol {
     /** Canonical message reported when a {@code tools/call} names a tool this server has not registered. */
     public static String unknownToolMessage(String name) {
         return UNKNOWN_TOOL_PREFIX + name;
+    }
+
+    /**
+     * Prefix of the message reported when a {@code tools/call} names a BootUI tool this server does not advertise,
+     * because its panel is unavailable in this application or on this stack.
+     */
+    public static final String UNAVAILABLE_TOOL_PREFIX = "Tool not available in this application: ";
+
+    /**
+     * Canonical message for a BootUI tool this server does not advertise: the tool, then why, in the panel's own words
+     * when it gives a reason.
+     *
+     * @param name the tool name
+     * @param panelTitle the title of the panel backing it
+     * @param reason why that panel is unavailable here, or {@code null} when unknown
+     * @param stacks the request stacks that advertise the tool
+     */
+    public static String unavailableToolMessage(
+            String name, String panelTitle, String reason, Set<McpToolCatalog.Stack> stacks) {
+        StringBuilder message =
+                new StringBuilder(UNAVAILABLE_TOOL_PREFIX).append(name).append(". ");
+        if (reason != null && !reason.isBlank()) {
+            String trimmed = reason.trim();
+            message.append("Its ")
+                    .append(panelTitle)
+                    .append(" panel is unavailable: ")
+                    .append(trimmed)
+                    .append(".!?".indexOf(trimmed.charAt(trimmed.length() - 1)) >= 0 ? "" : ".");
+        } else if (stacks.size() < McpToolCatalog.Stack.values().length) {
+            message.append("Only ")
+                    .append(String.join(
+                            " and ",
+                            stacks.stream().sorted().map(McpProtocol::stackName).toList()))
+                    .append(stacks.size() == 1 ? " advertises it." : " advertise it.");
+        } else {
+            message.append("Its ").append(panelTitle).append(" panel does not provide it in this application.");
+        }
+        return message.toString();
+    }
+
+    private static String stackName(McpToolCatalog.Stack stack) {
+        return switch (stack) {
+            case SPRING_MVC -> "Spring MVC";
+            case SPRING_WEBFLUX -> "Spring WebFlux";
+            case QUARKUS -> "Quarkus";
+        };
     }
 
     /**

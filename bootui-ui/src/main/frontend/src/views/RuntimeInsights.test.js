@@ -138,43 +138,17 @@ describe('Runtime Insights panel', () => {
     )
   })
 
-  it('marks a kind not externally validated beside its title, and says why on its selected row (M4-20)', async () => {
-    const reason = 'It found nothing on the seven validation applications (M4-20), so it is not externally validated.'
-    const marked = {
-      ...report,
-      checks: [{...report.checks[0], validation: 'NOT_VALIDATED', validationReason: reason}, report.checks[1]]
-    }
+  it('never shows the external validation of a kind, which stays in the plan (M4-20)', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : marked)))
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report)))
     )
     wrapper = mountPanel()
     await flushPromises()
+    await openRow(wrapper)
 
     expect(wrapper.find('.insight-row-kind').text()).toBe('Repeated SELECTs')
-    expect(wrapper.find('.insight-validation').text()).toBe('Not externally validated')
-    expect(wrapper.find('.insight-verdict-facts').text()).toContain('1 from a check not externally validated')
-    await openRow(wrapper)
-    expect(wrapper.find('.insight-validation').attributes('title')).toBe(reason)
-    expect(wrapper.find('.insight-validation-reason').text()).toBe(`Not externally validated: ${reason}`)
-  })
-
-  it('shows no validation marker for a kind that passed', async () => {
-    const passed = {
-      ...report,
-      checks: [{...report.checks[0], validation: 'PASSED', validationReason: 'It passed.'}, report.checks[1]]
-    }
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : passed)))
-    )
-    wrapper = mountPanel()
-    await flushPromises()
-    await openRow(wrapper)
-
-    expect(wrapper.find('.insight-verdict-facts').text()).toContain('1 from a check that passed external validation')
-    expect(wrapper.find('.insight-validation').exists()).toBe(false)
-    expect(wrapper.find('.insight-validation-reason').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/validat/i)
   })
 
   it('names the comparison in the verdict and opens it in the Changes tab', async () => {

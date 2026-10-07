@@ -12,6 +12,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
   comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
   with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
+- **MCP 2026-07-28 beside MCP 2025-06-18.** The MCP endpoint also serves modern clients, with `server/discover`, result
+  envelopes, and header checks, while existing clients answer as before ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+
+- **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
+  `get_websockets` (`bootui websockets`) are passive reads on Spring MVC, Spring WebFlux, and Quarkus; enabling
+  statistics and the capture switch stay in the panels ([AI agents](docs/AI-AGENTS.md#tools-the-agent-can-call)).
+- **MCP tool hints and per-tool argument schemas.** `tools/list` carries `annotations` (`readOnlyHint`,
+  `destructiveHint`, `idempotentHint`, `openWorldHint`) derived from each tool's kind, and each argument says what it
+  means for that tool, with an example and the `default` page size a call gets.
+
 - **Runtime Insights buttons in the Spring sample.** The welcome page generates each main finding with one click, or all
   at once, and links to it in the panel ([sample README](bootui-spring-sample-app/README.md#runtime-insights-demo)).
 - **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
@@ -368,8 +378,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check, how many come
-  from externally validated checks, and how many the default list leaves out. Findings are one list filtered by theme,
+- **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
+  (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
+  never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.
+- **A tool this application does not advertise says why.** MCP answers a known BootUI tool whose panel is unavailable
+  with `Tool not available in this application: <tool>.` and the panel's reason, also in `error.data`, instead of
+  `Unknown tool`; the CLI facade still answers `404`.
+- **Whole CLI help per command.** `bootui <command> --help` prints the tool's whole description, so `probe start` keeps
+  its approval and metadata-only wording and `memory scan` its full-GC warning; every action is tagged
+  `[action - needs approval]` in the listing and in its help. The readable output no longer cuts a value outside a table,
+  such as a `checksNotRun` reason.
+- **Agent guidance.** The MCP instructions say the default `get_runtime_insights` list leaves some kinds out and
+  that `start_method_probe` needs separate approval; the skill proposes the Java agent for
+  Code Inventory, Code Paths, Side Effects, probes, and caught exceptions, lists the browser-only controls, and documents
+  `bootui tools --json` and the exit code of a command whose tool is not exposed. An advisor that has not run yet names
+  the tool and command to run it.
+
+- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check and how many
+  the default list leaves out. Findings are one list filtered by theme,
   whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
   limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
   [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
@@ -379,9 +405,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
-- **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
-  default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-24).
+- **A shorter Runtime Insights default list.** Some kinds move to the panels showing the same evidence or appear only
+  on request, each row saying where, and five wording and attribution bugs are fixed
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
   2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:
@@ -687,6 +713,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Links between MCP and CLI results.** `get_runtime_impact` resolves a bare method name such as `applyDiscount`
+  (`AMBIGUOUS` with each declaring class when several do), names the real overloads when the asked parameters match
+  none, and names every route beyond the 8 it lists per list; `get_code_inventory` matches method names. Side Effects
+  captures an event-loop connect a concurrent REST client call names: the journal's newest-first order made it index
+  only one event per refresh, on all three stacks. Live Activity `EXCEPTION` entries carry `exceptionGroupId`, which
+  `get_exception_detail` takes. A `get_runtime_insights` route query lists that route first and follows it up;
+  `get_side_effects` matches a request id; `get_live_memory` and `get_jvm_tuning` return their own panel's part.
 - **The runtime journal records the sample applications' logs.** Its Spring appender skipped every logger under
   `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file

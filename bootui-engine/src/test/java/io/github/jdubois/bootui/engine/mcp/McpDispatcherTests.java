@@ -192,6 +192,22 @@ class McpDispatcherTests {
     }
 
     @Test
+    void modernRequestsDiscoverTheServerAndHaveNoHandshakeOrPing() {
+        McpDispatcher dispatcher = dispatcher();
+        assertThat(dispatcher.dispatch(modern("server/discover")))
+                .isEqualTo(new McpDispatchOutcome.DiscoverResult(
+                        List.of("2026-07-28", "2025-06-18"), "bootui", "1.2.3", "instructions text"));
+        assertThat(dispatcher.dispatch(modern("ping")))
+                .isEqualTo(new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: ping"));
+        assertThat(dispatcher.dispatch(modern("initialize")))
+                .isEqualTo(new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: initialize"));
+        assertThat(dispatcher.dispatch(modern("tools/list"))).isInstanceOf(ToolsListResult.class);
+        assertThat(dispatcher.dispatch(method("server/discover")))
+                .as("legacy clients never see the modern discovery method")
+                .isEqualTo(new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: server/discover"));
+    }
+
+    @Test
     void pingReturnsPingResult() {
         assertThat(dispatcher().dispatch(method("ping"))).isInstanceOf(PingResult.class);
     }
@@ -355,6 +371,97 @@ class McpDispatcherTests {
         McpDispatchOutcome outcome = dispatcher().dispatch(call("does_not_exist"));
 
         assertThat(outcome).isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown tool: does_not_exist"));
+    }
+
+    @Test
+    void aCatalogToolThisServerDoesNotAdvertiseSaysWhyItsPanelIsUnavailable() {
+        McpDispatcher dispatcher = new McpDispatcher(
+                () -> List.of(overview),
+                List.of(),
+                policy,
+                "1.2.3",
+                "",
+                50,
+                20,
+                1_000,
+                diagnostics,
+                panelId -> panelId.equals("kafka") ? "No KafkaTemplate bean is available" : null);
+
+        assertThat(dispatcher.dispatch(call("get_kafka_activity")))
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Tool not available in this application: get_kafka_activity. Its Kafka panel is unavailable:"
+                                + " No KafkaTemplate bean is available.",
+                        Map.of(
+                                "tool",
+                                "get_kafka_activity",
+                                "panel",
+                                "kafka",
+                                "reason",
+                                "No KafkaTemplate bean is available")));
+        assertThat(dispatcher.dispatch(call("get_conditions")))
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Tool not available in this application: get_conditions. Only Spring MVC and Spring WebFlux"
+                                + " advertise it.",
+                        Map.of("tool", "get_conditions", "panel", "conditions")));
+        assertThat(dispatcher.dispatch(call("get_emails")))
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Tool not available in this application: get_emails. Its Email panel does not provide it in"
+                                + " this application.",
+                        Map.of("tool", "get_emails", "panel", "email")));
+        assertThat(dispatcher.dispatch(call("does_not_exist")))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown tool: does_not_exist"));
+        assertThat(diagnostics.count()).isZero();
+    }
+
+    @Test
+    void aCatalogToolMissingBecauseItsPanelIsDisabledGetsTheDisabledRefusal() {
+        policy.disabled.add("websockets");
+        McpDispatcher dispatcher = new McpDispatcher(
+                () -> List.of(overview),
+                List.of(),
+                policy,
+                "1.2.3",
+                "",
+                50,
+                20,
+                1_000,
+                diagnostics,
+                panelId -> "No WebSocket support is on the classpath.");
+
+        assertThat(dispatcher.dispatch(call("get_websockets")))
+                .isEqualTo(new ToolCallError("disabled:websockets", McpDispatchOutcome.ToolErrorReason.PANEL_DISABLED));
+    }
+
+    @Test
+    void aFailingAvailabilityLookupStillAnswersAndIsReported() {
+        McpDispatcher dispatcher = new McpDispatcher(
+                () -> List.of(overview), List.of(), policy, "1.2.3", "", 50, 20, 1_000, diagnostics, panelId -> {
+                    throw new IllegalStateException("boom");
+                });
+
+        assertThat(dispatcher.dispatch(call("get_kafka_activity")))
+                .isInstanceOfSatisfying(
+                        ProtocolError.class,
+                        error -> assertThat(error.message())
+                                .startsWith(McpProtocol.UNAVAILABLE_TOOL_PREFIX + "get_kafka_activity."));
+        assertThat(diagnostics.count()).isEqualTo(1);
+    }
+
+    @Test
+    void toolsListCarriesHintsAndPerToolArgumentSchemas() {
+        ToolsListResult result = (ToolsListResult) dispatcher().dispatch(method("tools/list"));
+
+        assertThat(result.tools().get(0).annotations()).isEqualTo(new McpToolAnnotations(true, false, true, false));
+        assertThat(result.tools().get(1).annotations()).isEqualTo(new McpToolAnnotations(false, false, false, false));
+        McpToolInputSchema config = result.tools().get(2).inputSchema();
+        assertThat(config.properties())
+                .extracting(McpToolInputSchema.Property::name)
+                .containsExactly("query", "limit");
+        assertThat(config.properties().get(1).defaultValue()).isEqualTo(50);
+        assertThat(result.tools().get(3).inputSchema().required()).containsExactly("id");
     }
 
     @Test
@@ -688,6 +795,11 @@ class McpDispatcherTests {
 
     private static McpRequest method(String method) {
         return new McpRequest(JSONRPC, method, false, null, null, null, null, null);
+    }
+
+    private static McpRequest modern(String method) {
+        return new McpRequest(
+                JSONRPC, method, false, null, null, null, null, null, Set.of(), null, null, null, McpEra.MODERN, null);
     }
 
     private static McpRequest call(String toolName) {
