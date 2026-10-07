@@ -365,6 +365,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check, how many come
+  from externally validated checks, and how many the default list leaves out. Findings are one list filtered by theme,
+  whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
+  limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
+  [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
 - **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
   RabbitMQ metadata test fixture compatible with the managed SmallRye API.
 

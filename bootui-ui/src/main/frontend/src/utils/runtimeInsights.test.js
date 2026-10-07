@@ -13,8 +13,10 @@ import {
   isMachineColumn,
   isListed,
   textParts,
+  themeFilters,
   themeOf,
   unlistedSummary,
+  validationCounts,
   validationOf
 } from './runtimeInsights.js'
 
@@ -262,5 +264,37 @@ describe('theme coverage', () => {
       'ai-usage-by-route'
     ]
     expect(engineKinds.filter((kind) => !THEMES.some((theme) => theme.kinds.includes(kind)))).toEqual([])
+  })
+})
+
+describe('verdict and theme filters', () => {
+  const checks = [
+    {kind: 'errors-behind-2xx', title: 'Errors behind 2xx responses', validation: 'PASSED'},
+    {kind: 'safe-method-dml', title: 'Writes in GET requests', validation: 'NOT_VALIDATED'},
+    {kind: 'route-time-breakdown', title: 'Route time breakdown', validation: 'FAILED'}
+  ]
+  const observations = [
+    {id: 'a', kind: 'errors-behind-2xx', subject: 'POST /import', sentence: '', affected: 1},
+    {id: 'b', kind: 'safe-method-dml', subject: 'GET /orders', sentence: '', affected: 1},
+    {id: 'c', kind: 'route-time-breakdown', subject: 'GET /fast', sentence: '', affected: 1, listed: false}
+  ]
+  const run = {checks, observations}
+
+  it('counts the listed rows of each theme, leaving out a theme with none unless it is selected', () => {
+    expect(themeFilters(run).map(({id, count}) => [id, count])).toEqual([
+      ['', 2],
+      ['queries', 1],
+      ['errors', 1]
+    ])
+    expect(themeFilters(run, {theme: 'time'}).map(({id, count}) => [id, count])).toContainEqual(['time', 0])
+    expect(themeFilters(run, {all: true}).map(({id, count}) => [id, count])).toContainEqual(['time', 1])
+    expect(themeFilters(run, {query: 'orders'})[0].count).toBe(1)
+  })
+
+  it('splits rows by whether their kind passed external validation, counting an unjudged kind as neither', () => {
+    expect(validationCounts(run, observations)).toEqual({total: 3, validated: 1, unvalidated: 2})
+    expect(validationCounts(run, [])).toEqual({total: 0, validated: 0, unvalidated: 0})
+    const unjudged = {checks: [{kind: 'errors-behind-2xx'}], observations}
+    expect(validationCounts(unjudged, observations.slice(0, 1))).toEqual({total: 1, validated: 0, unvalidated: 0})
   })
 })

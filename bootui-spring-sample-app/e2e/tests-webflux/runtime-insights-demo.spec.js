@@ -15,10 +15,11 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
     }, 'webflux')
 
     await openView('runtime-insights', 'Runtime Insights')
-    await expect(page.getByRole('heading', {name: 'Blocking on event loops', level: 2, exact: true})).toBeVisible({
-      timeout: 15_000
-    })
-    await expect(page.locator('.insight-item', {hasText: '/api/insights/notes/on-event-loop'}).first()).toBeVisible()
+    // Each row names its check above its route or subject.
+    const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
+    await expect(
+      kind('Blocking on event loops').locator('.insight-item', {hasText: '/api/insights/notes/on-event-loop'}).first()
+    ).toBeVisible({timeout: 15_000})
 
     // Repeated SELECTs and route time breakdowns are not listed by default since their external validation (M4-20):
     // Show all routes reaches them.
@@ -26,8 +27,9 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
     if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-pressed')) === 'false') {
       await toggle.click()
     }
-    await expect(page.getByRole('heading', {name: 'Repeated SELECTs', level: 2, exact: true})).toBeVisible()
-    await expect(page.locator('.insight-item', {hasText: '/api/insights/notes/one-by-one'}).first()).toBeVisible()
+    await expect(
+      kind('Repeated SELECTs').locator('.insight-item', {hasText: '/api/insights/notes/one-by-one'}).first()
+    ).toBeVisible()
     await page.locator('.insight-item', {hasText: 'GET /api/notes'}).first().click()
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')
