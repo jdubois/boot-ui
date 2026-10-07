@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +25,14 @@ public abstract class AbstractCliConformanceTest {
 
     private static final String CLI = "/bootui/api/cli";
 
+    /**
+     * A tool such as {@code architecture_scan} runs a whole scan inside its request, which a loaded runner can stretch
+     * past the default 30 s. Implementations raise the server's {@code bootui.cli.execution-timeout} to 60 s, the
+     * {@code bootui} CLI's own request budget; the probe waits a little longer, so a true overrun reads as the server's
+     * 504 rather than a client timeout.
+     */
+    private static final Duration CLI_TIMEOUT = Duration.ofSeconds(70);
+
     protected abstract String baseUrl();
 
     private BootUiHttpProbe probe() {
@@ -31,7 +40,8 @@ public abstract class AbstractCliConformanceTest {
     }
 
     private Response invoke(String tool, String body) {
-        return probe().request("POST", CLI + "/tools/" + tool, Map.of("Content-Type", "application/json"), body);
+        return probe().request(
+                        "POST", CLI + "/tools/" + tool, Map.of("Content-Type", "application/json"), body, CLI_TIMEOUT);
     }
 
     private JsonNode catalogEntry(String tool) {
