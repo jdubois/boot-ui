@@ -37,10 +37,12 @@ export function impactLists(impact) {
       total: notObservedTotal
     })
   }
+  // Named for its scope: only the routes that reach the symbol, unlike Coverage & limits' app-wide unreached routes.
+  const notExercisedTitle = trees ? "Reaches it, but didn't run it" : "Reaches it, but didn't run"
   lists.push(
     {
       id: 'not-exercised',
-      title: impact.notExercisedUndetermined ? 'Not exercised (incomplete)' : 'Not exercised',
+      title: impact.notExercisedUndetermined ? `${notExercisedTitle} (incomplete)` : notExercisedTitle,
       empty: notExercisedEmpty(impact, trees, notObservedTotal),
       rows: impact.notExercised,
       total: impact.notExercisedTotal

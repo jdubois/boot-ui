@@ -999,7 +999,7 @@ read-only, and all values flow through the same secret masking as the REST API.
 | `bootui.mcp.max-results`       | `200`     | Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) per call. |
 | `bootui.mcp.max-payload-bytes` | `1048576` | Maximum size (in bytes) of an incoming JSON-RPC request body; larger requests are rejected before parsing. |
 | `bootui.mcp.max-concurrent-calls` | `20`   | Maximum number of `tools/call` invocations the server executes concurrently; excess calls are refused with a rate-limited error. |
-| `bootui.mcp.execution-timeout` | `30s`     | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return JSON-RPC `-32002`. |
+| `bootui.mcp.execution-timeout` | `30s`     | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return JSON-RPC `-32002`. A scan that reports progress, such as `architecture_scan`, stops at its next step and keeps its previous report. |
 | `bootui.mcp.max-response-bytes` | `4194304` | Maximum size of a rendered JSON-RPC response; oversized results are replaced by JSON-RPC `-32003`. |
 
 ### Command-line endpoint
@@ -1021,7 +1021,7 @@ panel keeps reporting only what agents did.
 | `bootui.cli.enabled`              | `true`  | Whether the command-line endpoint answers. When `false`, the catalog still reports itself as disabled and tool invocation returns `503`. |
 | `bootui.cli.max-results`          | `200`   | Maximum number of items returned by paginated read tools per call, tracked separately from `bootui.mcp.max-results`.     |
 | `bootui.cli.max-concurrent-calls` | `20`    | Maximum number of concurrent tool invocations; excess calls are refused with `429`.                                      |
-| `bootui.cli.execution-timeout`    | `30s`   | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return `504`.                    |
+| `bootui.cli.execution-timeout`    | `30s`   | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return `504`. A scan that reports progress stops at its next step and keeps its previous report. |
 
 
 
