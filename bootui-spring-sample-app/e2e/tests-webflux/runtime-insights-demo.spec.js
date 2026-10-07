@@ -30,6 +30,8 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
     await expect(
       kind('Repeated SELECTs').locator('.insight-item', {hasText: '/api/insights/notes/one-by-one'}).first()
     ).toBeVisible()
+    // The external validation decides what is listed, but stays in the plan: no row mentions it.
+    await expect(page.locator('.insight-list')).not.toContainText(/validat/i)
     await page.locator('.insight-item', {hasText: 'GET /api/notes'}).first().click()
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')

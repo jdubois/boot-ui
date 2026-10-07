@@ -391,14 +391,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its approval and metadata-only wording and `memory scan` its full-GC warning; every action is tagged
   `[action - needs approval]` in the listing and in its help. The readable output no longer cuts a value outside a table,
   such as a `checksNotRun` reason.
-- **Agent guidance.** The MCP instructions say the default `get_runtime_insights` list leaves out the kinds not
-  externally validated and that `start_method_probe` needs separate approval; the skill proposes the Java agent for
+- **Agent guidance.** The MCP instructions say the default `get_runtime_insights` list leaves some kinds out and
+  that `start_method_probe` needs separate approval; the skill proposes the Java agent for
   Code Inventory, Code Paths, Side Effects, probes, and caught exceptions, lists the browser-only controls, and documents
   `bootui tools --json` and the exit code of a command whose tool is not exposed. An advisor that has not run yet names
   the tool and command to run it.
 
-- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check, how many come
-  from externally validated checks, and how many the default list leaves out. Findings are one list filtered by theme,
+- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check and how many
+  the default list leaves out. Findings are one list filtered by theme,
   whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
   limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
   [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
@@ -408,9 +408,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
-- **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
-  default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-24).
+- **A shorter Runtime Insights default list.** Some kinds move to the panels showing the same evidence or appear only
+  on request, each row saying where, and five wording and attribution bugs are fixed
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
   2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:

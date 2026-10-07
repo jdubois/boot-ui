@@ -51,7 +51,11 @@ class DefaultListingTests {
             ExternalValidation.Entry entry = ExternalValidation.kinds().get(kind);
             assertThat(entry).as(kind + " is registered explicitly").isNotNull();
             assertThat(entry.outcome()).as(kind).isEqualTo(REPORTED.get(kind));
-            assertThat(entry.reason()).as(kind).isNotBlank();
+            if (entry.outcome().listed()) {
+                assertThat(entry.unlistedReason()).as(kind).isNull();
+            } else {
+                assertThat(entry.unlistedReason()).as(kind).isNotBlank();
+            }
         }
     }
 
@@ -84,7 +88,7 @@ class DefaultListingTests {
             assertThat(applied.listed()).as(kind.getKey()).isEqualTo(listed);
             if (!listed) {
                 assertThat(applied.unlisted())
-                        .isEqualTo(ExternalValidation.of(kind.getKey()).reason());
+                        .isEqualTo(ExternalValidation.of(kind.getKey()).unlistedReason());
             }
         }
         assertThat(DefaultListing.apply(GcInflatedLatency.KIND, finding).unlisted())
@@ -96,7 +100,6 @@ class DefaultListingTests {
         Finding notProminent = finding(true).unlisted(RouteTimeBreakdown.NOT_PROMINENT);
 
         assertThat(DefaultListing.apply(RouteTimeBreakdown.KIND, notProminent).unlisted())
-                .contains("did not pass its external validation")
                 .contains("Why this route is slow");
         assertThat(DefaultListing.apply(ExceptionHotspots.KIND, finding(true)).unlisted())
                 .contains("Exceptions panel");
