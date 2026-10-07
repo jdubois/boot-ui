@@ -202,11 +202,19 @@ public final class BootUiHttpProbe {
      * across JDK versions.
      */
     public Response request(String method, String path, Map<String, String> headers, String body) {
+        return request(method, path, headers, body, Duration.ofSeconds(30));
+    }
+
+    /**
+     * Like {@link #request(String, String, Map, String)}, with a request {@code timeout} of the caller's own, for a call
+     * whose client grants it a different budget.
+     */
+    public Response request(String method, String path, Map<String, String> headers, String body, Duration timeout) {
         HttpRequest.BodyPublisher publisher =
                 body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body);
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
-                .timeout(Duration.ofSeconds(30))
+                .timeout(timeout)
                 .method(method, publisher);
         headers.forEach(builder::header);
         return send(builder.build());

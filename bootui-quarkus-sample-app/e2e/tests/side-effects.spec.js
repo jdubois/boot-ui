@@ -210,10 +210,18 @@ test.describe('Side Effects view (Quarkus)', () => {
     expect(row.maxMillis).toBeGreaterThanOrEqual(40)
     expect(report.rows.some((candidate) => candidate.attribution === 'GET /api/side-effects/worker-sleep')).toBe(false)
 
-    // An idle Vert.x event loop waits in epoll, never in LockSupport.park: traffic and a short idle add no park row.
+    // An idle Vert.x event loop waits in epoll, never in LockSupport.park: a short idle adds no park. Rows accumulate
+    // over the whole run, and earlier traffic can record real parks, as a contended ArC LazyValue or executor lock, so
+    // only a park seen during the idle window counts; lastSeen is when the park happened, not when it was flushed.
+    const idleStart = Date.now() + 100
     await page.waitForTimeout(2_000)
     const idle = await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()
-    expect(idle.rows.filter((candidate) => candidate.kind === 'park' && /eventloop/.test(candidate.target))).toEqual([])
+    expect(
+      idle.rows.filter(
+        (candidate) =>
+          candidate.kind === 'park' && /eventloop/.test(candidate.target) && candidate.lastSeen >= idleStart
+      )
+    ).toEqual([])
 
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Blocking/}).click()

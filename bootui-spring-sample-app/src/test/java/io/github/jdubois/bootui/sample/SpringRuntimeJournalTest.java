@@ -82,17 +82,23 @@ class SpringRuntimeJournalTest {
 
     @Test
     void theResourceSamplerSweepsAtTheConfiguredIntervalWithABalancedLedger() throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (aggregates.resourceTrack().points().size() < 3 && System.nanoTime() < deadline) {
+        // An interval is the 200 ms sleep plus the sweep itself, which a loaded runner can stretch; the 1 s default
+        // can never produce one under 900 ms, so waiting for such a sweep still proves the configured interval.
+        long bound = Duration.ofMillis(900).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        List<ResourceTrack.Point> points = aggregates.resourceTrack().points();
+        while ((points.size() < 3 || points.stream().skip(1).noneMatch(point -> point.intervalNanos() < bound))
+                && System.nanoTime() < deadline) {
             Thread.sleep(50);
+            points = aggregates.resourceTrack().points();
         }
 
-        List<ResourceTrack.Point> points = aggregates.resourceTrack().points();
         assertThat(points).hasSizeGreaterThanOrEqualTo(3);
-        ResourceTrack.Point last = points.get(points.size() - 1);
-        assertThat(last.intervalNanos())
+        assertThat(points.stream().skip(1).map(ResourceTrack.Point::intervalNanos))
                 .as("bootui.resources.sample-interval=200ms")
-                .isLessThan(Duration.ofMillis(900).toNanos());
+                .anyMatch(interval -> interval < bound)
+                .allMatch(interval -> interval >= Duration.ofMillis(200).toNanos());
+        ResourceTrack.Point last = points.get(points.size() - 1);
         assertThat(last.heapUsedBytes()).isPositive();
         assertThat(points).allSatisfy(point -> {
             if (point.processCpuNanos() >= 0) {

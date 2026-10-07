@@ -21,7 +21,9 @@ class BootUiQuarkusCliConformanceTest extends AbstractCliConformanceTest {
                     "bootui.panels.memory.enabled", "false",
                     "bootui.panels.heap-dump.read-only", "true",
                     "bootui.heap-dump.capture-enabled", "false",
-                    "bootui.claude-code.enabled", "OFF");
+                    "bootui.claude-code.enabled", "OFF",
+                    // AbstractCliConformanceTest.CLI_TIMEOUT: a loaded runner can stretch architecture_scan past 30 s.
+                    "bootui.cli.execution-timeout", "60s");
         }
     }
 

@@ -291,10 +291,12 @@ class SpringAgentScenarioIT {
 
         JsonNode feed = probe.get("/bootui/api/activity?source=journal&type=REQUEST&limit=200")
                 .json();
+        // The feed is newest first: this test's own seed request, not one an earlier test may have made.
         String seedRequest = null;
         for (JsonNode entry : feed.path("entries")) {
             if (SEED.equals(entry.path("path").asText())) {
                 seedRequest = entry.path("id").asText();
+                break;
             }
         }
         assertThat(seedRequest).isNotNull();
