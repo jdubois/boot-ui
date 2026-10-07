@@ -2,19 +2,12 @@
 import {inject} from 'vue'
 import {formatNumber} from '../../utils/format.js'
 
-// The declared routes no request of this run reached. Every layout of Runtime Insights renders this same body.
-defineProps({
-  /** Leaves out the one-line explanation, for a layout whose heading already gives it. */
-  hideIntro: {type: Boolean, default: false}
-})
-
+// The declared routes no request of this run reached. The panel owns the report and provides it.
 const ctx = inject('runtimeInsights')
 </script>
 
 <template>
-  <p v-if="!hideIntro" class="small text-muted mb-2">
-    Declared routes no request of this run reached, so nothing above speaks for them.
-  </p>
+  <p class="small text-muted mb-2">Declared routes no request of this run reached, so no finding speaks for them.</p>
   <ul class="list-unstyled small mb-0 insight-not-exercised-list">
     <li v-for="declared in ctx.report.notExercised" :key="declared">
       <code class="bootui-break-anywhere">{{ declared }}</code>

@@ -2,18 +2,13 @@
 import {inject} from 'vue'
 import {formatNumber} from '../../utils/format.js'
 
-// How this run's retained events are linked to their request, and by which source. Every layout of Runtime Insights
-// renders this same body; the panel owns the state and provides it.
-defineProps({
-  /** Leaves out the run's one-line window, for a layout that already states it. */
-  hideWindow: {type: Boolean, default: false}
-})
-
+// The run's window and how its retained events are linked to their request, and by which source. The panel owns the
+// state and provides it.
 const ctx = inject('runtimeInsights')
 </script>
 
 <template>
-  <p v-if="!hideWindow" class="mb-2 small insight-window-text">
+  <p class="mb-2 small insight-window-text">
     <span class="fw-semibold">This run</span>
     <span class="text-muted"> · {{ ctx.windowText }}</span>
   </p>

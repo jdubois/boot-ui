@@ -5,15 +5,8 @@ import {isListed, isMachineColumn} from '../../utils/runtimeInsights.js'
 import AiExportPreview from './AiExportPreview.vue'
 import InsightText from './InsightText.vue'
 
-// The open observation of Runtime Insights: its sentence, what to check, exemplar requests, evidence, and limits. Every
-// layout of the panel renders this same body; the panel owns the state and provides it.
-defineProps({
-  /** Id of the sentence, which names the region that holds this body. */
-  sentenceId: {type: String, default: 'insight-sentence'},
-  /** Heading tag of the body's sections, below the region's own heading. */
-  headingTag: {type: String, default: 'h3'}
-})
-
+// The open observation of Runtime Insights: its sentence, what to check, exemplar requests, evidence, and limits. The
+// panel owns the state and provides it; its sentence names the region that holds this body.
 const ctx = inject('runtimeInsights')
 </script>
 
@@ -27,7 +20,7 @@ const ctx = inject('runtimeInsights')
     @close="ctx.aiExport = null"
   />
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
-    <p :id="sentenceId" class="insight-sentence mb-2"><InsightText :text="ctx.selected.sentence" /></p>
+    <p id="insight-sentence" class="insight-sentence mb-2"><InsightText :text="ctx.selected.sentence" /></p>
     <button
       v-if="!ctx.aiExport"
       type="button"
@@ -57,13 +50,13 @@ const ctx = inject('runtimeInsights')
     {{ ctx.statusLabel(ctx.selected.status) }}
   </p>
 
-  <component :is="headingTag" class="h6">What to check</component>
+  <h3 class="h6">What to check</h3>
   <ol class="small mb-3 insight-checks">
     <li v-for="check in ctx.selected.whatToCheck" :key="check"><InsightText :text="check" /></li>
   </ol>
 
   <template v-if="ctx.selected.exemplarRequestIds.length">
-    <component :is="headingTag" class="h6">Open a request</component>
+    <h3 class="h6">Open a request</h3>
     <ul class="list-inline small mb-3">
       <li v-for="requestId in ctx.selected.exemplarRequestIds" :key="requestId" class="list-inline-item">
         <router-link :to="{path: '/activity', query: {request: requestId}}">
@@ -73,7 +66,7 @@ const ctx = inject('runtimeInsights')
     </ul>
   </template>
 
-  <component :is="headingTag" class="h6">Evidence</component>
+  <h3 class="h6">Evidence</h3>
   <div v-if="ctx.detailLoading" class="small text-muted mb-3" role="status">Loading evidence…</div>
   <div v-else-if="ctx.detailError" class="alert alert-warning small py-2">{{ ctx.detailError }}</div>
   <div v-else-if="ctx.detail && !ctx.detail.available" class="small text-muted mb-3">
@@ -136,7 +129,7 @@ const ctx = inject('runtimeInsights')
   </template>
 
   <template v-if="ctx.selected.limitations.length">
-    <component :is="headingTag" class="h6">Limits</component>
+    <h3 class="h6">Limits</h3>
     <ul class="small text-muted mb-0">
       <li v-for="limitation in ctx.selected.limitations" :key="limitation">
         <InsightText :text="limitation" />
