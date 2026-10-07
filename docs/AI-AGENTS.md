@@ -722,10 +722,10 @@ compatibility rules describe:
   other call, including every refusal and a call without a token, stays a single JSON response, and a legacy request's
   `progressToken` is ignored.
 - **Cancellation by closing the stream.** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
-  BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and
-  frees the concurrency slot when the tool returns. WebFlux notices the disconnect at once; Spring MVC and Quarkus
-  notice it when a write fails, within two keep-alive intervals (about 4 seconds). `bootui.mcp.execution-timeout` stays the absolute bound,
-  whatever progress flows: a timed-out stream ends with the timeout error as its final response.
+  BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and frees
+  the concurrency slot when the tool returns. WebFlux notices the disconnect at once; Spring MVC and Quarkus notice it
+  when a write fails, within two keep-alive intervals (about 4 seconds). `bootui.mcp.execution-timeout` stays the
+  absolute bound, whatever progress flows: a timed-out stream ends with the timeout error as its final response.
 
 ## Assess an application and approve an action plan
 
