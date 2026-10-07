@@ -1,5 +1,5 @@
 # The tools the bootui CLI 1.20.0 (the last 1.x release) bundles, from its bootui-tools.json:
-# name, schema, action, and stacks. A 2.x application must keep serving each of them unchanged.
+# name, schema, action, and stacks. A 2.x application must keep serving each of them compatibly.
 get_live_activity	LIMIT	false	QUARKUS,SPRING_MVC,SPRING_WEBFLUX
 get_ai_overview	NONE	false	QUARKUS,SPRING_MVC,SPRING_WEBFLUX
 get_architecture_report	NONE	false	QUARKUS,SPRING_MVC,SPRING_WEBFLUX
