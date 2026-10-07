@@ -484,6 +484,17 @@ class QuarkusAppMetadataCollectorTest {
         var registration = processor.registerBeans();
         processor.registerSyntheticInjectionPoints(registration);
         processor.registerSyntheticObservers();
+        try {
+            processor
+                    .getBeanDeployment()
+                    .getClass()
+                    .getMethod("initBeanByTypeMap")
+                    .invoke(processor.getBeanDeployment());
+        } catch (NoSuchMethodException ignored) {
+            // Quarkus 3.40+ initializes the lookup map during bean registration.
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot initialize Arc bean lookup", e);
+        }
         processor.initialize(ignored -> {}, List.of());
         var context = processor.validate(ignored -> {});
         processor.processValidationErrors(context);
