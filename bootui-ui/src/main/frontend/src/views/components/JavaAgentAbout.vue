@@ -12,7 +12,14 @@ const FEATURES = [
     'Caught exceptions',
     'What became of the exceptions your code catches, in the Exceptions panel, with its opt-in sensor.'
   ],
-  ['Thread pools', 'Tasks a request hands to an executor stay linked to that request in Live Activity.'],
+  [
+    'Thread pools',
+    'Work a request hands to an executor stays its own: Live Activity nests those tasks under the request, and the request profile lists them, with their SQL and calls, under Handoffs.'
+  ],
+  [
+    'Vulnerabilities',
+    'Whether each dependency’s jar, and any class an advisory names, loaded in this run (Runtime reach).'
+  ],
   [
     'Runtime Insights',
     'Findings such as work still running after the response or changed code that has not run yet, and a run comparison that lists your code changes and new calls outside the JVM.'
@@ -33,11 +40,11 @@ const FEATURES = [
           they do, without a change to your source code.
         </p>
         <p class="mb-0">
-          The BootUI agent does nothing on its own. When BootUI, inside this application, claims it, the agent adds
-          small hooks, called sensors, to the classes they watch: your own beans, the JDK's thread pools, and the calls
-          that leave the JVM. Like the rest of BootUI it stays on this machine and sends nothing anywhere. It records
-          metadata, such as method names, timings, and the hosts and files your code reaches, not the data your code
-          handles.
+          The BootUI agent does nothing on its own. BootUI’s starter or extension claims it automatically when this
+          application starts, with no extra configuration. The agent then installs sensors, sets of small hooks, in the
+          classes they watch: your application’s classes, the JDK’s thread pools, and the calls that leave the JVM. The
+          agent stays on this machine and sends nothing anywhere. It records metadata, such as method names, timings,
+          and the hosts and files your code reaches, not the data your code handles.
         </p>
       </div>
 
@@ -54,7 +61,7 @@ const FEATURES = [
         <div class="col-lg-5">
           <h4 class="java-agent-about__subhead">Without it</h4>
           <p class="java-agent-about__prose small">
-            Every other panel works the same. Beans, configuration, HTTP exchanges, SQL, logs, and most Runtime Insights
+            The other panels work without it. Beans, configuration, HTTP exchanges, SQL, logs, and most Runtime Insights
             findings come from the framework, not from the agent.
           </p>
           <h4 class="java-agent-about__subhead">Cost and safety</h4>

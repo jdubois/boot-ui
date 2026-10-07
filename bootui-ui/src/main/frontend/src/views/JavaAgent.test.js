@@ -104,14 +104,25 @@ describe('Java Agent panel', () => {
     expect(steps).toHaveLength(3)
     expect(steps[0].text()).toContain('Download the agent')
     expect(steps[2].text()).toContain('Armed')
+    expect(steps[2].text()).toContain('the status above says why')
 
     const about = wrapper.get('[aria-labelledby="java-agent-about-title"]')
     expect(about.text()).toContain('A Java agent is a JAR the JVM loads at start-up')
     expect(about.text()).toContain('does nothing on its own')
-    for (const feature of ['Code Inventory', 'Code Paths', 'Side Effects', 'Caught exceptions', 'Runtime Insights']) {
+    for (const feature of [
+      'Code Inventory',
+      'Code Paths',
+      'Side Effects',
+      'Caught exceptions',
+      'Thread pools',
+      'Vulnerabilities',
+      'Runtime Insights'
+    ]) {
       expect(about.findAll('dt').map((term) => term.text())).toContain(feature)
     }
-    expect(about.text()).toContain('Every other panel works the same')
+    expect(about.text()).toContain('claims it automatically when this application starts')
+    expect(about.text()).toContain('The other panels work without it')
+    expect(about.text()).not.toContain('Every other panel')
     expect(about.text()).toContain('overhead budget of 10%')
 
     const text = wrapper.text()

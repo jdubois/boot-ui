@@ -73,7 +73,10 @@ function languageLabel(language) {
               Add the <code>-javaagent</code> option where you start the application: pick the tab for your build tool
               or IDE, and copy it.
             </li>
-            <li>Restart the application. This panel then shows <strong>Armed</strong>.</li>
+            <li>
+              Restart the application. BootUI claims the agent and this panel shows <strong>Armed</strong>; if it
+              doesn’t, the status above says why.
+            </li>
           </ol>
           <dl class="row small mb-0">
             <dt class="col-sm-4 text-muted fw-normal">Agent jar</dt>
