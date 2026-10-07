@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
+  RabbitMQ metadata test fixture compatible with the managed SmallRye API.
+
 ## [1.20.0] - 2026-10-05
 
 BootUI 1.20.0 makes request evidence easier to hand to agents and easier to trust in the UI. It adds richer request
