@@ -235,8 +235,11 @@ class BootUiMcpServiceTests {
         assertThat(toolsArray.get(0).path("name").asString()).isEqualTo("get_overview");
         assertThat(toolsArray.get(0).path("inputSchema").path("type").asString())
                 .isEqualTo("object");
-        assertThat(toolsArray.get(0).path("outputSchema").path("description").asString())
-                .contains("get_overview");
+        // The output schema says only that the result is an object: a per-tool placeholder sentence cost every
+        // client about 9 KB of tools/list for no information.
+        assertThat(toolsArray.get(0).path("outputSchema").path("type").asString())
+                .isEqualTo("object");
+        assertThat(toolsArray.get(0).path("outputSchema").has("description")).isFalse();
     }
 
     @Test

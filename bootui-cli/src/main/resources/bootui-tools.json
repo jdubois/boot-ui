@@ -3,7 +3,7 @@
     {
       "name": "get_live_activity",
       "command": "activity",
-      "schema": "LIMIT",
+      "schema": "QUERY_LIMIT",
       "panel": "activity",
       "action": false,
       "stacks": [
@@ -12,12 +12,13 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Newest events and entry ids only.",
-      "example": "bootui activity --limit 20"
+      "example": "bootui activity --query SQL --limit 20",
+      "queryHelp": "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method"
     },
     {
       "name": "get_agent_status",
       "command": "agent status",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "java-agent",
       "action": false,
       "stacks": [
@@ -26,7 +27,8 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it.",
-      "example": "bootui agent status"
+      "example": "bootui agent status --query executors",
+      "queryHelp": "a sensor id, such as executors, for its hooks and self-test steps"
     },
     {
       "name": "get_ai_overview",
@@ -689,7 +691,7 @@
     {
       "name": "get_log_tail",
       "command": "logs tail",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "log-tail",
       "action": false,
       "stacks": [
@@ -698,7 +700,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the latest buffered application log snapshot.",
-      "example": "bootui logs tail"
+      "example": "bootui logs tail --query WARN"
     },
     {
       "name": "get_emails",
@@ -1141,7 +1143,7 @@
     {
       "name": "get_claude_code_sessions",
       "command": "sessions claude",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "claude-code",
       "action": false,
       "stacks": [
@@ -1150,12 +1152,12 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files.",
-      "example": "bootui sessions claude"
+      "example": "bootui sessions claude --limit 5"
     },
     {
       "name": "get_copilot_sessions",
       "command": "sessions copilot",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "copilot",
       "action": false,
       "stacks": [
@@ -1164,7 +1166,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files.",
-      "example": "bootui sessions copilot"
+      "example": "bootui sessions copilot --limit 5"
     },
     {
       "name": "get_side_effects",
@@ -1268,7 +1270,7 @@
     {
       "name": "get_sql_traces",
       "command": "sql traces",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "sql-trace",
       "action": false,
       "stacks": [
@@ -1277,12 +1279,12 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded SQL trace snapshot with statements and timings.",
-      "example": "bootui sql traces"
+      "example": "bootui sql traces --query orders"
     },
     {
       "name": "get_startup_timeline",
       "command": "startup",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "startup",
       "action": false,
       "stacks": [
@@ -1290,7 +1292,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the captured Spring startup-step timeline after filtering BootUI's own steps.",
-      "example": "bootui startup"
+      "example": "bootui startup --limit 10"
     },
     {
       "name": "get_threads",
@@ -1389,7 +1391,7 @@
     {
       "name": "get_vulnerabilities_report",
       "command": "vulnerabilities report",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "vulnerabilities",
       "action": false,
       "stacks": [
@@ -1398,7 +1400,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service.",
-      "example": "bootui vulnerabilities report"
+      "example": "bootui vulnerabilities report --query CRITICAL"
     },
     {
       "name": "vulnerabilities_scan",

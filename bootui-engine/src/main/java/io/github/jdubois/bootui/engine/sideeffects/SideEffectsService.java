@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -869,12 +870,13 @@ public final class SideEffectsService implements AutoCloseable {
         int max = limit == null || limit <= 0 ? SideEffectsAgentReport.DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         AgentEvidence.Read read = read();
         SideEffectsReport report = report(read);
+        boolean bySensor = SideEffectsCatalog.sensor(asked) != null;
+        List<SideEffectsSensorDto> sensors = agentSensors(report.sensors(), bySensor ? asked : null);
         if (!report.available()) {
             return new SideEffectsAgentReport(
-                    false, report.unavailableReason(), asked, report.sensors(), 0, List.of(), 0, List.of());
+                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of());
         }
         String needle = asked.toLowerCase(Locale.ROOT);
-        boolean bySensor = SideEffectsCatalog.sensor(asked) != null;
         List<SideEffectsRowDto> matching = new ArrayList<>();
         Run current = settledRun();
         if (current != null) {
@@ -896,7 +898,12 @@ public final class SideEffectsService implements AutoCloseable {
         matching.sort(Comparator.comparingLong((SideEffectsRowDto row) -> row.count() + row.completed())
                 .reversed());
         List<SideEffectsRowDto> listed = matching.subList(0, Math.min(max, matching.size()));
-        List<String> limitations = new ArrayList<>(report.limitations());
+        Set<String> shown = new HashSet<>();
+        listed.forEach(row -> shown.add(row.sensor()));
+        if (bySensor) {
+            shown.add(asked);
+        }
+        List<String> limitations = agentLimitations(report.limitations(), shown);
         if (matching.isEmpty() && !needle.isEmpty()) {
             limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them.");
         }
@@ -904,11 +911,79 @@ public final class SideEffectsService implements AutoCloseable {
                 true,
                 null,
                 asked,
-                report.sensors(),
+                sensors,
                 matching.size(),
                 List.copyOf(listed),
                 matching.size() - listed.size(),
                 limitations);
+    }
+
+    /** The sensors whose rows each fixed limitation describes; the others apply to every row. */
+    private static final Map<String, Set<String>> LIMITATION_SENSORS = Map.of(
+            LIMITATION_VALUES,
+            Set.of(SideEffectsCatalog.PROCESSES_ID, SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID),
+            LIMITATION_NETWORK,
+            Set.of(SideEffectsCatalog.NETWORK_ID),
+            LIMITATION_CAPTURE,
+            Set.of(SideEffectsCatalog.NETWORK_ID),
+            LIMITATION_FILES,
+            Set.of(SideEffectsCatalog.FILES_ID),
+            LIMITATION_ENVIRONMENT,
+            Set.of(SideEffectsCatalog.ENVIRONMENT_ID),
+            LIMITATION_BLOCKING,
+            Set.of(AgentSensorSettings.BLOCKING),
+            LIMITATION_THREADS,
+            Set.of(SideEffectsCatalog.THREAD_ACTIVITY_ID),
+            LIMITATION_THREAD_LOCALS,
+            Set.of(SideEffectsCatalog.THREAD_LOCALS_ID));
+
+    static final String LIMITATION_AGENT_OMITTED =
+            "What the rows of a sensor without listed rows cannot see is left" + " out: query its id for it.";
+
+    /**
+     * The limitations for an agent: those of this run and those every row shares, and the fixed description of what a
+     * sensor's rows cannot see only for the sensors in {@code shown}, whose rows are listed or which the query named.
+     */
+    static List<String> agentLimitations(List<String> limitations, Set<String> shown) {
+        List<String> kept = new ArrayList<>(limitations.size());
+        boolean omitted = false;
+        for (String limitation : limitations) {
+            Set<String> sensors = LIMITATION_SENSORS.get(limitation);
+            if (sensors == null || sensors.stream().anyMatch(shown::contains)) {
+                kept.add(limitation);
+            } else {
+                omitted = true;
+            }
+        }
+        if (omitted) {
+            kept.add(LIMITATION_AGENT_OMITTED);
+        }
+        return kept;
+    }
+
+    /**
+     * The sensors for an agent, summary first: each one's state, reason, counters, and runtime switch, and its hooks
+     * only for {@code detailed}, the sensor a query named, or for none.
+     */
+    static List<SideEffectsSensorDto> agentSensors(List<SideEffectsSensorDto> sensors, String detailed) {
+        List<SideEffectsSensorDto> summarized = new ArrayList<>(sensors.size());
+        for (SideEffectsSensorDto sensor : sensors) {
+            summarized.add(
+                    sensor.id().equals(detailed)
+                            ? sensor
+                            : new SideEffectsSensorDto(
+                                    sensor.id(),
+                                    sensor.group(),
+                                    sensor.label(),
+                                    sensor.state(),
+                                    sensor.reason(),
+                                    sensor.rows(),
+                                    sensor.occurrences(),
+                                    sensor.dropped(),
+                                    List.of(),
+                                    sensor.toggle()));
+        }
+        return List.copyOf(summarized);
     }
 
     /** {@code sensor}'s rows of {@code current}, under the lock: the store's, then, for files, its bucket rows. */

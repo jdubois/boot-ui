@@ -36,7 +36,14 @@ public final class McpToolGuide {
     }
 
     private static final Map<String, Map<String, Object>> EXAMPLES = Map.ofEntries(
-            Map.entry("get_live_activity", args("limit", 20)),
+            Map.entry("get_live_activity", args("query", "SQL", "limit", 20)),
+            Map.entry("get_sql_traces", args("query", "orders")),
+            Map.entry("get_startup_timeline", args("limit", 10)),
+            Map.entry("get_log_tail", args("query", "WARN")),
+            Map.entry("get_copilot_sessions", args("limit", 5)),
+            Map.entry("get_claude_code_sessions", args("limit", 5)),
+            Map.entry("get_vulnerabilities_report", args("query", "CRITICAL")),
+            Map.entry("get_agent_status", args("query", "executors")),
             Map.entry("get_security_logs", args("limit", 20)),
             Map.entry("get_traces", args("limit", 20)),
             Map.entry("get_http_exchanges", args("limit", 20)),
@@ -98,6 +105,11 @@ public final class McpToolGuide {
             Map.entry("get_database_advisor_rule_violations", ruleSource("get_database_advisor_report")));
 
     private static final Map<String, String> QUERY_WORDS = Map.of(
+            "get_live_activity",
+            "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the"
+                    + " summary, detail, path, or method",
+            "get_agent_status",
+            "a sensor id, such as executors, for its hooks and self-test steps",
             "get_runtime_insights",
             "empty (the default list), all (every observation), new, security, diff, latency, an observation kind"
                     + " such as repeated-selects, or a route, table, bean, or class",

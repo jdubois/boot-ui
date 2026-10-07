@@ -365,6 +365,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
+  when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
+  report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
+  conditions, which now pages both outcomes together. `get_config` drops the browser's property suggestions, agent status and Side Effects
+  summarize sensors until a query names one, and `tools/list` is smaller. A 1.x CLI keeps working
+  ([Agent-sized defaults](docs/AI-AGENTS.md#agent-sized-defaults)).
+
 - **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check, how many come
   from externally validated checks, and how many the default list leaves out. Findings are one list filtered by theme,
   whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check

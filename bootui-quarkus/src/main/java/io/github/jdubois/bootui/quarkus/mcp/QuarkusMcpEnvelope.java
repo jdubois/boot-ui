@@ -263,7 +263,6 @@ public class QuarkusMcpEnvelope {
             node.set("inputSchema", schema(tool.schema()));
             ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
             outputSchema.put("type", tool.outputSchemaType());
-            outputSchema.put("description", tool.outputSchemaDescription());
             node.set("outputSchema", outputSchema);
             array.add(node);
         }

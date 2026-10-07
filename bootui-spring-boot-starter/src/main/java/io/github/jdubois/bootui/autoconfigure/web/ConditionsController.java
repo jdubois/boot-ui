@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.ConditionCounts;
 import io.github.jdubois.bootui.core.dto.ConditionEntry;
 import io.github.jdubois.bootui.core.dto.ConditionsReport;
-import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -120,26 +119,42 @@ public class ConditionsController {
                 unconditional.size(),
                 exclusions.size());
 
+        // The class lists carry no outcome: a query narrows them in every view, and their counts stay totals.
+        List<String> unconditionalShown = unconditional.stream()
+                .filter(name -> PagedList.contains(name, normalizedQuery))
+                .toList();
+        List<String> exclusionsShown = exclusions.stream()
+                .filter(name -> PagedList.contains(name, normalizedQuery))
+                .toList();
+
         String normalizedOutcome = PagedList.normalize(outcome);
         if ("positive".equals(normalizedOutcome)) {
             PagedList.Result<ConditionEntry> page =
                     PagedList.from(positive, entry -> matchesQuery(entry, normalizedQuery), offset, limit);
-            return new ConditionsReport(page.items(), List.of(), unconditional, exclusions, page.page(), counts);
+            return new ConditionsReport(
+                    page.items(), List.of(), unconditionalShown, exclusionsShown, page.page(), counts);
         }
         if ("negative".equals(normalizedOutcome)) {
             PagedList.Result<ConditionEntry> page =
                     PagedList.from(negative, entry -> matchesQuery(entry, normalizedQuery), offset, limit);
-            return new ConditionsReport(List.of(), page.items(), unconditional, exclusions, page.page(), counts);
+            return new ConditionsReport(
+                    List.of(), page.items(), unconditionalShown, exclusionsShown, page.page(), counts);
         }
 
-        PageMetadata page = new PageMetadata(
-                positive.size() + negative.size(),
-                positiveFiltered.size() + negativeFiltered.size(),
-                0,
-                positiveFiltered.size() + negativeFiltered.size(),
-                positiveFiltered.size() + negativeFiltered.size(),
-                false);
-        return new ConditionsReport(positiveFiltered, negativeFiltered, unconditional, exclusions, page, counts);
+        // Both outcomes: one page over the positive matches, then the negative ones.
+        List<ConditionEntry> both = new ArrayList<>(positive.size() + negative.size());
+        both.addAll(positive);
+        both.addAll(negative);
+        PagedList.Result<ConditionEntry> page =
+                PagedList.from(both, entry -> matchesQuery(entry, normalizedQuery), offset, limit);
+        List<ConditionEntry> positivePage = new ArrayList<>();
+        List<ConditionEntry> negativePage = new ArrayList<>();
+        for (int i = 0; i < page.items().size(); i++) {
+            boolean matchedPositive = page.page().offset() + i < positiveFiltered.size();
+            (matchedPositive ? positivePage : negativePage).add(page.items().get(i));
+        }
+        return new ConditionsReport(
+                positivePage, negativePage, unconditionalShown, exclusionsShown, page.page(), counts);
     }
 
     private Comparator<ConditionEntry> conditionComparator() {

@@ -35,6 +35,38 @@ class McpToolCatalogTests {
     }
 
     @Test
+    void largeReadsAreAgentSizedOnTheExistingQueryLimitSchema() {
+        // Widened from NONE (LIMIT for live activity): a 1.x CLI still sends only the arguments its manifest knows,
+        // and every one of them is still accepted, so it keeps working and gets the short default page.
+        for (String name : List.of(
+                "get_sql_traces",
+                "get_startup_timeline",
+                "get_log_tail",
+                "get_copilot_sessions",
+                "get_claude_code_sessions",
+                "get_vulnerabilities_report",
+                "get_live_activity",
+                "get_agent_status")) {
+            McpToolCatalog.Entry entry = McpToolCatalog.byName(name).orElseThrow();
+            assertThat(entry.schema()).as(name).isEqualTo(McpToolSchema.QUERY_LIMIT);
+            assertThat(entry.action()).as(name).isFalse();
+        }
+        assertThat(McpToolCatalog.defaultLimit("get_sql_traces")).isEqualTo(20);
+        assertThat(McpToolCatalog.defaultLimit("get_startup_timeline")).isEqualTo(25);
+        assertThat(McpToolCatalog.defaultLimit("get_log_tail")).isEqualTo(50);
+        assertThat(McpToolCatalog.defaultLimit("get_copilot_sessions")).isEqualTo(10);
+        assertThat(McpToolCatalog.defaultLimit("get_claude_code_sessions")).isEqualTo(10);
+        assertThat(McpToolCatalog.defaultLimit("get_vulnerabilities_report")).isEqualTo(10);
+        assertThat(McpToolCatalog.defaultLimit("get_live_activity")).isEqualTo(25);
+        for (String inventory : List.of(
+                "get_http_exchanges", "get_beans", "get_metrics", "get_conditions", "get_config", "get_threads")) {
+            assertThat(McpToolCatalog.defaultLimit(inventory)).as(inventory).isEqualTo(25);
+        }
+        // Agent status lists every sensor: the summary is small, and a query narrows it to one sensor's hooks.
+        assertThat(McpToolCatalog.defaultLimit("get_agent_status")).isNull();
+    }
+
+    @Test
     void codeInventoryIsAReadOnTheExistingQueryLimitSchemaOnEveryStackWithACompactDefault() {
         McpToolCatalog.Entry inventory =
                 McpToolCatalog.byName("get_code_inventory").orElseThrow();

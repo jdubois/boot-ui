@@ -632,6 +632,31 @@ property source enumerates under that literal name. Values are matched literally
 name and source its property source published. See the [Configuration panel](features/configuration.md#configuration)
 for the panel-side behavior.
 
+### Agent-sized defaults
+
+An agent pays for every byte it reads, so the reads below answer with a short first page when the call gives no
+`limit`, and keep the full payload for the browser. Each takes a `query` and carries the `page` envelope above:
+`hasMore: true` means rows were left out, so narrow the query or raise `limit` (still capped by `max-results`).
+
+| Tool (command) | Default | `query` matches |
+| --- | --- | --- |
+| `get_sql_traces` (`bootui sql traces`) | 20 newest statements | SQL text, category, call site, error, request, trace, or execution id |
+| `get_startup_timeline` (`bootui startup`) | 25 slowest steps; a parent includes its children | Step name or tag value, such as a bean name |
+| `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
+| `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions | Id, model, working directory, status, or last activity |
+| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first | Coordinates, severity, or an advisory id or alias |
+| `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
+| `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
+
+Totals such as the vulnerabilities report's `total` and `vulnerable` still count the whole report. Live Activity keeps
+its own shape: `typeCounts` counts every retained entry by type, and `pageInfo.hasMore` says whether more entries
+matched. `get_config` leaves
+out `propertySuggestions`, the browser's completion list of every known property. `get_agent_status` and
+`get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks, and Side Effects
+lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
+`executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
+options, keeps working and gets the same first page.
+
 ### Safety model
 
 The MCP server inherits BootUI's full safety posture, so handing it to an agent stays safe by construction:

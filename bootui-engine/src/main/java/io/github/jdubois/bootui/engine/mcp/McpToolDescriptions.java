@@ -36,7 +36,10 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_live_activity",
                     "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test "
-                            + "run did not exercise, call get_runtime_insights or get_runtime_run_comparison first."),
+                            + "run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit "
+                            + "(25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity "
+                            + "(SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; "
+                            + "pageInfo.hasMore means more entries matched, and typeCounts counts every retained entry."),
             Map.entry(
                     "get_runtime_insights",
                     "Return what this run did that no single panel shows, compacted: coverage first, the checks that "
@@ -111,7 +114,9 @@ public final class McpToolDescriptions {
                     "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may "
                             + "contain sensitive values; correlate it locally with request or trace identifiers. "
                             + "The retention object reports capacity and retained, reserved, and evicted counts: "
-                            + "failed and slow statements are kept longer, so the window is not complete."),
+                            + "failed and slow statements are kept longer, so the window is not complete. At most limit (20) "
+                            + "newest entries matching query (SQL text, category, call site, error, or request, trace, "
+                            + "or execution id); page.hasMore means narrow the query or raise limit."),
             Map.entry(
                     "get_transactions",
                     "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
@@ -126,13 +131,15 @@ public final class McpToolDescriptions {
                     "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: "
                             + "secret-like assignments are masked by default and messages are omitted under "
                             + "METADATA_ONLY, but other sensitive text may remain; use them only in the local "
-                            + "diagnostic context."),
+                            + "diagnostic context. At most limit (50) newest lines matching query (level, logger, thread, or "
+                            + "message); page.hasMore means more lines matched."),
             Map.entry(
                     "get_http_exchanges",
                     "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate "
                             + "paths, statuses, and timings with live activity and traces. The retention object "
                             + "reports capacity and retained, reserved, and evicted counts: 5xx and slow exchanges "
-                            + "are kept longer, so the window is not complete."),
+                            + "are kept longer, so the window is not complete. At most limit (25) exchanges; page.hasMore means "
+                            + "more were retained."),
             Map.entry(
                     "get_http_routes",
                     "Return route performance rankings over the retained HTTP exchanges: per method and route "
@@ -155,7 +162,8 @@ public final class McpToolDescriptions {
                             + "In `page`, `total` counts every property before filtering while `matched` counts the "
                             + "query hits, so `matched: 0` means this query found nothing, not that the property is "
                             + "absent — retry with a shorter query before concluding it is unset. Secret-like "
-                            + "configuration values are masked; prefer a narrow query."),
+                            + "configuration values are masked; prefer a narrow query. At most limit (25) properties; "
+                            + "propertySuggestions, the browser's completion list, is always empty here."),
             Map.entry(
                     "get_mappings",
                     "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler "
@@ -268,11 +276,14 @@ public final class McpToolDescriptions {
                             + "inventory provider's accounting, not shaded-library discovery or exploitability. With the "
                             + "BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory "
                             + "names, loaded in this JVM: a prioritization hint that never changes severity, and "
-                            + "NOT_LOADED means not loaded yet, not unreachable."),
+                            + "NOT_LOADED means not loaded yet, not unreachable. At most limit (10) dependencies, vulnerable "
+                            + "first, matching query (coordinates, severity, or an advisory id or alias); totals stay "
+                            + "whole-report counts and page.matched counts the query hits."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "
-                            + "Use a narrow metric-name query when diagnosing one runtime signal."),
+                            + "Use a narrow metric-name query when diagnosing one runtime signal. At most limit (25) meters; "
+                            + "page.hasMore means more matched."),
             Map.entry(
                     "get_live_memory",
                     "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and "
@@ -282,7 +293,8 @@ public final class McpToolDescriptions {
                     "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, "
                             + "DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, "
                             + "sensors, and setup snippets that attach it. This read never claims, installs, or "
-                            + "changes the agent."),
+                            + "changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such "
+                            + "as executors, to list only matching sensors with their hooks and self-test steps."),
             Map.entry(
                     "get_code_inventory",
                     "Return Code Inventory: did the code changed since the previous run execute in this run? "
@@ -340,7 +352,9 @@ public final class McpToolDescriptions {
                             + "and the thread locals a request or a job left set on its pooled thread (thread-locals). "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
-                            + "coverage (recording, not-claimed, not-available in this version, ...), then at most limit "
+                            + "coverage (recording, not-claimed, not-available in this version, ...), without its hooks "
+                            + "or, when none of its rows is listed, its fixed limitations unless query names that sensor, "
+                            + "then at most limit "
                             + "(20) rows, most frequent first, matching query: a sensor id such as processes, network, "
                             + "files, or blocking, 'not captured' for hidden outbound calls, or part of a route, target, client, or "
                             + "call site. A row is attributed to a request's route, work no request owns, startup, or a "
@@ -371,7 +385,8 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_threads",
                     "Search the current JVM thread snapshot and return a bounded page of thread states and stack "
-                            + "summaries. This does not generate or download the raw thread-dump artifact."),
+                            + "summaries. This does not generate or download the raw thread-dump artifact. At most limit (25) "
+                            + "threads; page.hasMore means more matched."),
             Map.entry(
                     "get_profile_diff",
                     "Return the current active-profile configuration comparison using masked local configuration data. "
@@ -417,11 +432,15 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_copilot_sessions",
                     "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files. "
-                            + "Raw prompts, tool arguments, command output, diffs, and network calls are excluded."),
+                            + "Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At "
+                            + "most limit (10) sessions matching query (id, model, working directory, status, or last "
+                            + "activity)."),
             Map.entry(
                     "get_claude_code_sessions",
                     "Return the bounded, sanitized Claude Code session inventory already parsed from local session files. "
-                            + "Raw prompts, tool arguments, command output, diffs, and network calls are excluded."),
+                            + "Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At "
+                            + "most limit (10) sessions matching query (id, model, working directory, status, or last "
+                            + "activity)."),
             Map.entry(
                     "clear_sql_traces",
                     "Clear the bounded in-memory SQL trace buffer and return the resulting report. This does not execute "
@@ -497,17 +516,22 @@ public final class McpToolDescriptions {
                         + "from an unhealthy application.";
             case "get_beans" ->
                 "Search Spring beans by name or type and return a bounded result. Use this to verify runtime wiring, "
-                        + "not as proof that a bean is exercised.";
+                        + "not as proof that a bean is exercised. At most limit (25) beans; page.hasMore means more "
+                        + "matched.";
             case "get_conditions" ->
                 "Search Spring auto-configuration condition evaluation outcomes by case-insensitive name and return "
                         + "matched, unmatched, and unconditional entries. Use to confirm why a bean or auto-configuration "
-                        + "was or was not applied, rather than guessing from source.";
+                        + "was or was not applied, rather than guessing from source. At most limit (25) entries, "
+                        + "positive matches then negative ones; query also narrows unconditionalClasses and "
+                        + "exclusions, whose counts stay totals.";
             case "get_http_sessions" ->
                 "Return the bounded active embedded-Tomcat HTTP-session inventory without creating, clearing, or "
                         + "invalidating a session. Attribute values remain masked by the panel contract.";
             case "get_startup_timeline" ->
                 "Return the captured Spring startup-step timeline after filtering BootUI's own steps. This passive read "
-                        + "does not restart the application or start a new recording.";
+                        + "does not restart the application or start a new recording. At most limit (25) slowest "
+                        + "steps first (a parent includes its children) matching query (a step name or tag value, such "
+                        + "as a bean name).";
             case "get_spring_data_repositories" ->
                 "Return Spring Data repository metadata already computed by the application context. This read never "
                         + "invokes a repository method or executes a database query.";
@@ -560,7 +584,8 @@ public final class McpToolDescriptions {
                         + "from an unhealthy application.";
             case "get_beans" ->
                 "Search Arc/CDI beans by name or type and return a bounded result. Use this to verify runtime wiring, "
-                        + "not as proof that a bean is exercised.";
+                        + "not as proof that a bean is exercised. At most limit (25) beans; page.hasMore means more "
+                        + "matched.";
             case "get_fault_tolerance" ->
                 "Return the SmallRye Fault Tolerance policy inventory declared by application annotations, including "
                         + "effective MicroProfile configuration overrides and live named circuit breaker state, plus a "
@@ -606,6 +631,12 @@ public final class McpToolDescriptions {
                 };
         if (advisor == null) {
             return "";
+        }
+        if (name.endsWith("_scan")) {
+            // The scan answers with the report get_<advisor>_report returns; its guidance is written once, there.
+            return " It answers with the report get_" + advisor + "_report returns: read that tool's description"
+                    + " for sampleViolations, truncated, and paging retained violationDetails with get_" + advisor
+                    + "_rule_violations without scanning again.";
         }
         int sampleLimit = quarkus && (advisor.equals("spring") || advisor.equals("security")) ? 20 : 10;
         return " sampleViolations are bounded previews (up to " + sampleLimit + "), not the full violationCount. "

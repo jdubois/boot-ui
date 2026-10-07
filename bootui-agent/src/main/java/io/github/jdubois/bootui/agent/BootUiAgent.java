@@ -32,9 +32,11 @@ public final class BootUiAgent {
             System.err.println("[BootUI agent] " + message);
             return;
         }
-        String message = "BootUI agent " + version + " attached (" + loadMode + "); dormant until BootUI claims it";
-        AgentBridge.message(message);
-        System.err.println("[BootUI agent] " + message);
+        String attached = "BootUI agent " + version + " attached (" + loadMode + ")";
+        // The status keeps this message after BootUI claims and arms the agent, so it states only the event; the
+        // console line, read at startup, also says what the agent does until then.
+        AgentBridge.message(attached);
+        System.err.println("[BootUI agent] " + attached + "; dormant until BootUI claims it");
     }
 
     /** The test hook from the test variant of the jar; the published jar has none. */
