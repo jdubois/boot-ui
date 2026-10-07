@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.progress;
 
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -20,7 +21,7 @@ public final class OperationProgress {
     /** No progress listener; cancelled only by thread interruption. */
     public static final OperationProgress NONE = new OperationProgress(null);
 
-    private static final ThreadLocal<OperationProgress> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<OperationProgress> CURRENT = new BootUiThreadLocal<>();
 
     private final ProgressListener listener;
     private final AtomicBoolean cancelled = new AtomicBoolean();
