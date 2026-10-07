@@ -2364,8 +2364,8 @@ class BootUiQuarkusProcessor {
             excludedTypes.produce(new ExcludedTypeBuildItem(REST_CLIENT_TRACE_LISTENER_CLASS));
             return;
         }
-        generatedServiceProviders.produce(new GeneratedServiceProviderBuildItem(
-                REST_CLIENT_LISTENER_SERVICE, REST_CLIENT_TRACE_LISTENER_CLASS));
+        generatedServiceProviders.produce(
+                new GeneratedServiceProviderBuildItem(REST_CLIENT_LISTENER_SERVICE, REST_CLIENT_TRACE_LISTENER_CLASS));
     }
 
     /**
