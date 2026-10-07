@@ -148,6 +148,24 @@ class ThreadLocalsSideEffectsTests {
     }
 
     @Test
+    void aReusedRegistrySlotReplacesWhatItNamedAndTheCachesStayBounded() {
+        Map<Integer, SideEffectsService.Named<String>> cache = new java.util.HashMap<>();
+        SideEffectsService.remember(cache, 7, 111, "first");
+        SideEffectsService.remember(cache, 7, 222, "reused");
+
+        assertThat(cache).hasSize(1);
+        assertThat(SideEffectsService.Named.of(cache.get(7), 111)).isNull();
+        assertThat(SideEffectsService.Named.of(cache.get(7), 222)).isEqualTo("reused");
+
+        for (int id = 1; id <= SideEffectsService.MAX_HOLDERS + 100; id++) {
+            SideEffectsService.remember(cache, id, id, "local-" + id);
+        }
+        assertThat(cache).hasSize(SideEffectsService.MAX_HOLDERS);
+        SideEffectsService.remember(cache, 1, 999, "replaced at the cap");
+        assertThat(SideEffectsService.Named.of(cache.get(1), 999)).isEqualTo("replaced at the cap");
+    }
+
+    @Test
     void decisionsNameTheKindAndKeepSpringSecuritysContext() {
         ThreadLocalHolders.Holder security = ThreadLocalHolders.decide(
                 new String[] {
@@ -189,6 +207,15 @@ class ThreadLocalsSideEffectsTests {
                                 0)
                         .excludedBy())
                 .isEqualTo("ch.qos.logback.classic.util.LogbackMDCAdapter");
+        assertThat(ThreadLocalHolders.decide(
+                                new String[] {
+                                    "io.opentelemetry.api.internal.TemporaryBuffers.CHAR_ARRAY", "false", "false", null
+                                },
+                                "java.lang.ThreadLocal",
+                                0)
+                        .excludedBy())
+                .as("OpenTelemetry's per-thread char buffer, filled on first use")
+                .isEqualTo("io.opentelemetry.api.internal.TemporaryBuffers");
     }
 
     private void leaveSet(ThreadLocal<String> local) {

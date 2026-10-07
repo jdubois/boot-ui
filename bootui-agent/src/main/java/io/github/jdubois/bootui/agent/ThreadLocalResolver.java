@@ -51,6 +51,13 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     /** An index older than this is rebuilt once before a thread local is declared unresolved. */
     static final long STALE_INDEX_MILLIS = 1_000L;
 
+    /**
+     * A rebuild a miss forces walks every loaded class, outside the caller's time budget: at most one every this
+     * long. Meanwhile a miss on a stale index is asked again, and the periodic rebuild answers it within {@value
+     * #INDEX_MILLIS} ms.
+     */
+    static final long FORCED_INDEX_MILLIS = 10_000L;
+
     static final long INVENTORY_MILLIS = 2_000L;
 
     /** The superclasses walked at most for one-level instance fields. */
@@ -67,6 +74,8 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     private final Map<Class<?>, Boolean> initialValues = new WeakHashMap<Class<?>, Boolean>();
     private List<WeakReference<Class<?>>> index = new ArrayList<WeakReference<Class<?>>>();
     private long indexedAt = Long.MIN_VALUE / 2;
+
+    private long forcedAt = Long.MIN_VALUE / 2;
     private String[] indexedPackages;
     private Set<String> executed = new HashSet<String>();
     private long executedAt = Long.MIN_VALUE / 2;
@@ -88,12 +97,14 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
         String[] claimed = packages == null ? new String[0] : packages;
         refreshIndex(claimed, holders, false);
         String[] answer = search(threadLocal, claimed, holders, deadline);
-        if (answer != null && answer[0] == null && System.currentTimeMillis() - indexedAt >= STALE_INDEX_MILLIS) {
-            if (System.nanoTime() >= deadline) {
-                // Never "not resolved" from a stale index: asked again with time to rebuild it.
+        long now = System.currentTimeMillis();
+        if (answer != null && answer[0] == null && now - indexedAt >= STALE_INDEX_MILLIS) {
+            if (System.nanoTime() >= deadline || now - forcedAt < FORCED_INDEX_MILLIS) {
+                // Never "not resolved" from a stale index: asked again with time to rebuild it, or once rebuilt.
                 return null;
             }
             // The holder's class may have loaded since the index was built: rebuilt once, then searched again.
+            forcedAt = now;
             refreshIndex(claimed, holders, true);
             answer = search(threadLocal, claimed, holders, deadline);
         }

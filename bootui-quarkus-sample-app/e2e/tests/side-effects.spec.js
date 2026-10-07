@@ -307,6 +307,16 @@ test.describe('Side Effects view (Quarkus)', () => {
         {timeout: 30_000}
       )
       .toBeGreaterThan(0)
+    // A pooled worker fills the date format at its first cache request: reported once per worker, flagged.
+    const format = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find((row) => row.attribution === 'GET /api/thread-locals/cache' && row.target === format)
+            ?.kind,
+        {timeout: 30_000}
+      )
+      .toBe('left set (with initial value)')
     const rows = await read()
     const leak = rows.find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
     expect(leak.kind).toBe('left set')
@@ -316,10 +326,24 @@ test.describe('Side Effects view (Quarkus)', () => {
     for (const path of ['cleared', 'nulled', 'before']) {
       expect(rows.filter((row) => row.attribution === `GET /api/thread-locals/${path}`)).toEqual([])
     }
-    const cache = rows.find((row) => row.target === 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT')
-    if (cache) expect(cache.kind).toBe('left set (with initial value)')
     expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
     expect(JSON.stringify(rows)).not.toContain('tenant-secret')
+    // The sample's ScheduledTenant, which this leg turns on, leaves its tenant set on the scheduler's worker: a row of
+    // that run, named as the runtime journal names it, with no request.
+    const job = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.JOB'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find(
+            (row) => row.target === job && /^scheduled .*ScheduledTenant[#.]remember$/.test(row.attribution)
+          )?.scope ?? null,
+        {timeout: 60_000}
+      )
+      .toBe('execution')
+    const scheduledLeak = (await read()).find((row) => row.target === job)
+    expect(scheduledLeak.kind).toBe('left set')
+    expect(scheduledLeak.exemplarRequestIds).toEqual([])
+    expect(JSON.stringify(await read())).not.toContain('tenant-secret')
 
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Threads and leaks/}).click()

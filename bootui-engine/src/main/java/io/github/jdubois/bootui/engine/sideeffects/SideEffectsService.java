@@ -119,10 +119,16 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final long HOLDER_WINDOW_MILLIS = 1_000L;
 
-    /** How long a thread local waits for its holder, at most, and how many wait. */
-    static final long HOLDER_WAIT_MILLIS = 10_000L;
+    /**
+     * How long a thread local waits for its holder, at most, and how many wait: longer than the agent's periodic index
+     * rebuild (10 s), which answers a miss its throttled forced rebuild left for later.
+     */
+    static final long HOLDER_WAIT_MILLIS = 15_000L;
 
     static final int MAX_HOLDER_WAITING = 1_024;
+
+    /** The holders and answers a run remembers, one per slot of the bridge's thread-local registry. */
+    static final int MAX_HOLDERS = 1_024;
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -1134,6 +1140,25 @@ public final class SideEffectsService implements AutoCloseable {
         };
     }
 
+    /** What a registry slot named, for the thread local whose hash code it was asked with. */
+    record Named<T>(int hash, T value) {
+
+        /** {@code named}'s value when it names the thread local with {@code hash}; {@code null} for another one. */
+        static <T> T of(Named<T> named, int hash) {
+            return named != null && named.hash() == hash ? named.value() : null;
+        }
+    }
+
+    /**
+     * Remembers {@code value} for registry slot {@code id}, replacing what a slot the bridge reused named before;
+     * nothing more once {@value #MAX_HOLDERS} slots are known, which the bridge's registry never exceeds.
+     */
+    static <T> void remember(Map<Integer, Named<T>> cache, int id, int hash, T value) {
+        if (cache.size() < MAX_HOLDERS || cache.containsKey(id)) {
+            cache.put(id, new Named<>(hash, value));
+        }
+    }
+
     /** One panel, for its visibility only. */
     private record PanelProbe(String panel) implements AgentEvidence.Store {
 
@@ -1659,8 +1684,12 @@ public final class SideEffectsService implements AutoCloseable {
                     + holderWaiting.size() * SideEffectsStore.PENDING_BYTES;
         }
 
-        /** The thread locals' holders this run named, by registry id and hash code: at most the bridge's registry. */
-        final Map<Long, ThreadLocalHolders.Holder> holders = new HashMap<>();
+        /**
+         * The thread locals' holders this run named, by registry id, each with the hash code of the thread local it
+         * named: a slot the bridge reuses for another thread local replaces its entry, so there are at most
+         * {@value #MAX_HOLDERS}.
+         */
+        final Map<Integer, Named<ThreadLocalHolders.Holder>> holders = new HashMap<>();
 
         /** Thread-locals records waiting for the agent's time to name their holder. */
         final java.util.ArrayDeque<WaitingHolder> holderWaiting = new java.util.ArrayDeque<>();
@@ -1668,8 +1697,8 @@ public final class SideEffectsService implements AutoCloseable {
         /** Thread locals dropped, by framework holder or reason, with how often they were left set. */
         final Map<String, Long> excludedHolders = new java.util.TreeMap<>();
 
-        /** The agent's answers, by registry id and hash code, asked for outside the lock. */
-        final Map<Long, String[]> answers = new java.util.concurrent.ConcurrentHashMap<>();
+        /** The agent's answers, by registry id with their thread local's hash code, asked for outside the lock. */
+        final Map<Integer, Named<String[]>> answers = new java.util.concurrent.ConcurrentHashMap<>();
 
         /** Guards the holders' time budget, never held while the agent resolves. */
         final Object holderBudget = new Object();
@@ -1922,15 +1951,14 @@ public final class SideEffectsService implements AutoCloseable {
         String[] answer(SideEffectRecord record, boolean giveUp) {
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
-            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
-            String[] known = answers.get(key);
+            String[] known = Named.of(answers.get(id), hash);
             if (known != null) {
                 return known;
             }
             if (id == 0 || giveUp) {
                 String[] none = {null, "false", "false", null};
                 if (id != 0) {
-                    answers.putIfAbsent(key, none);
+                    remember(answers, id, hash, none);
                 }
                 return none;
             }
@@ -1958,7 +1986,7 @@ public final class SideEffectsService implements AutoCloseable {
                 holderSpentNanos += System.nanoTime() - started;
             }
             if (answer != null) {
-                answers.putIfAbsent(key, answer);
+                remember(answers, id, hash, answer);
             }
             return answer;
         }
@@ -1968,14 +1996,13 @@ public final class SideEffectsService implements AutoCloseable {
             int detail = record.exitStatus() & 0xFF;
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
-            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
-            ThreadLocalHolders.Holder known = holders.get(key);
+            ThreadLocalHolders.Holder known = Named.of(holders.get(id), hash);
             if (known != null) {
                 return known;
             }
             ThreadLocalHolders.Holder holder = ThreadLocalHolders.decide(answer, target, detail);
             if (id != 0) {
-                holders.put(key, holder);
+                remember(holders, id, hash, holder);
                 if (holder.excludedBy() != null) {
                     // Skipped by the bridge from now on, so it never takes an application's thread local's place.
                     threadLocalHolders.exclude(generation, id, hash);
