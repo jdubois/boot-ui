@@ -378,6 +378,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
+  **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
+  and its cost; the sections that only describe an attached agent wait until it is attached
+  ([Java Agent](docs/features/java-agent.md#java-agent)).
 - **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
   when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
   report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
