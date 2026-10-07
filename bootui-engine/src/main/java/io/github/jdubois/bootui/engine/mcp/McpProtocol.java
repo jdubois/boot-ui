@@ -48,6 +48,21 @@ public final class McpProtocol {
     /** Request {@code _meta} key opting the request into progress notifications. */
     public static final String META_PROGRESS_TOKEN = "progressToken";
 
+    /** Request header listing the media types the client accepts. */
+    public static final String ACCEPT_HEADER = "Accept";
+    /** Media type of a request-scoped MCP event stream. */
+    public static final String EVENT_STREAM_MEDIA_TYPE = "text/event-stream";
+    /** Response header that tells reverse proxies such as nginx not to buffer the event stream. */
+    public static final String ACCEL_BUFFERING_HEADER = "X-Accel-Buffering";
+    /** Prefix of the line carrying one JSON-RPC message in an SSE event; every stack writes it without a space. */
+    public static final String SSE_DATA_PREFIX = "data:";
+    /** Terminator of one SSE event. */
+    public static final String SSE_EVENT_END = "\n\n";
+    /** An SSE comment: a keep-alive that clients ignore. */
+    public static final String SSE_HEARTBEAT = ":\n\n";
+    /** JSON-RPC method of a progress notification. */
+    public static final String PROGRESS_NOTIFICATION = "notifications/progress";
+
     /** The modern {@code resultType} of every final result BootUI returns. */
     public static final String RESULT_TYPE_COMPLETE = "complete";
     /**
@@ -255,6 +270,42 @@ public final class McpProtocol {
     public static String missingArgumentMessage(String message, String toolName) {
         McpToolGuide.IdSource source = McpToolGuide.idSource(toolName);
         return source == null ? message : message + " (" + source.describe() + ")";
+    }
+
+    /**
+     * {@code true} when one of the {@code Accept} header values lists {@code text/event-stream} explicitly with a
+     * non-zero quality. A wildcard does not count: a client must say it can read a stream before it gets one.
+     */
+    public static boolean acceptsEventStream(List<String> acceptHeaders) {
+        if (acceptHeaders == null) {
+            return false;
+        }
+        for (String header : acceptHeaders) {
+            if (header == null) {
+                continue;
+            }
+            for (String range : header.split(",")) {
+                String[] parts = range.split(";");
+                if (!EVENT_STREAM_MEDIA_TYPE.equalsIgnoreCase(parts[0].trim())) {
+                    continue;
+                }
+                double quality = 1;
+                for (int i = 1; i < parts.length; i++) {
+                    String parameter = parts[i].trim();
+                    if (parameter.length() > 2 && parameter.substring(0, 2).equalsIgnoreCase("q=")) {
+                        try {
+                            quality = Double.parseDouble(parameter.substring(2).trim());
+                        } catch (NumberFormatException malformed) {
+                            quality = 0;
+                        }
+                    }
+                }
+                if (quality > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Canonical invalid-type message used by both adapter codecs. */
