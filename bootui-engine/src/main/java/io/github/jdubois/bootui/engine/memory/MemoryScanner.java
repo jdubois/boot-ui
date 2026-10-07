@@ -109,7 +109,8 @@ public final class MemoryScanner {
     public MemoryReport initialReport() {
         return report(
                 "NOT_SCANNED",
-                "Memory Advisor has not run yet. Click Run memory checks to inspect the JVM runtime.",
+                "Memory Advisor has not run yet. Run memory checks in the panel, or call memory_scan (bootui memory scan),"
+                        + " to inspect the JVM runtime.",
                 null,
                 null,
                 0,

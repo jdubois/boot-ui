@@ -722,7 +722,7 @@ A connection or a datagram is **not captured by any panel** when no visible pane
 - Infrastructure clients are `infrastructure`: no panel is meant to show them.
 - A name lookup is not a connection and has no capture.
 
-These rows are the `hidden-outbound-calls` evidence of PLAN-v2 D36: Side Effects rows, not a Runtime Insights kind.
+These rows are Side Effects rows, not a Runtime Insights kind.
 `get_side_effects` with `query` `not captured` lists them.
 
 The runtime model gains observed `OPENS` edges from routes, scheduled jobs, and the one bean of an application call
@@ -798,7 +798,7 @@ The operation's own time (opening, deleting, moving, or copying) is recorded, no
 `File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
 are not seen.
 
-`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget (D37). On the agent overhead
+`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget. On the agent overhead
 benchmark's I/O route (one outbound connect and one file read per request), the CI job measured `files`' own share
 against the default sensors at a median of 2.3 % over 15 pairs (pairs from −6.6 to 13.7 %). The default sensors plus
 `files` measured 10.6 % against no agent over 9 pairs (pairs from 6.7 to 23.7 %). Add `files` to
@@ -826,7 +826,7 @@ property it resolves from them is not seen, and `System.getProperties()` is not 
 1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
 masked.
 
-`environment` is opt-in until its overhead is reviewed (D37): with it recording, `System.getProperty` takes about 23 to
+`environment` is opt-in until its overhead is measured: with it recording, `System.getProperty` takes about 23 to
 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
 `bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time). Its three hooks are core: one that fails its self-test disables the sensor alone.
 
@@ -914,7 +914,7 @@ two can run together.
 | `ForkJoinPool.shutdown`, `ThreadPerTaskExecutor.shutdown` | records shutdowns | `shutdown`, `shutdownNow`, and `close` |
 
 The advice runs at the entry and exit of `start`, at the exit of the constructors, and at the entry of the shutdowns:
-never on a thread's run path or its scoped values. M5-2's `executors` and `threads` sensors transform `Thread`,
+never on a thread's run path or its scoped values. The `executors` and `threads` sensors transform `Thread`,
 `ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and forked-JVM tests
 claim the three sensors together, and `thread-activity` beside the OpenTelemetry agent in both orders, on JDK 17, 21,
 and the newest verified JDK. A fork-join worker, the JDK's `DelayScheduler`, and a thread
@@ -1039,7 +1039,7 @@ the opening, the sensor reports itself unavailable; a claim never fails.
 table larger than 16,384 slots or with more than 4,096 thread locals set is skipped, counted, at most 16 leftovers a
 scope are reported, and the bridge remembers at most 1,024 thread locals per run, weakly. With the sensor off, a scope
 costs one volatile read; on Spring WebFlux, while the agent is attached, each Reactor task also runs through a small
-wrapper. The sensor is opt-in (D37) whatever its overhead: the `agent-overhead-thread-locals` job of
+wrapper. The sensor is opt-in whatever its overhead: the `agent-overhead-thread-locals` job of
 `build.yml` measures its own increment and the cumulative overhead on the default route: about 0.5 % over the default
 sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to `bootui.agent.sensors` to
 record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time).
@@ -1553,9 +1553,9 @@ API, all `GET`, paged with `offset` and `limit` where they list:
 | `/bootui/api/code-inventory/dependencies` | The dependency use, declared jars not loaded first, filtered by `status` |
 
 `get_code_inventory` and `bootui code inventory` return the counts first, then at most `limit` (25) rows of `query`:
-`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
-`verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
-`changed-code-not-executed`.
+`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package, class, or method
+name. The `verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request
+executed as `changed-code-not-executed`.
 
 ## Side Effects
 

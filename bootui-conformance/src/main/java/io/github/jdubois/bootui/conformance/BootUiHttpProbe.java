@@ -221,6 +221,20 @@ public final class BootUiHttpProbe {
     }
 
     /**
+     * Like {@link #request(String, String, Map, String)}, but sends each header entry as its own header line, so a
+     * header name may repeat.
+     */
+    public Response requestWithHeaderLines(
+            String method, String path, List<Map.Entry<String, String>> headerLines, String body) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(30))
+                .method(method, HttpRequest.BodyPublishers.ofString(body));
+        headerLines.forEach(line -> builder.header(line.getKey(), line.getValue()));
+        return send(builder.build());
+    }
+
+    /**
      * Returns the current value of the named cookie if the server has set it on this probe's session.
      * Cookies persist for the life of the probe instance, so a request that primes a cookie must share
      * the same probe as the request that reads it.

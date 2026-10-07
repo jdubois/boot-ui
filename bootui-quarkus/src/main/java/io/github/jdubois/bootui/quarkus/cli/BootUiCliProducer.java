@@ -36,7 +36,8 @@ public class BootUiCliProducer {
                 maxResults(config),
                 maxConcurrentCalls(config),
                 executionTimeoutMillis(config),
-                failureReporter);
+                failureReporter,
+                tools::panelUnavailableReason);
     }
 
     private static boolean enabled(Config config) {

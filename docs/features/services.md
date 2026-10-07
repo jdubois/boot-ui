@@ -239,7 +239,7 @@ connections but no frame capture, with the concrete reason shown.
   WebSockets Next exposes no message-interception SPI.
 
 Separately from frame capture, each inbound application message is an execution in the runtime journal on all three
-stacks ([PLAN-v2.md](../PLAN-v2.md) §5.18): the SQL, exceptions, and calls its handler makes nest under a `WEBSOCKET`
+stacks: the SQL, exceptions, and calls its handler makes nest under a `WEBSOCKET`
 row in Live Activity, and Runtime Insights reads it like a listener. On Spring MVC that is the `@MessageMapping` or
 `@SubscribeMapping` method a STOMP message reaches; on WebFlux, the work a `WebSocketHandler` does synchronously for each
 received message, through BootUI's `WebSocketHandlerAdapter`; on Quarkus, each `@OnTextMessage` or `@OnBinaryMessage`
@@ -274,9 +274,9 @@ The AI Framework panel summarizes Spring AI and LangChain4j activity from the Op
 observability emits. It groups chat client and chat model spans by conversation, showing request count, token usage for
 prompt, completion, and total, latency, model, and the prompt and response snippet when content capture is configured.
 
-AI calls and tokens per route, which Runtime Insights no longer lists by default since `ai-usage-by-route` did not pass its external
-validation ([overview](overview.md#runtime-insights), M4-20), are linked from this panel: the link opens Runtime
-Insights with every row shown.
+AI calls and tokens per route, from the runtime journal, are in [Runtime Insights](overview.md#runtime-insights)
+(`ai-usage-by-route`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
+every row shown.
 
 An inline chart shows total token usage over recent calls, and vector store and embedding spans appear alongside chat
 spans. The data comes from BootUI's local telemetry capture, lives in memory only, and is cleared on restart.

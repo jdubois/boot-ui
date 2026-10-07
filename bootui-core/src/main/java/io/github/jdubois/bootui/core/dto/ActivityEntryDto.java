@@ -40,6 +40,9 @@ import java.util.List;
  *     drawer uses); always {@code false} for non-request entries
  * @param badges short markers of the entry's state, such as {@code AFTER_RESPONSE}, {@code RUNNING}, or
  *     {@code CAPPED} for an {@code ASYNC} entry the BootUI agent propagated (M5-2); empty for most entries
+ * @param exceptionGroupId for an {@code EXCEPTION} entry, the Exceptions panel's group id, which
+ *     {@code get_exception_detail} and {@code /exceptions/{id}} accept, or {@code null} when unknown or for other
+ *     entries; an entry's own {@code id} is never a group id
  */
 public record ActivityEntryDto(
         String id,
@@ -58,7 +61,8 @@ public record ActivityEntryDto(
         String parentId,
         String securedPrincipal,
         boolean sqlNPlusOneSuspected,
-        List<String> badges) {
+        List<String> badges,
+        String exceptionGroupId) {
 
     /** An {@code ASYNC} entry's task was still running once its request's response started. */
     public static final String BADGE_AFTER_RESPONSE = "AFTER_RESPONSE";
@@ -71,6 +75,69 @@ public record ActivityEntryDto(
 
     public ActivityEntryDto {
         badges = DtoCollections.immutableCopy(badges);
+    }
+
+    /** An entry that is no exception's. */
+    public ActivityEntryDto(
+            String id,
+            String type,
+            long timestamp,
+            String severity,
+            String summary,
+            String detail,
+            Long durationMs,
+            String correlationId,
+            String method,
+            String path,
+            Integer status,
+            String thread,
+            boolean profileable,
+            String parentId,
+            String securedPrincipal,
+            boolean sqlNPlusOneSuspected,
+            List<String> badges) {
+        this(
+                id,
+                type,
+                timestamp,
+                severity,
+                summary,
+                detail,
+                durationMs,
+                correlationId,
+                method,
+                path,
+                status,
+                thread,
+                profileable,
+                parentId,
+                securedPrincipal,
+                sqlNPlusOneSuspected,
+                badges,
+                null);
+    }
+
+    /** This entry with {@code exceptionGroupId}, every other field unchanged. */
+    public ActivityEntryDto withExceptionGroupId(String exceptionGroupId) {
+        return new ActivityEntryDto(
+                id,
+                type,
+                timestamp,
+                severity,
+                summary,
+                detail,
+                durationMs,
+                correlationId,
+                method,
+                path,
+                status,
+                thread,
+                profileable,
+                parentId,
+                securedPrincipal,
+                sqlNPlusOneSuspected,
+                badges,
+                exceptionGroupId);
     }
 
     /** An entry without badges. */

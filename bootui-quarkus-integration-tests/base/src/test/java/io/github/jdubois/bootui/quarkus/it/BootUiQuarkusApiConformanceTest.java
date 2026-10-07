@@ -93,4 +93,9 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
     protected Set<String> actionlessPanels() {
         return Set.of("config");
     }
+
+    @Override
+    protected String exceptionProbePath() {
+        return "/it/mapped-boom";
+    }
 }

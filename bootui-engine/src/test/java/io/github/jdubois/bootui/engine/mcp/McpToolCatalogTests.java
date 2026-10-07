@@ -13,10 +13,25 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(101);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(101);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(100);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(85);
+        assertThat(McpToolCatalog.entries()).hasSize(103);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(103);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(102);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(87);
+    }
+
+    @Test
+    void hibernateStatisticsAndWebSocketsArePassiveReadsOnEveryStackOnAnExistingSchema() {
+        // The published CLI binds options by schema name, so both reuse NONE and older CLIs keep working.
+        assertThat(McpToolCatalog.byName("get_hibernate_statistics").orElseThrow())
+                .isEqualTo(new McpToolCatalog.Entry(
+                        "get_hibernate_statistics",
+                        McpToolSchema.NONE,
+                        BootUiPanels.HIBERNATE_STATISTICS,
+                        false,
+                        Set.of(Stack.values())));
+        assertThat(McpToolCatalog.byName("get_websockets").orElseThrow())
+                .isEqualTo(new McpToolCatalog.Entry(
+                        "get_websockets", McpToolSchema.NONE, BootUiPanels.WEBSOCKETS, false, Set.of(Stack.values())));
     }
 
     @Test

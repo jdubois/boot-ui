@@ -48,8 +48,17 @@ public record McpTool(
         return handler.apply(arguments);
     }
 
-    /** The advertised descriptor for this tool ({@code tools/list}). */
-    public McpToolDescriptor describe() {
-        return new McpToolDescriptor(name, description, schema);
+    /**
+     * The advertised descriptor for this tool ({@code tools/list}).
+     *
+     * @param maxResults the transport's {@code max-results} cap, which bounds the advertised default page sizes
+     */
+    public McpToolDescriptor describe(int maxResults) {
+        return new McpToolDescriptor(
+                name,
+                description,
+                schema,
+                McpToolInputSchema.of(name, schema, maxResults),
+                McpToolAnnotations.of(name, action));
     }
 }
