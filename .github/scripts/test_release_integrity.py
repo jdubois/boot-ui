@@ -1,3 +1,4 @@
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -229,8 +230,13 @@ class ReleaseIntegrityTests(unittest.TestCase):
 
     def test_resolved_artifacts_must_come_from_the_source_under_test(self):
         for old, new, message in (
-            ('"$(basename "$file")>${EXPECTED_ORIGIN}="', '"$(basename "$file")>"', "per-file origin check"),
+            ('if ! resolved_from_source_under_test "$file"; then', "if false; then", "per-file origin check"),
+            ('-e "${name}>${EXPECTED_ORIGIN_KEY}="', '-e "${name}>"', "exact origin match"),
+            ('-Fxq -e "${name}>${EXPECTED_ORIGIN}="', '-Fq -e "${name}>${EXPECTED_ORIGIN}"', "exact origin match"),
             ('readonly EXPECTED_ORIGIN="bootui-staged"', 'readonly EXPECTED_ORIGIN=""', "staged-candidate origin"),
+            ('"file://${STAGED_REPOSITORY}"', '"file://"', "staged-candidate origin URL"),
+            ('"https://repo.maven.apache.org/maven2"', '"https://"', "Maven Central origin URL"),
+            ('"$EXPECTED_ORIGIN_URL" | sha1_hex', '"" | sha1_hex', "Maven Resolver 2 origin key"),
             (
                 'if [[ "$RESOLVED_ARTIFACTS" != "$EXPECTED_ARTIFACTS" ]]; then',
                 "if false; then",
@@ -239,6 +245,38 @@ class ReleaseIntegrityTests(unittest.TestCase):
         ):
             with self.subTest(old=old):
                 self.assert_rejected(None, message, smoke=self.mutate_file(SMOKE, old, new))
+
+    def test_origin_check_accepts_exactly_the_source_under_test_in_both_resolver_formats(self):
+        content = SMOKE.read_text(encoding="utf-8")
+        functions = []
+        for name in ("sha1_hex", "resolved_from_source_under_test"):
+            start = content.index(f"\n{name}() {{\n") + 1
+            functions.append(content[start : content.index("\n}\n", start) + 3])
+        key_line = next(line for line in content.splitlines() if line.startswith("EXPECTED_ORIGIN_KEY="))
+        url = "file:///tmp/bootui-candidate"
+        digest = hashlib.sha1(url.encode()).hexdigest()
+        other = hashlib.sha1(b"file:///tmp/elsewhere").hexdigest()
+        jar = "bootui-core-1.0.0.jar"
+        for origin, accepted in (
+            (f"{jar}>bootui-staged=", True),
+            (f"{jar}>bootui-staged-{digest}=", True),
+            (f"{jar}>bootui-staged-{digest.upper()}=", False),
+            (f"{jar}>bootui-staged-{other}=", False),
+            (f"{jar}>bootui-staged-{digest}x=", False),
+            (f"{jar}>central=", False),
+            (f"{jar}>central-{digest}=", False),
+            (f"{jar}>=", False),
+            (f"bootui-engine-1.0.0.jar>bootui-staged-{digest}=", False),
+        ):
+            with self.subTest(origin=origin), tempfile.TemporaryDirectory() as directory:
+                artifact = Path(directory) / jar
+                artifact.write_bytes(b"")
+                (Path(directory) / "_remote.repositories").write_text(origin + "\n", encoding="utf-8")
+                program = "\n".join(
+                    [*functions, 'EXPECTED_ORIGIN="bootui-staged"', f'EXPECTED_ORIGIN_URL="{url}"', key_line]
+                ) + f'\nresolved_from_source_under_test "{artifact}"\n'
+                result = subprocess.run(["bash", "-c", program], capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_webflux_consumer_must_stay_reactive_on_netty(self):
         for old, new, message in (
