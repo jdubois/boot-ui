@@ -1019,13 +1019,14 @@ only when its holder is in the application's packages. An inheritable one is `le
 
 **Exclusions.** BootUI's own thread locals, all `BootUiThreadLocal`s (an architecture test keeps them so), the agent's,
 and those whose class the JDK defines (a read lock's hold counter, NIO's buffers) are skipped by class on the request's
-thread. Frameworks that set and clear their thread locals themselves are dropped once their holder is resolved, and
-counted per holder in the sensor's limitations: Spring's `RequestContextHolder`, `LocaleContextHolder`,
-`TransactionSynchronizationManager`, and `AopContext`, the SLF4J, Logback, Log4j 2, and JBoss Log Manager MDCs,
-Micrometer's context, observation, and tracing, OpenTelemetry's context and temporary buffers, Jackson's buffer
-recyclers, and Netty's `InternalThreadLocalMap`. A dropped thread local is skipped by the bridge from then on. Spring
-Security's context is never dropped: a security context leaking between requests is what this sensor is for (a row may
-be an empty context, since `SecurityContextHolder.getContext()` sets one when it reads none).
+thread. Frameworks that set and clear their thread locals themselves are dropped once their holder is resolved, or by
+their own thread-local class when it is not (as Quarkus' anonymous `VertxMDC$1`), and counted per holder in the
+sensor's limitations: Spring's `RequestContextHolder`, `LocaleContextHolder`, `TransactionSynchronizationManager`, and
+`AopContext`, the SLF4J, Logback, Log4j 2, JBoss Log Manager, and Quarkus Vert.x MDCs, Micrometer's context,
+observation, and tracing, OpenTelemetry's context and temporary buffers, Jackson's buffer recyclers, and Netty's
+`InternalThreadLocalMap`. A dropped thread local is skipped by the bridge from then on. Spring Security's context is
+never dropped: a security context leaking between requests is what this sensor is for (a row may be an empty context,
+since `SecurityContextHolder.getContext()` sets one when it reads none).
 
 **What the agent opens.** To read the maps, the sensor asks `Instrumentation.redefineModule` to open `java.lang` to the
 agent's own module, the unnamed module of its isolated class loader, and to no other: never to the application, never

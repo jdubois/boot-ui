@@ -253,6 +253,35 @@ class ThreadLocalsSideEffectsTests {
                 .isEqualTo("io.opentelemetry.api.internal.TemporaryBuffers");
     }
 
+    @Test
+    void quarkusVertxMdcIsAFrameworksPerRequestMdcResolvedOrNot() {
+        assertThat(ThreadLocalHolders.decide(
+                                new String[] {
+                                    "io.quarkus.vertx.core.runtime.VertxMDC.inheritableThreadLocalMap (via"
+                                            + " io.quarkus.vertx.core.runtime.VertxMDC.INSTANCE)",
+                                    "false",
+                                    "false",
+                                    null
+                                },
+                                "io.quarkus.vertx.core.runtime.VertxMDC$1",
+                                SideEffectsCatalog.DETAIL_INHERITABLE)
+                        .excludedBy())
+                .as("resolved one level deep through its enum singleton")
+                .isEqualTo("io.quarkus.vertx.core.runtime.VertxMDC");
+        assertThat(ThreadLocalHolders.decide(
+                                new String[] {null, "false", "false", null},
+                                "io.quarkus.vertx.core.runtime.VertxMDC$1",
+                                SideEffectsCatalog.DETAIL_INHERITABLE)
+                        .excludedBy())
+                .as("its anonymous subclass, matched by its holder class when the holder is not resolved")
+                .isEqualTo("io.quarkus.vertx.core.runtime.VertxMDC");
+        assertThat(ThreadLocalHolders.decide(new String[] {null, "false", "false", null}, "com.example.Tenants$1", 0)
+                        .excludedBy())
+                .as("an application's own subclass stays reported")
+                .isNull();
+        assertThat(ThreadLocalHolders.HOLDER_CLASSES).contains("io.quarkus.vertx.core.runtime.VertxMDC");
+    }
+
     private void leaveSet(ThreadLocal<String> local) {
         context.set(CorrelationContext.forRequest(REQUEST));
         long scope = ThreadLocals.open();

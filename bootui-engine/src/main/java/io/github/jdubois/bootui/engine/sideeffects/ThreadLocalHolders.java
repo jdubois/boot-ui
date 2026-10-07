@@ -29,6 +29,7 @@ final class ThreadLocalHolders {
             "org.apache.logging.log4j.ThreadContext",
             "org.jboss.logmanager.MDC",
             "org.jboss.logmanager.NDC",
+            "io.quarkus.vertx.core.runtime.VertxMDC",
             "io.micrometer.observation.SimpleObservationRegistry",
             "io.micrometer.context.ContextRegistry",
             "io.opentelemetry.context.ThreadLocalContextStorage",
@@ -48,6 +49,7 @@ final class ThreadLocalHolders {
             "ch.qos.logback.",
             "org.apache.logging.log4j.",
             "org.jboss.logmanager.",
+            "io.quarkus.vertx.core.runtime.VertxMDC",
             "io.micrometer.context.",
             "io.micrometer.observation.",
             "io.micrometer.tracing.",
@@ -126,16 +128,29 @@ final class ThreadLocalHolders {
                         : "holder not resolved (" + (runtimeClass == null ? "java.lang.ThreadLocal" : runtimeClass)
                                 + ")";
         String excluded = holder == null ? null : excludedPrefix(holder);
+        String excludedBy = holder != null ? holderClass(holder) : hint;
         if (excluded == null && hint != null && holder == null) {
             excluded = excludedPrefix(hint);
         }
+        if (excluded == null && holder == null && runtimeClass != null) {
+            // A framework's own ThreadLocal subclass, as Quarkus' VertxMDC$1, by its class when its holder is not
+            // resolved.
+            excluded = excludedPrefix(runtimeClass);
+            excludedBy = outerClass(runtimeClass);
+        }
         if (excluded != null) {
-            return new Holder(target, kind, origin, holder != null ? holderClass(holder) : hint);
+            return new Holder(target, kind, origin, excludedBy);
         }
         if (initialValue && !claimed) {
             return new Holder(target, kind, origin, PER_THREAD_CACHE);
         }
         return new Holder(target, kind, origin, null);
+    }
+
+    /** {@code type}'s outermost class: {@code com.example.Holder$1} gives {@code com.example.Holder}. */
+    static String outerClass(String type) {
+        int dollar = type.indexOf('$');
+        return dollar > 0 ? type.substring(0, dollar) : type;
     }
 
     /** The excluded prefix {@code holder} starts with, or {@code null}. */
