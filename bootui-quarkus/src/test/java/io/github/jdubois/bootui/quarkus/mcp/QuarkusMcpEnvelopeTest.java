@@ -122,6 +122,47 @@ class QuarkusMcpEnvelopeTest {
                 .isEqualTo("Reread the cached report.");
     }
 
+    @Test
+    void toolsListRendersHintsAndPerToolArgumentSchemas() throws Exception {
+        JsonNode tool = advisorEnvelope(262144, args -> args)
+                .handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
+                .path("result")
+                .path("tools")
+                .get(0);
+        assertThat(tool.path("annotations").toString())
+                .isEqualTo("{\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,"
+                        + "\"openWorldHint\":false}");
+        JsonNode properties = tool.path("inputSchema").path("properties");
+        assertThat(properties.path("id").path("description").asText())
+                .isEqualTo("The rule id, from get_architecture_report.");
+        assertThat(properties.path("offset").path("default").asInt()).isZero();
+        assertThat(properties.path("limit").path("default").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void anUnadvertisedCatalogToolAnswersWithItsPanelsReasonInMessageAndData() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List::of,
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "",
+                250,
+                20,
+                30_000,
+                diagnostics,
+                panelId -> "No KafkaTemplate bean is available");
+        JsonNode response = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 262144)
+                .handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                        + "\"params\":{\"name\":\"get_kafka_activity\"}}"));
+        assertThat(response.path("error").toString())
+                .isEqualTo("{\"code\":-32602,\"message\":\"Tool not available in this application: "
+                        + "get_kafka_activity. Its Kafka panel is unavailable: No KafkaTemplate bean is available.\","
+                        + "\"data\":{\"tool\":\"get_kafka_activity\",\"panel\":\"kafka\","
+                        + "\"reason\":\"No KafkaTemplate bean is available\"}}");
+    }
+
     private QuarkusMcpEnvelope advisorEnvelope(
             int maxBytes, java.util.function.Function<McpArguments, Object> handler) {
         RecordingFailureReporter diagnostics = new RecordingFailureReporter();

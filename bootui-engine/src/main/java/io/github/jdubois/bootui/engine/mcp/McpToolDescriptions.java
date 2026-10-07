@@ -285,7 +285,7 @@ public final class McpToolDescriptions {
                             + "changes the agent."),
             Map.entry(
                     "get_code_inventory",
-                    "Return Code Inventory: did the code changed since the previous run execute in this run? "
+                    "Return Code Inventory: did the code that changed since the previous run execute in this run? "
                             + "Advertised only while the BootUI agent's inventory sensor records this run (see "
                             + "get_agent_status). Counts "
                             + "first (N of M tracked methods executed, changed, added, removed, dependencies), then at "
@@ -402,6 +402,23 @@ public final class McpToolDescriptions {
                     "get_kafka_activity",
                     "Return the bounded local Kafka activity snapshot captured from application producers and consumers. "
                             + "This does not publish, consume, clear, or contact a broker."),
+            Map.entry(
+                    "get_hibernate_statistics",
+                    "Return the live Hibernate ORM statistics of the application's persistence unit: sessions, "
+                            + "transactions, entity and collection loads, fetches, and writes, query executions with "
+                            + "the slowest query, and query and second-level cache hits, misses, and puts per region. "
+                            + "Counters are cumulative since startup or since statistics were enabled. available=false "
+                            + "with unavailableReason when no SessionFactory is found or statistics are off; this read "
+                            + "never enables them, and enableAvailable=true means the user can enable them for this "
+                            + "run from the Hibernate Statistics panel."),
+            Map.entry(
+                    "get_websockets",
+                    "Return the WebSocket endpoints, live sessions, STOMP subscriptions and broker prefixes, and a "
+                            + "bounded newest-first activity log of connects, disconnects, and frames, with aggregate "
+                            + "counters. Metadata only: a frame's size, never its payload. frameCaptureSupported and "
+                            + "sessionTrackingSupported say what this stack can observe, with the reason when not, so "
+                            + "an empty list is not proof no client connected; the *Truncated flags mark capped lists. "
+                            + "This read never opens, closes, or sends on a connection, and does not clear the log."),
             Map.entry(
                     "get_rabbitmq_activity",
                     "Return the bounded local RabbitMQ activity snapshot captured from application publishers and "

@@ -56,6 +56,7 @@ public final class ToolManifest {
                             .map(stack -> stack.asString(""))
                             .toList(),
                     tool.get("summary").asString(""),
+                    tool.get("description").asString(""),
                     tool.get("example").asString(""),
                     tool.get("idHelp").asString(""),
                     tool.get("queryHelp").asString("")));
@@ -86,7 +87,8 @@ public final class ToolManifest {
      * @param panel the panel backing it
      * @param action whether it changes state, and is therefore refused on a read-only panel
      * @param stacks the stacks that advertise it, so help can say when a command is stack-specific
-     * @param summary a one-line description for help output
+     * @param summary a one-line description for the command listing
+     * @param description the whole description for the command's own help, or the summary when the manifest has none
      * @param example one complete command line, with {@code <placeholders>} for values another command returns
      * @param idHelp where the {@code <id>} comes from, or empty when the command takes none
      * @param queryHelp the words {@code --query} understands beyond a plain filter, or empty
@@ -99,14 +101,20 @@ public final class ToolManifest {
             boolean action,
             List<String> stacks,
             String summary,
+            String description,
             String example,
             String idHelp,
             String queryHelp) {
+
+        /** The tag the help prints before an action's description: it changes state, so ask the user first. */
+        public static final String ACTION_TAG = "[action - needs approval]";
 
         public Tool {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(command, "command");
             stacks = stacks == null ? List.of() : List.copyOf(stacks);
+            summary = summary == null ? "" : summary;
+            description = description == null || description.isBlank() ? summary : description;
             example = example == null || example.isBlank() ? "bootui " + command : example;
             idHelp = idHelp == null ? "" : idHelp;
             queryHelp = queryHelp == null ? "" : queryHelp;
@@ -120,7 +128,17 @@ public final class ToolManifest {
                 boolean action,
                 List<String> stacks,
                 String summary) {
-            this(name, command, schema, panel, action, stacks, summary, null, null, null);
+            this(name, command, schema, panel, action, stacks, summary, null, null, null, null);
+        }
+
+        /** The whole description for a command's own {@code --help}, tagged when the tool is an action. */
+        public String helpDescription() {
+            return tag() + description;
+        }
+
+        /** {@link #ACTION_TAG} and a space for an action, otherwise empty. */
+        public String tag() {
+            return action ? ACTION_TAG + " " : "";
         }
 
         /**

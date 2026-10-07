@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolErrorReason;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class CliOutcomesTests {
@@ -95,6 +97,18 @@ class CliOutcomesTests {
 
         assertThat(response.status()).isEqualTo(CliStatus.NOT_FOUND);
         assertThat(response.error()).contains("no_such_tool");
+    }
+
+    @Test
+    void anUnavailableToolIsNotFoundSoEveryPublishedCliReadsItAsNotExposedHere() {
+        CliToolResponse response = CliOutcomes.toResponse(new McpDispatchOutcome.ProtocolError(
+                McpProtocol.INVALID_PARAMS,
+                McpProtocol.unavailableToolMessage(
+                        "get_kafka_activity", "Kafka", "No KafkaTemplate bean is available", Set.of()),
+                Map.of("tool", "get_kafka_activity")));
+
+        assertThat(response.status()).isEqualTo(CliStatus.NOT_FOUND);
+        assertThat(response.error()).contains("No KafkaTemplate bean is available");
     }
 
     @Test
