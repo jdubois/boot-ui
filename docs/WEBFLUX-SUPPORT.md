@@ -219,7 +219,8 @@ were already framework-neutral in practice, not just in the engine underneath th
     from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The opt-in
     `thread-activity` sensor (M5-5e) records too, capturing the owner the same way; a request's end, which it checks
     for what the request left running, is when its filter chain terminates. Reactor's and Reactor Netty's own threads
-    are a library's. The other sensor groups are listed as not available in this version.
+    are a library's. The opt-in `resources` sensor (M5-5g) hears the same request end, whether `thread-activity` is on
+    or not. The other sensor groups are listed as not available in this version.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
     handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and

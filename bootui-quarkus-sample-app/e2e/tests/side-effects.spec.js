@@ -299,7 +299,7 @@ test.describe('Side Effects view (Quarkus)', () => {
     const leaked = seeded(all, 'leaked-stream').find((candidate) => candidate.failed > 0)
     expect(leaked.kind).toBe('file input stream')
     expect(leaked.origin).toBe('application')
-    expect(leaked.target).toMatch(/bootui-resource-seed/)
+    expect(leaked.target).toMatch(/\$TMPDIR\/bootui-resource-/)
     expect(leaked.callSite).toMatch(/ResourceSeeds#leakStream$/)
     expect(seeded(all, 'closed-stream')).toEqual([])
     for (const pooled of seeded(all, 'pooled-client')) {
@@ -309,7 +309,10 @@ test.describe('Side Effects view (Quarkus)', () => {
 
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Threads and leaks/}).click()
-    const row = page.locator('.side-effects-table tbody tr').filter({hasText: 'GET /api/resources/leaked-stream'})
+    const row = page
+      .locator('.side-effects-table tbody tr')
+      .filter({hasText: 'GET /api/resources/leaked-stream'})
+      .filter({hasText: 'file input stream'})
     await expect(row.first()).toContainText('Opened by the application')
     await expect(row.first().locator('.side-effects-reclaimed')).toBeVisible()
   })

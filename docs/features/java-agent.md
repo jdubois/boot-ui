@@ -72,7 +72,7 @@ best-effort.
 
 ## Switching opt-in sensors at run time
 
-The opt-in sensors, `threads`, `files`, `environment`, and `thread-activity`, can be switched on and off for the running application
+The opt-in sensors, `threads`, `files`, `environment`, `thread-activity`, and `resources`, can be switched on and off for the running application
 without a restart, from the panel's **Opt-in sensors** card or from each opt-in sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
@@ -175,7 +175,8 @@ A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory
 [`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
 [`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
 [`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
-[`thread-activity`](#the-thread-activity-sensor), and [`caught-exceptions`](#the-caught-exceptions-sensor). The agent
+[`thread-activity`](#the-thread-activity-sensor), [`resources`](#the-resources-sensor), and
+[`caught-exceptions`](#the-caught-exceptions-sensor). The agent
 installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
 an installed transformer alone is not verification. Advice may run while the asynchronous probe is pending, but BootUI
@@ -972,6 +973,69 @@ thread-per-task executor, JBoss Threads' `EnhancedQueueExecutor`, Tomcat's own `
 `Thread.start` is recorded as a library's. A subclass whose constructor throws after the canonical constructor returned
 leaves a creation recorded. A thread that ends within 250 ms of its request's end is never reported left running.
 
+## The resources sensor
+
+The opt-in `resources` sensor reports the streams, channels, and sockets a request's or a job's work opened and left
+open past its request, or never closed before the garbage collector reclaimed them, for the [Side
+Effects](#side-effects) panel's **Threads and leaks** tab, `get_side_effects`, and `bootui side-effects`. It never
+records a byte read or written: a row's target is the path pattern or the host and port the [`files`](#the-files-sensor)
+and [`network`](#the-network-sensor) rows show.
+
+**Opens.** It has no open hook of its own: the `files` and `network` sensors' hooks hand it the object they opened once
+they recorded it, so it sees files only while `files` is on, and sockets while `network` is on (by default). It tracks a
+`FileInputStream`, `FileOutputStream`, or `RandomAccessFile`, a `FileChannel` (`FileChannel.open`,
+`Files.newByteChannel`, and the channel under `Files.newInputStream`, `newOutputStream`, and `lines`), a `Socket`
+(plain or TLS), and a `SocketChannel`, of the JDK's exact channel and socket classes only, so a custom file system
+provider's channel or a `Socket` subclass, which may release its descriptor elsewhere, is never tracked. Only an open
+that a request or a job owns, with a frame of the application's packages on the stack, is tracked: the row's origin is
+**Opened by the application** when the first frame outside the JDK (for a socket, the first frame outside the socket
+plumbing, so the JDK's `HttpClient` is a library) is the application's, else **Opened by a library the application
+called**. BootUI's and the agent's own work, work no request or job owns, class loading, and the JDK's own files are
+never tracked.
+
+| Hook | What it covers |
+| --- | --- |
+| `FileInputStream.close`, `FileOutputStream.close`, `RandomAccessFile.close` | a stream's close, its subclasses' `super.close()`, and its channel's close |
+| `FileChannelImpl.implCloseChannel` | a file channel's close, and its close by the interruption of a thread blocked on it |
+| `Socket.close` | a plain or TLS socket's close, and its streams' |
+| `AbstractSelectableChannel.implCloseChannel` | a socket channel's close or interruption |
+| `FileChannelImpl.setUninterruptible` | hands the channel a provider's `newInputStream` or `newOutputStream` opened to the files hook |
+
+The close hooks run at the exit of the close, normal or not, and only mark the resource's entry closed: one read of a
+counter for a kind with nothing tracked, else one identity lookup, never a lock. They are the sensor's own transformer,
+so switching `files` or `environment` never removes them while a resource is tracked.
+
+**Not a `Cleaner`** (D46). Each tracked resource is a weak reference with the open's owner, target, and frames, at most
+1,024 at a time (the panel says when one was not tracked), polled by the agent's drain thread through a reference
+queue, as the thread-activity sensor's executors are: a `Cleaner`'s phantom reference cannot be found again by identity
+when the resource is closed, and each `Cleaner` starts a thread. Nothing captures the resource, its class, or its class
+loader; a close never clears the reference, it sets a flag.
+
+**Reports.** Each adapter's request end, the same one the thread-activity sensor hears, whether that sensor is on or
+not, is checked 250 ms later: a resource of that request opened before its end and still open, by its own state read
+through the JDK's final methods, is counted **Open after request**; once it is closed later, **Closed after request**.
+Both are a hand-off, as a connection pool's sockets or a cache's file, and often intended. A resource the collector finds
+unreachable while never closed is counted **Reclaimed without close()**, the leak, whether owned by a request or a job,
+and is the only count a run comparison keys on. A resource closed before its request ended, as in try-with-resources or a
+`finally`, is never reported. Each resource is counted once on its row (`count`, with its distinct `requests`).
+
+**No false reports.** A resource kind is tracked only while its close hook is installed and passed its self-test. Each
+sweep also reads every tracked resource's own state: one closed at two sweeps in a row while its hook never said so is
+counted as a missed close, and the collector's reclaims of its kind are no longer reported for the run. A weak reference
+is cleared before finalization, so a reclaim means the resource became unreachable while still open.
+
+**Self-test**, on the sensor's own thread, never creating a file or touching the network: streams over an invalid file
+descriptor and the channel of one, an unconnected socket, a socket channel opened and closed without I/O, and the JDK's
+own `release` file opened read-only through `RandomAccessFile` and `Files.newInputStream`. A hook that fails leaves its
+kind untracked; the sensor fails when no close hook passed. Forked-JVM tests run its behaviors on JDK 17, 21, and the
+newest verified JDK, alone and beside the OpenTelemetry agent in both orders, with a library pool's socket and the JDK
+`HttpClient`'s pool as counterexamples, never reported reclaimed.
+
+**Cost.** Opt-in until a same-runner A/B of the agent's overhead benchmark on its I/O route shows its own median
+increment at most 3 % and the cumulative median at most 10 % (the `agent-overhead-resources` job of `build.yml`). Add
+`resources` to `bootui.agent.sensors` with `files`, or switch it on at run time from the Java Agent or Side Effects
+panel; a resource opened before it was switched on is not tracked, and switching it off forgets what it tracked.
+
 ## The caught-exceptions sensor
 
 `bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
@@ -1412,7 +1476,7 @@ The Side Effects panel shows what application code starts outside the JVM or tou
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus, except
-that an opt-in sensor's section (`files`, `environment`, `thread-activity`) carries its [runtime
+that an opt-in sensor's section (`files`, `environment`, `thread-activity`, `resources`) carries its [runtime
 switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
 with `bootui.agent.sensors` as the other way to turn it on.
 
@@ -1427,7 +1491,7 @@ The panel has one tab per sensor group:
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
 | Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in or it is switched on. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
-| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` records when `bootui.agent.sensors` opts in or it is switched on (see [the thread-activity sensor](#the-thread-activity-sensor)); `thread-locals` and `resources` are `not-available`: Not available in this version. |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` and `resources` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the resources sensor](#the-resources-sensor)); `thread-locals` is `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | `not-available`: Not available in this version. |
 

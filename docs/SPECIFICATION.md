@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  (`threads`, `files`, `environment`, `thread-activity`, `resources`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -793,12 +793,13 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
-  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d) and `thread-activity` (M5-5e)
-  when opted in. The `thread-locals`, `resources`, and `security-sinks` sensors are still listed but report
+  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e), and
+  `resources` (M5-5g) when opted in. The `thread-locals` and `security-sinks` sensors are still listed but report
   `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
-  `thread-activity` sensor to check what the request left running.
+  `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each
+  whether or not the other is on.
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
 - The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
@@ -928,8 +929,18 @@ Acceptance criteria:
   the counterexamples `GET /api/thread-activity/joined` (a thread joined before the response) and
   `GET /api/thread-activity/closed-pool` (an executor shut down in `finally`) are never left running, and neither is a
   library's or the server's own pool.
+- The opt-in `resources` sensor (M5-5g, D46) tracks the streams, channels, and sockets the `files` and `network`
+  sensors record opening (so files only while `files` is on) for a request or a job with an application frame on the
+  stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
+  stream`, `file output stream`, `random access file`, `file channel`, `socket`, `socket channel`), target (the masked
+  path pattern or host and port), call site, and origin (`Opened by the application`, or `Opened by a library the
+  application called`), with how many were still open 250 ms after their request's response completed and closed after
+  it (a hand-off, as a pool's connection), and how many the collector reclaimed without `close()`, the leak. With the
+  agent and `files` and `resources` opted in, the three samples' `GET /api/resources/leaked-stream` shows a `file input
+  stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
+  nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`, `files`, `environment`, and `thread-activity` remain opt-in.
+  `threads`, `files`, `environment`, `thread-activity`, and `resources` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

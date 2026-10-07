@@ -825,6 +825,126 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  # The resources sensor's default (M5-5g): an A/B on one runner, in its own job so agent-overhead stays within its
+  # timeout. On the I/O route, which connects and closes one socket and reads one file per request, the default sensors
+  # plus resources against the default sensors (its own increment on sockets, fifteen pairs) and against no agent (the
+  # cumulative overhead with it, fifteen pairs), then, for the record, with files on both sides (its own increment on
+  # files too, which files alone keeps near the 10 % budget). It may be on by default only with its own median at most
+  # 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL, and fails the job when the verdict is
+  # FAIL while resources is among the default sensors. Pushes, manual runs, and pull requests labelled agent.
+  agent-overhead-resources:
+    name: Agent overhead, resources A/B (Java 17)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true' && needs.changes.outputs.extras == 'true'
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      - name: Build the Spring sample app and the BootUI agent
+        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
+
+      - name: Measure the resources sensor's share on the I/O route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-resources-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with resources on the I/O route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io-resources
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the resources sensor's share beside files on the I/O route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-resources-files-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files,resources
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking,files
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Check the resources sensor's default
+        if: ${{ !cancelled() }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          for file in spring-mvc-resources-ab.properties spring-mvc-agent-io-resources.properties; do
+            if [ ! -f "$directory/$file" ]; then
+              echo "::error::The resources sensor's default cannot be checked: $file is missing."
+              exit 1
+            fi
+          done
+          for report in spring-mvc-resources-ab spring-mvc-agent-io-resources spring-mvc-resources-files-ab; do
+            if [ -f "$directory/$report.md" ]; then
+              cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
+          increment=$(read_value spring-mvc-resources-ab.properties overheadPercent)
+          increment_range="$(read_value spring-mvc-resources-ab.properties minOverheadPercent) to $(read_value spring-mvc-resources-ab.properties maxOverheadPercent)"
+          cumulative=$(read_value spring-mvc-agent-io-resources.properties overheadPercent)
+          cumulative_range="$(read_value spring-mvc-agent-io-resources.properties minOverheadPercent) to $(read_value spring-mvc-agent-io-resources.properties maxOverheadPercent)"
+          with_files="n/a"
+          if [ -f "$directory/spring-mvc-resources-files-ab.properties" ]; then
+            with_files="$(read_value spring-mvc-resources-files-ab.properties overheadPercent) %"
+          fi
+          for value in "$increment" "$cumulative"; do
+            if ! [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "::error::The resources sensor's default cannot be checked: '$value' is not a percentage."
+              exit 1
+            fi
+          done
+          verdict=PASS
+          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+            verdict=FAIL
+          fi
+          default=no
+          if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'RESOURCES|"resources"'; then
+            default=yes
+          fi
+          line="Resources sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %), on the I/O route; increment beside files ${with_files}. On by default: ${default}."
+          echo "$line"
+          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
+            echo "::error::$line It must stay opt-in."
+            exit 1
+          fi
+          if [ "$verdict" = FAIL ]; then
+            echo "::notice::$line It stays opt-in."
+          fi
+
+      - name: Upload the overhead report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-overhead-resources
+          path: |
+            bootui-spring-sample-app/target/agent-overhead/
+            bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*
+          if-no-files-found: ignore
+          retention-days: 30
+
   quarkus-e2e:
     name: Quarkus end-to-end (${{ matrix.suite.name }}, Java 17)
     runs-on: ubuntu-latest

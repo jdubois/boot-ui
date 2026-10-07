@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Resources sensor in the BootUI agent.** The opt-in `resources` sensor shows the streams, channels, and sockets a
+  request left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor), M5-5g).
 - **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
   became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
   above, and incomplete evidence is shown as unknown with its reason, never as swallowed
