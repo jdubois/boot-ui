@@ -630,6 +630,72 @@ class McpDispatcherTests {
     }
 
     @Test
+    void aCancelledToolIsNotReportedAsAServerFault() {
+        McpTool cancelled = new McpTool("cancelled", "Cancelled.", McpToolSchema.NONE, "overview", false, args -> {
+            throw new io.github.jdubois.bootui.engine.progress.OperationCancelledException();
+        });
+        McpDispatcher dispatcher =
+                new McpDispatcher(List.of(cancelled), List.of(), policy, "1.0", "x", 50, 20, diagnostics);
+
+        assertThat(dispatcher.dispatch(call("cancelled"))).isEqualTo(new McpDispatchOutcome.Cancelled());
+        assertThat(diagnostics.count()).isZero();
+        assertThat(dispatcher.runtimeStats().snapshot().cancellations()).isEqualTo(1);
+    }
+
+    @Test
+    void aCancellationHandleStopsTheRunningToolAndReleasesItsPermitOnce() throws Exception {
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch stopped = new CountDownLatch(1);
+        AtomicReference<Boolean> sawCancellation = new AtomicReference<>();
+        McpTool slow = new McpTool("slow", "Slow.", McpToolSchema.NONE, "overview", false, args -> {
+            io.github.jdubois.bootui.engine.progress.OperationProgress progress =
+                    io.github.jdubois.bootui.engine.progress.OperationProgress.current();
+            try {
+                running.countDown();
+                Thread.sleep(30_000);
+                return "never";
+            } catch (InterruptedException interrupted) {
+                sawCancellation.set(progress.cancelled());
+                return "interrupted";
+            } finally {
+                stopped.countDown();
+            }
+        });
+        McpDispatcher dispatcher = new McpDispatcher(List.of(slow), List.of(), policy, "1.0", "x", 50, 1, diagnostics);
+        McpCancellation cancellation = new McpCancellation();
+        AtomicReference<McpDispatchOutcome> outcome = new AtomicReference<>();
+        Thread caller = new Thread(() -> outcome.set(dispatcher.dispatch(call("slow"), cancellation)));
+        caller.start();
+        assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+
+        cancellation.cancel();
+        cancellation.cancel();
+        caller.join(5_000);
+
+        assertThat(outcome.get()).isEqualTo(new McpDispatchOutcome.Cancelled());
+        assertThat(stopped.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(sawCancellation.get())
+                .as("the tool's progress is cancelled too")
+                .isTrue();
+        McpRuntimeStats.Snapshot stats = dispatcher.runtimeStats().snapshot();
+        assertThat(stats.cancellations()).isEqualTo(1);
+        assertThat(stats.timeouts()).isZero();
+        assertThat(stats.callCount()).isEqualTo(1);
+        assertThat(diagnostics.count()).isZero();
+        assertThat(dispatcher.dispatch(call("slow"), cancelledBeforeStart()))
+                .as("the single permit is free again, and a handle cancelled first stops the call at once")
+                .isEqualTo(new McpDispatchOutcome.Cancelled());
+        assertThat(dispatcher.runtimeStats().snapshot().callCount()).isEqualTo(2);
+        cancellation.cancel();
+    }
+
+    private static McpCancellation cancelledBeforeStart() {
+        McpCancellation cancellation = new McpCancellation();
+        cancellation.cancel();
+        return cancellation;
+    }
+
+    @Test
     void panelPolicyRuntimeExceptionBecomesDetailFreeInternalErrorAndIsReportedOnce() {
         IllegalStateException failure = new IllegalStateException("token=ghp_sensitive_policy_token");
         policy.failure = failure;

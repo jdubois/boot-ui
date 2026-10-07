@@ -327,7 +327,19 @@ public final class McpToolCatalog {
             Map.entry("get_config", McpAgentViews.INVENTORY_DEFAULT_LIMIT),
             Map.entry("get_threads", McpAgentViews.INVENTORY_DEFAULT_LIMIT));
 
+    /**
+     * Tools whose operation reports measured phases through {@link
+     * io.github.jdubois.bootui.engine.progress.OperationProgress}, so a modern call with a progress token can stream
+     * them. Only tools with genuine units of work belong here; a percentage is never invented.
+     */
+    private static final Set<String> PROGRESS_TOOLS = Set.of("architecture_scan");
+
     private McpToolCatalog() {}
+
+    /** {@code true} when {@code name} reports real progress phases while it runs. */
+    public static boolean reportsProgress(String name) {
+        return PROGRESS_TOOLS.contains(name);
+    }
 
     /** The {@code limit} a call to {@code name} gets when it asks for none, or {@code null} for {@code max-results}. */
     public static Integer defaultLimit(String name) {
