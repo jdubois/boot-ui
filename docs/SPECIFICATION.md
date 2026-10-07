@@ -3400,10 +3400,10 @@ Design rules:
   overriding the configured property for the lifetime of the running application. While disabled, JSON-RPC requests are
   refused in-band with a `server disabled` error.
 - **In-process and dependency-light.** Implemented as a hand-rolled JSON-RPC 2.0 server (`initialize`, `ping`,
-  `tools/list`, `tools/call`, `prompts/list`, `prompts/get`) served over the existing HTTP stack at
+  `server/discover`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`) served over the existing HTTP stack at
   `POST /bootui/api/mcp`, with a
   `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
-  because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
+  because BootUI offers no server-to-client stream, which MCP 2026-07-28 removed. No new runtime dependencies beyond what BootUI already ships.
   The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
 - **Deliberately scoped method surface.** The server advertises only the `tools` and `prompts` capabilities. `resources/*`
   and `completion/complete` are intentionally not implemented: every piece of runtime data BootUI exposes is already
@@ -3477,8 +3477,18 @@ Design rules:
 - **Strict inputs.** The transport rejects invalid JSON-RPC id/params types, non-object tool arguments, unknown
   arguments, and values whose type does not match the advertised schema with `-32600`/`-32602`; malformed values are
   never silently coerced or replaced with broad defaults.
-- **Protocol version.** An absent `MCP-Protocol-Version` header uses the server's advertised current revision
-  (`2025-06-18`). A present unsupported revision is rejected; BootUI does not emulate older session semantics.
+- **Dual-era protocol.** The endpoint serves MCP 2025-06-18 and MCP 2026-07-28 at once and chooses per request, as
+  MCP 2026-07-28's backward compatibility rules describe ([AI agents](AI-AGENTS.md#protocol-eras)). A request without
+  `_meta["io.modelcontextprotocol/protocolVersion"]`, and every `initialize`, is legacy and answers byte for byte as
+  before: an absent `MCP-Protocol-Version` header means `2025-06-18`, and any other value is `400`/`-32600`. A modern
+  request is validated (version type, header agreement, supported version, client capabilities, `Mcp-Method`,
+  `Mcp-Name` with Base64 decoding, progress token type) with `400` and `-32602`, `-32020`, or `-32022` carrying
+  `data.supported`. The modern era has `server/discover` but no `initialize` or `ping`, answers an unknown method with
+  `404`, adds `resultType`, `_meta` server identity, and cache hints (`ttlMs: 60000`, `cacheScope: "private"`) on
+  discovery and list results, and moves BootUI's server errors to `-31000`..`-31003` because MCP 2026-07-28 reserves
+  `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern request is a `400` even
+  while the server is off. The CLI facade and the engine keep the legacy codes. Responses are single JSON objects in
+  both eras.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions

@@ -28,6 +28,8 @@ import java.util.Set;
  * @param argumentsError a safe adapter-detected shape/type error, or {@code null}
  * @param rawScanId the completed advisor snapshot identifier, or {@code null}
  * @param rawOffset the zero-based retained detail offset, or {@code null}
+ * @param era the protocol era {@link McpEraResolver} chose ({@code null} → {@link McpEra#LEGACY})
+ * @param progressToken the modern request's {@code _meta.progressToken}, or {@code null}
  */
 public record McpRequest(
         String jsonrpc,
@@ -41,10 +43,44 @@ public record McpRequest(
         Set<String> argumentNames,
         String argumentsError,
         String rawScanId,
-        Integer rawOffset) {
+        Integer rawOffset,
+        McpEra era,
+        McpProgressToken progressToken) {
 
     public McpRequest {
         argumentNames = argumentNames == null ? Set.of() : Set.copyOf(argumentNames);
+        era = era == null ? McpEra.LEGACY : era;
+    }
+
+    /** Legacy-era constructor used by codecs and engine callers that predate era selection. */
+    public McpRequest(
+            String jsonrpc,
+            String method,
+            boolean notification,
+            String requestedProtocolVersion,
+            String toolName,
+            String rawQuery,
+            Integer rawLimit,
+            String rawId,
+            Set<String> argumentNames,
+            String argumentsError,
+            String rawScanId,
+            Integer rawOffset) {
+        this(
+                jsonrpc,
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery,
+                rawLimit,
+                rawId,
+                argumentNames,
+                argumentsError,
+                rawScanId,
+                rawOffset,
+                McpEra.LEGACY,
+                null);
     }
 
     /** Backward-compatible constructor for codecs without advisor detail arguments. */
