@@ -200,6 +200,12 @@ public final class BlockingBehaviors {
                     lock.lock();
                     try {
                         held.countDown();
+                        // Held until the loop queues on it, so its lockBriefly really parks: a fixed hold could end
+                        // before a loaded runner even starts the loop thread, leaving the lock uncontended.
+                        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                        while (!lock.hasQueuedThreads() && System.nanoTime() < deadline) {
+                            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+                        }
                         LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(30));
                     } finally {
                         lock.unlock();
