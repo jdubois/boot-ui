@@ -1109,8 +1109,11 @@ kind untracked; the sensor fails when no close hook passed. Forked-JVM tests run
 newest verified JDK, alone and beside the OpenTelemetry agent in both orders, with a library pool's socket and the JDK
 `HttpClient`'s pool as counterexamples, never reported reclaimed.
 
-**Cost.** Opt-in until a same-runner A/B of the agent's overhead benchmark on its I/O route shows its own median
-increment at most 3 % and the cumulative median at most 10 % (the `agent-overhead-resources` job of `build.yml`). Add
+**Cost.** The `agent-overhead-resources` job of `build.yml` measures it on the benchmark's I/O route (one socket
+connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured its own
+median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
+median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets. It stays opt-in (D37) until the maintainer
+makes it a default. Add
 `resources` to `bootui.agent.sensors` with `files`, or switch it on at run time from the Java Agent or Side Effects
 panel; a resource opened before it was switched on is not tracked, and switching it off forgets what it tracked.
 

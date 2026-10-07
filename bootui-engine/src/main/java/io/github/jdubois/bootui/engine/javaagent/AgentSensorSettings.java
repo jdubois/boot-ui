@@ -174,8 +174,9 @@ public record AgentSensorSettings(
                 "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
                         + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
             case RESOURCES ->
-                "Off by default until its overhead is measured: it advises the JDK's stream, channel, and socket"
-                        + " close methods, and sees files only while the files sensor is on.";
+                "Off by default (D37): it advises the JDK's stream, channel, and socket close methods, and sees files"
+                        + " only while the files sensor is on; on the benchmark's I/O route it measured about -0.5 % over the"
+                        + " default sensors, 6.9 % cumulative.";
             default -> null;
         };
     }

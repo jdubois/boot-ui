@@ -934,6 +934,7 @@ jobs:
   # files too, which files alone keeps near the 10 % budget). It may be on by default only with its own median at most
   # 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL, and fails the job when the verdict is
   # FAIL while resources is among the default sensors. Pushes, manual runs, and pull requests labelled agent.
+  # The first run measured -0.5 % own, 0.3 % beside files, and 6.9 % cumulative: PASS; resources stays opt-in (D37).
   agent-overhead-resources:
     name: Agent overhead, resources A/B (Java 17)
     runs-on: ubuntu-latest
