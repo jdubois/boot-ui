@@ -873,9 +873,9 @@ request input)`, never the text, as it does for a path or executable longer than
 empty between requests, is not evidence.
 
 **Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
-request), matching added 2.6 % and −0.2 % to the same sensors without it over two runs (median of 15 pairs each), and
-the run with every sensor, `files` included, measured 10.9 % and 8.4 % against no agent, at the edge of the 10 % budget;
-matching stays opt-in.
+request), matching added 2.6 %, −0.2 %, and 2.9 % to the same sensors without it over three runs (median of 15 pairs
+each), and the run with every sensor, `files` included, measured 10.9 %, 8.4 %, and 10.8 % against no agent, at the edge
+of the 10 % budget; matching stays opt-in.
 
 **False positives.** A value that sits outside an SQL literal, inside a number or `true`/`false`, or that is itself a
 number (digits, with an optional sign and decimal point, as `-33.8688`), may be a word the text always holds, as a
