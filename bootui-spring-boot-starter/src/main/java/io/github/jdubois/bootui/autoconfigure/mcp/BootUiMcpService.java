@@ -16,10 +16,8 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpEra;
-import io.github.jdubois.bootui.engine.mcp.McpEraDecision;
-import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Rejected;
 import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Serve;
-import io.github.jdubois.bootui.engine.mcp.McpEraResolver;
+import io.github.jdubois.bootui.engine.mcp.McpExchange;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpGuidance;
 import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
@@ -56,7 +54,7 @@ import tools.jackson.databind.node.ObjectNode;
  * <p>This is a transport-agnostic JSON-RPC 2.0 handler. {@link BootUiMcpController} adapts it to a
  * single loopback HTTP endpoint; the handler itself only understands JSON-RPC messages. It is dual-era: a legacy
  * MCP 2025-06-18 client uses {@code initialize}, {@code notifications/initialized} (notification), and {@code ping};
- * a modern MCP 2026-07-28 client, recognized by its per-request {@code _meta} (see {@link McpEraResolver}), uses
+ * a modern MCP 2026-07-28 client, recognized by its per-request {@code _meta} (see {@link McpExchange}), uses
  * {@code server/discover} and receives {@code resultType}, server metadata, and cache hints on every result. Both
  * eras share {@code tools/list}, {@code tools/call}, {@code prompts/list}, and {@code prompts/get}.
  *
@@ -210,38 +208,37 @@ public class BootUiMcpService {
      * {@code Accept} lists {@code text/event-stream} may answer with a {@link Stream}.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled, boolean acceptsEventStream) {
-        if (request != null && request.isArray()) {
-            return new Reply(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
+        McpExchange.Plan plan = plan(request, headers, enabled);
+        if (plan instanceof McpExchange.Plan.Reject reject) {
+            return new Reply(reject.httpStatus(), rejection(request, reject));
         }
-        McpEraDecision decision = resolveEra(request, headers);
-        if (decision instanceof Rejected rejected) {
-            return new Reply(rejected.httpStatus(), rejection(request, rejected));
+        if (plan instanceof McpExchange.Plan.Accept) {
+            return new Reply(202, null);
         }
-        Serve serve = (Serve) decision;
-        if (!enabled) {
-            if (isNotification(request)) {
-                return new Reply(202, null);
-            }
+        if (plan instanceof McpExchange.Plan.Disabled disabled) {
             JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-            return new Reply(
-                    200, error(id, serve.era(), McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE));
+            return new Reply(200, error(id, disabled.code(), McpProtocol.SERVER_DISABLED_MESSAGE));
         }
-        Reply reply = respond(request, serve, acceptsEventStream);
+        Reply reply = respond(request, ((McpExchange.Plan.Dispatch) plan).serve(), acceptsEventStream);
         return reply.body() == null && reply.stream() == null ? new Reply(202, null) : reply;
     }
 
-    private static McpEraDecision resolveEra(JsonNode request, McpRequestHeaders headers) {
+    /** Extracts the envelope fields the engine's request flow needs; the decision itself is {@link McpExchange}'s. */
+    private static McpExchange.Plan plan(JsonNode request, McpRequestHeaders headers, boolean enabled) {
         if (request == null || !request.isObject()) {
-            return McpEraResolver.resolve(null, false, null, McpRequestMeta.NONE, headers);
+            return McpExchange.plan(
+                    request != null && request.isArray(), null, false, null, McpRequestMeta.NONE, headers, enabled);
         }
         JsonNode method = request.get("method");
         JsonNode name = request.path("params").get("name");
-        return McpEraResolver.resolve(
+        return McpExchange.plan(
+                false,
                 method != null && method.isString() ? method.asString() : null,
                 isNotification(request),
                 name != null && name.isString() ? name.asString() : null,
                 meta(request),
-                headers);
+                headers,
+                enabled);
     }
 
     private static McpRequestMeta meta(JsonNode request) {
@@ -288,20 +285,20 @@ public class BootUiMcpService {
     }
 
     /** A modern rejection echoes a readable request id; a legacy one keeps BootUI 1.x's {@code null} id. */
-    private static ObjectNode rejection(JsonNode request, Rejected rejected) {
+    private static ObjectNode rejection(JsonNode request, McpExchange.Plan.Reject reject) {
         JsonNode id = null;
-        if (rejected.era() == McpEra.MODERN && request != null && request.isObject()) {
+        if (reject.echoId() && request != null && request.isObject()) {
             JsonNode candidate = request.get("id");
             if (candidate != null && (candidate.isString() || candidate.isNumber())) {
                 id = candidate;
             }
         }
-        ObjectNode response = error(id, rejected.era(), rejected.code(), rejected.message());
-        if (rejected.hasVersionData()) {
+        ObjectNode response = error(id, reject.code(), reject.message());
+        if (reject.hasVersionData()) {
             ObjectNode data = JsonNodeFactory.instance.objectNode();
             ArrayNode supported = data.putArray("supported");
-            rejected.supportedVersions().forEach(supported::add);
-            data.put("requested", rejected.requestedVersion());
+            reject.supportedVersions().forEach(supported::add);
+            data.put("requested", reject.requestedVersion());
             ((ObjectNode) response.get("error")).set("data", data);
         }
         return response;
