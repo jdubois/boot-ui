@@ -280,6 +280,10 @@ final class SideEffectsStore {
                 network(record);
             } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
                 threads(record, requestId);
+            } else if (record.sensor() == SideEffectsCatalog.RECORD_THREAD_LOCALS) {
+                // A scope that left it set: counted, with its distinct request.
+                count += record.count();
+                countRequest(record);
             } else if (record.sensor() == SideEffectsCatalog.RECORD_RESOURCES) {
                 resources(record, requestId);
             } else if (SideEffectsCatalog.processExit(record.sensor(), record.kind())) {
@@ -343,7 +347,7 @@ final class SideEffectsStore {
             switch (record.kind()) {
                 case SideEffectsCatalog.KIND_THREAD_START, SideEffectsCatalog.KIND_EXECUTOR_CREATE -> {
                     count += record.count();
-                    countRequest(record.requestId());
+                    countRequest(record);
                 }
                 case SideEffectsCatalog.KIND_THREAD_LEFT_RUNNING, SideEffectsCatalog.KIND_EXECUTOR_LEFT_RUNNING ->
                     leftRunning += record.count();
@@ -367,7 +371,7 @@ final class SideEffectsStore {
         private void resources(SideEffectRecord record, String requestId) {
             if ((record.exitStatus() & SideEffectsCatalog.DETAIL_FIRST_REPORT) != 0) {
                 count += record.count();
-                countRequest(record.requestId());
+                countRequest(record);
             }
             switch (record.kind()) {
                 case SideEffectsCatalog.KIND_RESOURCE_LEFT_OPEN -> leftRunning += record.count();
@@ -388,8 +392,9 @@ final class SideEffectsStore {
             count = Math.max(count, Math.max(failed, leftRunning));
         }
 
-        /** Counts {@code request} once among the latest {@value #RECENT_REQUESTS} distinct requests. */
-        private void countRequest(String request) {
+        /** Counts the record's request once among the latest {@value #RECENT_REQUESTS} distinct ones. */
+        private void countRequest(SideEffectRecord record) {
+            String request = record.requestId();
             if (request == null) {
                 return;
             }

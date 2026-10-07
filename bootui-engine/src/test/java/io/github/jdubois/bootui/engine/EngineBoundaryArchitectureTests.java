@@ -85,4 +85,21 @@ class EngineBoundaryArchitectureTests {
                     + "BootUiIdentitySpanProcessor and OtelSpanEnricher (R2 optional-dependency port); the rest "
                     + "of the telemetry engine works over neutral NormalizedSpan records so the OTLP-decoding "
                     + "adapter never forces OTel on a consumer");
+
+    /**
+     * BootUI's own thread locals are {@code BootUiThreadLocal}s, which the agent's {@code thread-locals} sensor never
+     * reports, by class ({@code docs/PLAN-v2.md} §5.16, M5-5f).
+     */
+    @ArchTest
+    static final ArchRule threadLocalsAreBootUiThreadLocals = ArchRuleDefinition.noClasses()
+            .that()
+            .haveNameNotMatching("io\\.github\\.jdubois\\.bootui\\.engine\\.support\\.BootUiThreadLocal(\\$.*)?")
+            .should()
+            .callConstructor(ThreadLocal.class)
+            .orShould()
+            .callConstructor(InheritableThreadLocal.class)
+            .orShould()
+            .callMethod(ThreadLocal.class, "withInitial", java.util.function.Supplier.class)
+            .because("the BootUI agent's thread-locals sensor recognizes BootUI's own thread locals by their class,"
+                    + " BootUiThreadLocal");
 }

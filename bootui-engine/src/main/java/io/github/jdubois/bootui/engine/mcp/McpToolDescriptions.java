@@ -337,6 +337,7 @@ public final class McpToolDescriptions {
                             + "park, a blocking network or file operation) started on an event loop, and, opt-in, the "
                             + "files it opens, deletes, moves, and copies, the environment variables and system "
                             + "properties it reads, the threads it starts and executors it creates (thread-activity), "
+                            + "the thread locals a request or a job left set on its pooled thread (thread-locals), "
                             + "and the streams, channels, and sockets a request left open or never closed (resources). "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
@@ -357,12 +358,14 @@ public final class McpToolDescriptions {
                             + "executor's class, how many a request started (count / requests), how many were still "
                             + "running when their request ended (leftRunning), and executors shut down (completed) or "
                             + "reclaimed without a shutdown (failed), library and JDK pools by origin, never what a "
-                            + "thread holds; a resources row the resource's kind (file input stream, file channel, "
-                            + "socket, ...) and its target as the files and network rows show it, by origin "
-                            + "(application, or a library the application called), how many were reclaimed by the "
-                            + "garbage collector never closed (failed: the leak), still open after their request "
-                            + "(leftRunning) and closed after it (completed), both a pool's or a cache's hand-off rather "
-                            + "than a leak, never contents."),
+                            + "thread holds; a thread-locals row the static field holding a thread local left set "
+                            + "(kind left set, inheritable, or with initial value), by how many requests, set during the "
+                            + "request with no call site, never its value; a resources row the resource's kind (file "
+                            + "input stream, file channel, socket, ...) and its target as the files and network rows "
+                            + "show it, by origin (application, or a library the application called), how many were "
+                            + "reclaimed by the garbage collector never closed (failed: the leak), still open after their "
+                            + "request (leftRunning) and closed after it (completed), both a pool's or a cache's hand-off "
+                            + "rather than a leak, never contents."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "

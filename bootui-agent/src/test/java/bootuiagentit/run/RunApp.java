@@ -22,6 +22,11 @@ public final class RunApp {
     /** This run's correlation, as the engine's thread-local holds its own context objects. */
     static final ThreadLocal<Object> CURRENT = new ThreadLocal<>();
 
+    /** A thread local a run's pool task leaves set, with this run's object, for the thread-locals sensor (M5-5f). */
+    static final ThreadLocal<Object> LEAKED = new ThreadLocal<>();
+
+    static final boolean THREAD_LOCALS = Boolean.getBoolean("bootui.agent.it.thread-locals");
+
     private RunApp() {}
 
     @SuppressWarnings("unchecked")
@@ -32,7 +37,11 @@ public final class RunApp {
         request.put("owner", "it run " + SENTINEL.run);
         request.put("mode", "dev");
         request.put("packages", List.of("bootuiagentit.run"));
-        request.put("sensors", List.of("executors", "threads", "inventory", "code-paths"));
+        request.put(
+                "sensors",
+                THREAD_LOCALS
+                        ? List.of("executors", "threads", "inventory", "code-paths", "thread-locals")
+                        : List.of("executors", "threads", "inventory", "code-paths"));
         request.put("beanClasses", List.of(RunBean.class.getName()));
         Object marker = new Object();
         capture = () -> marker != null && CURRENT.get() != null
@@ -84,7 +93,13 @@ public final class RunApp {
                 throw new IllegalStateException("the common pool never ran the task");
             }
             bootuiagentit.ChildMain.SHARED_POOL
-                    .submit(() -> Probed.touch(SENTINEL.run))
+                    .submit(() -> {
+                        Probed.touch(SENTINEL.run);
+                        if (THREAD_LOCALS) {
+                            // Left set on the JVM-wide pool's worker: the sensor reports it, and must keep nothing.
+                            LEAKED.set(new RunContext());
+                        }
+                    })
                     .get();
             java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
             pool.submit(() -> Probed.touch(SENTINEL.run)).get();
@@ -105,6 +120,45 @@ public final class RunApp {
 
     static final class RunContext {
         final Sentinel sentinel = SENTINEL;
+    }
+
+    /**
+     * The engine's drain, as the run's engine would do it: the thread-locals records drained and each thread local's
+     * holder resolved by the agent, so the resolver's caches hold this run's classes, weakly.
+     */
+    public static int resolveThreadLocals(long token) throws Exception {
+        if (!THREAD_LOCALS) {
+            return 0;
+        }
+        Class<?> sideEffects = Class.forName("io.github.jdubois.bootui.agent.bridge.SideEffects", false, null);
+        Class<?> threadLocals = Class.forName("io.github.jdubois.bootui.agent.bridge.ThreadLocals", false, null);
+        List<long[]> records = new java.util.ArrayList<>();
+        java.util.function.Consumer<long[]> sink = record -> {
+            if (record[0] == 7L) {
+                records.add(record.clone());
+            }
+        };
+        sideEffects
+                .getMethod("drain", long.class, java.util.function.Consumer.class)
+                .invoke(null, token, sink);
+        int resolved = 0;
+        for (long[] record : records) {
+            int id = (int) ((record[9] >>> 40) & 0xFFFF);
+            String[] holder = (String[]) threadLocals
+                    .getMethod("holder", long.class, int.class, int.class, String[].class, String[].class, long.class)
+                    .invoke(
+                            null,
+                            record[2],
+                            id,
+                            (int) record[11],
+                            new String[] {"bootuiagentit.run"},
+                            new String[0],
+                            5_000_000_000L);
+            if (holder != null && (RunApp.class.getName() + ".LEAKED").equals(holder[0])) {
+                resolved++;
+            }
+        }
+        return resolved;
     }
 
     public static void disarm(long token) throws Exception {

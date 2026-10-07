@@ -205,6 +205,7 @@ class SideEffectsServiceTests {
                                 "environment",
                                 "blocking",
                                 "thread-activity",
+                                "thread-locals",
                                 "resources")
                         .contains(sensor.id()))
                 .allSatisfy(sensor -> {
@@ -309,12 +310,9 @@ class SideEffectsServiceTests {
                 .hasMessageContaining("proceses")
                 .hasMessageContaining("processes")
                 .hasMessageContaining("not available in this version");
-        AgentSensorSettings planned =
-                new AgentSensorSettings(List.of("executors", "security-sinks", "thread-locals"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("security-sinks", "thread-locals");
-        assertThat(planned.notAvailableWarning())
-                .contains("security-sinks, thread-locals")
-                .contains("not available");
+        AgentSensorSettings planned = new AgentSensorSettings(List.of("executors", "security-sinks"), null, null, null);
+        assertThat(planned.notAvailable()).containsExactly("security-sinks");
+        assertThat(planned.notAvailableWarning()).contains("security-sinks").contains("not available");
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)
                 .as("the catalog's sensors this version does not ship")

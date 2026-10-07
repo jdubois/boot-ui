@@ -793,8 +793,8 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
-  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e), and
-  `resources` (M5-5g) when opted in. The `thread-locals` and `security-sinks` sensors are still listed but report
+  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e),
+  `thread-locals` (M5-5f), and `resources` (M5-5g) when opted in. The `security-sinks` sensor is still listed but reports
   `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
@@ -929,6 +929,21 @@ Acceptance criteria:
   the counterexamples `GET /api/thread-activity/joined` (a thread joined before the response) and
   `GET /api/thread-activity/closed-pool` (an executor shut down in `finally`) are never left running, and neither is a
   library's or the server's own pool.
+- The opt-in `thread-locals` sensor (M5-5f) hooks nothing: when a request's or a job's scope on a pooled platform thread
+  opens and closes (a Spring MVC request on its worker, a request's task on a pool's own worker, Spring WebFlux work
+  Reactor's context propagation runs on `boundedElastic`, a Quarkus blocking resource method or managed executor task
+  on its worker, a scheduled run), it scans the thread's thread-local maps, and a thread local with a value at the close
+  that had none, or was absent, at the open is **left set**; a `null` value counts as cleared. It reads keys and value
+  nullness only, never a value. The **Threads and leaks** tab shows rows by attribution, kind (`left set`, `left set
+  (inheritable)`, `left set (with initial value)`), target (the static field holding it, resolved on the drain thread
+  without initializing a class, else a hint or the thread local's class), origin, how many times it was left set, and
+  by how many requests; there is no call site ("set during the request"). Event loops, virtual threads, and BootUI's
+  own thread locals are never reported; frameworks' thread locals that clear themselves, and per-thread caches with an
+  initial value outside the application, are dropped and counted. With the agent and `thread-locals` opted in, the
+  three samples' `GET /api/thread-locals/leak` shows `TenantContext.CURRENT` left set; the counterexamples
+  `GET /api/thread-locals/cleared` (removed in `finally`), `GET /api/thread-locals/nulled` (set to `null`), and, on
+  Spring MVC and Quarkus, `GET /api/thread-locals/before` (set by a filter before BootUI's scope) never appear, and
+  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`.
 - The opt-in `resources` sensor (M5-5g, D46) tracks the streams, channels, and sockets the `files` and `network`
   sensors record opening (so files only while `files` is on) for a request or a job with an application frame on the
   stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
@@ -940,7 +955,8 @@ Acceptance criteria:
   stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
   nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`, `files`, `environment`, `thread-activity`, and `resources` remain opt-in.
+  `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `resources` remain
+  opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

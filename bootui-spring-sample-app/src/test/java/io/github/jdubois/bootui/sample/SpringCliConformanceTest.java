@@ -16,7 +16,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
             "bootui.panels.memory.enabled=false",
             "bootui.panels.heap-dump.read-only=true",
             "bootui.heap-dump.capture-enabled=false",
-            "bootui.claude-code.enabled=OFF"
+            "bootui.claude-code.enabled=OFF",
+            // AbstractCliConformanceTest.CLI_TIMEOUT: a loaded runner can stretch architecture_scan past the 30 s
+            // default.
+            "bootui.cli.execution-timeout=60s"
         })
 class SpringCliConformanceTest extends AbstractCliConformanceTest {
 

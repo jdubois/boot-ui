@@ -88,6 +88,8 @@ public final class SideEffects {
     /** The thread-activity sensor's id ({@link ThreadActivity}, M5-5e), opt-in until its overhead A/B passes. */
     public static final String THREAD_ACTIVITY = "thread-activity";
 
+    /** The thread-locals sensor's id ({@link ThreadLocals}, M5-5f), opt-in (D37). */
+    public static final String THREAD_LOCALS = "thread-locals";
     /** The resources sensor's id ({@link Resources}, M5-5g), opt-in (D37). */
     public static final String RESOURCES = "resources";
 
@@ -99,18 +101,19 @@ public final class SideEffects {
     public static final int SENSOR_ENVIRONMENT = 4;
     public static final int SENSOR_BLOCKING = 5;
     public static final int SENSOR_THREADS = 6;
+    public static final int SENSOR_THREAD_LOCALS = 7;
 
     /** The resources sensor's id in records ({@link Resources}, M5-5g). */
     public static final int SENSOR_RESOURCES = 9;
 
     /**
-     * Ids 7 and 8 are reserved for the thread-locals and security-sinks sensors (PLAN-v2 M5-5f and M5-6b): their names
-     * here never match a claim, and status never reports them.
+     * Id 8 is reserved for the security-sinks sensor (PLAN-v2 M5-6b): its name here never matches a claim, and status
+     * never reports it.
      */
     static final String RESERVED = "(reserved)";
 
     static final String[] SENSOR_NAMES = {
-        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, RESERVED, RESERVED, RESOURCES
+        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, RESERVED, RESOURCES
     };
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
@@ -119,6 +122,7 @@ public final class SideEffects {
     public static final int MASK_ENVIRONMENT = 1 << SENSOR_ENVIRONMENT;
     public static final int MASK_BLOCKING = 1 << SENSOR_BLOCKING;
     public static final int MASK_THREADS = 1 << SENSOR_THREADS;
+    public static final int MASK_THREAD_LOCALS = 1 << SENSOR_THREAD_LOCALS;
     public static final int MASK_RESOURCES = 1 << SENSOR_RESOURCES;
 
     /**
@@ -309,6 +313,8 @@ public final class SideEffects {
     public static final int KIND_EXECUTOR_LEFT_RUNNING = 25;
     public static final int KIND_EXECUTOR_RECLAIMED = 26;
 
+    /** A thread local a request or a job left set on its pooled thread ({@link ThreadLocals}). */
+    public static final int KIND_THREAD_LOCAL_LEFT_SET = 27;
     /**
      * The resources sensor's kinds ({@link Resources}): a resource still open after its request's response completed, one
      * reported open then closed (handed off), and one the collector reclaimed without a {@code close()}.
@@ -2079,7 +2085,10 @@ public final class SideEffects {
             } else {
                 frame = CodePaths.frame();
             }
-            if (captured == null && !attempted && (mask & (MASK_FILES | MASK_ENVIRONMENT)) != 0) {
+            if (captured == null
+                    && !attempted
+                    && ((mask & (MASK_FILES | MASK_ENVIRONMENT)) != 0
+                            || ((mask & MASK_THREAD_LOCALS) != 0 && ThreadLocals.adapterScopes()))) {
                 Claim claim = AgentBridge.current();
                 Owner owner = new Owner();
                 boolean owned = false;
@@ -2095,6 +2104,7 @@ public final class SideEffects {
                 }
                 if (owned) {
                     push(frame, SLOT_SCOPE, generation, owner.request, owner.execution, owner.executionKind);
+                    scopeThreadLocals(frame);
                     return;
                 }
             }
@@ -2103,8 +2113,16 @@ public final class SideEffects {
             } else {
                 push(frame, SLOT_SCOPE, generation, captured[0], captured[1], (int) captured[2]);
             }
+            scopeThreadLocals(frame);
         } catch (Throwable ex) {
             failed(ex);
+        }
+    }
+
+    /** An adapter's request scope opened a slot: a thread-locals scope opens where the stack asks for one. */
+    private static void scopeThreadLocals(CodePaths.Frame frame) {
+        if ((mask & MASK_THREAD_LOCALS) != 0 && ThreadLocals.adapterScopes()) {
+            ThreadLocals.pushed(frame);
         }
     }
 
@@ -2149,6 +2167,14 @@ public final class SideEffects {
      * runs another request's task on a request's own thread. Never throws.
      */
     static void handoff(Object[] payload, long snapshotGeneration) {
+        handoff(payload, snapshotGeneration, false);
+    }
+
+    /**
+     * As {@link #handoff(Object[], long)}; {@code pooled} when the work is a pool's task on that pool's own worker, which
+     * the thread-locals sensor scans when the task ends ({@link ThreadLocals}). Never throws.
+     */
+    static void handoff(Object[] payload, long snapshotGeneration, boolean pooled) {
         try {
             CodePaths.Frame frame;
             if (mask == 0 && !slotReaders) {
@@ -2171,6 +2197,9 @@ public final class SideEffects {
             } else {
                 // The reopened execution's own id is the engine's: the request is what attributes the work.
                 push(frame, SLOT_HANDOFF, current, request, 0L, CodePaths.EXECUTION_NONE);
+                if (pooled && (mask & MASK_THREAD_LOCALS) != 0) {
+                    ThreadLocals.pushed(frame);
+                }
             }
         } catch (Throwable ex) {
             failed(ex);
@@ -2222,6 +2251,10 @@ public final class SideEffects {
             return;
         }
         flush(frame);
+        if (frame.threadLocals != null) {
+            // The thread-locals scope this slot opened, if any, closes while the slot still names its owner.
+            ThreadLocals.popping(frame, index);
+        }
         frame.slots = index;
     }
 
@@ -3991,6 +4024,8 @@ public final class SideEffects {
             status(BLOCKING);
             ThreadActivity.warm();
             status(THREAD_ACTIVITY);
+            ThreadLocals.warm();
+            status(THREAD_LOCALS);
             Resources.warm();
             Resources.opened(null, owner, null, 0, 0, 0L, 0L, 0);
             status(RESOURCES);
@@ -4141,6 +4176,9 @@ public final class SideEffects {
             if (sensor == SENSOR_THREADS) {
                 ThreadActivity.putStatus(map);
             }
+            if (sensor == SENSOR_THREAD_LOCALS) {
+                ThreadLocals.putStatus(map);
+            }
             if (sensor == SENSOR_RESOURCES) {
                 Resources.putStatus(map);
             }
@@ -4254,6 +4292,7 @@ public final class SideEffects {
         generation = -1L;
         Blocking.reset();
         ThreadActivity.reset();
+        ThreadLocals.reset();
         Resources.reset();
         off = false;
         offReason = null;

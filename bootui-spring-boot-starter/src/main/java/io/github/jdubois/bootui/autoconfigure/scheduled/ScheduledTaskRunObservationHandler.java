@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.scheduled;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.observation.Observation;
@@ -67,11 +68,36 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
         StartMarker start = context.get(StartMarker.class);
         if (start != null) {
             context.put(BootUiCorrelation.Scope.class, BootUiCorrelation.open(start.correlation()));
+            // The run's thread-locals scope, inside its context (docs/PLAN-v2.md §5.16, M5-5f): opened by the
+            // outermost observation scope, closed by its own close, never by a nested one's.
+            if (context.get(ThreadLocalsScope.class) instanceof ThreadLocalsScope open) {
+                open.depth++;
+            } else {
+                context.put(ThreadLocalsScope.class, new ThreadLocalsScope(AgentThreadLocals.open()));
+            }
+        }
+    }
+
+    /** The BootUI agent's thread-locals scope of a run, and how many observation scopes are nested in it. */
+    private static final class ThreadLocalsScope {
+        final long token;
+        int depth;
+
+        ThreadLocalsScope(long token) {
+            this.token = token;
         }
     }
 
     @Override
     public void onScopeClosed(ScheduledTaskObservationContext context) {
+        if (context.get(ThreadLocalsScope.class) instanceof ThreadLocalsScope threadLocals) {
+            if (threadLocals.depth > 0) {
+                threadLocals.depth--;
+            } else {
+                context.remove(ThreadLocalsScope.class);
+                AgentThreadLocals.close(threadLocals.token);
+            }
+        }
         if (context.remove(BootUiCorrelation.Scope.class) instanceof BootUiCorrelation.Scope scope) {
             scope.close();
         }
