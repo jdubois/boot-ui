@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
@@ -407,11 +408,7 @@ class QuarkusMcpEnvelopeTest {
         assertThat(modern(envelope, "tools/call", "4", "get_overview", "2026-07-28", true)
                         .body()
                         .toString())
-                .isEqualTo(
-                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
-                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
-                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
-                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+                .isEqualTo(McpModernParity.TOOL_CALL_DEMO);
 
         QuarkusMcpEnvelope.Reply unknown = modern(envelope, "ping", "6", null, "2026-07-28", true);
         assertThat(unknown.status()).isEqualTo(404);
@@ -440,6 +437,27 @@ class QuarkusMcpEnvelopeTest {
         assertThat(legacy.body().toString())
                 .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,"
                         + "\"message\":\"Unsupported MCP-Protocol-Version\"}}");
+    }
+
+    @Test
+    void modernEnvelopesMatchTheSharedParityContract() throws Exception {
+        QuarkusMcpEnvelope envelope =
+                envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
+        ObjectNode discover = (ObjectNode) modern(envelope, "server/discover", "1", null, "2026-07-28", true)
+                .body()
+                .path("result");
+        discover.remove("instructions");
+        assertThat(discover.toString()).isEqualTo(McpModernParity.DISCOVER_WITHOUT_INSTRUCTIONS);
+        ObjectNode tools = (ObjectNode) modern(envelope, "tools/list", "2", null, "2026-07-28", true)
+                .body()
+                .path("result");
+        tools.remove("tools");
+        assertThat(tools.toString()).isEqualTo(McpModernParity.LIST_ENVELOPE);
+        ObjectNode prompts = (ObjectNode) modern(envelope, "prompts/list", "3", null, "2026-07-28", true)
+                .body()
+                .path("result");
+        prompts.remove("prompts");
+        assertThat(prompts.toString()).isEqualTo(McpModernParity.LIST_ENVELOPE);
     }
 
     @Test
