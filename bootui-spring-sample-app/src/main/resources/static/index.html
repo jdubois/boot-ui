@@ -1269,7 +1269,7 @@
     {
       key: 'route-time-breakdown',
       label: 'Slow route breakdown',
-      text: 'Calls the secured, SQL-backed <code>GET /api/secure/products</code> as admin seven times, so five are warm.',
+      text: 'Calls the secured, SQL-backed <code>GET /api/secure/products</code> as admin seven times: the first is cold, the other six warm.',
       steps: [['GET', '/api/secure/products', 7, {Authorization: basicAuth('admin', 'admin')}]],
       expect: [['route-time-breakdown', 'Route time breakdown', 'GET /api/secure/products']]
     },

@@ -81,7 +81,9 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     await expect(section.locator('#insights-status')).toContainText('Generated all findings', {timeout: 140_000})
     await expect(section.locator('#insights-status')).toContainText(reported)
     for (const [key, title] of LISTED) {
-      await expect(card(key).locator('.insight-result')).toContainText('listed by default')
+      await expect(card(key).locator('.insight-result')).toContainText(
+        /\((observed|partial evidence), listed by default\)/
+      )
       await expect(card(key).getByRole('link', {name: new RegExp(`^${title}:`)})).toBeVisible()
     }
     for (const key of UNLISTED) {
@@ -98,17 +100,22 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     // The panel lists every default finding the buttons generated.
     await section.getByRole('link', {name: 'Open Runtime Insights'}).click()
     const main = page.locator('main')
+    // Each row names its check above its route or subject.
+    const row = (/** @type {string} */ title) =>
+      main.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
     const listed = agentAttached
       ? [...LISTED, ['work-after-response', 'Work after the response', 'GET /api/insights/orders/after-response']]
       : LISTED
     for (const [, title, subject] of listed) {
-      await expect(main.getByRole('heading', {name: title, exact: true})).toBeVisible({timeout: 15_000})
-      await expect(main.getByText(subject).first()).toBeVisible()
+      await expect(row(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
     }
 
     await page.goto(String(lazyHref))
     await expect(page).toHaveURL(/#\/runtime-insights\?insight=lazy-sql-after-handler/)
-    await expect(main.getByRole('heading', {name: 'SQL after the handler returned', exact: true})).toBeVisible()
-    await expect(main.getByText('GET /api/insights/orders/report').first()).toBeVisible()
+    // The deep link opens the finding's row in place.
+    const opened = main.locator('.insight-row.open')
+    await expect(opened.locator('.insight-row-kind')).toHaveText('SQL after the handler returned')
+    await expect(opened.locator('.insight-item')).toHaveAttribute('aria-expanded', 'true')
+    await expect(opened).toContainText('GET /api/insights/orders/report')
   })
 })
