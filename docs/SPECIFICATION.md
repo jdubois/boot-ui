@@ -3496,7 +3496,7 @@ Design rules:
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response
   with `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
   newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
-  lines with no ids; keep-alive comments every 5 seconds. Closing the stream cancels the call: nothing more is written,
+  lines with no ids; keep-alive comments every 2 seconds, so a blocking stack notices a closed stream within about 4 seconds. Closing the stream cancels the call: nothing more is written,
   the tool is interrupted and stops at its next step, and its concurrency permit is released exactly once when it
   returns. The execution timeout stays absolute. Everything else, every refusal, and every legacy request is one JSON
   response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
