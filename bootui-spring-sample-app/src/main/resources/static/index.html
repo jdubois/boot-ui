@@ -1094,8 +1094,21 @@
   const INSIGHTS_JSON = {'Content-Type': 'application/json'}
   // A check in one of these states cannot produce its finding in this application, whatever the traffic.
   const INSIGHT_BLOCKING_STATUSES = new Set(['NOT_APPLICABLE', 'UNAVAILABLE'])
-  // The external validations whose findings the panel lists by default (docs/PLAN-v2.md M4-20).
-  const INSIGHT_LISTED_VALIDATIONS = new Set(['PASSED', 'NOT_VALIDATED'])
+  // The kinds whose findings the panel leaves out of its default list (docs/PLAN-v2.md M4-20). BootUI keeps that
+  // decision internal, so the sample names them; runtime-insights-lab.spec.js checks them against the panel.
+  const INSIGHT_UNLISTED_KINDS = new Set([
+    'route-time-breakdown',
+    'repeated-selects',
+    'lazy-sql-after-handler',
+    'exception-hotspots',
+    'connections-per-request',
+    'split-transaction-writes',
+    'framework-warnings-by-route',
+    'ai-usage-by-route',
+    'anonymous-data-reach',
+    'gc-inflated-latency',
+    'heap-growth-after-gc'
+  ])
   const INSIGHT_STATUS_WORDS = {
     OBSERVED: 'observed',
     INSUFFICIENT: 'below its minimum, send more traffic',
@@ -1401,19 +1414,12 @@
       if (!check) {
         continue
       }
-      const listed = INSIGHT_LISTED_VALIDATIONS.has(check.validation)
+      const listed = !INSIGHT_UNLISTED_KINDS.has(kind)
       const tag = document.createElement('span')
       tag.className = `insight-tag ${listed ? 'listed' : 'unlisted'}`
       tag.textContent = family.expect.length > 1 ? `${check.title || title}: ` : ''
       tag.textContent += listed ? 'listed by default' : 'only with Show all routes'
       family.ui.listing.append(tag)
-      if (!listed && check.validationReason) {
-        const why = document.createElement('details')
-        const summary = document.createElement('summary')
-        summary.textContent = 'Why not listed by default'
-        why.append(summary, check.validationReason)
-        family.ui.listing.append(why)
-      }
     }
   }
 
