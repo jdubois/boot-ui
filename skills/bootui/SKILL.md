@@ -367,11 +367,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work ran that
    `requests` does not count. A run-level observation with no exemplar does not. Then read `checksNotRun` and
    `limitations`, then each observation's sentence, `verify` line, and exemplar request. The empty query is the default
-   list the panel shows: only the kinds that passed their external validation (`errors-behind-2xx`,
-   `changed-code-not-executed`) or stayed silent on it, so no time breakdown, exception hotspot, repeated SELECT,
-   connection, AI, garbage collection, or heap row. A limitation names the kinds of the rows returned that are not
-   externally validated: verify such a row against the code before acting on it. Another counts what the default list
-   left out per kind; `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
+   list the panel shows: no time breakdown, exception hotspot, repeated SELECT, connection, AI, garbage collection, or
+   heap row. A limitation counts what the default list left out per kind; verify any row against the code before acting
+   on it. `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
    repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
    kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
 3. Follow `next`: every insights answer, an unknown id included, names at most three follow-up calls, each with the

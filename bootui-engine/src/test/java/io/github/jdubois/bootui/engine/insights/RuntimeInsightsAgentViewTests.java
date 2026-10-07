@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 class RuntimeInsightsAgentViewTests {
 
     @Test
-    void theDefaultListPutsCoverageAndUnrunChecksFirstAndNamesTheValidationOfItsRowsKinds() {
+    void theDefaultListPutsCoverageAndUnrunChecksFirstAndNeverMentionsValidation() {
         RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report(), null, null);
 
         assertThat(list.available()).isTrue();
@@ -37,10 +37,8 @@ class RuntimeInsightsAgentViewTests {
         assertThat(list.observations().get(0).exemplarRequestId()).isEqualTo("r-0");
         assertThat(list.observations().get(0).verify()).isEqualTo("Check the call site.");
         assertThat(list.limitations())
-                .anyMatch(limitation -> limitation.startsWith("External validation (M4-20) of these rows' kinds:")
-                        && limitation.contains(
-                                "did not pass their external validation: route-time-breakdown," + " exception-hotspots")
-                        && limitation.contains("too few facts to validate: repeated-selects, anonymous-data-reach"))
+                .noneMatch(limitation ->
+                        limitation.toLowerCase(java.util.Locale.ROOT).contains("validat"))
                 .noneMatch(limitation -> limitation.contains("Latency rows are included"))
                 .noneMatch(limitation -> limitation.contains("repeated-selects row"))
                 .noneMatch(limitation -> limitation.contains("Latency-only observations are left out"));
@@ -492,24 +490,14 @@ class RuntimeInsightsAgentViewTests {
                 new RuntimeInsightsWindowDto("run-1", 1L, 2L, 100, 12, 0, 0),
                 List.of(),
                 List.of(
-                        new RuntimeInsightCheckDto(
-                                RepeatedSelects.KIND,
-                                "Repeated SELECTs",
-                                "EVALUATED",
-                                9,
-                                8,
-                                null,
-                                "UNDER_SAMPLED",
-                                ExternalValidation.TOO_FEW_FACTS),
+                        new RuntimeInsightCheckDto(RepeatedSelects.KIND, "Repeated SELECTs", "EVALUATED", 9, 8, null),
                         new RuntimeInsightCheckDto(
                                 EventLoopBlocking.KIND,
                                 "Blocking on event loops",
                                 "NOT_APPLICABLE",
                                 0,
                                 0,
-                                "Spring MVC serves requests on worker threads.",
-                                "NOT_VALIDATED",
-                                ExternalValidation.SILENT)),
+                                "Spring MVC serves requests on worker threads.")),
                 observations,
                 List.of(),
                 notExercised,

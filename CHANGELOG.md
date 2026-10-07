@@ -365,8 +365,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check, how many come
-  from externally validated checks, and how many the default list leaves out. Findings are one list filtered by theme,
+- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check and how many
+  the default list leaves out. Findings are one list filtered by theme,
   whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
   limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
   [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
@@ -377,8 +377,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
 - **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
-  default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
+  default list, and five wording and attribution bugs are fixed
   ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-24).
+- **Plain-language Runtime Insights.** The panel, its JSON, MCP, and the CLI no longer show validation marks or plan
+  references; a row left out of the default list says only where its evidence is shown.
 - **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
   2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:

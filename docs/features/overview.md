@@ -646,9 +646,8 @@ call; it only re-reads what the journal already recorded, and caches the result 
 live exposure policy changes. Sentences and evidence that quote recorded text, such as a framework warning's message or
 a request path, follow the same rule as [Live Activity](#safety-and-limits).
 
-The panel leads with a **verdict** on the run: how many things it lists to check across how many requests, how many of
-them come from checks that passed their external validation and how many from checks that did not, how many rows the
-default list leaves out, the share of events linked to their request, and the comparison with the previous run. Four
+The panel leads with a **verdict** on the run: how many things it lists to check across how many requests, how many rows
+the default list leaves out, the share of events linked to their request, and the comparison with the previous run. Four
 tabs follow. **Findings** is one list in the report's check order, searchable and filtered by theme, each theme counting
 its rows; a row opens in place on its sentence, what to check, the requests to open, its evidence, and its limits.
 **Changes** holds the comparison with the previous run and change impact, **Profile** the resource profiler, and
@@ -688,20 +687,20 @@ request's own |
 
 **External validation** decides which kinds the default list shows ([validation report](../V2-VALIDATION-REPORT.md#per-kind-gates),
 [PLAN-v2.md](../PLAN-v2.md) M4-20). Each kind was judged by two reviewers on seven applications not written for BootUI,
-and its outcome is recorded once in the engine, so every stack, the panel, and the agent tools say the same:
+and its outcome is recorded once in the engine, so every stack, the panel, and the agent tools list the same rows. The
+outcome itself stays in the plan and the validation report: the panel, the JSON, MCP, and the CLI never show it, and a
+row left out of the default list says only where its evidence is shown:
 
 | Outcome | Kinds | Default list |
 | --- | --- | --- |
 | Passed | `errors-behind-2xx`, `changed-code-not-executed` | Listed |
-| Silent or never exercised | `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response` | Listed, marked **Not externally validated** |
+| Silent or never exercised | `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response` | Listed |
 | Failed, folded into its panel | `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI) | Not listed; the panel links to its rows |
-| Too few facts to judge | `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed, **Not externally validated** |
+| Too few facts to judge | `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed; shown only when every row is asked for |
 | Not listed by design | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
 
-Each check in the JSON carries `validation` (`PASSED`, `NOT_VALIDATED`, `FAILED`, `UNDER_SAMPLED`, `NOT_LISTED`, or
-`NOT_JUDGED`) and `validationReason`. The panel marks each row of such a kind, its verdict counts them, and an open row says why. The observations
-planned with the BootUI agent are `NOT_JUDGED`: they are shown as rows of their own panel, such as Side Effects, until
-their own external run passes the gate (D36).
+The observations planned with the BootUI agent are not judged yet: they are shown as rows of their own panel, such as
+Side Effects, until their own external run passes the gate (D36).
 
 **The default list** shows less than the report holds, so the rows worth reading first are not buried under the others.
 A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the toggle **Show
