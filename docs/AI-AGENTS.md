@@ -58,13 +58,13 @@ those fixes.
 With GitHub CLI 2.90 or later, inspect the skill before installing it:
 
 ```bash
-gh skill preview jdubois/boot-ui bootui
+gh skill preview jdubois/boot-ui skills/bootui
 ```
 
 Then install it for the current project:
 
 ```bash
-gh skill install jdubois/boot-ui bootui
+gh skill install jdubois/boot-ui skills/bootui
 ```
 
 The skill works with Copilot cloud agent, Copilot CLI, the GitHub Copilot app, Copilot code review, and agent mode in
@@ -74,11 +74,16 @@ supported IDEs. Like any third-party skill, review its instructions before insta
 Agents that read skills from a project directory rather than from GitHub can install the same skill with:
 
 ```bash
-npx skills add jdubois/boot-ui
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
 ```
 
 Claude Code users should prefer the [plugin](#install-the-bootui-claude-code-plugin), which installs this skill and
 wires up the MCP server in one step.
+
+Repository-wide skill searches may show both `skills/bootui` and `plugins/bootui/skills/bootui`. Install
+`skills/bootui`: it is the canonical consumer skill. The second result is an identical copy kept inside the Claude
+Code plugin because Claude installs a self-contained plugin directory and cannot follow a reference to the canonical
+file outside it. A build test prevents the two copies from drifting.
 
 ## Install the BootUI Claude Code plugin
 
