@@ -27,7 +27,7 @@
             <dependency>
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
-                <version>${flyway-verified-h2.version}</version>
+                <version>${sample-h2.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
