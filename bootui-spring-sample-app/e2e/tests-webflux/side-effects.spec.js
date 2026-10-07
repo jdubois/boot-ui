@@ -335,7 +335,7 @@ test.describe('Side Effects view on Spring WebFlux', () => {
   }) => {
     test.skip(!agentAttached, 'the resources sensor needs the BootUI agent')
     // The resources seeds (M5-5g): a FileInputStream dropped without close(), reclaimed by the collector, with a stream
-    // closed in try-with-resources and the JDK HttpClient's pooled connection as counterexamples.
+    // closed in try-with-resources and the JDK HttpClient's pooled connection, handed off, as counterexamples.
     for (const path of ['leaked-stream', 'closed-stream', 'pooled-client']) {
       expect((await page.request.get(`/api/resources/${path}`)).ok()).toBeTruthy()
     }
@@ -358,9 +358,16 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     expect(leaked.target).toMatch(/\$TMPDIR\/bootui-resource-/)
     expect(leaked.callSite).toMatch(/ResourceSeeds#leakStream$/)
     expect(seeded(all, 'closed-stream')).toEqual([])
-    for (const pooled of seeded(all, 'pooled-client')) {
+    // The JDK HttpClient connects on the request's thread and pools the connection: tracked, handed off, never a leak.
+    await expect
+      .poll(async () => seeded(await rows(), 'pooled-client').some((candidate) => candidate.leftRunning > 0), {
+        timeout: 30_000
+      })
+      .toBe(true)
+    for (const pooled of seeded(await rows(), 'pooled-client')) {
       expect(pooled.failed).toBe(0)
       expect(pooled.origin).toBe('library')
+      expect(pooled.kind).toMatch(/^socket/)
     }
 
     await page.goto('/bootui/#/side-effects')

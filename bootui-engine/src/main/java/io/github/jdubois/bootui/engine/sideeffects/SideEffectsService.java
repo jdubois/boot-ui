@@ -1463,6 +1463,10 @@ public final class SideEffectsService implements AutoCloseable {
             limitations.add("The resources sensor sees files only while the files sensor is on: switch files on to"
                     + " track the streams and channels requests open.");
         }
+        if (current.claim.uses(AgentSensorSettings.RESOURCES) && !current.claim.uses(AgentSensorSettings.NETWORK)) {
+            limitations.add("The resources sensor sees sockets only while the network sensor is on: switch network on"
+                    + " to track the sockets and socket channels requests connect.");
+        }
         long untracked = increase(counters, baseline, "untracked");
         if (untracked > 0) {
             limitations.add(untracked + (untracked == 1 ? " resource was" : " resources were")

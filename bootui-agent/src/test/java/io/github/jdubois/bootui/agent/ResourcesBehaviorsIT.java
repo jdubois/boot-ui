@@ -36,7 +36,7 @@ class ResourcesBehaviorsIT {
             "a SocketChannel still open after its request is reported open, then closed late",
             "a FileChannel closed by its thread's interruption is never reported reclaimed",
             "a library pool's socket kept past its request is reported open and closed late, the library's",
-            "the JDK HttpClient's pooled connections are never reported reclaimed",
+            "the JDK HttpClient's pooled connection, opened on the request's thread, is tracked and reported open",
             "a resource no request or job owns is never tracked",
             "a job's stream never closed is reported reclaimed without close() under its execution",
             "BootUI's own resources are never tracked",

@@ -37,7 +37,8 @@ import java.util.concurrent.atomic.LongAdder;
  * after its response completed, checked through the JDK's own final methods ({@link #closedNow}); one cleared by the
  * collector while never closed; and one reported open, then closed, as handed off. A resource whose close a hook missed
  * (its own state closed for 30 seconds while its entry was not marked) is counted, and the collector's
- * reclaims of its kind are no longer reported for the claim generation, so no report is ever false.
+ * reclaims of its kind are no longer reported for the claim generation: a close the hooks miss systematically is
+ * detected and stops that kind's reclaims, though a single missed close before the canary sees it can still read as one.
  *
  * <p>JDK types only; every entry point catches everything.
  */

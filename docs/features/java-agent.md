@@ -1094,9 +1094,12 @@ unreachable while never closed is counted **Reclaimed without close()**, the lea
 and is the only count a run comparison keys on. A resource closed before its request ended, as in try-with-resources or a
 `finally`, is never reported. Each resource is counted once on its row (`count`, with its distinct `requests`).
 
-**No false reports.** A resource kind is tracked only while its close hook is installed and passed its self-test. Each
+**Guarding against false reports.** A resource kind is tracked only while its close hook is installed and passed its
+self-test. Each
 sweep also reads every tracked resource's own state: one closed for 30 seconds while its hook never said so is counted
-as a missed close, and the collector's reclaims of its kind are no longer reported for the run. Switching the sensor off
+as a missed close, and the collector's reclaims of its kind are no longer reported for the run: closes the hooks miss
+systematically are detected and switch reclaims of that kind off, though a resource collected before the check sees
+its missed close can still read as reclaimed. Switching the sensor off
 forgets what it tracked before its close hooks are removed, and an open racing the switch is never kept. A weak
 reference is cleared before finalization, so a reclaim means the resource became unreachable while still open. A TLS
 socket's own state reads its TLS session, not its socket, so one another thread closed while it was still connecting

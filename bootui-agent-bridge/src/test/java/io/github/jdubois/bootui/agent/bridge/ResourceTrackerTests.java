@@ -319,8 +319,8 @@ class ResourceTrackerTests {
     }
 
     @Test
-    void neitherALeakedResourceNorTheClassLoaderOfItsHolderIsKeptAlive() throws Exception {
-        WeakReference<ClassLoader> loader = trackHeldByAnotherLoader();
+    void neitherALeakedResourceNorTheClassLoaderOfItsClassIsKeptAlive() throws Exception {
+        WeakReference<ClassLoader> loader = trackStreamOfItsOwnLoader();
 
         awaitCollected(loader);
         List<ResourceTracker.Entry> reports = new ArrayList<>();
@@ -336,16 +336,49 @@ class ResourceTrackerTests {
 
     // ---- helpers -------------------------------------------------------------------------------------------------
 
-    /** A stream held only by a proxy of a class loader of its own, then dropped, never closed. */
-    private WeakReference<ClassLoader> trackHeldByAnotherLoader() throws IOException {
-        ClassLoader child = new ClassLoader(getClass().getClassLoader()) {};
+    /**
+     * A stream whose class, a {@code FileInputStream} subclass, is defined by a class loader of its own, tracked, then
+     * dropped, never closed: the stream keeps its class and loader reachable, so the loader is collected only if the
+     * tracker holds the stream weakly.
+     */
+    private WeakReference<ClassLoader> trackStreamOfItsOwnLoader() throws Exception {
+        ClassLoader child = new IsolatingLoader(getClass().getClassLoader(), "com.example.resources.LeakyStream");
+        Class<?> type = Class.forName("com.example.resources.LeakyStream", true, child);
+        assertThat(type.getClassLoader()).isSameAs(child);
         Path file = Files.writeString(directory.resolve("held.txt"), "x");
-        FileInputStream stream = new FileInputStream(file.toFile());
-        Object holder = java.lang.reflect.Proxy.newProxyInstance(
-                child, new Class<?>[] {Runnable.class}, (proxy, method, arguments) -> stream.available());
-        ((Runnable) holder).run();
-        track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST);
+        Object stream = type.getConstructor(java.io.File.class).newInstance(file.toFile());
+        assertThat(track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST)).isNotNull();
         return new WeakReference<>(child);
+    }
+
+    /** Defines one class itself, from its parent's class file, and delegates every other. */
+    private static final class IsolatingLoader extends ClassLoader {
+
+        private final String isolated;
+
+        IsolatingLoader(ClassLoader parent, String isolated) {
+            super(parent);
+            this.isolated = isolated;
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (!isolated.equals(name)) {
+                return super.loadClass(name, resolve);
+            }
+            synchronized (getClassLoadingLock(name)) {
+                Class<?> loaded = findLoadedClass(name);
+                if (loaded == null) {
+                    try (java.io.InputStream in = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
+                        byte[] bytes = in.readAllBytes();
+                        loaded = defineClass(name, bytes, 0, bytes.length);
+                    } catch (IOException ex) {
+                        throw new ClassNotFoundException(name, ex);
+                    }
+                }
+                return loaded;
+            }
+        }
     }
 
     /** Reported open after its request, then closed and dropped before the next sweep. */

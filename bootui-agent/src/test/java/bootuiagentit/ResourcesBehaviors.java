@@ -359,19 +359,26 @@ public final class ResourcesBehaviors {
         });
         http.start();
         try {
+            long tracked = counter("tracked");
             long request = request();
+            String port = ":" + http.getAddress().getPort();
             sendTwice(http.getAddress().getPort());
             endRequest(request);
-            settle();
+            long[] left = await(records -> records.stream()
+                    .anyMatch(record -> record[SideEffects.R_KIND] == SideEffects.KIND_RESOURCE_LEFT_OPEN
+                            && String.valueOf(string(record[SideEffects.R_TARGET]))
+                                    .endsWith(port)));
             collect();
             settle();
             check(
-                    "the JDK HttpClient's pooled connections are never reported reclaimed, and any open after their"
-                            + " request is the library's (" + describe(RECORDS) + ")",
-                    none(kind(SideEffects.KIND_RESOURCE_RECLAIMED))
-                            && RECORDS.stream()
-                                    .filter(record -> record[SideEffects.R_KIND] == SideEffects.KIND_RESOURCE_LEFT_OPEN)
-                                    .allMatch(record -> origin(record) == Resources.ORIGIN_LIBRARY));
+                    "the JDK HttpClient's pooled connection, opened on the request's thread, is tracked and reported open"
+                            + " after its request as the library's, never reclaimed (tracked "
+                            + (counter("tracked") - tracked) + " " + describe(RECORDS) + ")",
+                    counter("tracked") > tracked
+                            && left != null
+                            && left[SideEffects.R_REQUEST] == request
+                            && origin(left) == Resources.ORIGIN_LIBRARY
+                            && none(kind(SideEffects.KIND_RESOURCE_RECLAIMED)));
         } finally {
             http.stop(0);
         }
@@ -417,6 +424,7 @@ public final class ResourcesBehaviors {
         long request = request();
         Socket socket = new Socket();
         socket.connect(serverAddress(), 5_000);
+        long closes = recorded("Socket.close");
         Map<String, Object> off = AgentBridge.switchSensor(token, SideEffects.FILES, false);
         for (int i = 0; i < 400; i++) {
             Map<String, Object> files = sensor(SideEffects.FILES);
@@ -431,8 +439,9 @@ public final class ResourcesBehaviors {
         String state = String.valueOf(sensor(SideEffects.RESOURCES).get("state"));
         check(
                 "switching files off at run time keeps the resources sensor's close hooks: a socket closed meanwhile"
-                        + " is never reported (" + off.get("status") + " " + state + " " + describe(RECORDS) + ")",
-                RECORDS.isEmpty() && "installed".equals(state));
+                        + " is seen by its hook and never reported (" + off.get("status") + " " + state + " closes "
+                        + (recorded("Socket.close") - closes) + " " + describe(RECORDS) + ")",
+                RECORDS.isEmpty() && "installed".equals(state) && recorded("Socket.close") > closes);
     }
 
     /** The FileInputStream close hook left out: its kind is never tracked, so its leak is never misreported. */
@@ -617,6 +626,21 @@ public final class ResourcesBehaviors {
                 RECORDS.add(record.clone());
             }
         });
+    }
+
+    /** A counter of the bridge's resources status. */
+    @SuppressWarnings("unchecked")
+    static long counter(String name) {
+        Object value = ((Map<String, Object>) AgentBridge.status().get(SideEffects.RESOURCES)).get(name);
+        return value instanceof Number ? ((Number) value).longValue() : -1L;
+    }
+
+    /** What a resources hook recorded: the closes of a tracked resource. */
+    @SuppressWarnings("unchecked")
+    static long recorded(String hook) {
+        Map<String, Object> status = (Map<String, Object>) AgentBridge.status().get(SideEffects.RESOURCES);
+        Object value = ((Map<String, Object>) status.get("recorded")).get(hook);
+        return value instanceof Number ? ((Number) value).longValue() : -1L;
     }
 
     static String string(long id) {
