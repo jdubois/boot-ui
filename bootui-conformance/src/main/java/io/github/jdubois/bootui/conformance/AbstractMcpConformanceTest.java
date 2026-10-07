@@ -302,6 +302,50 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testNullAndNonStringEnvelopeFieldsAreTheSameClientErrorOnEveryStack() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Map<String, String> json = Map.of("Content-Type", "application/json");
+            for (String method : List.of("null", "5", "{}")) {
+                Response response = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                json,
+                                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+                assertThat(response.status()).isEqualTo(200);
+                assertThat(response.body())
+                        .as(method)
+                        .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,"
+                                + "\"message\":\"Missing 'method'\"}}");
+            }
+            Response nullName = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            json,
+                            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":null}}");
+            assertThat(nullName.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,"
+                            + "\"message\":\"Missing tool name\"}}");
+            Response nullNotification =
+                    probe().request("POST", "/bootui/api/mcp", json, "{\"jsonrpc\":\"2.0\",\"method\":null}");
+            assertThat(nullNotification.status()).isEqualTo(202);
+            Map<String, String> modern = Map.of(
+                    "Content-Type", "application/json", "MCP-Protocol-Version", MODERN, "Mcp-Method", "tools/call");
+            Response modernNullName = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            modern,
+                            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":null,"
+                                    + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                                    + "\"io.modelcontextprotocol/clientCapabilities\":{}}}}");
+            assertThat(modernNullName.status()).isEqualTo(200);
+            assertThat(modernNullName.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,"
+                            + "\"message\":\"Missing tool name\"}}");
+        }
+    }
+
+    @Test
     void testInitializeStaysLegacyWhenItCarriesModernMeta() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {

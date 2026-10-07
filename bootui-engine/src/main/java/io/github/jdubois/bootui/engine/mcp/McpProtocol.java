@@ -156,6 +156,11 @@ public final class McpProtocol {
         return era == McpEra.MODERN && code == METHOD_NOT_FOUND ? 404 : 200;
     }
 
+    /** The HTTP status of the JSON response carrying {@code outcome} for {@code era}, derived from the outcome itself. */
+    public static int httpStatus(McpEra era, McpDispatchOutcome outcome) {
+        return outcome instanceof McpDispatchOutcome.ProtocolError error ? errorHttpStatus(era, error.code()) : 200;
+    }
+
     /** Returned when the request is not a JSON-RPC object. */
     public static final String MALFORMED_REQUEST_MESSAGE = "Request must be a JSON-RPC object";
     /** Returned when a (non-notification) request omits {@code method}. */

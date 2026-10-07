@@ -108,13 +108,8 @@ public class QuarkusMcpEnvelope {
             return new Reply(
                     200, error(id, serve.era(), McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE));
         }
-        JsonNode response = handle(request, serve);
-        if (response == null) {
-            return new Reply(202, null);
-        }
-        JsonNode code = response.path("error").path("code");
-        int status = code.isIntegralNumber() ? McpProtocol.errorHttpStatus(serve.era(), code.asInt()) : 200;
-        return new Reply(status, response);
+        Reply reply = respond(request, serve);
+        return reply.body() == null ? new Reply(202, null) : reply;
     }
 
     private static McpEraDecision resolveEra(JsonNode request, McpRequestHeaders headers) {
@@ -161,8 +156,17 @@ public class QuarkusMcpEnvelope {
         return request != null
                 && request.isObject()
                 && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asText())
-                && !request.path("method").asText().isBlank();
+                && McpProtocol.JSONRPC_VERSION.equals(text(request.path("jsonrpc")))
+                && !text(request.path("method")).isBlank();
+    }
+
+    /**
+     * The text of an envelope field ({@code jsonrpc}, {@code method}, {@code params.name}, {@code
+     * params.protocolVersion}): the string when it is one, otherwise empty. Jackson 2 and Jackson 3 coerce {@code
+     * null}, numbers, and containers differently, so neither coercion is used and every stack sees the same request.
+     */
+    private static String text(JsonNode node) {
+        return node.isTextual() ? node.asText() : "";
     }
 
     /** A modern rejection echoes a readable request id; a legacy one keeps BootUI 1.x's {@code null} id. */
@@ -200,48 +204,51 @@ public class QuarkusMcpEnvelope {
      * @return the JSON-RPC response, or {@code null} for notifications (which have no response)
      */
     public JsonNode handle(JsonNode request) {
-        return handle(request, new Serve(McpEra.LEGACY, null, null));
+        return respond(request, new Serve(McpEra.LEGACY, null, null)).body();
     }
 
-    private JsonNode handle(JsonNode request, Serve serve) {
+    /** The JSON-RPC response with the HTTP status its outcome implies; a {@code null} body for a notification. */
+    private Reply respond(JsonNode request, Serve serve) {
         McpEra era = serve.era();
         if (request == null || !request.isObject()) {
-            return error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE);
+            return new Reply(200, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE));
         }
         JsonNode id = request.get("id");
         JsonNode jsonrpc = request.get("jsonrpc");
-        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(jsonrpc.asText())) {
-            return error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\"");
+        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc))) {
+            return new Reply(200, error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\""));
         }
         if (id != null && !id.isNull() && !id.isTextual() && !id.isNumber()) {
-            return error(null, McpProtocol.INVALID_REQUEST, McpProtocol.INVALID_ID_MESSAGE);
+            return new Reply(200, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.INVALID_ID_MESSAGE));
         }
         JsonNode params = request.get("params");
         if (params != null && !params.isObject()) {
-            return error(id, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE);
+            return new Reply(200, error(id, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE));
         }
         try {
             McpDispatchOutcome outcome = dispatcher.dispatch(parse(request, serve));
+            int status = McpProtocol.httpStatus(era, outcome);
             JsonNode response = render(outcome, id, era);
             if (response != null && objectMapper.writeValueAsBytes(response).length > maxResponseBytes) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return error(id, era, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE);
+                return new Reply(
+                        200, error(id, era, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE));
             }
-            return response;
+            return new Reply(status, response);
         } catch (JsonProcessingException | RuntimeException | Error failure) {
             failureReporter.report("rendering a response", failure);
-            return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
+            return new Reply(200, error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE));
         }
     }
 
     private static McpRequest parse(JsonNode request, Serve serve) {
-        String jsonrpc = request.path("jsonrpc").asText();
-        String method = request.path("method").asText();
+        String jsonrpc = text(request.path("jsonrpc"));
+        String method = text(request.path("method"));
         JsonNode id = request.get("id");
         boolean notification = id == null || id.isNull();
         JsonNode params = request.path("params");
-        String requestedProtocolVersion = params.path("protocolVersion").asText();
-        String toolName = params.path("name").asText();
+        String requestedProtocolVersion = text(params.path("protocolVersion"));
+        String toolName = text(params.path("name"));
         JsonNode arguments = params.get("arguments");
         ParsedArguments parsedArguments = parseArguments(arguments);
         return new McpRequest(

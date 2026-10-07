@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
@@ -604,6 +605,22 @@ class BootUiMcpServiceTests {
         assertThat(tools.path("tools").get(0).path("name").asString()).isEqualTo("get_overview");
         JsonNode prompts = modern("prompts/list", 3, null, true).body().path("result");
         assertThat(prompts.propertyNames()).containsExactly("resultType", "prompts", "_meta", "ttlMs", "cacheScope");
+    }
+
+    @Test
+    void modernEnvelopesMatchTheSharedParityContract() {
+        ObjectNode discover =
+                (ObjectNode) modern("server/discover", 1, null, true).body().path("result");
+        discover.remove("instructions");
+        assertThat(discover.toString()).isEqualTo(McpModernParity.DISCOVER_WITHOUT_INSTRUCTIONS);
+        ObjectNode tools =
+                (ObjectNode) modern("tools/list", 2, null, true).body().path("result");
+        tools.remove("tools");
+        assertThat(tools.toString()).isEqualTo(McpModernParity.LIST_ENVELOPE);
+        ObjectNode prompts =
+                (ObjectNode) modern("prompts/list", 3, null, true).body().path("result");
+        prompts.remove("prompts");
+        assertThat(prompts.toString()).isEqualTo(McpModernParity.LIST_ENVELOPE);
     }
 
     @Test

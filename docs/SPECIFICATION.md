@@ -3480,7 +3480,10 @@ Design rules:
 - **Dual-era protocol.** The endpoint serves MCP 2025-06-18 and MCP 2026-07-28 at once and chooses per request, as
   MCP 2026-07-28's backward compatibility rules describe ([AI agents](AI-AGENTS.md#protocol-eras)). A request without
   `_meta["io.modelcontextprotocol/protocolVersion"]`, and every `initialize`, is legacy and answers byte for byte as
-  before: an absent `MCP-Protocol-Version` header means `2025-06-18`, and any other value is `400`/`-32600`. A modern
+  before: an absent `MCP-Protocol-Version` header means `2025-06-18`, and any value other than `2025-06-18` or
+  `2026-07-28`, or a repeated header, is `400`/`-32600`. The header is judged after the body is read, and the envelope
+  fields `jsonrpc`, `method`, and `params.name` count only when they are strings, so both stacks answer a `null` or
+  numeric field with the same client error. A modern
   request is validated (version type, header agreement, supported version, client capabilities, `Mcp-Method`,
   `Mcp-Name` with Base64 decoding, progress token type) with `400` and `-32602`, `-32020`, or `-32022` carrying
   `data.supported`. The modern era has `server/discover` but no `initialize` or `ping`, answers an unknown method with
