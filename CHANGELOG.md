@@ -372,6 +372,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
+  (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
+  never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.
 - **A tool this application does not advertise says why.** MCP answers a known BootUI tool whose panel is unavailable
   with `Tool not available in this application: <tool>.` and the panel's reason, also in `error.data`, instead of
   `Unknown tool`; the CLI facade still answers `404`.

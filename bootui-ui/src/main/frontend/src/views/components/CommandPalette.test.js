@@ -111,6 +111,39 @@ describe('CommandPalette', () => {
     expect(wrapper.findAll('.cp-item-title').map((item) => item.text())).not.toContain('Spring')
   })
 
+  it('shows each result under the group title the sidebar uses', async () => {
+    const {wrapper} = await mountPalette()
+    const groupFor = (title) =>
+      wrapper
+        .findAll('.cp-item')
+        .find((item) => item.find('.cp-item-title').text() === title)
+        .get('.cp-item-group')
+        .text()
+
+    expect(groupFor('Scorecard')).toBe('Home')
+    expect(groupFor('Code Paths')).toBe('Instrumentation')
+    expect(groupFor('MCP Server')).toBe('Developer tools')
+    expect(groupFor('Health')).toBe('Runtime')
+  })
+
+  it('finds panels by their sidebar group title and still by the raw group key', async () => {
+    const {wrapper} = await mountPalette()
+    const agentTitles = namedRoutes.filter((route) => route.meta.group === 'agent').map((route) => route.meta.title)
+    const toolTitles = namedRoutes
+      .filter((route) => route.meta.group === 'developer-tools')
+      .map((route) => route.meta.title)
+
+    const titlesFor = async (q) => {
+      await setQuery(wrapper, q)
+      return wrapper.findAll('.cp-item-title').map((item) => item.text())
+    }
+
+    expect(await titlesFor('instrumentation')).toEqual(agentTitles)
+    expect(await titlesFor('Developer tools')).toEqual(toolTitles)
+    expect(await titlesFor('developer-tools')).toEqual(toolTitles)
+    expect(await titlesFor('agent')).toEqual(expect.arrayContaining(agentTitles))
+  })
+
   it('keeps unavailable panels discoverable in the explicit sidebar-equivalent group', async () => {
     const {wrapper} = await mountPalette({
       panels: {
