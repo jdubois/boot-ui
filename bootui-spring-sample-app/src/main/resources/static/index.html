@@ -482,6 +482,7 @@
         </button>
         <a href="/bootui/#/runtime-insights">Open Runtime Insights</a>
         <span aria-live="polite" class="chat-status" id="insights-status" role="status"></span>
+        <span class="chat-status" id="insights-progress"></span>
       </div>
       <p class="chat-status" id="insights-availability">Checking whether BootUI is running...</p>
       <div class="test-grid" id="insights-grid"></div>
@@ -1298,6 +1299,8 @@
 
   const insightsAllButton = document.getElementById('insights-all-button')
   const insightsStatus = document.getElementById('insights-status')
+  // Request counts change on every request, so they stay out of the live region, which announces each step once.
+  const insightsProgress = document.getElementById('insights-progress')
   const insightsAvailability = document.getElementById('insights-availability')
   const insightsGrid = document.getElementById('insights-grid')
   let insightsBusy = false
@@ -1523,7 +1526,7 @@
         for (let i = 0; i < times; i += 1) {
           await fetch(path, {method, headers, body})
           sent += 1
-          insightsStatus.textContent = `${label}: sent ${sent} of ${total} requests...`
+          insightsProgress.textContent = `Sent ${sent} of ${total} requests...`
         }
       }
     }
@@ -1538,7 +1541,9 @@
     insightsAllButton.disabled = true
     INSIGHT_FAMILIES.forEach(family => (family.ui.button.disabled = true))
     try {
+      insightsStatus.textContent = `${label}: sending requests...`
       const sent = await sendInsightTraffic(families, label)
+      insightsProgress.textContent = ''
       insightsStatus.textContent = `${label}: sent ${sent} requests, reading the Runtime Insights report...`
       const report = await awaitFindings(families)
       const found = families.filter(family => renderResult(family, report)).length
@@ -1550,8 +1555,8 @@
       insightsStatus.textContent = `${label} failed: ${error instanceof Error ? error.message : String(error)}`
     } finally {
       insightsBusy = false
-      INSIGHT_FAMILIES.forEach(family => (family.ui.button.disabled = !familyRunnable(family)))
-      insightsAllButton.disabled = false
+      insightsProgress.textContent = ''
+      await refreshInsightAvailability()
     }
   }
 
@@ -1563,6 +1568,12 @@
   )
 
   refreshInsightAvailability()
+  // A check can become applicable while the page stays open, such as Changed code not executed after a DevTools restart.
+  window.addEventListener('focus', () => {
+    if (!insightsBusy) {
+      refreshInsightAvailability()
+    }
+  })
 </script>
 </body>
 </html>

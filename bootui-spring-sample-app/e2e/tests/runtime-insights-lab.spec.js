@@ -1,6 +1,10 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
+// The docker profile runs Ollama, so the sample has a Spring AI chat model and AI usage can be generated.
+const profiles = (process.env.BOOTUI_SAMPLE_PROFILES || '').split(',').map((profile) => profile.trim())
+const chatModel = profiles.includes('docker')
+
 /** The findings a default run lists in the panel, as [card, title, subject] (docs/PLAN-v2.md M4-20). */
 const LISTED = [
   ['errors-behind-2xx', 'Errors behind 2xx responses', 'POST /api/insights/orders/{id}/import'],
@@ -32,7 +36,7 @@ const UNLISTED = [
  */
 test.describe('Runtime Insights buttons on the sample home page', () => {
   test('generate every finding this app can produce and link each to the panel', async ({page, agentAttached}) => {
-    test.setTimeout(150_000)
+    test.setTimeout(180_000)
     await page.goto('/')
     const section = page.locator('#runtime-insights-lab')
     const card = (/** @type {string} */ key) => section.locator(`[data-family="${key}"]`)
@@ -42,8 +46,12 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     // Unavailable here: BootUI's report says why, and the card says so instead of sending traffic.
     await expect(card('event-loop-blocking').getByRole('button')).toBeDisabled()
     await expect(card('event-loop-blocking').locator('.insight-requirement')).toContainText('Spring MVC')
-    await expect(card('ai-usage-by-route').getByRole('button')).toBeDisabled()
-    await expect(card('ai-usage-by-route').locator('.insight-requirement')).toContainText('chat model')
+    if (chatModel) {
+      await expect(card('ai-usage-by-route').getByRole('button')).toBeEnabled()
+    } else {
+      await expect(card('ai-usage-by-route').getByRole('button')).toBeDisabled()
+      await expect(card('ai-usage-by-route').locator('.insight-requirement')).toContainText('chat model')
+    }
     await expect(card('changed-code-not-executed').getByRole('button')).toBeDisabled()
     // With the agent, it needs a previous run of the application, or Code Inventory's scan still running says so.
     await expect(card('changed-code-not-executed').locator('.insight-requirement')).toContainText(
@@ -64,12 +72,14 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
       await expect(card(key).locator('.insight-tag').first()).toContainText('only with Show all routes')
     }
 
-    const runnable = agentAttached ? 17 : 16
+    // A local model's answers are not timed here, so AI usage is not part of the exact count.
+    const runnable = 16 + (agentAttached ? 1 : 0) + (chatModel ? 1 : 0)
+    const reported = chatModel
+      ? new RegExp(`(${runnable - 1}|${runnable}) of ${runnable}`)
+      : `${runnable} of ${runnable}`
     await generateAll.click()
-    await expect(section.locator('#insights-status')).toContainText(
-      `Generated all findings: ${runnable} of ${runnable} families reported`,
-      {timeout: 120_000}
-    )
+    await expect(section.locator('#insights-status')).toContainText('Generated all findings', {timeout: 140_000})
+    await expect(section.locator('#insights-status')).toContainText(reported)
     for (const [key, title] of LISTED) {
       await expect(card(key).locator('.insight-result')).toContainText('listed by default')
       await expect(card(key).getByRole('link', {name: new RegExp(`^${title}:`)})).toBeVisible()
