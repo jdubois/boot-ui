@@ -16,3 +16,6 @@ indent_size = 4
 
 [Makefile]
 indent_style = tab
+
+[mvnw.cmd]
+end_of_line = crlf
