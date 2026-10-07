@@ -713,7 +713,7 @@ compatibility rules describe:
   payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
   answer `202`.
 - **Progress on a request-scoped stream (modern only).** A modern `tools/call` with `_meta.progressToken` (a string or
-  an integer), to a tool that reports measured phases (today `architecture_scan`), from a client whose `Accept` lists
+  an integer), to a tool that reports measured phases (`architecture_scan` and `vulnerabilities_scan`), from a client whose `Accept` lists
   `text/event-stream` explicitly, answers `200` with `Content-Type: text/event-stream` and `X-Accel-Buffering: no`.
   The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
@@ -728,6 +728,22 @@ compatibility rules describe:
   absolute bound, whatever progress flows: a timed-out stream ends with the timeout error as its final response. The
   `GET /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` apart from
   `timeouts`.
+
+### Client compatibility
+
+Checked on 2026-10-07. Clients that speak only the legacy era keep working as before, with single JSON answers and no
+progress stream; they gain progress when they adopt MCP 2026-07-28, with no BootUI change.
+
+| Client | Version checked | Era it opens with | Progress from BootUI | How it was checked |
+| ------ | --------------- | ----------------- | -------------------- | ------------------ |
+| Claude Code | 2.1.154 | Legacy: `initialize` asking for `2025-11-25`, then `2025-06-18` | Not yet | Recorded on the wire (`claude mcp list` against a local recorder) |
+| VS Code (GitHub Copilot) | 1.141.0 | Legacy: its MCP client's latest version is `2025-11-25` | Not yet | Read from the installed bundle; not observed on the wire |
+| GitHub Copilot CLI | 1.0.92 | Legacy: its MCP client's latest version is `2025-11-25` | Not yet | Read from the installed bundle; not observed on the wire |
+| Cursor | Not installed | Not verified | Not verified | Not checked locally |
+
+Anthropic states that MCP 2026-07-28 support is
+[rolling out across Claude products](https://claude.com/resources/articles/bringing-mcp-2026-07-28-to-claude). Until a
+client sends per-request `_meta`, BootUI serves it as a legacy client and never streams.
 
 ## Assess an application and approve an action plan
 

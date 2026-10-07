@@ -17,7 +17,11 @@ function mcpStatus(overrides = {}) {
     transport: 'http',
     endpoint: '/bootui/api/mcp',
     protocolVersion: '2025-06-18',
+    supportedProtocolVersions: ['2026-07-28', '2025-06-18'],
     maxResults: 200,
+    callCount: 7,
+    timeouts: 1,
+    cancellations: 2,
     toolCount: 2,
     tools: [
       {
@@ -70,6 +74,27 @@ describe('McpServer', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('MCP server status is unavailable')
+  })
+
+  it('lists both protocol eras and counts timeouts apart from cancellations', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    const protocols = wrapper.get('[data-testid="mcp-protocols"]').text()
+    expect(protocols).toContain('2026-07-28, 2025-06-18')
+    expect(protocols).toContain('progress')
+    expect(wrapper.get('[data-testid="mcp-call-stats"]').text()).toBe('7 · 1 timed out · 2 cancelled')
+  })
+
+  it('falls back to the single advertised revision', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus({supportedProtocolVersions: undefined}))))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="mcp-protocols"]').text()).toBe('2025-06-18')
   })
 
   it('renders the toggle, explanation, and tool catalog', async () => {

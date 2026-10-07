@@ -3493,7 +3493,7 @@ Design rules:
   `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern request is a `400` even
   while the server is off. The CLI facade and the engine keep the legacy codes.
 - **Request-scoped progress (modern only).** A modern `tools/call` with a string or integer `_meta.progressToken`, to a
-  tool whose operation reports measured phases through the engine's `OperationProgress` (today `architecture_scan`),
+  tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
   newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`

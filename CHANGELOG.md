@@ -11,9 +11,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **MCP 2026-07-28 beside MCP 2025-06-18.** The MCP endpoint also serves modern clients, with `server/discover`, result
   envelopes, and header checks, while existing clients answer as before ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
-- **Live MCP progress for architecture scans.** A modern MCP client that asks for progress sees `architecture_scan`'s
-  phases as they happen, and closing the call stops the scan ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
-- **MCP cancellations counted.** The MCP Server status reports the protocol versions served and counts calls a client
+- **Live MCP progress for long scans.** A modern MCP client that asks for progress sees `architecture_scan` and
+  `vulnerabilities_scan` phases as they happen, and closing the call stops the scan ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
+- **MCP cancellations counted.** The MCP Server panel shows the protocol versions served and counts calls a client
   cancelled by closing their stream apart from timeouts ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 
 - **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
@@ -379,8 +379,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Timed-out architecture scans stop.** An MCP or CLI `architecture_scan` past its execution timeout now stops at the
-  next rule instead of running on, and the previous report is kept ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Timed-out scans stop.** An MCP or CLI `architecture_scan` or `vulnerabilities_scan` past its execution timeout now
+  stops at its next step and keeps the previous report, instead of running on or publishing an "interrupted" error
+  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
   (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
   never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.
