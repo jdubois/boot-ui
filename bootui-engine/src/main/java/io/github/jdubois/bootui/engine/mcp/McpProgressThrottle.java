@@ -12,8 +12,9 @@ import java.util.function.LongSupplier;
  * <p>A token bucket allows a burst of {@link #BURST} notifications and then one per {@link #INTERVAL_MILLIS}
  * milliseconds. An event offered without a token is held as the pending event, replacing an older pending one: only
  * events over the rate limit are coalesced, and since progress strictly increases the newest is the one worth sending.
- * The transport sends the pending event when a token frees up, and {@link #drainPending()} flushes it before the final
- * response so the last reported state is never lost. A 30-second call therefore emits at most
+ * The next offer that finds a token sends its own event and drops the older held one, so the throttle needs no timer;
+ * a transport may also {@link #poll()} a held event once a token frees up, and {@link #drainPending()} flushes it
+ * before the final response so the last reported state is never lost. A 30-second call therefore emits at most
  * {@code 8 + 30000 / 250 = 128} notifications.
  */
 public final class McpProgressThrottle {
@@ -43,8 +44,9 @@ public final class McpProgressThrottle {
     public synchronized ProgressEvent offer(ProgressEvent event) {
         Objects.requireNonNull(event, "event");
         refill();
-        if (pending == null && tokens > 0) {
+        if (tokens > 0) {
             tokens--;
+            pending = null;
             return event;
         }
         pending = event;

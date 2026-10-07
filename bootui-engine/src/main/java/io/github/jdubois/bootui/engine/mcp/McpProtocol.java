@@ -96,6 +96,13 @@ public final class McpProtocol {
     public static final int TOOL_TIMEOUT = -32002;
     /** Server-defined: a rendered response exceeded its byte budget. */
     public static final int RESPONSE_TOO_LARGE = -32003;
+    /**
+     * BootUI-defined, outside the JSON-RPC reserved range: the caller cancelled the request. The code is the one the
+     * Language Server Protocol uses for the same outcome.
+     */
+    public static final int REQUEST_CANCELLED = -32800;
+    /** Reported when the caller cancelled the request. */
+    public static final String REQUEST_CANCELLED_MESSAGE = "MCP request cancelled";
 
     // MCP 2026-07-28 protocol error codes.
     /** The HTTP headers do not match the request body, or a required header is missing or malformed. */
@@ -163,6 +170,8 @@ public final class McpProtocol {
 
     /** Returned when the request is not a JSON-RPC object. */
     public static final String MALFORMED_REQUEST_MESSAGE = "Request must be a JSON-RPC object";
+    /** Returned when a request omits {@code jsonrpc: "2.0"}. */
+    public static final String MISSING_JSONRPC_MESSAGE = "Request must include jsonrpc: \"2.0\"";
     /** Returned when a (non-notification) request omits {@code method}. */
     public static final String MISSING_METHOD_MESSAGE = "Missing 'method'";
     /** Returned when the transport receives a batch request, which MCP Streamable HTTP forbids. */

@@ -746,14 +746,14 @@ BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, a
 compatibility rules describe:
 
 - **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
-  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes
-  `-32000` (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An
-  `MCP-Protocol-Version` header with any value other than `2025-06-18` or `2026-07-28`, or sent more than once, is
-  refused with `400` and `-32600`; `2026-07-28` without the modern `_meta` is a malformed modern request (`400`,
-  `-32602`). The envelope fields `jsonrpc`, `method`, and `params.name` count only when they are strings, so a `null`
-  or numeric `method` is `Missing 'method'` and a `null` tool name is `Missing tool name` on every stack.
-  `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or batch body reports that
-  problem first.
+  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes `-32000`
+  (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An `MCP-Protocol-Version`
+  header with any value other than `2025-06-18` or `2026-07-28`, or sent more than once, is refused with `400` and
+  `-32600`; `2026-07-28` without the modern `_meta` is a malformed modern request (`400`, `-32602`, echoing the request
+  id; BootUI 1.x answered `-32600` with a `null` id). The envelope fields `jsonrpc`, `method`, and `params.name` count
+  only when they are strings, so a `null` or numeric `method` is `Missing 'method'` and a `null` tool name is `Missing
+  tool name` on every stack. `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or
+  batch body reports that problem first.
 - **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
   being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
   (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and

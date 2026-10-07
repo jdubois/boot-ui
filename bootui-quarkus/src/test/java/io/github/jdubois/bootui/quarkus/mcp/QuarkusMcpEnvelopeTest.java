@@ -408,11 +408,7 @@ class QuarkusMcpEnvelopeTest {
         assertThat(modern(envelope, "tools/call", "4", "get_overview", "2026-07-28", true)
                         .body()
                         .toString())
-                .isEqualTo(
-                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
-                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
-                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
-                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+                .isEqualTo(McpModernParity.TOOL_CALL_DEMO);
 
         QuarkusMcpEnvelope.Reply unknown = modern(envelope, "ping", "6", null, "2026-07-28", true);
         assertThat(unknown.status()).isEqualTo(404);

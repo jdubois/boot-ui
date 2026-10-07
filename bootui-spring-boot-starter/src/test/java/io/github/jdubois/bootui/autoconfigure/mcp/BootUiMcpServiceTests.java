@@ -630,12 +630,7 @@ class BootUiMcpServiceTests {
     void modernToolCallsAreUncacheableCompleteResults() {
         BootUiMcpService.Reply call = modern("tools/call", 4, "get_overview", true);
         assertThat(call.status()).isEqualTo(200);
-        assertThat(call.body().toString())
-                .isEqualTo(
-                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
-                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
-                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
-                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+        assertThat(call.body().toString()).isEqualTo(McpModernParity.TOOL_CALL_DEMO);
         properties.panel(BootUiPanels.OVERVIEW).setEnabled(false);
         JsonNode refused = modern("tools/call", 5, "get_overview", true).body().path("result");
         assertThat(refused.path("resultType").asString()).isEqualTo("complete");

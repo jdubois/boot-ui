@@ -723,7 +723,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 - **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
   repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
-  documented client error on Spring and Quarkus ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+  documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`
+  with the request id rather than `-32600` with a `null` one ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Links between MCP and CLI results.** `get_runtime_impact` resolves a bare method name such as `applyDiscount`
   (`AMBIGUOUS` with each declaring class when several do), names the real overloads when the asked parameters match
   none, and names every route beyond the 8 it lists per list; `get_code_inventory` matches method names. Side Effects

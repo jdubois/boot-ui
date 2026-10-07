@@ -19,10 +19,8 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpEra;
-import io.github.jdubois.bootui.engine.mcp.McpEraDecision;
-import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Rejected;
 import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Serve;
-import io.github.jdubois.bootui.engine.mcp.McpEraResolver;
+import io.github.jdubois.bootui.engine.mcp.McpExchange;
 import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
 import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
@@ -43,7 +41,7 @@ import org.eclipse.microprofile.config.Config;
 /**
  * Quarkus (Jackson 2) JSON-RPC envelope codec for the BootUI MCP server — the byte-for-byte twin of
  * the Spring adapter's {@code BootUiMcpService}, over the same framework- and JSON-free engine
- * {@link McpDispatcher}, including its dual-era selection ({@link McpEraResolver}) and modern MCP 2026-07-28 result
+ * {@link McpDispatcher}, including its dual-era request flow ({@link McpExchange}) and modern MCP 2026-07-28 result
  * decoration.
  */
 @Singleton
@@ -87,43 +85,51 @@ public class QuarkusMcpEnvelope {
     public record Reply(int status, JsonNode body) {}
 
     /**
-     * Answers one parsed MCP {@code POST} body: refuses a batch, selects the protocol era and validates its metadata,
-     * short-circuits while the server is disabled, then dispatches. The Spring adapter's {@code BootUiMcpService}
-     * answers byte-identically.
+     * Answers one parsed MCP {@code POST} body through the engine's request flow ({@link McpExchange}): this codec only
+     * extracts the envelope fields and renders the plan, so every stack answers byte-identically.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled) {
-        if (request != null && request.isArray()) {
-            return new Reply(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
+        return answer(request, McpExchange.plan(envelope(request), headers, enabled));
+    }
+
+    private Reply answer(JsonNode request, McpExchange.Plan plan) {
+        if (plan instanceof McpExchange.Plan.Reject reject) {
+            return new Reply(reject.httpStatus(), rejection(request, reject));
         }
-        McpEraDecision decision = resolveEra(request, headers);
-        if (decision instanceof Rejected rejected) {
-            return new Reply(rejected.httpStatus(), rejection(request, rejected));
+        if (plan instanceof McpExchange.Plan.Accept) {
+            return new Reply(202, null);
         }
-        Serve serve = (Serve) decision;
-        if (!enabled) {
-            if (isNotification(request)) {
-                return new Reply(202, null);
-            }
+        if (plan instanceof McpExchange.Plan.Disabled disabled) {
             JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-            return new Reply(
-                    200, error(id, serve.era(), McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE));
+            return new Reply(200, error(id, disabled.code(), McpProtocol.SERVER_DISABLED_MESSAGE));
         }
-        Reply reply = respond(request, serve);
+        Reply reply = respond(request, ((McpExchange.Plan.Dispatch) plan).serve());
         return reply.body() == null ? new Reply(202, null) : reply;
     }
 
-    private static McpEraDecision resolveEra(JsonNode request, McpRequestHeaders headers) {
+    /** The neutral envelope fields of {@code request}; the decisions are {@link McpExchange}'s. */
+    private static McpExchange.Envelope envelope(JsonNode request) {
         if (request == null || !request.isObject()) {
-            return McpEraResolver.resolve(null, false, null, McpRequestMeta.NONE, headers);
+            return McpExchange.Envelope.notAnObject(request != null && request.isArray());
         }
+        JsonNode id = request.get("id");
+        JsonNode jsonrpc = request.get("jsonrpc");
+        JsonNode params = request.get("params");
         JsonNode method = request.get("method");
         JsonNode name = request.path("params").get("name");
-        return McpEraResolver.resolve(
+        return new McpExchange.Envelope(
+                false,
+                true,
+                jsonrpc != null && McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc)),
+                id == null || id.isNull()
+                        ? McpExchange.IdShape.ABSENT_OR_NULL
+                        : id.isTextual() || id.isNumber()
+                                ? McpExchange.IdShape.STRING_OR_NUMBER
+                                : McpExchange.IdShape.INVALID,
+                params == null || params.isObject(),
                 method != null && method.isTextual() ? method.asText() : null,
-                isNotification(request),
                 name != null && name.isTextual() ? name.asText() : null,
-                meta(request),
-                headers);
+                meta(request));
     }
 
     private static McpRequestMeta meta(JsonNode request) {
@@ -152,14 +158,6 @@ public class QuarkusMcpEnvelope {
                 progressToken);
     }
 
-    private static boolean isNotification(JsonNode request) {
-        return request != null
-                && request.isObject()
-                && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(text(request.path("jsonrpc")))
-                && !text(request.path("method")).isBlank();
-    }
-
     /**
      * The text of an envelope field ({@code jsonrpc}, {@code method}, {@code params.name}, {@code
      * params.protocolVersion}): the string when it is one, otherwise empty. Jackson 2 and Jackson 3 coerce {@code
@@ -169,26 +167,25 @@ public class QuarkusMcpEnvelope {
         return node.isTextual() ? node.asText() : "";
     }
 
-    /** A modern rejection echoes a readable request id; a legacy one keeps BootUI 1.x's {@code null} id. */
-    private static ObjectNode rejection(JsonNode request, Rejected rejected) {
+    private static ObjectNode rejection(JsonNode request, McpExchange.Plan.Reject reject) {
         JsonNode id = null;
-        if (rejected.era() == McpEra.MODERN && request != null && request.isObject()) {
+        if (request != null && request.isObject() && reject.idEcho() != McpExchange.IdEcho.NULL) {
             JsonNode candidate = request.get("id");
-            if (candidate != null && (candidate.isTextual() || candidate.isNumber())) {
+            if (reject.idEcho() == McpExchange.IdEcho.AS_SENT
+                    || (candidate != null && (candidate.isTextual() || candidate.isNumber()))) {
                 id = candidate;
             }
         }
-        ObjectNode response = error(id, rejected.era(), rejected.code(), rejected.message());
-        if (rejected.hasVersionData()) {
+        ObjectNode response = error(id, reject.code(), reject.message());
+        if (reject.hasVersionData()) {
             ObjectNode data = JsonNodeFactory.instance.objectNode();
             ArrayNode supported = data.putArray("supported");
-            rejected.supportedVersions().forEach(supported::add);
-            data.put("requested", rejected.requestedVersion());
+            reject.supportedVersions().forEach(supported::add);
+            data.put("requested", reject.requestedVersion());
             ((ObjectNode) response.get("error")).set("data", data);
         }
         return response;
     }
-
     /** Parse raw request bytes into a Jackson node. */
     public JsonNode readTree(byte[] body) {
         try {
@@ -198,33 +195,18 @@ public class QuarkusMcpEnvelope {
         }
     }
 
-    /**
-     * Handles a single JSON-RPC request or notification.
-     *
-     * @return the JSON-RPC response, or {@code null} for notifications (which have no response)
-     */
     public JsonNode handle(JsonNode request) {
-        return respond(request, new Serve(McpEra.LEGACY, null, null)).body();
+        McpExchange.Envelope envelope = envelope(request);
+        McpExchange.Plan.Reject invalid = McpExchange.checkEnvelope(envelope, McpEra.LEGACY);
+        return answer(
+                        request,
+                        invalid != null ? invalid : new McpExchange.Plan.Dispatch(new Serve(McpEra.LEGACY, null, null)))
+                .body();
     }
-
     /** The JSON-RPC response with the HTTP status its outcome implies; a {@code null} body for a notification. */
     private Reply respond(JsonNode request, Serve serve) {
         McpEra era = serve.era();
-        if (request == null || !request.isObject()) {
-            return new Reply(200, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE));
-        }
         JsonNode id = request.get("id");
-        JsonNode jsonrpc = request.get("jsonrpc");
-        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc))) {
-            return new Reply(200, error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\""));
-        }
-        if (id != null && !id.isNull() && !id.isTextual() && !id.isNumber()) {
-            return new Reply(200, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.INVALID_ID_MESSAGE));
-        }
-        JsonNode params = request.get("params");
-        if (params != null && !params.isObject()) {
-            return new Reply(200, error(id, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE));
-        }
         try {
             McpDispatchOutcome outcome = dispatcher.dispatch(parse(request, serve));
             int status = McpProtocol.httpStatus(era, outcome);
@@ -354,6 +336,9 @@ public class QuarkusMcpEnvelope {
         }
         if (outcome instanceof ToolCallResult r) {
             return renderToolCall(id, era, r);
+        }
+        if (outcome instanceof McpDispatchOutcome.Cancelled) {
+            return error(id, era, McpProtocol.REQUEST_CANCELLED, McpProtocol.REQUEST_CANCELLED_MESSAGE);
         }
         throw new IllegalStateException("Unknown MCP outcome: " + outcome);
     }
