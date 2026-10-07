@@ -932,9 +932,9 @@ jobs:
   # against the default sensors without resources (its own increment on sockets, fifteen pairs) and against no agent
   # (the cumulative overhead, fifteen pairs), then, for the record, with files on both sides (its own increment on files
   # too, which files alone keeps near the 10 % budget). resources is a default sensor, so its own median must stay at
-  # most 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL and fails the job on a FAIL, as
-  # for blocking. Pushes, manual runs, and pull requests labelled agent. The first run measured -0.5 % own, 0.3 % beside
-  # files, and 6.9 % cumulative: PASS, so D47 made it a default.
+  # most 3 %: the check step prints PASS or FAIL and fails the job on a FAIL. The cumulative median is printed for the
+  # record only: it is mostly the other default sensors' overhead, tracked separately (D47). Pushes, manual runs, and
+  # pull requests labelled agent. The first run measured -0.5 % own, 0.3 % beside files, and 6.9 % cumulative.
   agent-overhead-resources:
     name: Agent overhead, resources A/B (Java 17)
     runs-on: ubuntu-latest
@@ -1019,18 +1019,24 @@ jobs:
             fi
           done
           verdict=PASS
-          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+          if awk -v increment="$increment" 'BEGIN { exit !(increment > 3) }'; then
             verdict=FAIL
+          fi
+          cumulative_note="within 10 %"
+          if awk -v cumulative="$cumulative" 'BEGIN { exit !(cumulative > 10) }'; then
+            cumulative_note="above 10 %"
           fi
           default=no
           if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'RESOURCES|"resources"'; then
             default=yes
           fi
-          line="Resources sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %), on the I/O route; increment beside files ${with_files}. On by default: ${default}."
+          line="Resources sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %), on the I/O route; increment beside files ${with_files}. On by default: ${default}."
+          report="Report only, not enforced: the default set's cumulative median with resources is ${cumulative} % (pairs ${cumulative_range} %), ${cumulative_note}; it is mostly the other default sensors' overhead and is tracked separately (D47)."
           echo "$line"
-          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          echo "$report"
+          printf '\n**%s**\n\n%s\n' "$line" "$report" >> "$GITHUB_STEP_SUMMARY"
           if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
-            echo "::error::$line It must stay opt-in."
+            echo "::error::$line resources is a default sensor (D47), so its own increment must stay within 3 %."
             exit 1
           fi
           if [ "$verdict" = FAIL ]; then
