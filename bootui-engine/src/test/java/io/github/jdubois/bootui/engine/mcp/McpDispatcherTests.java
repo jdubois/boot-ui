@@ -401,6 +401,25 @@ class McpDispatcherTests {
     }
 
     @Test
+    void aCatalogToolMissingBecauseItsPanelIsDisabledGetsTheDisabledRefusal() {
+        policy.disabled.add("websockets");
+        McpDispatcher dispatcher = new McpDispatcher(
+                () -> List.of(overview),
+                List.of(),
+                policy,
+                "1.2.3",
+                "",
+                50,
+                20,
+                1_000,
+                diagnostics,
+                panelId -> "No WebSocket support is on the classpath.");
+
+        assertThat(dispatcher.dispatch(call("get_websockets")))
+                .isEqualTo(new ToolCallError("disabled:websockets", McpDispatchOutcome.ToolErrorReason.PANEL_DISABLED));
+    }
+
+    @Test
     void aFailingAvailabilityLookupStillAnswersAndIsReported() {
         McpDispatcher dispatcher = new McpDispatcher(
                 () -> List.of(overview), List.of(), policy, "1.2.3", "", 50, 20, 1_000, diagnostics, panelId -> {

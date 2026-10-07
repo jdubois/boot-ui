@@ -421,7 +421,13 @@ public final class McpDispatcher {
      * A catalog tool this server does not advertise: still not callable, but the caller learns why, from the panel
      * that backs it, rather than a bare "unknown tool" that reads like a typo.
      */
-    private ProtocolError unavailableTool(McpToolCatalog.Entry entry) {
+    private McpDispatchOutcome unavailableTool(McpToolCatalog.Entry entry) {
+        // Some adapters register a tool only while its panel is enabled, so a disabled panel's tool can be missing
+        // here: it gets the same refusal as an advertised one, not an availability reason that would be wrong.
+        if (!policy.isEnabled(entry.panelId())) {
+            return new ToolCallError(
+                    policy.disabledReason(entry.panelId()), McpDispatchOutcome.ToolErrorReason.PANEL_DISABLED);
+        }
         String reason = null;
         try {
             reason = panelUnavailableReason.apply(entry.panelId());

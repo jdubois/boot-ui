@@ -221,7 +221,7 @@ Tools whose backing panel/controller is absent (for example Hibernate or Spring 
 the classpath) are not advertised. Calling one anyway answers JSON-RPC `-32602` with the reason in the message, such as
 `Tool not available in this application: get_kafka_activity. Its Kafka panel is unavailable: …`, and in `error.data`
 (`tool`, `panel`, and `reason` when the panel gives one). A name BootUI does not know at all still answers
-`Unknown tool: <name>`.
+`Unknown tool: <name>`. A tool of a disabled panel is refused in-band as disabled, whether or not it is advertised.
 
 Each `tools/list` entry carries MCP `annotations` derived from the tool's kind: a read has `readOnlyHint: true` and
 `idempotentHint: true`; an action has `readOnlyHint: false`, the `clear_*` actions `destructiveHint: true` (they discard

@@ -3469,7 +3469,7 @@ Design rules:
   backing controller is absent or not applicable to the running stack are not advertised; a `tools/call` naming one of
   them answers `-32602` with `Tool not available in this application: <name>.` and the panel's unavailable reason, also
   in `error.data` (`tool`, `panel`, `reason`), while a name outside the catalog keeps `Unknown tool: <name>`. The CLI
-  facade answers both with `404`.
+  facade answers both with `404`. A catalog tool whose panel is disabled gets the in-band disabled refusal instead.
 - **Tool hints and argument schemas.** Each `tools/list` entry carries MCP `annotations` derived from the catalog's
   action flag: reads are `readOnlyHint`/`idempotentHint`; `clear_*` actions are `destructiveHint`; clear, pause, and
   resume are `idempotentHint`; `vulnerabilities_scan` is `openWorldHint`. `inputSchema` describes each argument per tool
