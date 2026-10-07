@@ -19,13 +19,27 @@ Context: this is the hand-off from [issue #1067](https://github.com/jdubois/boot
 | GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | shipped |
 | [mcpservers.org](https://mcpservers.org) | People browsing MCP servers | Web form only, no pull request path | todo — owner |
 | [Cursor Marketplace](https://cursor.com/marketplace) | Cursor users installing plugins from Customize | Agent Plugin in this repository, then repository submission at `cursor.com/marketplace/publish` | todo — owner, plugin ready after merge |
-| [cursor.directory](https://cursor.directory) | Cursor users browsing community plugins | Plugin submission form at `cursor.directory/plugins/new` | todo — owner, plugin ready after merge |
+| [cursor.directory](https://cursor.directory) | Cursor users browsing community plugins | Plugin submission form at `cursor.directory/plugins/new` | shipped — [`BootUI`](https://cursor.directory/plugins/bootui) |
 | [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | Claude Code users | Open an issue on that repository | todo — delegable |
 | [ComposioHQ/awesome-claude-skills](https://github.com/ComposioHQ/awesome-claude-skills) | Agent skill users | Open a pull request on that repository | todo — delegable |
 | [skills.sh](https://skills.sh) | Agent skill users | No submission form — a repository is listed once people install its skills with `npx skills add` | nothing to submit; the docs carry the command, the listing follows real installs |
 | [Official MCP Registry](https://registry.modelcontextprotocol.io) | MCP clients that read the registry | — | not eligible — no `server.json`, see below |
 | [Glama](https://glama.ai) | Broad MCP audience | — | not eligible — no `glama.json`, nothing to containerise |
 | GitHub MCP Registry / VS Code MCP gallery | VS Code and Copilot users | — | out of reach — both are fed by the Official MCP Registry |
+
+## Encourage real skill installations
+
+[skills.sh](https://skills.sh/jdubois/boot-ui) has no submission form: its listing and popularity follow real
+installations. Make the exact canonical-skill command the primary call to action in user-facing documentation, release
+notes, demonstrations, and community posts:
+
+```bash
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+Keep the native Copilot, Cursor, and Claude Code routes available for users who prefer them, but do not hide the
+portable installer behind an "other agents" label. Do not generate synthetic installs from CI or maintainer machines;
+the useful signal is adoption by actual users.
 
 ## GitHub Agent Finder
 
