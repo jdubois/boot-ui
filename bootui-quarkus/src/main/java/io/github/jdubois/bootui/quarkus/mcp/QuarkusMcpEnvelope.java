@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.jdubois.bootui.engine.mcp.McpCallStart;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.DiscoverResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
@@ -30,9 +31,11 @@ import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta.Field;
+import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
 import io.github.jdubois.bootui.engine.mcp.McpToolAnnotations;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
 import io.github.jdubois.bootui.engine.mcp.McpToolInputSchema;
+import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.util.Map;
@@ -84,7 +87,21 @@ public class QuarkusMcpEnvelope {
      * @param status the HTTP status
      * @param body the JSON-RPC response, or {@code null} for {@code 202 Accepted} with no body
      */
-    public record Reply(int status, JsonNode body) {}
+    public record Reply(int status, JsonNode body, Stream stream) {
+
+        public Reply(int status, JsonNode body) {
+            this(status, body, null);
+        }
+    }
+
+    /**
+     * A {@code tools/call} to answer on a request-scoped {@code text/event-stream}, the twin of the Spring adapter's
+     * {@code BootUiMcpService.Stream}.
+     *
+     * @param call the call, holding a concurrency permit until it ends
+     * @param id the request id the final response echoes
+     */
+    public record Stream(McpStreamingCall call, JsonNode id) {}
 
     /**
      * Answers one parsed MCP {@code POST} body: refuses a batch, selects the protocol era and validates its metadata,
@@ -92,6 +109,14 @@ public class QuarkusMcpEnvelope {
      * answers byte-identically.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled) {
+        return exchange(request, headers, enabled, false);
+    }
+
+    /**
+     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a modern progress call from a client whose
+     * {@code Accept} lists {@code text/event-stream} may answer with a {@link Stream}.
+     */
+    public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled, boolean acceptsEventStream) {
         if (request != null && request.isArray()) {
             return new Reply(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
         }
@@ -108,7 +133,11 @@ public class QuarkusMcpEnvelope {
             return new Reply(
                     200, error(id, serve.era(), McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE));
         }
-        JsonNode response = handle(request, serve);
+        Object answer = respond(request, serve, acceptsEventStream);
+        if (answer instanceof Stream stream) {
+            return new Reply(200, null, stream);
+        }
+        JsonNode response = (JsonNode) answer;
         if (response == null) {
             return new Reply(202, null);
         }
@@ -185,6 +214,56 @@ public class QuarkusMcpEnvelope {
         return response;
     }
 
+    /** One {@code notifications/progress} of a modern stream, as compact JSON. */
+    public String renderProgress(McpProgressToken token, ProgressEvent event) {
+        ObjectNode params = JsonNodeFactory.instance.objectNode();
+        if (token.isText()) {
+            params.put("progressToken", token.text());
+        } else {
+            params.put("progressToken", token.number());
+        }
+        putNumber(params, "progress", event.progress());
+        if (event.total() != null) {
+            putNumber(params, "total", event.total());
+        }
+        params.put("message", event.message());
+        ObjectNode notification = JsonNodeFactory.instance.objectNode();
+        notification.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
+        notification.put("method", McpProtocol.PROGRESS_NOTIFICATION);
+        notification.set("params", params);
+        return notification.toString();
+    }
+
+    /** Integral values render as integers so every stack writes the same bytes. */
+    private static void putNumber(ObjectNode node, String field, double value) {
+        if (value == Math.rint(value) && Math.abs(value) < 1e15) {
+            node.put(field, (long) value);
+        } else {
+            node.put(field, value);
+        }
+    }
+
+    /**
+     * The final JSON-RPC response of a modern stream, as compact JSON: rendered and size-limited exactly like a JSON
+     * response, so a stream never carries more than {@code bootui.mcp.max-response-bytes}.
+     */
+    public String renderFinal(JsonNode id, McpDispatchOutcome outcome) {
+        try {
+            JsonNode response = render(outcome, id, McpEra.MODERN);
+            byte[] bytes = objectMapper.writeValueAsBytes(response);
+            if (bytes.length > maxResponseBytes) {
+                dispatcher.runtimeStats().recordResponseLimitRefusal();
+                return error(id, McpEra.MODERN, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE)
+                        .toString();
+            }
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (JsonProcessingException | RuntimeException | Error failure) {
+            failureReporter.report("rendering a response", failure);
+            return error(id, McpEra.MODERN, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE)
+                    .toString();
+        }
+    }
+
     /** Parse raw request bytes into a Jackson node. */
     public JsonNode readTree(byte[] body) {
         try {
@@ -200,10 +279,11 @@ public class QuarkusMcpEnvelope {
      * @return the JSON-RPC response, or {@code null} for notifications (which have no response)
      */
     public JsonNode handle(JsonNode request) {
-        return handle(request, new Serve(McpEra.LEGACY, null, null));
+        return (JsonNode) respond(request, new Serve(McpEra.LEGACY, null, null), false);
     }
 
-    private JsonNode handle(JsonNode request, Serve serve) {
+    /** The JSON-RPC response node, {@code null} for a notification, or a {@link Stream}. */
+    private Object respond(JsonNode request, Serve serve, boolean acceptsEventStream) {
         McpEra era = serve.era();
         if (request == null || !request.isObject()) {
             return error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE);
@@ -221,7 +301,11 @@ public class QuarkusMcpEnvelope {
             return error(id, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE);
         }
         try {
-            McpDispatchOutcome outcome = dispatcher.dispatch(parse(request, serve));
+            McpCallStart start = dispatcher.start(parse(request, serve), acceptsEventStream);
+            if (start instanceof McpCallStart.Stream stream) {
+                return new Stream(stream.call(), id);
+            }
+            McpDispatchOutcome outcome = ((McpCallStart.Immediate) start).outcome();
             JsonNode response = render(outcome, id, era);
             if (response != null && objectMapper.writeValueAsBytes(response).length > maxResponseBytes) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
