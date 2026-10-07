@@ -36,6 +36,9 @@ framework-neutral engine. The same diagnostics are reachable without a browser t
 ## Delivery workflow
 
 - Make focused changes and update directly coupled tests and documentation.
+- Before accepting any npm package version, direct or transitive, verify that it has been published on npm for at
+  least seven full days. This supply-chain waiting period also applies to lockfile-only and Dependabot updates;
+  Dependabot's configured cooldown is not sufficient evidence for transitive packages.
 - Use the Maven Wrapper and existing npm scripts. Run the smallest targeted validation that proves the change, then the
   required conformance or browser suite for public cross-adapter or UI behavior.
 - Before committing or publishing a PR, format touched areas and pass the corresponding checks:

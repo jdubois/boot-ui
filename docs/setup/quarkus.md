@@ -7,7 +7,7 @@ backed by the Quarkus build of the framework-neutral engine.
 
 - Java 17 or later
 - A Quarkus application, built and tested against the platform version pinned by the root `pom.xml`
-  (`quarkus.platform.version`, currently the `3.33.3.2` LTS release)
+  (`quarkus.platform.version`, currently the `3.40.1` LTS release)
 - Maven or Gradle (or their local wrappers)
 
 ## Add the extension
