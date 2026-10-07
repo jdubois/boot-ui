@@ -14,8 +14,9 @@ Context: this is the hand-off from [issue #1067](https://github.com/jdubois/boot
 
 | Channel | Audience | How to submit | Status |
 | --- | --- | --- | --- |
+| [GitHub Agent Finder](https://agentfinder.github.com) | GitHub Copilot users searching for skills in natural language | Pull request to [`github/agentfinder-catalog`](https://github.com/github/agentfinder-catalog) | submitted — [`github/agentfinder-catalog#66`](https://github.com/github/agentfinder-catalog/pull/66) |
 | Claude Code plugin marketplace (this repository) | Claude Code users | Nothing to submit — the marketplace is self-hosted here and works as soon as this PR merges | shipped |
-| GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | todo — owner |
+| GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | shipped |
 | [mcpservers.org](https://mcpservers.org) | People browsing MCP servers | Web form only, no pull request path | todo — owner |
 | [cursor.directory](https://cursor.directory) | Cursor users looking for MCP servers and skills | Web form — **Manual tab**, never the GitHub auto-scan | todo — owner |
 | [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | Claude Code users | Open an issue on that repository | todo — delegable |
@@ -24,6 +25,28 @@ Context: this is the hand-off from [issue #1067](https://github.com/jdubois/boot
 | [Official MCP Registry](https://registry.modelcontextprotocol.io) | MCP clients that read the registry | — | not eligible — no `server.json`, see below |
 | [Glama](https://glama.ai) | Broad MCP audience | — | not eligible — no `glama.json`, nothing to containerise |
 | GitHub MCP Registry / VS Code MCP gallery | VS Code and Copilot users | — | out of reach — both are fed by the Official MCP Registry |
+
+## GitHub Agent Finder
+
+[GitHub Agent Finder](https://github.blog/changelog/2026-06-17-agent-finder-for-github-copilot-now-available/)
+is now the highest-priority discovery channel for the BootUI skill. It lets Copilot search a curated public catalog for
+skills, MCP servers and other agent resources from a natural-language task. This is separate from the Official MCP
+Registry: BootUI's embedded localhost MCP server still does not fit that registry, but the user-facing agent skill is
+eligible for Agent Finder.
+
+Checked on 2026-10-07:
+
+- `gh skill search bootui` already found the skill directly in this repository, and
+  `gh skill preview jdubois/boot-ui bootui` loaded it successfully.
+- Agent Finder itself did not return BootUI for either an exact `BootUI` search or a task asking to diagnose a running
+  Spring Boot or Quarkus application. It returned generic Spring Boot and MCP skills instead.
+- [`github/agentfinder-catalog#66`](https://github.com/github/agentfinder-catalog/pull/66) was opened to add the
+  canonical `skills/bootui/SKILL.md` as an `application/ai-skill`. The entry deliberately points to the canonical
+  skill rather than the byte-for-byte plugin copy under `plugins/`, so Agent Finder has one authoritative result.
+
+Once that pull request merges, query <https://agentfinder.github.com/api/v1/search> for `BootUI` and for a representative
+runtime-diagnostics task. Update the table above to `shipped` only after the public search result resolves to
+`https://github.com/jdubois/boot-ui/blob/main/skills/bootui/SKILL.md`.
 
 ## Why this repository has no `server.json` or `glama.json`
 

@@ -207,8 +207,10 @@ body {
 
 /* The theme's navbar controls center themselves with auto vertical margins, which the search
    button does not carry, so it hangs from the top of the flex row instead of sharing the
-   center line with the menu items and the theme toggle. */
-.vp-navbar-items-wrapper > .slimsearch-button {
+   center line with the menu items and the theme toggle. The button moved from the slimsearch
+   plugin into @vuepress/search-helper, which renamed the class, so both names are matched. */
+.vp-navbar-items-wrapper > .slimsearch-button,
+.vp-navbar-items-wrapper > .vp-search-button {
   align-self: center;
 }
 

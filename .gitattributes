@@ -1,6 +1,6 @@
 # Keep the POSIX Maven wrapper and shell scripts LF so they run correctly under
-# Git Bash on Windows (a CRLF shebang breaks ./mvnw). Windows wrapper/batch
-# scripts stay CRLF.
+# Git Bash on Windows (a CRLF shebang breaks ./mvnw). Git stores text files
+# normalized as LF; Windows wrapper/batch scripts are checked out as CRLF.
 mvnw text eol=lf
 *.sh text eol=lf
 mvnw.cmd text eol=crlf
