@@ -34,10 +34,8 @@ class McpToolDescriptionsTests {
         for (Function<String, String> provider :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
             for (String advisor : List.of("architecture", "rest_api", "hibernate")) {
-                for (String tool : List.of(advisor + "_scan", "get_" + advisor + "_report")) {
-                    assertThat(provider.apply(tool))
-                            .contains("sampleLocations", "sourcePath", "LINE, MEMBER or CLASS", "locationNotes");
-                }
+                assertThat(provider.apply("get_" + advisor + "_report"))
+                        .contains("sampleLocations", "sourcePath", "LINE, MEMBER or CLASS", "locationNotes");
                 assertThat(provider.apply("get_" + advisor + "_rule_violations"))
                         .contains("locations list aligns index-for-index with violations");
             }
@@ -60,8 +58,12 @@ class McpToolDescriptionsTests {
                                 "get_" + advisor + "_rule_violations",
                                 "truncated",
                                 "Verify each finding");
-                assertThat(provider.apply(advisor + "_scan"))
+                assertThat(provider.apply("get_" + advisor + "_report"))
                         .contains("bounded previews", "page cached retained", "retention overflow");
+                // A scan answers with the same report, so it points at that guidance instead of repeating it.
+                assertThat(provider.apply(advisor + "_scan"))
+                        .contains("get_" + advisor + "_report", "get_" + advisor + "_rule_violations")
+                        .doesNotContain("bounded previews");
                 assertThat(provider.apply("get_" + advisor + "_rule_violations"))
                         .contains(
                                 "page.hasMore",
@@ -74,10 +76,10 @@ class McpToolDescriptionsTests {
                                 "smaller limit");
             }
         }
-        for (String name : List.of("hibernate_scan", "get_hibernate_report")) {
-            assertThat(McpToolDescriptions.spring(name)).contains("PARTIAL", "diagnostics", "coverageNote");
-            assertThat(McpToolDescriptions.quarkus(name)).contains("PARTIAL", "diagnostics", "coverageNote");
-        }
+        assertThat(McpToolDescriptions.spring("get_hibernate_report"))
+                .contains("PARTIAL", "diagnostics", "coverageNote");
+        assertThat(McpToolDescriptions.quarkus("get_hibernate_report"))
+                .contains("PARTIAL", "diagnostics", "coverageNote");
         assertThat(McpToolDescriptions.spring("architecture_scan")).doesNotContain("coverageNote");
         assertThat(McpToolDescriptions.spring("get_spring_report")).contains("up to 10");
         assertThat(McpToolDescriptions.quarkus("get_spring_report")).contains("up to 20");

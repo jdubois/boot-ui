@@ -105,7 +105,6 @@ import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
-import io.quarkus.deployment.builditem.GeneratedServiceProviderBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
@@ -119,6 +118,7 @@ import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import jakarta.inject.Singleton;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2715,7 +2715,7 @@ class BootUiQuarkusProcessor {
     void registerRestClientTrace(
             LaunchModeBuildItem launchMode,
             Capabilities capabilities,
-            BuildProducer<GeneratedServiceProviderBuildItem> generatedServiceProviders,
+            BuildProducer<GeneratedResourceBuildItem> generatedResources,
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
@@ -2726,8 +2726,18 @@ class BootUiQuarkusProcessor {
             excludedTypes.produce(new ExcludedTypeBuildItem(REST_CLIENT_TRACE_LISTENER_CLASS));
             return;
         }
-        generatedServiceProviders.produce(
-                new GeneratedServiceProviderBuildItem(REST_CLIENT_LISTENER_SERVICE, REST_CLIENT_TRACE_LISTENER_CLASS));
+        byte[] descriptor = (REST_CLIENT_TRACE_LISTENER_CLASS + "\n").getBytes(StandardCharsets.UTF_8);
+        String path = "META-INF/services/" + REST_CLIENT_LISTENER_SERVICE;
+        // Quarkus 3.33 lacks the service-provider build item; newer releases require this explicit resource factory.
+        try {
+            generatedResources.produce((GeneratedResourceBuildItem) GeneratedResourceBuildItem.class
+                    .getMethod("allowingMetaInfServices", String.class, byte[].class)
+                    .invoke(null, path, descriptor));
+        } catch (NoSuchMethodException e) {
+            generatedResources.produce(new GeneratedResourceBuildItem(path, descriptor));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot register REST client trace listener", e);
+        }
     }
 
     /**

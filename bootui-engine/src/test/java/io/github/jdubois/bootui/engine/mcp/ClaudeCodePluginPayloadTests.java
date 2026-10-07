@@ -18,8 +18,8 @@ class ClaudeCodePluginPayloadTests {
 
     @Test
     void shippedSkillMatchesTheCanonicalSkill() throws IOException {
-        String canonical = Files.readString(repositoryFile("skills/bootui/SKILL.md"));
-        String shipped = Files.readString(repositoryFile("plugins/bootui/skills/bootui/SKILL.md"));
+        String canonical = Files.readString(RepositoryFiles.file("skills/bootui/SKILL.md"));
+        String shipped = Files.readString(RepositoryFiles.file("plugins/bootui/skills/bootui/SKILL.md"));
 
         assertThat(shipped)
                 .as("plugins/bootui/skills/bootui/SKILL.md is generated from skills/bootui/SKILL.md; "
@@ -29,7 +29,7 @@ class ClaudeCodePluginPayloadTests {
 
     @Test
     void pluginShipsOnlyTheUserFacingSkill() throws IOException {
-        Path shippedSkills = repositoryFile("plugins/bootui/skills");
+        Path shippedSkills = RepositoryFiles.file("plugins/bootui/skills");
 
         try (var entries = Files.list(shippedSkills)) {
             assertThat(entries)
@@ -38,18 +38,5 @@ class ClaudeCodePluginPayloadTests {
                     .extracting(path -> path.getFileName().toString())
                     .containsExactly("bootui");
         }
-    }
-
-    private static Path repositoryFile(String relativePath) {
-        Path workingDirectory = Path.of("").toAbsolutePath();
-        for (Path candidate : new Path[] {
-            workingDirectory.resolve(relativePath),
-            workingDirectory.resolve("../" + relativePath).normalize()
-        }) {
-            if (Files.exists(candidate)) {
-                return candidate;
-            }
-        }
-        throw new IllegalStateException(relativePath + " could not be located from " + workingDirectory);
     }
 }

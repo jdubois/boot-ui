@@ -460,7 +460,8 @@ class McpDispatcherTests {
         assertThat(config.properties())
                 .extracting(McpToolInputSchema.Property::name)
                 .containsExactly("query", "limit");
-        assertThat(config.properties().get(1).defaultValue()).isEqualTo(50);
+        // get_config's agent page, below the dispatcher's max-results of 50.
+        assertThat(config.properties().get(1).defaultValue()).isEqualTo(McpAgentViews.INVENTORY_DEFAULT_LIMIT);
         assertThat(result.tools().get(3).inputSchema().required()).containsExactly("id");
     }
 
