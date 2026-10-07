@@ -2366,6 +2366,7 @@ class BootUiQuarkusProcessor {
         }
         byte[] descriptor = (REST_CLIENT_TRACE_LISTENER_CLASS + "\n").getBytes(StandardCharsets.UTF_8);
         String path = "META-INF/services/" + REST_CLIENT_LISTENER_SERVICE;
+        // Quarkus 3.33 lacks the service-provider build item; newer releases require this explicit resource factory.
         try {
             generatedResources.produce((GeneratedResourceBuildItem) GeneratedResourceBuildItem.class
                     .getMethod("allowingMetaInfServices", String.class, byte[].class)
