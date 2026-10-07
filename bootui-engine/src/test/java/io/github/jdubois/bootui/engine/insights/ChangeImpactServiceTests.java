@@ -616,6 +616,72 @@ class ChangeImpactServiceTests {
     }
 
     @Test
+    void aBareMethodNameResolvesThroughCodeInventoryAndAWrongDescriptorNamesTheRealOverloads() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        ChangeImpactService service = service(structure(null));
+        service.setCodePaths(wanted -> routes(
+                wanted,
+                Map.of(FIND_ALL, Map.of("GET /api/products", 1L)),
+                Map.of("GET /api/products", new MethodRoutes.RouteEvidence(1, false, List.of()))));
+        service.setCodeInventory((type, name) -> lookup(
+                ClassScanner.COMPLETE,
+                method(FIND_ALL, CodeInventoryService.EXECUTED, null),
+                method(FIND_BY_NAME, CodeInventoryService.NEVER_EXECUTED, null),
+                method("com.example.other.ProductService#findAll()V", CodeInventoryService.NEVER_EXECUTED, null)));
+
+        RuntimeChangeImpactDto bare = service.impact("findAll");
+        assertThat(bare.status())
+                .as("a bare method name two classes declare is ambiguous, never not found")
+                .isEqualTo(ChangeImpactService.AMBIGUOUS);
+        assertThat(bare.candidates())
+                .containsExactly(
+                        "METHOD com.example.ProductService#findAll", "METHOD com.example.other.ProductService#findAll");
+        assertThat(service.impact(bare.candidates().get(0)).node())
+                .isEqualTo("METHOD com.example.ProductService#findAll");
+
+        RuntimeChangeImpactDto wrong = service.impact("com.example.ProductService#findAll(J)J");
+        assertThat(wrong.status()).isEqualTo(ChangeImpactService.NOT_FOUND);
+        assertThat(wrong.reason()).contains("`(J)J`", FIND_ALL, FIND_BY_NAME);
+        assertThat(wrong.candidates()).containsExactly("METHOD " + FIND_ALL, "METHOD " + FIND_BY_NAME);
+        assertThat(service.impact(wrong.candidates().get(0)).methods())
+                .as("each listed overload resolves")
+                .containsExactly(FIND_ALL);
+
+        service.setCodeInventory(
+                (type, name) -> lookup(ClassScanner.COMPLETE, method(FIND_ALL, CodeInventoryService.EXECUTED, null)));
+        assertThat(service.impact("findAll").node())
+                .as("a bare name one class declares resolves to it")
+                .isEqualTo("METHOD com.example.ProductService#findAll");
+        assertThat(service.impact("neverDeclared").status()).isEqualTo(ChangeImpactService.NOT_FOUND);
+    }
+
+    @Test
+    void aListLongerThanItsRowsNamesTheOtherRoutes() {
+        List<RuntimeImpactRouteDto> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < RuntimeChangeImpactDto.MAX_ROWS; i++) {
+            rows.add(route("GET /listed/" + i));
+        }
+        assertThat(ChangeImpactService.unlisted("observed", rows)).isNull();
+
+        rows.add(route("GET /a"));
+        rows.add(route("POST /b"));
+        assertThat(ChangeImpactService.unlisted("observed", rows))
+                .isEqualTo("Listed 8 of the 10 routes observed; the other 2: `GET /a`, `POST /b`.");
+
+        for (int i = 0; i < ChangeImpactService.MAX_UNLISTED; i++) {
+            rows.add(route("GET /more/" + i));
+        }
+        assertThat(ChangeImpactService.unlisted("not exercised", rows))
+                .startsWith("Listed 8 of the 50 routes not exercised; the other 42: `GET /a`, `POST /b`,")
+                .endsWith(", and 2 more.");
+    }
+
+    private static RuntimeImpactRouteDto route(String route) {
+        return new RuntimeImpactRouteDto(route, 1, 0, 0, List.of(), List.of(), List.of(), List.of(), null);
+    }
+
+    @Test
     void aFailedCodePathsReadIsUnavailableAndAMethodTheSensorDoesNotTimeSaysSo() throws Exception {
         journal.addListener(aggregates);
         request("/api/products", "select * from sample_products");

@@ -4,13 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.jdubois.bootui.conformance.McpCodecParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
+import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
@@ -136,6 +140,40 @@ class QuarkusMcpEnvelopeTest {
                 .isEqualTo("The rule id, from get_architecture_report.");
         assertThat(properties.path("offset").path("default").asInt()).isZero();
         assertThat(properties.path("limit").path("default").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void toolsListRendersEveryCatalogSchemaAndHintByteForByteLikeTheSpringCodec() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                McpCodecParity.tools(quarkusDescriptions()),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "",
+                McpCodecParity.MAX_RESULTS,
+                20,
+                diagnostics);
+        JsonNode tools = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 4 * 1024 * 1024)
+                .handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/list\"}"))
+                .path("result")
+                .path("tools");
+        ArrayNode rendered = objectMapper.createArrayNode();
+        tools.forEach(tool -> {
+            ObjectNode projection = rendered.addObject();
+            projection.set("name", tool.path("name"));
+            projection.set("inputSchema", tool.path("inputSchema"));
+            projection.set("annotations", tool.path("annotations"));
+        });
+
+        assertThat(objectMapper.writeValueAsString(rendered)).isEqualTo(McpCodecParity.expected());
+    }
+
+    /** The Quarkus description where the tool has one; descriptions are not part of the parity contract. */
+    private static java.util.function.Function<String, String> quarkusDescriptions() {
+        return name -> McpToolCatalog.byName(name).orElseThrow().advertisedBy(McpToolCatalog.Stack.QUARKUS)
+                ? McpToolDescriptions.quarkus(name)
+                : McpToolDescriptions.spring(name);
     }
 
     @Test

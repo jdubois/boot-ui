@@ -378,6 +378,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   conditions, which now pages both outcomes together. `get_config` drops the browser's property suggestions, agent status and Side Effects
   summarize sensors until a query names one, and `tools/list` is smaller. A 1.x CLI keeps working
   ([Agent-sized defaults](docs/AI-AGENTS.md#agent-sized-defaults)).
+- **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
+  (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
+  never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.
 - **A tool this application does not advertise says why.** MCP answers a known BootUI tool whose panel is unavailable
   with `Tool not available in this application: <tool>.` and the panel's reason, also in `error.data`, instead of
   `Unknown tool`; the CLI facade still answers `404`.
@@ -710,6 +713,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Links between MCP and CLI results.** `get_runtime_impact` resolves a bare method name such as `applyDiscount`
+  (`AMBIGUOUS` with each declaring class when several do), names the real overloads when the asked parameters match
+  none, and names every route beyond the 8 it lists per list; `get_code_inventory` matches method names. Side Effects
+  captures an event-loop connect a concurrent REST client call names: the journal's newest-first order made it index
+  only one event per refresh, on all three stacks. Live Activity `EXCEPTION` entries carry `exceptionGroupId`, which
+  `get_exception_detail` takes. A `get_runtime_insights` route query lists that route first and follows it up;
+  `get_side_effects` matches a request id; `get_live_memory` and `get_jvm_tuning` return their own panel's part.
 - **The runtime journal records the sample applications' logs.** Its Spring appender skipped every logger under
   `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file

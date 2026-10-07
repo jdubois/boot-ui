@@ -72,6 +72,7 @@ import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -589,14 +590,14 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_live_memory",
                     McpToolDescriptions.spring("get_live_memory"),
-                    args -> liveMemoryBean.memory(null, null, null, null, null)));
+                    args -> MemoryAgentViews.liveMemory(liveMemoryBean.memory(null, null, null, null, null))));
         }
         JvmTuningController jvmTuningBean = jvmTuning.getIfAvailable();
         if (jvmTuningBean != null) {
             registry.add(tool(
                     "get_jvm_tuning",
                     McpToolDescriptions.spring("get_jvm_tuning"),
-                    args -> jvmTuningBean.jvmTuning(null, null, null, null, null)));
+                    args -> MemoryAgentViews.jvmTuning(jvmTuningBean.jvmTuning(null, null, null, null, null))));
         }
         HeapDumpController heapDumpBean = heapDump.getIfAvailable();
         if (heapDumpBean != null) {

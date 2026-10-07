@@ -3,11 +3,13 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.conformance.McpCodecParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
@@ -19,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -239,6 +242,31 @@ class BootUiMcpServiceTests {
                 .isEqualTo("The rule id, from get_architecture_report.");
         assertThat(properties.path("offset").path("default").asInt()).isZero();
         assertThat(properties.path("limit").path("default").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void toolsListRendersEveryCatalogSchemaAndHintByteForByteLikeTheQuarkusCodec() {
+        properties.getMcp().setMaxResults(McpCodecParity.MAX_RESULTS);
+        BootUiMcpService catalog = new BootUiMcpService(
+                McpCodecParity.tools(McpToolDescriptions::spring),
+                properties,
+                objectMapper,
+                "1.2.3",
+                (operation, failure) -> {
+                    throw new AssertionError(failure);
+                });
+        ArrayNode rendered = JsonNodeFactory.instance.arrayNode();
+        catalog.handle(request("tools/list", 4, null))
+                .path("result")
+                .path("tools")
+                .forEach(tool -> {
+                    ObjectNode projection = rendered.addObject();
+                    projection.set("name", tool.path("name"));
+                    projection.set("inputSchema", tool.path("inputSchema"));
+                    projection.set("annotations", tool.path("annotations"));
+                });
+
+        assertThat(objectMapper.writeValueAsString(rendered)).isEqualTo(McpCodecParity.expected());
     }
 
     @Test
