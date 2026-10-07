@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.quarkus.scheduled;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.annotation.Priority;
 import jakarta.interceptor.AroundInvoke;
@@ -28,13 +30,19 @@ import java.lang.reflect.Method;
 @Priority(Interceptor.Priority.PLATFORM_BEFORE)
 public class QuarkusScheduledExecutionInterceptor {
 
-    private static final ThreadLocal<Completed> COMPLETED = new ThreadLocal<>();
+    private static final ThreadLocal<Completed> COMPLETED = new BootUiThreadLocal<>();
 
     @AroundInvoke
     Object aroundScheduledRun(InvocationContext invocation) throws Exception {
         CorrelationContext correlation = CorrelationContext.forExecution(RequestIds.next());
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-            return invocation.proceed();
+            // The run's thread-locals scope, inside its context (docs/PLAN-v2.md §5.16, M5-5f).
+            long threadLocals = AgentThreadLocals.open();
+            try {
+                return invocation.proceed();
+            } finally {
+                AgentThreadLocals.close(threadLocals);
+            }
         } finally {
             COMPLETED.set(new Completed(describe(invocation.getMethod()), correlation.executionId()));
         }

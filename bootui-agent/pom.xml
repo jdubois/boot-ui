@@ -77,7 +77,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <!-- Test only: BlockHound, installed beside the BootUI agent's blocking sensor in the forked-JVM tests. -->
+            <!-- Test only: BlockHound, installed beside the BootUI agent's blocking sensor in the forked-JVM tests, and
+                 watching the threads the caught-exceptions sensor records on. -->
             <groupId>io.projectreactor.tools</groupId>
             <artifactId>blockhound</artifactId>
             <version>${blockhound.version}</version>
@@ -131,13 +132,6 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-vertx-http</artifactId>
             <version>${quarkus.platform.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <!-- Test only: the caught-exceptions sensor's records on a thread BlockHound watches. -->
-            <groupId>io.projectreactor.tools</groupId>
-            <artifactId>blockhound</artifactId>
-            <version>${blockhound.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

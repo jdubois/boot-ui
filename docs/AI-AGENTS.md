@@ -467,11 +467,13 @@ each with the recognized client and whether any panel captured the work, and, op
 and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
 sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
 the executors it creates from the `thread-activity` sensor, with those a request left running when it ended
-(`leftRunning`) and how many a request starts (`count` / `requests`). Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
+(`leftRunning`) and how many a request starts (`count` / `requests`), and, opt-in, the thread locals a request or a job
+left set on its pooled thread from the `thread-locals` sensor, named by the static field holding them, never their
+values. Ask with `query` `not captured` for the outbound calls no panel shows (an SDK's own socket, say).
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, `blocking`, or `thread-activity`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
+| `get_side_effects` | `bootui side-effects [--query Q] [--limit N]` | Every sensor's coverage, then at most `limit` (20) rows matching `query`: a sensor id such as `processes`, `network`, `files`, `blocking`, `thread-activity`, or `thread-locals`, `not captured`, or part of a route, target, client, or call site, most frequent first; process rows name only the sanitized command name (cut at whitespace or `=`, basename-only, non-safe characters as `?`); network rows a host and port or a looked-up name, the client, and `capture` (`captured` with `capturedBy`, `not-captured`, `infrastructure`), never a byte; file rows a path pattern with its kind, location, and origin, never contents; environment rows a name, never a value; blocking rows the operation (`sleep`, `wait`, `park`, `network`, `file`) and the event loop's thread family, with how long it blocked; each with counts, failures, exits or connections, durations, call site, bean method stamp, and up to three request ids |
 
 Like `get_code_paths`, it is advertised only while the agent is armed for this run. Rows are per run and bounded by
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under

@@ -337,6 +337,7 @@ public final class McpToolDescriptions {
                             + "park, a blocking network or file operation) started on an event loop, and, opt-in, the "
                             + "files it opens, deletes, moves, and copies, the environment variables and system "
                             + "properties it reads, the threads it starts and executors it creates (thread-activity), "
+                            + "the thread locals a request or a job left set on its pooled thread (thread-locals), "
                             + "and request input reaching a sink (security-sinks, request-input-in-sink). "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
@@ -357,10 +358,13 @@ public final class McpToolDescriptions {
                             + "executor's class, how many a request started (count / requests), how many were still "
                             + "running when their request ended (leftRunning), and executors shut down (completed) or "
                             + "reclaimed without a shutdown (failed), library and JDK pools by origin, never what a "
-                            + "thread holds; a security-sinks row the SQL text, command and argument index, file path "
-                            + "pattern, or outbound URL that a request parameter's value reached unchanged, with that "
-                            + "value redacted to {name}, the parameter's name, and a sentence stating the fact (for SQL, "
-                            + "inside or outside a literal), a fact to check in the code."),
+                            + "thread holds; a thread-locals row the static field holding a thread local left set "
+                            + "(kind left set, inheritable, or with initial value), by how many requests, set during the "
+                            + "request with no call site, never its value; a security-sinks row the SQL text, command "
+                            + "and argument index, file path pattern, or outbound URL that a request parameter's value "
+                            + "reached unchanged, with that value redacted to {name}, the parameter's name, and a "
+                            + "sentence stating the fact (for SQL, inside or outside a literal), a fact to check in the "
+                            + "code."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "

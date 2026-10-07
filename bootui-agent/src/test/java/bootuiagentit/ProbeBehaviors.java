@@ -64,6 +64,7 @@ public final class ProbeBehaviors {
                     await((Long) probe.get("id"), ProbeBehaviors::removed);
                 }
             }
+            awaitSlotsFreed();
         }
 
         Map<String, Object> status = AgentBridge.status();
@@ -572,6 +573,18 @@ public final class ProbeBehaviors {
             Thread.sleep(25);
         }
         return last;
+    }
+
+    /**
+     * The bridge marks a probe ended and removed just before it frees the probe's slot, so a probe can read as removed
+     * while its slot is still held for a moment; a slot that stays held is a leak the final status still reports.
+     */
+    static void awaitSlotsFreed() throws Exception {
+        for (int i = 0;
+                i < 600 && !Integer.valueOf(0).equals(MethodProbes.status().get("inUse"));
+                i++) {
+            Thread.sleep(25);
+        }
     }
 
     static boolean removed(Map<String, Object> probe) {

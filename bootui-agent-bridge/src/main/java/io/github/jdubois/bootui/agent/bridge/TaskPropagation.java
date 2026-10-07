@@ -106,7 +106,7 @@ public final class TaskPropagation {
     private static final LongAdder SKIPPED_TASKS = new LongAdder();
     private static final LongAdder SKIPPED_THREADS = new LongAdder();
     private static final LongAdder FAILURES = new LongAdder();
-    private static final ThreadLocal<Active> ACTIVE = new ThreadLocal<>();
+    static final ThreadLocal<Active> ACTIVE = new ThreadLocal<>();
     private static final StackWalker WALKER = StackWalker.getInstance();
     private static final BodyCaller BODY_CALLER = new BodyCaller();
 
@@ -390,7 +390,8 @@ public final class TaskPropagation {
                 // The work's code-paths fragment records the node that submitted it (PLAN-v2 §5.14, design I7).
                 CodePaths.handoff(snapshot.stamp);
                 // The side-effect sensors' owner slot names the submitting request (PLAN-v2 M5-5 design B1).
-                SideEffects.handoff(snapshot.payload, snapshot.generation);
+                // A pool's own worker running it: the thread-locals sensor scans when the task ends (M5-5f).
+                SideEffects.handoff(snapshot.payload, snapshot.generation, ThreadLocals.pooled(hook));
                 if (handle instanceof Runnable) {
                     Active active = new Active(completionTarget, handle, ACTIVE.get());
                     ACTIVE.set(active);

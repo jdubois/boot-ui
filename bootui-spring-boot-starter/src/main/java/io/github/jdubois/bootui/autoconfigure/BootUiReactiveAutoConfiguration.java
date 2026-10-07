@@ -67,6 +67,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveThreadKinds;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveTransactionsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveWebSocketController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveWebSocketMetadataProvider;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactorThreadLocalsScopes;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
@@ -680,6 +681,15 @@ public class BootUiReactiveAutoConfiguration {
         SmartInitializingSingleton bootUiCorrelationThreadLocalAccessorRegistration() {
             BootUiCorrelationThreadLocalAccessor.register();
             return () -> {};
+        }
+
+        /**
+         * The BootUI agent's {@code thread-locals} scopes around Reactor's scheduler tasks, owned through the accessor
+         * above ({@code docs/PLAN-v2.md} §5.16, M5-5f); nothing without the agent.
+         */
+        @Bean(destroyMethod = "close")
+        ReactorThreadLocalsScopes bootUiReactorThreadLocalsScopes() {
+            return ReactorThreadLocalsScopes.register();
         }
     }
 

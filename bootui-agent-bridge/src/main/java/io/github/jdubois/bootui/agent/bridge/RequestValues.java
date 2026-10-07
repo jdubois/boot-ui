@@ -181,7 +181,7 @@ public final class RequestValues {
      * The calling thread's lock token, drawn once: a token only tells threads apart, as a thread overtaken inside an
      * entry cannot take another lock until it resumes, so no counter is shared per acquisition.
      */
-    private static final ThreadLocal<int[]> THREAD_TOKEN = new ThreadLocal<int[]>();
+    static final ThreadLocal<int[]> THREAD_TOKEN = new ThreadLocal<int[]>();
 
     /** Each entry's request id, 0 when free; written only under the entry's lock, read without it to find an entry. */
     private static final AtomicLongArray REQUESTS = new AtomicLongArray(ENTRIES);

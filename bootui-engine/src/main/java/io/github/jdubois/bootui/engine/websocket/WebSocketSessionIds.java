@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.websocket;
 
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -30,7 +31,7 @@ public final class WebSocketSessionIds {
      * threads, and {@code MessageDigest.getInstance} performs a provider lookup that has no place in a hot
      * path BootUI is only observing.
      */
-    private static final ThreadLocal<MessageDigest> DIGEST = ThreadLocal.withInitial(() -> {
+    private static final ThreadLocal<MessageDigest> DIGEST = BootUiThreadLocal.withInitial(() -> {
         try {
             return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException ex) {

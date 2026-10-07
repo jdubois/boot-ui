@@ -43,6 +43,7 @@ const OPT_IN = {
   environment: 'the names read',
   'thread-activity':
     'the threads the application starts and the executors it creates per route, and those a request left running',
+  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values',
   'security-sinks':
     'where request input reaches SQL text, a command, a file path, or an outbound URL unchanged, with bootui.agent.security-sinks.request-values=true'
 }
@@ -113,6 +114,7 @@ const SENSOR_COLUMNS = {
     failedLabel: 'Reclaimed without shutdown',
     time: 'Executor lifetime (total / max ms)'
   },
+  'thread-locals': {target: 'Thread local (holder)', count: 'Times left set', origin: true},
   blocking: {
     target: 'Event loop / operation',
     count: 'Calls',
@@ -130,6 +132,7 @@ const EMPTY_TEXT = {
   environment: 'No environment variable or system property has been read yet in this run.',
   blocking: 'No blocking call has started on an event loop yet in this run.',
   'thread-activity': 'No thread has been started and no executor created yet in this run.',
+  'thread-locals': 'No thread local has been left set by a request or a job yet in this run.',
   'security-sinks': 'No request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
 }
 
@@ -344,11 +347,13 @@ function columnCount(sensor) {
 }
 
 function groupedApart(row) {
+  if (row.sensor === 'thread-locals') return row.origin === 'unknown'
   return row.sensor === 'thread-activity' ? THREADS_APART.has(row.origin) : GROUPED_APART.has(row.origin)
 }
 
 /** What a sensor's rows grouped apart are. */
 function apartLabel(sensor) {
+  if (sensor.id === 'thread-locals') return 'Holders not resolved'
   return sensor.id === 'thread-activity' ? 'Libraries and the JDK' : 'Class path, JDK, and logging'
 }
 
@@ -634,7 +639,9 @@ function hookStatus(value, label) {
                             {{
                               sensor.id === 'thread-activity'
                                 ? "Only libraries' and the JDK's threads and executors so far."
-                                : 'Only class loading, the JDK, and logging so far.'
+                                : sensor.id === 'thread-locals'
+                                  ? 'Only thread locals whose holder was not resolved so far.'
+                                  : 'Only class loading, the JDK, and logging so far.'
                             }}
                           </td>
                         </tr>
@@ -686,6 +693,9 @@ function hookStatus(value, label) {
                           </template>
                           <td>
                             <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
+                            <span v-else-if="row.sensor === 'thread-locals'" class="text-muted side-effects-set-during"
+                              >set during the request</span
+                            >
                             <span v-else class="text-muted">—</span>
                             <div v-if="row.insideMethod" class="small text-muted bootui-break-anywhere">
                               inside {{ row.insideMethod }}

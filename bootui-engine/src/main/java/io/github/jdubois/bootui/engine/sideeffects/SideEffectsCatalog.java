@@ -14,6 +14,7 @@ public final class SideEffectsCatalog {
     public static final String FILES_ID = "files";
     public static final String ENVIRONMENT_ID = "environment";
     public static final String THREAD_ACTIVITY_ID = "thread-activity";
+    public static final String THREAD_LOCALS_ID = "thread-locals";
 
     /** The bridge's sensor ids in records. */
     static final int RECORD_PROCESSES = 1;
@@ -29,6 +30,9 @@ public final class SideEffectsCatalog {
 
     /** The bridge's sensor id of {@code thread-activity} in records ({@code ThreadActivity}, M5-5e). */
     static final int RECORD_THREADS = 6;
+
+    /** The bridge's sensor id of {@code thread-locals} in records ({@code ThreadLocals}, M5-5f). */
+    static final int RECORD_THREAD_LOCALS = 7;
 
     /** The bridge's sensor id of {@code security-sinks} in records (M5-6b). */
     static final int RECORD_SECURITY_SINKS = 8;
@@ -92,6 +96,13 @@ public final class SideEffectsCatalog {
     static final int KIND_EXECUTOR_SHUTDOWN = 24;
     static final int KIND_EXECUTOR_LEFT_RUNNING = 25;
     static final int KIND_EXECUTOR_RECLAIMED = 26;
+    static final int KIND_THREAD_LOCAL_LEFT_SET = 27;
+
+    /** A thread-locals record's detail ({@code ThreadLocals.DETAIL_*}), and its registry id's place. */
+    static final int DETAIL_INHERITABLE = 1;
+
+    static final int DETAIL_SUPPLIED = 2;
+    static final int DETAIL_SUBCLASS = 4;
 
     /** A thread-activity record's detail ({@code ThreadActivity}): its origin, bits 0–1, of 1, 2, or 3. */
     static final int DETAIL_ORIGIN = 3;
@@ -162,6 +173,12 @@ public final class SideEffectsCatalog {
     public static final String VIRTUAL_THREAD = "virtual thread";
     public static final String EXECUTOR = "executor";
 
+    /** What a thread-locals row did: left a thread local set; with what kind of thread local. */
+    public static final String LEFT_SET = "left set";
+
+    public static final String LEFT_SET_INHERITABLE = "left set (inheritable)";
+    public static final String LEFT_SET_INITIAL_VALUE = "left set (with initial value)";
+
     public static final String NETWORK = "Network";
     public static final String FILES_AND_PROCESSES = "Files and processes";
     public static final String ENVIRONMENT = "Environment";
@@ -204,7 +221,12 @@ public final class SideEffectsCatalog {
                     "Threads and executors started per route",
                     true,
                     RECORD_THREADS),
-            new Sensor("thread-locals", THREADS_AND_LEAKS, "Thread locals left set after a request", false, 0),
+            new Sensor(
+                    THREAD_LOCALS_ID,
+                    THREADS_AND_LEAKS,
+                    "Thread locals left set after a request",
+                    true,
+                    RECORD_THREAD_LOCALS),
             new Sensor("resources", THREADS_AND_LEAKS, "Streams and sockets left open", false, 0),
             new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", true, RECORD_BLOCKING),
             new Sensor(
@@ -257,6 +279,9 @@ public final class SideEffectsCatalog {
                 case KIND_LOOKUP -> LOOKUP;
                 default -> "operation";
             };
+        }
+        if (recordId == RECORD_THREAD_LOCALS) {
+            return LEFT_SET;
         }
         if (recordId == RECORD_THREADS) {
             return switch (kind) {

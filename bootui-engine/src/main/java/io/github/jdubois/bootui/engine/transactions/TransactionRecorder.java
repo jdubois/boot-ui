@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
@@ -79,7 +80,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private final Map<Long, ActiveTransaction> active = new ConcurrentHashMap<>();
-    private final ThreadLocal<Deque<Long>> threadStack = ThreadLocal.withInitial(ArrayDeque::new);
+    private final ThreadLocal<Deque<Long>> threadStack = BootUiThreadLocal.withInitial(ArrayDeque::new);
     private final CorrelationSource correlation = new CorrelationSource();
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 

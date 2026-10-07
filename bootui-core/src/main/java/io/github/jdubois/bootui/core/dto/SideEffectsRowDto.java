@@ -17,23 +17,28 @@ import java.util.List;
  *     files {@code read}, {@code write}, {@code delete}, {@code move from}, {@code move to}, {@code copy from}, or
  *     {@code copy to}; for environment {@code environment variable} or {@code system property}; for blocking
  *     {@code sleep}, {@code wait}, {@code park}, {@code network}, or {@code file}; for thread activity {@code thread},
- *     {@code virtual thread}, or {@code executor}
+ *     {@code virtual thread}, or {@code executor}; for thread locals {@code left set}, {@code left set (inheritable)},
+ *     or {@code left set (with initial value)}
  * @param target the normalized target: a command's file name, a {@code host:port}, a {@code unix:} path, or a
  *     looked-up host name, a file's path pattern ({@code ./reports/report-{n}.csv}, {@code $TMPDIR/…}, {@code ~/…}), a
  *     variable's or property's name, for blocking the event loop's thread family ({@code reactor-http-nio-{n}}), or for
- *     thread activity the started thread's family ({@code report-refresher-{n}}) or the executor's class
+ *     thread activity the started thread's family ({@code report-refresher-{n}}) or the executor's class, or for thread
+ *     locals the static field holding the thread local ({@code com.example.TenantContext.CURRENT}), else a hint or its
+ *     class ({@code holder not resolved (java.lang.ThreadLocal)}), never its value
  * @param callSite the first application frame, else the first frame outside the JDK, as {@code Class#method}, or
- *     {@code null} when unknown
+ *     {@code null} when unknown, as always for thread locals, set during the request
  * @param insideMethod the innermost application bean method open when it happened, from Code Paths, or {@code null}
  * @param origin for files and environment, who did it: {@code application}, {@code library} (no application frame),
  *     {@code class-path}, {@code jdk}, {@code logging}, or {@code unknown}; the last three are grouped apart; for thread
  *     activity, who started or created it: {@code application} (the first frame outside the JDK is the application's),
- *     {@code library}, or {@code jdk}; {@code null} otherwise
+ *     {@code library}, or {@code jdk}; for thread locals, where its holder is: {@code application}, {@code library}, or
+ *     {@code unknown} when not resolved; {@code null} otherwise
  * @param location for files, where the file is: {@code working-directory}, {@code temporary-directory}, {@code home},
  *     {@code system}, {@code java-home}, or {@code elsewhere}; {@code null} otherwise
  * @param count how many times it happened: for processes, how many starts were attempted; for network, connects
  *     attempted, datagrams sent, or names the JVM resolved; for files, operations; for environment, first reads per
- *     request and thread; for thread activity, threads started or executors created
+ *     request and thread; for thread activity, threads started or executors created; for thread locals, the scopes that
+ *     left it set
  * @param failed how many of them failed: for processes, starts that threw; for network, connects refused or failed,
  *     sends that threw, or names not resolved; for files, operations that threw; for blocking, calls interrupted or
  *     that threw; for thread activity, executors reclaimed by the collector without a shutdown
@@ -58,7 +63,7 @@ import java.util.List;
  * @param leftRunning for thread activity, the threads or executors the application's code started or created for a
  *     request and still running when it ended, its response complete; 0 otherwise
  * @param requests for thread activity, how many distinct requests started or created them, so {@code count / requests}
- *     is how many a request does; 0 otherwise
+ *     is how many a request does; for thread locals, how many distinct requests left it set; 0 otherwise
  * @param parameter for security sinks, the name of the request parameter whose value reached the sink, as
  *     {@code @RequestParam}, a path variable, or the query names it, or {@code param#} and four hexadecimal digits when
  *     its name is not safe to show; never its value; {@code null} for other sensors

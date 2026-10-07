@@ -41,9 +41,13 @@ class OrmObservationsTests {
         OrmSessionEvents.Publisher publisher = new OrmSessionEvents.Publisher();
         publisher.setRuntimeEventSink(journal);
         CorrelationContext request = CorrelationContext.forRequest("r-meter");
+        long window;
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
             OrmSessionEvents.Session session = OrmSessionEvents.open();
             assertThat(session).isNotNull();
+            // Own flush time and statement time are disjoint parts of this window, so they must fit inside it
+            // whatever the scheduler does; flush time that counted the statement would overshoot it.
+            long windowStart = System.nanoTime();
             // An auto-flush check before a query that finds nothing to write.
             session.partialFlushStart();
             session.partialFlushEnd(0);
@@ -52,9 +56,10 @@ class OrmObservationsTests {
             // One that writes a pending insert before the next query.
             session.partialFlushStart();
             session.statementStart();
-            Thread.sleep(2);
+            Thread.sleep(20);
             session.statementEnd();
             session.partialFlushEnd(4);
+            window = System.nanoTime() - windowStart;
             session.flushStart();
             session.flushEnd(4);
             session.end("orders");
@@ -75,9 +80,9 @@ class OrmObservationsTests {
         assertThat(orm.partialFlushes()).as("only the auto-flush that wrote").isEqualTo(1);
         assertThat(orm.flushes()).isEqualTo(1);
         assertThat(orm.entitiesInContext()).isEqualTo(4);
-        assertThat(orm.partialFlushNanos())
+        assertThat(orm.partialFlushNanos() + orm.statementNanos())
                 .as("flush time leaves out the statement it executed")
-                .isLessThan(orm.statementNanos());
+                .isLessThanOrEqualTo(window);
         assertThat(orm.flushTimeline())
                 .as("the auto-flush that wrote and the full flush, never the check that found nothing")
                 .extracting(OrmPayload.Flush::auto, OrmPayload.Flush::entities)

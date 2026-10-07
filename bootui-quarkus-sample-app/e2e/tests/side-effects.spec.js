@@ -272,10 +272,18 @@ test.describe('Side Effects view (Quarkus)', () => {
     expect(row.maxMillis).toBeGreaterThanOrEqual(40)
     expect(report.rows.some((candidate) => candidate.attribution === 'GET /api/side-effects/worker-sleep')).toBe(false)
 
-    // An idle Vert.x event loop waits in epoll, never in LockSupport.park: traffic and a short idle add no park row.
+    // An idle Vert.x event loop waits in epoll, never in LockSupport.park: a short idle adds no park. Rows accumulate
+    // over the whole run, and earlier traffic can record real parks, as a contended ArC LazyValue or executor lock, so
+    // only a park seen during the idle window counts; lastSeen is when the park happened, not when it was flushed.
+    const idleStart = Date.now() + 100
     await page.waitForTimeout(2_000)
     const idle = await (await page.request.get('/bootui/api/side-effects/sensor?sensor=blocking')).json()
-    expect(idle.rows.filter((candidate) => candidate.kind === 'park' && /eventloop/.test(candidate.target))).toEqual([])
+    expect(
+      idle.rows.filter(
+        (candidate) =>
+          candidate.kind === 'park' && /eventloop/.test(candidate.target) && candidate.lastSeen >= idleStart
+      )
+    ).toEqual([])
 
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Blocking/}).click()
@@ -332,5 +340,53 @@ test.describe('Side Effects view (Quarkus)', () => {
     const row = page.locator('.side-effects-table tbody tr').filter({hasText: 'report-refresher-{n}'})
     await expect(row.first()).toContainText('BackgroundWork#startRefresher')
     await expect(row.first().locator('.side-effects-left-running')).toBeVisible()
+  })
+
+  test('shows the thread local a request left set, never one cleared in finally, set to null, or set before', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the thread-locals sensor needs the BootUI agent')
+    // The thread-locals seeds (M5-5f): a tenant on its pooled Quarkus worker left set; counterexamples cleared in finally, set to
+    // null, and set by a filter before BootUI's scope; and a withInitial date format, reported with its initial value flagged.
+    for (let round = 0; round < 3; round++) {
+      for (const path of ['leak', 'cleared', 'nulled', 'cache', 'before']) {
+        const response = await page.request.get(`/api/thread-locals/${path}`)
+        expect(response.ok()).toBeTruthy()
+        test.skip((await response.json()).virtual === true, 'virtual threads are not pooled: never scanned')
+      }
+    }
+    const read = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=thread-locals&limit=500')).json()).rows ??
+      []
+    const holder = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.CURRENT'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
+            ?.count ?? 0,
+        {timeout: 30_000}
+      )
+      .toBeGreaterThan(0)
+    const rows = await read()
+    const leak = rows.find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
+    expect(leak.kind).toBe('left set')
+    expect(leak.origin).toBe('application')
+    expect(leak.callSite).toBeNull()
+    expect(leak.requests).toBeGreaterThan(0)
+    for (const path of ['cleared', 'nulled', 'before']) {
+      expect(rows.filter((row) => row.attribution === `GET /api/thread-locals/${path}`)).toEqual([])
+    }
+    const cache = rows.find((row) => row.target === 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT')
+    if (cache) expect(cache.kind).toBe('left set (with initial value)')
+    expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
+    expect(JSON.stringify(rows)).not.toContain('tenant-secret')
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Threads and leaks/}).click()
+    await expect(
+      page.locator('.side-effects-table tbody tr').filter({hasText: 'TenantContext.CURRENT'}).first()
+    ).toContainText('set during the request')
   })
 })

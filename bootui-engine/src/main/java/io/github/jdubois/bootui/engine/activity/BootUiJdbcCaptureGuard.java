@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.activity;
 
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import java.util.concurrent.Callable;
 
 /**
@@ -21,7 +22,7 @@ import java.util.concurrent.Callable;
  */
 public final class BootUiJdbcCaptureGuard {
 
-    private static final ThreadLocal<Boolean> SUPPRESSED = ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private static final ThreadLocal<Boolean> SUPPRESSED = BootUiThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private BootUiJdbcCaptureGuard() {}
 
