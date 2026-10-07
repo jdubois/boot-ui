@@ -82,6 +82,10 @@ class LiveActivityAssemblerTests {
         assertThat(sqlEntry.parentId()).isEqualTo("req-1");
         assertThat(sqlEntry.correlationId()).isEqualTo("trace-a");
         assertThat(exceptionEntry.parentId()).isEqualTo("req-1");
+        assertThat(exceptionEntry.exceptionGroupId())
+                .as("the group id get_exception_detail takes, unlike the entry's own id")
+                .isEqualTo("g-1");
+        assertThat(request.exceptionGroupId()).isNull();
         assertThat(exceptionEntry.correlationId()).isEqualTo("trace-a");
     }
 

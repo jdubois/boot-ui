@@ -699,7 +699,8 @@ public final class LiveActivityAssembler {
                 entry.parentId(),
                 entry.securedPrincipal(),
                 entry.sqlNPlusOneSuspected(),
-                entry.badges());
+                entry.badges(),
+                entry.exceptionGroupId());
     }
 
     private static void putExecution(Map<String, String> byExecutionId, String executionId, String entryId) {
@@ -876,7 +877,9 @@ public final class LiveActivityAssembler {
                 false,
                 parentId,
                 null,
-                false);
+                false,
+                List.of(),
+                group.id());
     }
 
     /**

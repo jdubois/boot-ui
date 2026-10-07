@@ -67,6 +67,10 @@ class JournalActivityFeedTests {
         assertThat(byType.get("EXCEPTION").summary()).isEqualTo("java.lang.IllegalState");
         assertThat(byType.get("EXCEPTION").method()).isEqualTo("GET");
         assertThat(byType.get("EXCEPTION").path()).isEqualTo("/api/orders/42");
+        assertThat(byType.get("EXCEPTION").exceptionGroupId())
+                .as("the group id get_exception_detail takes, unlike the entry's own id")
+                .isEqualTo("g1");
+        assertThat(request.exceptionGroupId()).isNull();
         assertThat(rendered.entries())
                 .filteredOn(entry -> entry.summary().equals("select count(*) from audit"))
                 .singleElement()
