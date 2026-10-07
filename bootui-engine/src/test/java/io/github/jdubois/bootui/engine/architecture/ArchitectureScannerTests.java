@@ -9,6 +9,9 @@ import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
+import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
+import io.github.jdubois.bootui.engine.progress.OperationProgress;
+import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.time.Instant;
@@ -32,6 +35,67 @@ class ArchitectureScannerTests {
     private ArchitectureScanner scanner(List<String> basePackages) {
         return new ArchitectureScanner(
                 () -> basePackages, new ClassFileArchitectureImporter(), ArchitecturePlatform.SPRING, CLOCK);
+    }
+
+    @Test
+    void aBoundProgressReceivesEveryPhaseInOrderWithAStableTotal() {
+        List<ProgressEvent> events = new java.util.ArrayList<>();
+        ArchitectureScanner scanner = scanner(List.of(FIXTURES));
+
+        ArchitectureReport report = OperationProgress.runWith(new OperationProgress(events::add), scanner::scan);
+
+        int rules = report.rulesEvaluated();
+        assertThat(rules).isPositive();
+        double total = rules + 3;
+        assertThat(events).hasSize(rules + 4);
+        assertThat(events.get(0)).isEqualTo(new ProgressEvent(0, total, "Importing application classes"));
+        assertThat(events.get(1)).isEqualTo(new ProgressEvent(1, total, "Checking generated code"));
+        assertThat(events.get(2)).isEqualTo(new ProgressEvent(2, total, "Evaluating architecture rules"));
+        assertThat(events.get(events.size() - 1)).isEqualTo(new ProgressEvent(total, total, "Locating violations"));
+        for (int i = 1; i < events.size(); i++) {
+            assertThat(events.get(i).progress()).isGreaterThan(events.get(i - 1).progress());
+            assertThat(events.get(i).total()).isEqualTo(total);
+        }
+        assertThat(OperationProgress.current())
+                .as("the binding ends with the scan")
+                .isSameAs(OperationProgress.NONE);
+    }
+
+    @Test
+    void cancellingBetweenRulesStopsTheScanAndKeepsThePreviousReport() {
+        ArchitectureScanner scanner = scanner(List.of(FIXTURES));
+        AtomicInteger reports = new AtomicInteger();
+        OperationProgress[] progress = new OperationProgress[1];
+        progress[0] = new OperationProgress(event -> {
+            if (event.progress() == 3) {
+                progress[0].cancel();
+            }
+            reports.incrementAndGet();
+        });
+
+        assertThatThrownBy(() -> OperationProgress.runWith(progress[0], scanner::scan))
+                .isInstanceOf(OperationCancelledException.class);
+
+        assertThat(reports).as("nothing is reported once cancelled").hasValue(4);
+        assertThat(scanner.lastReport().scan().status()).isEqualTo("NOT_SCANNED");
+        assertThat(scanner.scan().scan().status())
+                .as("the single-flight claim is released")
+                .isEqualTo("SCANNED");
+    }
+
+    @Test
+    void anInterruptedCallerStopsTheScanWithoutAProgressBinding() {
+        ArchitectureScanner scanner = scanner(List.of(FIXTURES));
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(scanner::scan).isInstanceOf(OperationCancelledException.class);
+            assertThat(Thread.currentThread().isInterrupted())
+                    .as("the interrupt flag is kept")
+                    .isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+        assertThat(scanner.scan().scan().status()).isEqualTo("SCANNED");
     }
 
     @Test

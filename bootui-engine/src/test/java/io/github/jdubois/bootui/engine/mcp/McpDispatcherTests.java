@@ -629,6 +629,19 @@ class McpDispatcherTests {
     }
 
     @Test
+    void aCancelledToolIsNotReportedAsAServerFault() {
+        McpTool cancelled = new McpTool("cancelled", "Cancelled.", McpToolSchema.NONE, "overview", false, args -> {
+            throw new io.github.jdubois.bootui.engine.progress.OperationCancelledException();
+        });
+        McpDispatcher dispatcher =
+                new McpDispatcher(List.of(cancelled), List.of(), policy, "1.0", "x", 50, 20, diagnostics);
+
+        assertThat(dispatcher.dispatch(call("cancelled")))
+                .isEqualTo(new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE));
+        assertThat(diagnostics.count()).isZero();
+    }
+
+    @Test
     void panelPolicyRuntimeExceptionBecomesDetailFreeInternalErrorAndIsReportedOnce() {
         IllegalStateException failure = new IllegalStateException("token=ghp_sensitive_policy_token");
         policy.failure = failure;

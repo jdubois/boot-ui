@@ -227,4 +227,12 @@ class McpToolCatalogTests {
                         new McpToolCatalog.Entry("bogus_tool", McpToolSchema.NONE, BootUiPanels.BEANS, false, Set.of()))
                 .withMessageContaining("at least one stack");
     }
+
+    @Test
+    void onlyToolsWithMeasuredPhasesReportProgress() {
+        assertThat(McpToolCatalog.reportsProgress("architecture_scan")).isTrue();
+        assertThat(McpToolCatalog.reportsProgress("get_overview")).isFalse();
+        assertThat(McpToolCatalog.reportsProgress("unknown_tool")).isFalse();
+        assertThat(McpToolCatalog.names()).contains("architecture_scan");
+    }
 }

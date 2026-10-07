@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -410,6 +411,11 @@ public final class McpDispatcher {
             throw new IllegalStateException("Interrupted while invoking MCP tool", ex);
         } catch (ExecutionException ex) {
             Throwable cause = ex.getCause();
+            if (cause instanceof OperationCancelledException) {
+                // The tool stopped at a cancellation checkpoint because its thread was interrupted: an expected
+                // outcome, not a server fault, so it is never reported as one.
+                return new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
+            }
             if (cause instanceof ActionBusyException busy) {
                 return new ToolCallError(busy.result().message(), McpDispatchOutcome.ToolErrorReason.ACTION_BUSY);
             }
