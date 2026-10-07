@@ -19,7 +19,9 @@ import InsightText from './InsightText.vue'
 // check() directly.
 const props = defineProps({
   initialSymbol: {type: String, default: ''},
-  changed: {type: /** @type {import('vue').PropType<{symbol: string, name: string}[]>} */ (Array), default: () => []}
+  changed: {type: /** @type {import('vue').PropType<{symbol: string, name: string}[]>} */ (Array), default: () => []},
+  // Every method changed or added since the previous run, including those not offered or not listed by the comparison.
+  changedTotal: {type: Number, default: 0}
 })
 
 const CHANGED_SHOWN = 6
@@ -157,7 +159,9 @@ function showList(id) {
 defineExpose({check})
 
 const changedShown = computed(() => props.changed.slice(0, CHANGED_SHOWN))
-const changedMore = computed(() => Math.max(0, props.changed.length - CHANGED_SHOWN))
+const changedMore = computed(() =>
+  Math.max(0, Math.max(props.changedTotal, props.changed.length) - changedShown.value.length)
+)
 const idle = computed(() => !impact.value && !error.value && !loading.value)
 
 const lists = computed(() => impactLists(impact.value))

@@ -72,10 +72,13 @@ const comparisonReady = ref(false)
 const comparisonText = computed(() => comparisonSummary(comparison.value))
 // Whether there is a previous run to show the changes of, rather than only a reason there is none.
 const compared = computed(() => ['COMPARED', 'INSUFFICIENT'].includes(comparison.value?.status))
-// The methods the comparison found changed or added, offered as the first things to check in Change impact.
+// The methods the comparison found changed or added that change impact can check, offered as the first things to check
+// there; the total counts every changed or added method, including those the comparison did not list.
+const code = computed(() => codeChanges(comparison.value))
 const changedMethods = computed(() =>
-  (codeChanges(comparison.value)?.rows ?? []).map((row) => ({symbol: row.key, name: row.name}))
+  (code.value?.rows ?? []).filter((row) => row.checkable).map((row) => ({symbol: row.key, name: row.name}))
 )
+const changedTotal = computed(() => (code.value?.rows?.length ?? 0) + (code.value?.more ?? 0))
 
 function onComparisonLoaded(value) {
   comparison.value = value
@@ -570,7 +573,12 @@ provide(
           role="tabpanel"
           aria-labelledby="insights-tab-impact"
         >
-          <ChangeImpact ref="impactTool" :initial-symbol="initialImpact" :changed="changedMethods" />
+          <ChangeImpact
+            ref="impactTool"
+            :initial-symbol="initialImpact"
+            :changed="changedMethods"
+            :changed-total="changedTotal"
+          />
         </div>
 
         <div

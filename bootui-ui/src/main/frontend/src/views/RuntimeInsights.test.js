@@ -732,7 +732,7 @@ describe('Runtime Insights panel', () => {
       codeChanges: {
         available: true,
         unavailableReason: null,
-        counts: {changed: 1, added: 0, removed: 0, executed: 1, notExecuted: 0},
+        counts: {changed: 4, added: 0, removed: 0, executed: 4, notExecuted: 0},
         methods: [
           {
             key: 'com.example.OrderService#total(J)J',
@@ -745,9 +745,21 @@ describe('Runtime Insights panel', () => {
             routes: ['GET /api/orders'],
             routesTotal: 1,
             routesNote: null
+          },
+          {
+            key: 'com.example.OrderService#<init>()V',
+            className: 'com.example.OrderService',
+            name: '<init>',
+            descriptor: '()V',
+            change: 'CHANGED',
+            status: 'EXECUTED',
+            notTrackedReason: null,
+            routes: [],
+            routesTotal: 0,
+            routesNote: null
           }
         ],
-        methodsTotal: 1,
+        methodsTotal: 4,
         limitations: []
       }
     }
@@ -764,10 +776,10 @@ describe('Runtime Insights panel', () => {
     })
     await flushPromises()
 
-    // Before any check, Change impact offers the changed method too.
-    expect(wrapper.get('#insights-panel-impact').find('[data-testid="impact-changed"]').text()).toContain(
-      'OrderService#total'
-    )
+    // Before any check, Change impact offers the changed method too, counting the methods the comparison did not list.
+    const picks = wrapper.get('#insights-panel-impact').get('[data-testid="impact-changed"]')
+    expect(picks.findAll('button').map((button) => button.text())).toEqual(['OrderService#total'])
+    expect(picks.text()).toContain('and 3 more in Changes')
 
     await wrapper.get('#insights-tab-changes').trigger('click')
     await wrapper.get('.insight-comparison-impact').trigger('click')

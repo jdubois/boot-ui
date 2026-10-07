@@ -137,11 +137,13 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
                 <span v-if="row.notTrackedReason" class="d-block small text-muted">{{ row.notTrackedReason }}</span>
               </span>
               <button
+                v-if="row.checkable"
                 type="button"
                 class="btn btn-link btn-sm p-0 insight-comparison-impact"
+                :aria-label="`See its impact: ${row.name}`"
                 @click="emit('impact', {symbol: row.key, name: row.name})"
               >
-                See its impact<span class="visually-hidden">: {{ row.name }}</span>
+                See its impact
               </button>
             </li>
           </ul>
