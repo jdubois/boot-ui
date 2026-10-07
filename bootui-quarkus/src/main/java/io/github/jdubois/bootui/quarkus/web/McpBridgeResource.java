@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.quarkus.mcp.BootUiMcpProducer;
 import io.github.jdubois.bootui.quarkus.mcp.McpServerState;
 import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpEnvelope;
 import io.smallrye.common.annotation.Blocking;
+import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -66,7 +67,7 @@ public class McpBridgeResource {
     @Blocking
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public Response rpc(InputStream requestBody, @Context HttpHeaders headers) {
+    public Response rpc(InputStream requestBody, @Context HttpHeaders headers, @Context RoutingContext routing) {
         byte[] payload;
         try {
             payload = McpPayloadReader.read(requestBody, maxPayloadBytes);
@@ -87,7 +88,7 @@ public class McpBridgeResource {
                 state.isEnabled(),
                 McpProtocol.acceptsEventStream(headers.getRequestHeader(McpProtocol.ACCEPT_HEADER)));
         if (reply.stream() != null) {
-            return Response.ok(events(reply.stream()))
+            return Response.ok(events(reply.stream(), routing))
                     .type(McpProtocol.EVENT_STREAM_MEDIA_TYPE)
                     .header(McpProtocol.ACCEL_BUFFERING_HEADER, "no")
                     .build();
@@ -100,11 +101,13 @@ public class McpBridgeResource {
 
     /**
      * The request-scoped event stream, written while this worker thread waits: the call's writer thread is the only
-     * one that writes, and a failed write (the client went away) cancels the call, which MCP 2026-07-28 requires. The
-     * frames are the same bytes the Spring transports write.
+     * one that writes. The client going away cancels the call, which MCP 2026-07-28 requires: Vert.x reports the
+     * closed connection through the routing context's end handler, and a write to a closed response, which Quarkus REST
+     * drops silently, fails instead. The frames are the same bytes the Spring transports write.
      */
-    private StreamingOutput events(QuarkusMcpEnvelope.Stream stream) {
+    private StreamingOutput events(QuarkusMcpEnvelope.Stream stream, RoutingContext routing) {
         McpStreamingCall call = stream.call();
+        routing.addEndHandler(ended -> call.cancel());
         return output -> {
             CountDownLatch closed = new CountDownLatch(1);
             try {
@@ -112,6 +115,7 @@ public class McpBridgeResource {
                     @Override
                     public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
                         write(
+                                routing,
                                 output,
                                 McpProtocol.SSE_DATA_PREFIX
                                         + envelope.renderProgress(token, event)
@@ -120,12 +124,13 @@ public class McpBridgeResource {
 
                     @Override
                     public void heartbeat() throws IOException {
-                        write(output, McpProtocol.SSE_HEARTBEAT);
+                        write(routing, output, McpProtocol.SSE_HEARTBEAT);
                     }
 
                     @Override
                     public void complete(McpDispatchOutcome outcome) throws IOException {
                         write(
+                                routing,
                                 output,
                                 McpProtocol.SSE_DATA_PREFIX
                                         + envelope.renderFinal(stream.id(), outcome)
@@ -150,7 +155,10 @@ public class McpBridgeResource {
         };
     }
 
-    private static void write(OutputStream output, String frame) throws IOException {
+    private static void write(RoutingContext routing, OutputStream output, String frame) throws IOException {
+        if (routing.response().closed()) {
+            throw new IOException("The client closed the MCP event stream");
+        }
         output.write(frame.getBytes(StandardCharsets.UTF_8));
         output.flush();
     }
