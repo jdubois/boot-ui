@@ -35,10 +35,13 @@ class ThreadActivityBehaviorsIT {
             "a lazy Spring singleton bean's executor created on first use inside a request is a singleton's",
             "a Spring prototype bean's executor created for a request and never shut down is still left running",
             "an ArC singleton bean's executor created on first use inside a request is a singleton's",
+            "an ArC @ApplicationScoped bean's executor created through its client proxy on first use inside a request is a"
+                    + " singleton's",
             "starts no request owns are counted under the starting thread's family",
             "the sensor never keeps an executor",
             "BootUI's own threads and executors are never recorded",
-            "switching another side-effect sensor at run time keeps what thread-activity waits to check");
+            "switching another side-effect sensor at run time keeps what thread-activity waits to check, and"
+                    + " thread-activity reads installed and passed throughout");
 
     /**
      * Spring's bean factory and ArC, from this test's class path, for the lazy singleton counterexamples: the child's

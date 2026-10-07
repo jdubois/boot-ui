@@ -588,4 +588,21 @@ class SideEffectsTests {
             ThreadActivity.reset();
         }
     }
+
+    @Test
+    void onlyAThreadNameThatIsItsOwnFamilyIsRemembered() {
+        claim(List.of(SideEffects.THREAD_ACTIVITY));
+        ThreadActivity.State state = new ThreadActivity.State(1L);
+
+        int first = ThreadActivity.nameTarget(state, "Thread-7");
+        int second = ThreadActivity.nameTarget(state, "Thread-8");
+        int named = ThreadActivity.nameTarget(state, "report-refresher");
+
+        assertThat(first).as("one family, one target").isEqualTo(second).isNotZero();
+        assertThat(named).isNotZero().isNotEqualTo(first);
+        assertThat(state.names)
+                .as("a name carrying an id is unique: never remembered")
+                .containsOnlyKeys("report-refresher");
+        assertThat(ThreadActivity.nameTarget(state, "report-refresher")).isEqualTo(named);
+    }
 }
