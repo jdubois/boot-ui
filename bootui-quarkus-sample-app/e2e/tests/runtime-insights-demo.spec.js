@@ -16,13 +16,14 @@ test.describe('Runtime Insights demo', () => {
     })
 
     await openView('runtime-insights', 'Runtime Insights')
+    // Each row names its check above its route or subject.
+    const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
     for (const [title, subject] of [
       ['Writes in GET requests', '/api/insights/orders/{id}'],
       ['Blocking on event loops', '/api/insights/orders/on-event-loop'],
       ['Anonymous success on a restricted route', '/api/insights/reports/{name}']
     ]) {
-      await expect(page.getByRole('heading', {name: title, level: 2, exact: true})).toBeVisible({timeout: 15_000})
-      await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()
+      await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
     }
 
     // The archive's CDI observer is recorded with its request, bound at build time (docs/PLAN-v2.md M4-8).
@@ -41,8 +42,7 @@ test.describe('Runtime Insights demo', () => {
       ['Repeated SELECTs', '/api/insights/orders'],
       ['Anonymous writes', '/api/insights/debug/reset-totals']
     ]) {
-      await expect(page.getByRole('heading', {name: title, level: 2, exact: true})).toBeVisible()
-      await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()
+      await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible()
     }
     await page.locator('.insight-item', {hasText: 'GET /api/secure/products'}).first().click()
     const detail = page.locator('.insight-detail')

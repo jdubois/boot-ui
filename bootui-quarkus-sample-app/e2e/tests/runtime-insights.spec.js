@@ -17,15 +17,16 @@ test.describe('Runtime Insights view', () => {
     await openView('runtime-insights?all=1', 'Runtime Insights')
 
     await expect(page.getByText('What this run did that no single panel shows.')).toBeVisible()
-    await expect(page.locator('.insight-window')).toContainText('This run')
-    await expect(page.locator('.insight-coverage-legend')).toContainText('request id')
+    await expect(page.locator('#insight-verdict-title')).toContainText('across')
 
     await expect(page.locator('.insight-show-all')).toHaveAttribute('aria-pressed', 'true')
-    const breakdowns = page.getByRole('heading', {name: 'Route time breakdown', level: 2})
-    await expect(breakdowns).toBeVisible({timeout: 15_000})
-    const item = page.locator('.insight-item', {hasText: '/api/sample/product-search'}).first()
+    const item = page
+      .locator('.insight-item', {hasText: 'Route time breakdown'})
+      .filter({hasText: '/api/sample/product-search'})
+      .first()
+    await expect(item).toBeVisible({timeout: 15_000})
     await item.click()
-    await expect(item).toHaveAttribute('aria-current', 'true')
+    await expect(item).toHaveAttribute('aria-expanded', 'true')
 
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')
@@ -34,6 +35,11 @@ test.describe('Runtime Insights view', () => {
 
     await expect(page.getByRole('button', {name: 'Export JSON'})).toBeVisible()
 
+    await page.getByRole('tab', {name: /^Coverage & limits/}).click()
+    await expect(page.locator('.insight-window')).toContainText('This run')
+    await expect(page.locator('.insight-coverage-legend')).toContainText('request id')
+
+    await page.getByRole('tab', {name: /^Changes/}).click()
     const comparison = page.locator('.insight-comparison')
     await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
@@ -53,12 +59,14 @@ test.describe('Runtime Insights view', () => {
     await expect(impact.locator('.insight-impact-node')).toContainText('GET /api/sample/product-search')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/product-search')
 
+    await page.getByRole('tab', {name: /^Findings/}).click()
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
   })
 
   test('profiles resources only when asked, and splits the samples by route', async ({openView, page}) => {
     await openView('runtime-insights', 'Runtime Insights')
+    await page.getByRole('tab', {name: /^Profile/}).click()
 
     const profile = page.locator('.insight-profile')
     const start = profile.getByRole('button', {name: /Profile (resources|again)/})
