@@ -199,7 +199,13 @@ class SideEffectsServiceTests {
                         "security-sinks");
         assertThat(report.sensors())
                 .filteredOn(sensor -> !List.of(
-                                "processes", "network", "files", "environment", "blocking", "thread-activity")
+                                "processes",
+                                "network",
+                                "files",
+                                "environment",
+                                "blocking",
+                                "thread-activity",
+                                "thread-locals")
                         .contains(sensor.id()))
                 .allSatisfy(sensor -> {
                     assertThat(sensor.state()).isEqualTo(SideEffectsSensorDto.NOT_AVAILABLE);
@@ -304,10 +310,10 @@ class SideEffectsServiceTests {
                 .hasMessageContaining("processes")
                 .hasMessageContaining("not available in this version");
         AgentSensorSettings planned =
-                new AgentSensorSettings(List.of("executors", "resources", "thread-locals"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("resources", "thread-locals");
+                new AgentSensorSettings(List.of("executors", "resources", "security-sinks"), null, null, null);
+        assertThat(planned.notAvailable()).containsExactly("resources", "security-sinks");
         assertThat(planned.notAvailableWarning())
-                .contains("resources, thread-locals")
+                .contains("resources, security-sinks")
                 .contains("not available");
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)

@@ -201,7 +201,7 @@ public final class CaughtExceptions {
      * A thread's counts: {@code [generation, request, execution, kind, threadKind, threadName, then per site: site,
      * published, untracked]}, a JDK type, so the thread-local pins no class loader.
      */
-    private static final ThreadLocal<long[]> COUNTS = new ThreadLocal<long[]>();
+    static final ThreadLocal<long[]> COUNTS = new ThreadLocal<long[]>();
 
     private static final int C_GENERATION = 0;
     private static final int C_REQUEST = 1;
@@ -217,7 +217,7 @@ public final class CaughtExceptions {
      * Throwable[] walk, long[] owner]}. JDK types, so the thread-local pins no class loader; the walk's references to
      * the application's throwables are cleared once each walk ends, so it never retains one.
      */
-    private static final ThreadLocal<Object[]> SCRATCH = new ThreadLocal<Object[]>();
+    static final ThreadLocal<Object[]> SCRATCH = new ThreadLocal<Object[]>();
 
     private static final int S_CHAIN = 0;
     private static final int S_WALK = 1;

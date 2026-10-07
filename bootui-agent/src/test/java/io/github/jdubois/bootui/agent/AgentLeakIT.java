@@ -32,6 +32,34 @@ class AgentLeakIT {
         assertThat(reached).as("runs the agent strongly reaches: %s", reached).isEmpty();
     }
 
+    /**
+     * The thread-locals sensor (M5-5f) beside them: each run's pool task leaves a thread local set on a JVM-wide pool's
+     * worker, which the sensor reports and whose holder it resolves into the run's class; afterwards the agent must
+     * strongly reach no run, its thread local, or its value.
+     */
+    @Test
+    void theThreadLocalsSensorKeepsNoRunAfterReportingAndResolvingItsThreadLocals() throws Exception {
+        Path dump = ChildJvm.WORK.resolve("leak-thread-locals-sensor.hprof");
+        List<String> jvm = new ArrayList<>();
+        jvm.add(ChildJvm.javaAgent(ChildJvm.TEST_AGENT));
+        jvm.add("-Dbootui.agent.it.probe=bootuiagentit.run");
+        jvm.add("-Dbootui.agent.it.run-jar=" + TestJars.jar("leak-runs.jar", "bootuiagentit/run", List.of()));
+        jvm.add("-Dbootui.agent.it.thread-locals=true");
+        jvm.add("-XX:SoftRefLRUPolicyMSPerMB=0");
+        ChildJvm.Output output = ChildJvm.run(jvm, "runs", String.valueOf(RUNS), dump.toString());
+        assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertThat(output.value("THREAD_LOCALS")).as(output.toString()).contains("errors=0");
+        assertThat(Integer.parseInt(output.value("THREAD_LOCALS_RESOLVED")))
+                .as("the runs' leaked thread locals were reported and resolved: %s", output)
+                .isPositive();
+
+        Map<Integer, String> reached =
+                HeapWalk.read(dump).runsReachedByAgent("io/github/jdubois/bootui/agent/", RUN_CLASS);
+        java.nio.file.Files.deleteIfExists(dump);
+
+        assertThat(reached).as("runs the agent strongly reaches: %s", reached).isEmpty();
+    }
+
     @Test
     void jvmWideThreadsKeepNoRunsContextAfterPropagatedWork() throws Exception {
         Path dump = dump("thread-locals", List.of());

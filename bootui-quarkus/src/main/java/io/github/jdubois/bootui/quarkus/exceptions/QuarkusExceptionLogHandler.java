@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.exceptions;
 
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
@@ -58,7 +59,7 @@ public final class QuarkusExceptionLogHandler extends Handler {
     private final TraceIdSource traceIdProvider;
     private final CurrentVertxRequest currentVertxRequest;
     private final Config config;
-    private final ThreadLocal<Boolean> capturing = ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private final ThreadLocal<Boolean> capturing = BootUiThreadLocal.withInitial(() -> Boolean.FALSE);
 
     public QuarkusExceptionLogHandler(
             ExceptionStore store,

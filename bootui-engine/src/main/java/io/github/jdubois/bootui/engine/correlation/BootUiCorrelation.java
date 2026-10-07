@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 
 /**
@@ -24,7 +25,7 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
  */
 public final class BootUiCorrelation {
 
-    private static final ThreadLocal<CorrelationContext> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<CorrelationContext> CURRENT = new BootUiThreadLocal<>();
 
     /**
      * Held while an {@link #openCleared()} scope is open. It is a distinct instance, compared by identity and never

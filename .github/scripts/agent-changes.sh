@@ -59,6 +59,10 @@ pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/Qua
 # Where the adapters wire request ends to the thread-activity sensor (M5-5e).
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiEngineConfiguration'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/BootUiEngineProducer'
+# Where the adapters open the thread-locals sensor's scopes (M5-5f), and BootUI's own thread locals' marker class.
+pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(BootUiAutoConfiguration|reactive/(BootUiCorrelationThreadLocalAccessor|ReactorThreadLocalsScopes)|scheduled/ScheduledTaskRunObservationHandler)'
+pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/(web/QuarkusThreadLocalsFilter|scheduled/QuarkusScheduledExecutionInterceptor)'
+pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/support/BootUiThreadLocal'
 pattern+='|bootui-quarkus(-deployment)?/src/main/java/io/github/jdubois/bootui/quarkus/(deployment/)?(agent|javaagent|codepaths|inventory|sideeffects|correlation)/'
 pattern+='|bootui-ui/src/main/frontend/src/views/(JavaAgent|CodeInventory|CodePaths|SideEffects|MethodProbes)'
 pattern+='|bootui-ui/src/main/frontend/src/views/components/(MethodProbes|RequestCodePath|ChangeImpact|RunComparison)'

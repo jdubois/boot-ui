@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption.DoNotIncludeTests;
@@ -26,6 +27,21 @@ class BootUiArchitectureTests {
             .and()
             .doNotHaveSimpleName("JvmTuningController") // Exempt as it manages its own internal non-bean dependency
             .should(haveExactlyOneAutowiredConstructorIfMultipleConstructorsPresent());
+
+    /**
+     * BootUI's own thread locals are {@code BootUiThreadLocal}s, which the agent's {@code thread-locals} sensor never
+     * reports, by class ({@code docs/PLAN-v2.md} §5.16, M5-5f).
+     */
+    @ArchTest
+    static final ArchRule threadLocalsAreBootUiThreadLocals = noClasses()
+            .should()
+            .callConstructor(ThreadLocal.class)
+            .orShould()
+            .callConstructor(InheritableThreadLocal.class)
+            .orShould()
+            .callMethod(ThreadLocal.class, "withInitial", java.util.function.Supplier.class)
+            .because("the BootUI agent's thread-locals sensor recognizes BootUI's own thread locals by their class,"
+                    + " BootUiThreadLocal");
 
     private static ArchCondition<JavaClass> haveExactlyOneAutowiredConstructorIfMultipleConstructorsPresent() {
         return new ArchCondition<>("have exactly one @Autowired constructor if multiple constructors are present") {

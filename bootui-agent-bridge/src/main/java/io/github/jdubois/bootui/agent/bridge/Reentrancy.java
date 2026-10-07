@@ -18,7 +18,7 @@ final class Reentrancy {
     /** Set once for the thread's life: one of BootUI's or the agent's own threads ({@link #markBootUiThread()}). */
     private static final int BOOTUI_THREAD = 3;
 
-    private static final ThreadLocal<int[]> STATE = new ThreadLocal<int[]>();
+    static final ThreadLocal<int[]> STATE = new ThreadLocal<int[]>();
 
     private Reentrancy() {}
 
