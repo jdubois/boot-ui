@@ -3851,10 +3851,6 @@ public final class SideEffects {
             // Only when thread-activity itself stops: another sensor's reinstall keeps its pending checks.
             ThreadActivity.disabled();
         }
-        if (resourcesLeave) {
-            // Its close hooks may be removed next: nothing tracked survives them, so no close goes unseen.
-            Resources.disabled();
-        }
         if ((bits & MASK_NETWORK) != 0) {
             // Never kept past the sensor's life: the channels still waiting and the datagram frames remembered.
             Network network = NETWORK_STATE.get();
@@ -3869,6 +3865,12 @@ public final class SideEffects {
             }
         }
         refresh();
+        if (resourcesLeave) {
+            // After the mask stops new opens: its close hooks may be removed next, and nothing tracked survives them,
+            // so
+            // no close goes unseen.
+            Resources.disabled();
+        }
         if (reason != null) {
             AgentBridge.message("side-effect sensors disabled: " + reason);
         }
@@ -4098,6 +4100,9 @@ public final class SideEffects {
                 if (HOOK_SENSORS[i] == sensor) {
                     recorded.put(HOOKS[i], Long.valueOf(RECORDED[i].sum()));
                 }
+            }
+            if (sensor == SENSOR_RESOURCES) {
+                Resources.putRecorded(recorded);
             }
             map.put("recorded", recorded);
             map.put("published", Long.valueOf(PUBLISHED[sensor].sum()));

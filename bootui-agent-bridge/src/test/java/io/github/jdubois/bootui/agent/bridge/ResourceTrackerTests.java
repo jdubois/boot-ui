@@ -36,6 +36,7 @@ class ResourceTrackerTests {
     @BeforeEach
     void create() {
         tracker = new ResourceTracker();
+        tracker.accept(true);
     }
 
     @AfterEach
@@ -148,10 +149,13 @@ class ResourceTrackerTests {
         // Closed, but the hook never told the tracker.
         stream.close();
 
-        assertThat(tracker.sweep(GENERATION, System.nanoTime(), 0L, 0, new ArrayList<>()))
-                .as("one sweep could be a close between its own state change and its hook's exit")
+        long now = System.nanoTime();
+        assertThat(tracker.sweep(GENERATION, now, 0L, 0, new ArrayList<>()))
+                .as("a close between its own state change and its hook's exit, or one waiting for blocked threads")
                 .isZero();
-        assertThat(tracker.sweep(GENERATION, System.nanoTime(), 0L, 0, new ArrayList<>()))
+        assertThat(tracker.sweep(GENERATION, now + ResourceTracker.SUSPECT_NANOS / 2, 0L, 0, new ArrayList<>()))
+                .isZero();
+        assertThat(tracker.sweep(GENERATION, now + ResourceTracker.SUSPECT_NANOS, 0L, 0, new ArrayList<>()))
                 .isEqualTo(1 << Resources.KIND_FILE_INPUT_STREAM);
         assertThat(tracker.closeMissed.sum()).isEqualTo(1L);
     }
@@ -216,6 +220,51 @@ class ResourceTrackerTests {
         tracker.sweep(GENERATION + 1, System.nanoTime(), 0L, 0, new ArrayList<>());
         assertThat(tracker.size()).isZero();
         assertThat(tracker.tracking(Resources.KIND_FILE_INPUT_STREAM)).isFalse();
+    }
+
+    @Test
+    void anOpenRacingASwitchOffIsNeverKeptAndAnEarlierGenerationsOpenNeverInserted() throws Exception {
+        FileInputStream stream = stream();
+        tracker.clear();
+        assertThat(track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST))
+                .as("cleared: refused until the close hooks are enabled again")
+                .isNull();
+
+        tracker.accept(true);
+        assertThat(track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST)).isNotNull();
+        assertThat(tracker.track(
+                        stream(),
+                        Resources.KIND_FILE_INPUT_STREAM,
+                        GENERATION - 1,
+                        REQUEST,
+                        0L,
+                        0,
+                        1,
+                        0,
+                        1,
+                        0L,
+                        0L,
+                        0,
+                        System.currentTimeMillis()))
+                .isNull();
+        assertThat(tracker.size()).isEqualTo(1);
+    }
+
+    @Test
+    void aResourceClosedAfterItsRequestAndCollectedBeforeASweepIsReportedClosedLate() throws Exception {
+        Path file = Files.writeString(directory.resolve("late.txt"), "x");
+        WeakReference<Object> reference = trackOpenThenClose(file);
+
+        awaitCollected(reference);
+        List<ResourceTracker.Entry> reports = new ArrayList<>();
+        for (int i = 0; i < 50 && reports.isEmpty(); i++) {
+            System.gc();
+            tracker.sweep(GENERATION, System.nanoTime(), 0L, 0, reports);
+            Thread.sleep(20);
+        }
+        assertThat(reports)
+                .singleElement()
+                .satisfies(report -> assertThat(report.reported).isEqualTo(ResourceTracker.CLOSED_LATE));
     }
 
     @Test
@@ -297,6 +346,19 @@ class ResourceTrackerTests {
         ((Runnable) holder).run();
         track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST);
         return new WeakReference<>(child);
+    }
+
+    /** Reported open after its request, then closed and dropped before the next sweep. */
+    private WeakReference<Object> trackOpenThenClose(Path file) throws IOException {
+        FileInputStream stream = new FileInputStream(file.toFile());
+        track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST);
+        tracker.ended(REQUEST);
+        assertThat(sweepAfterGrace())
+                .singleElement()
+                .satisfies(report -> assertThat(report.reported).isEqualTo(ResourceTracker.LEFT_OPEN));
+        stream.close();
+        tracker.closed(stream, Resources.KIND_FILE_INPUT_STREAM);
+        return new WeakReference<>(stream);
     }
 
     private WeakReference<Object> trackLeaked(Path file) throws IOException {

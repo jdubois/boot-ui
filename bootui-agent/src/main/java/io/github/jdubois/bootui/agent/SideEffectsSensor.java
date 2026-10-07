@@ -440,7 +440,9 @@ final class SideEffectsSensor {
         if (!restored) {
             // The hooks stay in the JDK's classes: the bridge keeps their sensors off for good.
             stuck = true;
-            SideEffects.disable(-1, "the side-effect sensors' transformer could not be removed");
+            // Every sensor of these transformers; never resources, whose close hooks are its own transformer's.
+            SideEffects.disable(
+                    ~SideEffects.MASK_RESOURCES, "the side-effect sensors' transformer could not be removed");
         }
         state = restored ? "released" : "release-failed";
     }

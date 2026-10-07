@@ -1020,9 +1020,12 @@ and is the only count a run comparison keys on. A resource closed before its req
 `finally`, is never reported. Each resource is counted once on its row (`count`, with its distinct `requests`).
 
 **No false reports.** A resource kind is tracked only while its close hook is installed and passed its self-test. Each
-sweep also reads every tracked resource's own state: one closed at two sweeps in a row while its hook never said so is
-counted as a missed close, and the collector's reclaims of its kind are no longer reported for the run. A weak reference
-is cleared before finalization, so a reclaim means the resource became unreachable while still open.
+sweep also reads every tracked resource's own state: one closed for 30 seconds while its hook never said so is counted
+as a missed close, and the collector's reclaims of its kind are no longer reported for the run. Switching the sensor off
+forgets what it tracked before its close hooks are removed, and an open racing the switch is never kept. A weak
+reference is cleared before finalization, so a reclaim means the resource became unreachable while still open. A TLS
+socket's own state reads its TLS session, not its socket, so one another thread closed while it was still connecting
+may later read as reclaimed without `close()`.
 
 **Self-test**, on the sensor's own thread, never creating a file or touching the network: streams over an invalid file
 descriptor and the channel of one, an unconnected socket, a socket channel opened and closed without I/O, and the JDK's

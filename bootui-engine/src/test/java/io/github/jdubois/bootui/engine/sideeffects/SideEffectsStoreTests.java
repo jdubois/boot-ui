@@ -477,6 +477,24 @@ class SideEffectsStoreTests {
         });
     }
 
+    /** M5-5g: a resource's later report lands on its first report's row, as a thread-activity follow-up does. */
+    @Test
+    void aResourcesLaterReportLandsOnItsFirstReportsRowEvenWhenTheRouteWasNamedLater() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        long request = 0x52L;
+        store.add(resources(SideEffectsCatalog.KIND_RESOURCE_LEFT_OPEN, request, true, "socket", "localhost:5432"));
+        store.resolve(Map.of(), NOW + SideEffectsStore.PENDING_MILLIS);
+        store.resolve(Map.of(String.format("%016x", request), "GET /stream"), NOW + SideEffectsStore.PENDING_MILLIS);
+        store.add(resources(SideEffectsCatalog.KIND_RESOURCE_RECLAIMED, request, false, "socket", "localhost:5432"));
+
+        assertThat(store.rows("resources", true, true)).singleElement().satisfies(row -> {
+            assertThat(row.attribution()).isEqualTo(SideEffectsStore.UNKNOWN_ROUTE);
+            assertThat(row.count()).isEqualTo(1L);
+            assertThat(row.leftRunning()).isEqualTo(1L);
+            assertThat(row.failed()).isEqualTo(1L);
+        });
+    }
+
     private static SideEffectsStore.Observation resources(
             int kind, long request, boolean first, String resource, String target) {
         int detail = SideEffectsCatalog.ORIGIN_APPLICATION | (first ? SideEffectsCatalog.DETAIL_FIRST_REPORT : 0);

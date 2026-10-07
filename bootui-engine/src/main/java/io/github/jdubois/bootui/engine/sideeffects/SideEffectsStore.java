@@ -92,7 +92,8 @@ final class SideEffectsStore {
     static final long REQUEST_ID_BYTES = 72L;
 
     /**
-     * The routes of requests that started a thread or created an executor, kept apart from the route cache, so a
+     * The routes of requests that started a thread, created an executor, or left a resource open, kept apart from the
+     * route cache, so a
      * shutdown or a reclaim minutes later still lands on its creation's row.
      */
     static final int THREAD_ROUTES = 1_024;
@@ -383,6 +384,8 @@ final class SideEffectsStore {
                     // A kind of a later bridge: counted nowhere.
                 }
             }
+            // A first report the agent's ring dropped, or that Clear recording removed: the resource still counts once.
+            count = Math.max(count, Math.max(failed, leftRunning));
         }
 
         /** Counts {@code request} once among the latest {@value #RECENT_REQUESTS} distinct requests. */
@@ -601,6 +604,27 @@ final class SideEffectsStore {
         return version;
     }
 
+    /**
+     * Whether {@code record} follows up an earlier record's row: a thread-activity shutdown or left-running, or a
+     * resource's report after its first, which may come minutes later, its request's route since evicted.
+     */
+    private static boolean followUp(SideEffectRecord record) {
+        if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
+            return !SideEffectsCatalog.threadCreation(record.kind());
+        }
+        return record.sensor() == SideEffectsCatalog.RECORD_RESOURCES
+                && (record.exitStatus() & SideEffectsCatalog.DETAIL_FIRST_REPORT) == 0;
+    }
+
+    /** Whether {@code record} opens a row its follow-ups land on: a thread start or executor creation, or a first report. */
+    private static boolean firstOfItsRow(SideEffectRecord record) {
+        if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
+            return SideEffectsCatalog.threadCreation(record.kind());
+        }
+        return record.sensor() == SideEffectsCatalog.RECORD_RESOURCES
+                && (record.exitStatus() & SideEffectsCatalog.DETAIL_FIRST_REPORT) != 0;
+    }
+
     /** Adds one observation: a request's waits for its route, any other is attributed now. */
     void add(Observation observation) {
         observations++;
@@ -610,8 +634,7 @@ final class SideEffectsStore {
         String key = requestId != null ? requestId : executionId == null ? null : EXECUTION_KEY + executionId;
         if (key != null) {
             String name;
-            if (record.sensor() == SideEffectsCatalog.RECORD_THREADS
-                    && !SideEffectsCatalog.threadCreation(record.kind())) {
+            if (followUp(record)) {
                 // A follow-up lands where its creation did: a creation a long request made before its route was named
                 // counted under the unknown route, and so does its follow-up.
                 name = threadRoutes.get(key);
@@ -724,8 +747,7 @@ final class SideEffectsStore {
 
     /** A named observation: a request's under its route, an execution's under its label. */
     private void attribute(Observation observation, String key, String name) {
-        if (observation.record().sensor() == SideEffectsCatalog.RECORD_THREADS
-                && SideEffectsCatalog.threadCreation(observation.record().kind())) {
+        if (firstOfItsRow(observation.record())) {
             // The first name a creation of this request landed under, kept for its follow-ups.
             threadRoutes.putIfAbsent(key, name);
         }

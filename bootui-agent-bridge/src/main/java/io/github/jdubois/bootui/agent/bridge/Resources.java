@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.LongAdder;
  * <p><b>Reports</b>, on the drain thread ({@link #sweep}): a resource of a request still open {@value #GRACE_NANOS} ns
  * after its response completed, checked through the JDK's own final methods ({@link #closedNow}); one cleared by the
  * collector while never closed; and one reported open, then closed, as handed off. A resource whose close a hook missed
- * (its own state closed at two sweeps in a row while its entry was not marked) is counted, and the collector's
+ * (its own state closed for 30 seconds while its entry was not marked) is counted, and the collector's
  * reclaims of its kind are no longer reported for the claim generation, so no report is ever false.
  *
  * <p>JDK types only; every entry point catches everything.
@@ -121,6 +121,9 @@ public final class Resources {
     private static volatile long noReclaimsGeneration = Long.MIN_VALUE;
 
     static final LongAdder[] SELF_TEST_HITS = adders(HOOKS.length);
+    /** Per close hook, the closes of a tracked resource; for the hand-off hook, the channels handed over. */
+    private static final LongAdder[] CLOSES = adders(HOOKS.length);
+
     private static final LongAdder TRACKED = new LongAdder();
     private static final LongAdder LEFT_OPEN = new LongAdder();
     private static final LongAdder CLOSED_LATE = new LongAdder();
@@ -147,8 +150,8 @@ public final class Resources {
                 return;
             }
             int kind = HOOK_KINDS[hook];
-            if (resource != null && TRACKER.tracking(kind)) {
-                TRACKER.closed(resource, kind);
+            if (resource != null && TRACKER.tracking(kind) && TRACKER.closed(resource, kind)) {
+                CLOSES[hook].increment();
             }
         } catch (Throwable ex) {
             SideEffects.failed(SideEffects.SENSOR_RESOURCES, ex);
@@ -173,6 +176,7 @@ public final class Resources {
             if (frame != null && (frame.sideEffectOpen & SideEffects.MASK_FILES) != 0) {
                 frame.resourcePending = channel;
                 STASHED.increment();
+                CLOSES[HOOK_UNINTERRUPTIBLE].increment();
             }
         } catch (Throwable ex) {
             SideEffects.failed(SideEffects.SENSOR_RESOURCES, ex);
@@ -348,6 +352,11 @@ public final class Resources {
             if (claim == null || claim.generation != SideEffects.generation || TRACKER.size() == 0) {
                 return;
             }
+            if (kinds == 0 || (SideEffects.mask & SideEffects.MASK_RESOURCES) == 0) {
+                // Switched off: its close hooks may be gone, so nothing it still holds is ever reported.
+                TRACKER.clear();
+                return;
+            }
             if (noReclaimsGeneration != claim.generation) {
                 noReclaims = 0;
                 noReclaimsGeneration = claim.generation;
@@ -414,6 +423,7 @@ public final class Resources {
     /** The agent tracks the kinds of {@code bits} ({@code 1 << KIND_*}) once their close hooks passed their self-test. */
     public static void enableKinds(int bits) {
         kinds = bits & ALL_KINDS;
+        TRACKER.accept(kinds != 0);
     }
 
     /** Starts the self-test on the calling thread: hooks it runs are counted per hook, and record nothing. */
@@ -457,6 +467,13 @@ public final class Resources {
     /** The sensor was disabled or released: nothing is kept past its life. */
     static void disabled() {
         TRACKER.clear();
+    }
+
+    /** What each hook recorded: closes of a tracked resource, and channels handed over. */
+    static void putRecorded(Map<String, Object> recorded) {
+        for (int i = 0; i < HOOKS.length; i++) {
+            recorded.put(HOOKS[i], Long.valueOf(CLOSES[i].sum()));
+        }
     }
 
     static void putStatus(Map<String, Object> map) {
@@ -508,6 +525,9 @@ public final class Resources {
         }
         for (LongAdder hits : SELF_TEST_HITS) {
             hits.reset();
+        }
+        for (LongAdder closes : CLOSES) {
+            closes.reset();
         }
     }
 

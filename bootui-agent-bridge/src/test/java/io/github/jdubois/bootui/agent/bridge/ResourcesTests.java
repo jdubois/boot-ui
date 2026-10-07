@@ -165,6 +165,8 @@ class ResourcesTests {
 
         assertThat(resources(drain(token))).isEmpty();
         assertThat(Resources.TRACKER.size()).isZero();
+        assertThat(String.valueOf(SideEffects.status(SideEffects.RESOURCES).get("recorded")))
+                .contains("FileChannelImpl.implCloseChannel=1");
     }
 
     @Test

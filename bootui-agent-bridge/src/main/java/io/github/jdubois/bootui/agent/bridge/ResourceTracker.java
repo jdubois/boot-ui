@@ -56,6 +56,12 @@ final class ResourceTracker {
     /** An entry whose request's end never came stops waiting after this long, counted. */
     static final long WAIT_MILLIS = 600_000L;
 
+    /**
+     * How long a resource reads closed while its entry is not marked before the close counts as missed: longer than any
+     * close's own wait for the threads blocked on its channel.
+     */
+    static final long SUSPECT_NANOS = 30_000_000_000L;
+
     /** Resource kinds, as {@link Resources} names them: indexes of {@link #kindCounts}. */
     static final int KINDS = 8;
 
@@ -88,6 +94,12 @@ final class ResourceTracker {
     private volatile int size;
     private volatile int waiting;
     private long generation = Long.MIN_VALUE;
+
+    /**
+     * Under the lock: whether a track may insert. Cleared with the tracker, set once the sensor's close hooks passed, so
+     * an open racing a switch-off never leaves an entry the removed hooks cannot close.
+     */
+    private boolean accepting;
 
     final LongAdder untracked = new LongAdder();
     final LongAdder duplicates = new LongAdder();
@@ -128,8 +140,8 @@ final class ResourceTracker {
         boolean counted;
 
         boolean reportedOpen;
-        /** A sweep found the resource closed by its own state while {@link #closed} was not set yet. */
-        boolean suspect;
+        /** When a sweep first found the resource closed by its own state while {@link #closed} was not set, 0 if not. */
+        long suspectSince;
         /** What a sweep found, set on a report's copy. */
         int reported;
 
@@ -221,6 +233,10 @@ final class ResourceTracker {
         Entry entry;
         lock.lock();
         try {
+            if (!accepting || (generation != Long.MIN_VALUE && entryGeneration < generation)) {
+                // Switched off, or an open of an earlier claim generation: never inserted.
+                return null;
+            }
             reset(entryGeneration);
             if (size >= MAX_ENTRIES) {
                 untracked.increment();
@@ -279,18 +295,22 @@ final class ResourceTracker {
         return entry;
     }
 
-    /** {@code resource} of {@code kind} was closed: its entry, if any, is marked. Lock-free; never throws. */
-    void closed(Object resource, int kind) {
+    /**
+     * {@code resource} of {@code kind} was closed: its entry, if any, is marked. Returns whether one was. Lock-free;
+     * never throws.
+     */
+    boolean closed(Object resource, int kind) {
         if (kind <= 0 || kind >= KINDS || kindCounts.get(kind) == 0) {
-            return;
+            return false;
         }
         int hash = System.identityHashCode(resource);
         for (Entry entry = buckets.get(hash & (BUCKETS - 1)); entry != null; entry = entry.next) {
             if (entry.hash == hash && entry.refersTo(resource)) {
                 entry.closed = true;
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     /** Whether any entry of {@code kind} is tracked: read without the lock. */
@@ -361,7 +381,12 @@ final class ResourceTracker {
                     continue;
                 }
                 unlink(entry);
-                if (!entry.closed && (noReclaims & (1 << entry.kind)) == 0) {
+                if (entry.closed) {
+                    if (entry.reportedOpen) {
+                        // Closed after its request, then collected before this sweep saw it closed.
+                        reports.add(entry.report(CLOSED_LATE, nowNanos, false));
+                    }
+                } else if ((noReclaims & (1 << entry.kind)) == 0) {
                     reports.add(entry.report(RECLAIMED, nowNanos, !entry.counted));
                     entry.counted = true;
                 }
@@ -389,23 +414,25 @@ final class ResourceTracker {
         } finally {
             lock.unlock();
         }
-        // The canary, outside the lock: a resource that reads closed while its entry is not marked, at two sweeps in a
-        // row, so a close between its own state change and its hook's exit is never taken for a miss.
+        // The canary, outside the lock: a resource that reads closed while its entry is not marked, for longer than any
+        // close waits for the threads blocked on it, so a close between its own state change and its hook's exit is
+        // never taken for a miss.
         for (Entry entry : live) {
             Object referent = entry.get();
             if (referent == null || entry.closed) {
                 continue;
             }
             int state = Resources.closedNow(referent, entry.kind);
+            referent = null;
             if (state != Resources.STATE_CLOSED) {
-                entry.suspect = false;
+                entry.suspectSince = 0L;
                 continue;
             }
-            if (!entry.suspect) {
-                entry.suspect = true;
+            if (entry.suspectSince == 0L) {
+                entry.suspectSince = nowNanos == 0L ? 1L : nowNanos;
                 continue;
             }
-            if (!entry.closed) {
+            if (nowNanos - entry.suspectSince >= SUSPECT_NANOS && !entry.closed) {
                 closeMissed.increment();
                 missed |= 1 << entry.kind;
                 entry.closed = true;
@@ -490,14 +517,20 @@ final class ResourceTracker {
         }
     }
 
-    /** At the cap, on the drain thread: forgets the oldest entries already reported open, up to an eighth of the cap. */
+    /**
+     * At the cap, on the drain thread: forgets the oldest entries already reported open (pooled connections), and those
+     * no request's end waits for that were opened more than {@value #WAIT_MILLIS} ms ago (a job's, or one whose
+     * request's end never came), up to an eighth of the cap, counted.
+     */
     private void evictReported() {
         lock.lock();
         try {
             List<Entry> reported = new ArrayList<Entry>();
+            long oldest = System.currentTimeMillis() - WAIT_MILLIS;
             for (int i = 0; i < BUCKETS; i++) {
                 for (Entry entry = buckets.get(i); entry != null; entry = entry.next) {
-                    if (entry.linked && entry.reportedOpen) {
+                    if (entry.linked
+                            && (entry.reportedOpen || (!entry.waitingForEnd && entry.createdMillis <= oldest))) {
                         reported.add(entry);
                     }
                 }
@@ -517,6 +550,16 @@ final class ResourceTracker {
         return size;
     }
 
+    /** Whether a track may insert: false once cleared, until the sensor's close hooks are enabled again. */
+    void accept(boolean on) {
+        lock.lock();
+        try {
+            accepting = on;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     int waitingCount() {
         return waiting;
     }
@@ -526,6 +569,7 @@ final class ResourceTracker {
         lock.lock();
         try {
             dropped.add(size);
+            accepting = false;
             reset(Long.MIN_VALUE);
             generation = Long.MIN_VALUE;
             endsRead = endsWritten.get();

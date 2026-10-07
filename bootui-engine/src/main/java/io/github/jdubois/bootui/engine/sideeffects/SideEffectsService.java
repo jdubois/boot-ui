@@ -99,7 +99,9 @@ public final class SideEffectsService implements AutoCloseable {
             + " RandomAccessFile, FileChannel (Files.newByteChannel, newInputStream, newOutputStream, and lines included),"
             + " Socket, and SocketChannel, the JDK's own channel and socket classes only. Tracked when a request's or a"
             + " job's work opened one with an application frame on the stack: the application's when the first frame"
-            + " outside the JDK is in the application's packages, else a library's the application called. Reported open"
+            + " outside the JDK (for a socket, outside the socket plumbing, so the JDK's HttpClient is a library) is in the"
+            + " application's packages, else a library's the application called. A TLS socket another thread closed"
+            + " while it was still connecting may read as reclaimed, its own state unreadable. Reported open"
             + " after its request when still open 250 ms after the response completed, closed after it (handed off, as a"
             + " pool's connection) once closed later, and reclaimed without close() when the collector found it"
             + " unreachable while still open; a resource closed before its request ended is never reported. At most"
@@ -1415,8 +1417,8 @@ public final class SideEffectsService implements AutoCloseable {
         long endsLost = increase(counters, baseline, "requestEndsLost");
         if (unresolved + endsLost > 0) {
             limitations.add((unresolved + endsLost)
-                    + " request ends did not reach the resources sensor in time, so whether their resources stayed open"
-                    + " after them is unknown.");
+                    + (unresolved + endsLost == 1 ? " resource or request end was" : " resources or request ends were")
+                    + " not checked in time: whether those resources stayed open after their request is unknown.");
         }
         long dropped = increase(counters, baseline, "dropped");
         if (dropped > 0) {
