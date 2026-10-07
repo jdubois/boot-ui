@@ -36,7 +36,7 @@ public final class ItSingletonContext {
         return new Proxy(application, bean);
     }
 
-    /** A hand-written client proxy, delegating as ArC's generated {@code arc$delegate} does. */
+    /** A hand-written client proxy, delegating through ArC's own {@code ClientProxies}, as a generated one does. */
     private static final class Proxy implements Runnable, ClientProxy {
 
         private final ApplicationContext context;
@@ -49,7 +49,7 @@ public final class ItSingletonContext {
 
         @Override
         public Object arc_contextualInstance() {
-            return context.get(bean, new CreationalContextImpl<>(bean));
+            return ClientProxies.getApplicationScopedDelegate(context, bean);
         }
 
         @Override
