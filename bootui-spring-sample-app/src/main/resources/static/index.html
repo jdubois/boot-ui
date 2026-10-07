@@ -232,6 +232,83 @@
       color: #263245;
     }
 
+    .insight-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 20px;
+      margin-top: 16px;
+    }
+
+    .insight-card h3 {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .insight-expect strong {
+      color: #263245;
+    }
+
+    .insight-listing {
+      display: grid;
+      gap: 4px;
+    }
+
+    .insight-tag {
+      justify-self: start;
+      padding: 0.1rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 650;
+    }
+
+    .insight-tag.listed {
+      background: #e3f4ea;
+      color: #14532d;
+    }
+
+    .insight-tag.unlisted {
+      background: #fff4d6;
+      color: #713f12;
+    }
+
+    .test-action .insight-requirement {
+      color: #9a3412;
+    }
+
+    .insight-listing details {
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+
+    .insight-listing summary {
+      cursor: pointer;
+    }
+
+    .insight-result {
+      margin: 0;
+      padding-left: 1.1rem;
+      overflow-wrap: anywhere;
+      font-size: 0.92rem;
+    }
+
+    .insight-result span {
+      display: block;
+      color: #4a5568;
+      font-size: 0.85rem;
+    }
+
+    .button[data-unavailable]:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .insights-footnote {
+      margin: 18px 0 0;
+      color: #4a5568;
+      font-size: 0.92rem;
+    }
+
   </style>
 </head>
 <body>
@@ -389,6 +466,32 @@
         <span aria-live="polite" class="chat-status" id="session-data-status" role="status"></span>
       </div>
       <pre class="action-result" hidden id="sample-action-result"></pre>
+    </section>
+
+    <section aria-labelledby="insights-heading" class="wide" id="runtime-insights-lab">
+      <h2 id="insights-heading">Runtime Insights</h2>
+      <p>
+        Each button sends the requests that make one <a href="/bootui/#/runtime-insights">Runtime Insights</a> finding
+        appear, usually beside the corrected version it must not report, then reads the panel's report and links to
+        what it found. Tracing is not needed. Never copy the seeded <code>/api/insights</code> routes into an
+        application.
+      </p>
+      <div class="insight-actions">
+        <button aria-describedby="insights-availability" class="button" disabled id="insights-all-button" type="button">
+          Generate all findings
+        </button>
+        <a href="/bootui/#/runtime-insights">Open Runtime Insights</a>
+        <span aria-live="polite" class="chat-status" id="insights-status" role="status"></span>
+      </div>
+      <p class="chat-status" id="insights-availability">Checking whether BootUI is running...</p>
+      <div class="test-grid" id="insights-grid"></div>
+      <p class="insights-footnote">
+        Not generated here: <strong>Pauses during slow requests</strong> and <strong>Heap growth after GC</strong>
+        depend on when the JVM collects garbage, and are reached from the Memory panel. Agent-only rows of the
+        Exceptions, Side Effects, and Code Paths panels are not Runtime Insights findings yet; the sample's
+        <code>/api/caught</code>, <code>/api/side-effects</code>, <code>/api/thread-locals</code>, and
+        <code>/api/thread-activity</code> routes seed them when the BootUI agent is attached.
+      </p>
     </section>
 
     <section aria-labelledby="ai-prompt-heading" class="wide">
@@ -985,6 +1088,481 @@
       )
     })
   )
+  const BOOTUI_API = '/bootui/api'
+  const INSIGHTS_PANEL = '/bootui/#/runtime-insights'
+  const INSIGHTS_JSON = {'Content-Type': 'application/json'}
+  // A check in one of these states cannot produce its finding in this application, whatever the traffic.
+  const INSIGHT_BLOCKING_STATUSES = new Set(['NOT_APPLICABLE', 'UNAVAILABLE'])
+  // The external validations whose findings the panel lists by default (docs/PLAN-v2.md M4-20).
+  const INSIGHT_LISTED_VALIDATIONS = new Set(['PASSED', 'NOT_VALIDATED'])
+  const INSIGHT_STATUS_WORDS = {
+    OBSERVED: 'observed',
+    INSUFFICIENT: 'below its minimum, send more traffic',
+    PARTIAL: 'partial evidence'
+  }
+
+  /**
+   * One card per finding family: the requests it sends as [method, path, times, headers, body], and the findings it
+   * expects as [kind, title, subject]. A null subject accepts any finding of the kind. `gate: 'chat-model'` reads the
+   * Beans panel, since AI usage depends on a configured model rather than on a recorded source.
+   */
+  const INSIGHT_FAMILIES = [
+    {
+      key: 'errors-behind-2xx',
+      label: 'Error behind a 200',
+      text: 'Imports an order whose transaction rolls back and logs an error, yet answers <code>200</code>.',
+      steps: [['POST', '/api/insights/orders/6/import', 1]],
+      expect: [['errors-behind-2xx', 'Errors behind 2xx responses', 'POST /api/insights/orders/{id}/import']]
+    },
+    {
+      key: 'safe-method-dml',
+      label: 'Writes in a GET',
+      text: 'Reads an order with a <code>GET</code> that also inserts an audit row.',
+      steps: [['GET', '/api/insights/orders/1', 1]],
+      expect: [['safe-method-dml', 'Writes in GET requests', 'GET /api/insights/orders/{id}']]
+    },
+    {
+      key: 'transaction-across-remote-call',
+      label: 'Transaction across a remote call',
+      text: "Calls a REST endpoint three times while the order's transaction holds its connection, then once after the commit.",
+      steps: [
+        ['GET', '/api/insights/orders/4/price-check', 3],
+        ['GET', '/api/insights/orders/4/price-check-after-commit', 1]
+      ],
+      expect: [
+        [
+          'transaction-across-remote-call',
+          'Transactions open across remote calls',
+          'GET /api/insights/orders/{id}/price-check'
+        ]
+      ]
+    },
+    {
+      key: 'proxy-bypass',
+      label: 'Proxy bypass',
+      text: 'Calls a <code>@Transactional</code> method on <code>this</code>, so no transaction starts, then through another bean.',
+      steps: [
+        ['POST', '/api/insights/orders/5/recalculate', 1],
+        ['POST', '/api/insights/orders/5/recalculate-through-bean', 1]
+      ],
+      expect: [['proxy-bypass', 'Proxy bypass', 'POST /api/insights/orders/{id}/recalculate']]
+    },
+    {
+      key: 'anonymous-success-on-restricted-route',
+      label: 'Anonymous access to a restricted route',
+      text: 'Reads the payroll report anonymously: <code>/reports/payroll</code> is denied, <code>/reports/PAYROLL</code> is not.',
+      steps: [
+        ['GET', '/api/insights/reports/payroll', 1],
+        ['GET', '/api/insights/reports/PAYROLL', 1],
+        ['GET', '/api/insights/reports/summary', 1]
+      ],
+      expect: [
+        [
+          'anonymous-success-on-restricted-route',
+          'Anonymous success on a restricted route',
+          'GET /api/insights/reports/{name}'
+        ]
+      ]
+    },
+    {
+      key: 'transactional-listener-skipped',
+      label: 'Skipped transactional listener',
+      text: 'Publishes an event outside any transaction, so its <code>@TransactionalEventListener</code> never runs.',
+      steps: [
+        ['POST', '/api/insights/orders/1/notify', 1],
+        ['POST', '/api/insights/orders/1/notify-in-transaction', 1]
+      ],
+      expect: [['transactional-listener-skipped', 'Transactional listeners skipped', 'POST /api/insights/orders/{id}/notify']]
+    },
+    {
+      key: 'after-commit-writes',
+      label: 'After-commit writes',
+      text: 'Archives an order whose after-commit listener writes in no transaction of its own.',
+      steps: [
+        ['POST', '/api/insights/orders/1/archive', 1],
+        ['POST', '/api/insights/orders/1/restore', 1]
+      ],
+      expect: [['after-commit-writes', 'Writes after commit', 'POST /api/insights/orders/{id}/archive']]
+    },
+    {
+      key: 'orm-auto-flush',
+      label: 'Auto-flush',
+      text: 'Saves a tag before each count, three times per request, so Hibernate flushes before every query.',
+      steps: [
+        ['POST', '/api/insights/tags/auto-flush', 3],
+        ['POST', '/api/insights/tags/read-then-write', 3]
+      ],
+      expect: [['orm-auto-flush', 'Hibernate auto-flushes', 'POST /api/insights/tags/auto-flush']]
+    },
+    {
+      key: 'large-persistence-context',
+      label: 'Large persistence context',
+      text: 'Loads 600 tags as entities in a read-write transaction, three times, then their labels only.',
+      steps: [
+        ['GET', '/api/insights/tags/export', 3],
+        ['GET', '/api/insights/tags/export-labels', 3]
+      ],
+      expect: [['large-persistence-context', 'Large persistence contexts', 'GET /api/insights/tags/export']]
+    },
+    {
+      key: 'work-after-response',
+      label: 'Work after the response',
+      text: 'Answers at once while a raw thread pool queries the database a little later. Needs the BootUI agent.',
+      steps: [
+        ['GET', '/api/insights/orders/after-response', 1],
+        ['GET', '/api/insights/orders/after-response/waits', 1]
+      ],
+      expect: [['work-after-response', 'Work after the response', 'GET /api/insights/orders/after-response']]
+    },
+    {
+      key: 'repeated-selects',
+      label: 'N+1 selects',
+      text: "Loads six orders, then each order's lines one statement at a time, three times; then the joined version.",
+      steps: [
+        ['GET', '/api/insights/orders', 3],
+        ['GET', '/api/insights/orders/joined', 3]
+      ],
+      expect: [['repeated-selects', 'Repeated SELECTs', 'GET /api/insights/orders']]
+    },
+    {
+      key: 'lazy-sql-after-handler',
+      label: 'SQL after the handler',
+      text: "Returns a report whose lines are read while the response is written, three times.",
+      steps: [['GET', '/api/insights/orders/report', 3]],
+      expect: [['lazy-sql-after-handler', 'SQL after the handler returned', 'GET /api/insights/orders/report']]
+    },
+    {
+      key: 'connections-per-request',
+      label: 'Two connections, split writes',
+      text: 'Confirms an order and writes its audit row in a <code>REQUIRES_NEW</code> transaction; then ships one in a single transaction.',
+      steps: [
+        ['POST', '/api/insights/orders/2/confirm', 1],
+        ['POST', '/api/insights/orders/3/ship', 1]
+      ],
+      expect: [
+        ['connections-per-request', 'Connections held together', 'POST /api/insights/orders/{id}/confirm'],
+        ['split-transaction-writes', 'Writes split across transactions', 'POST /api/insights/orders/{id}/confirm']
+      ]
+    },
+    {
+      key: 'anonymous-data-reach',
+      label: 'Anonymous writes',
+      text: "Calls an unprotected debug endpoint that rewrites every order's total.",
+      steps: [['POST', '/api/insights/debug/reset-totals', 1]],
+      expect: [['anonymous-data-reach', 'Anonymous writes', 'POST /api/insights/debug/reset-totals']]
+    },
+    {
+      key: 'framework-warnings-by-route',
+      label: 'Framework warning',
+      text: 'Posts an unreadable JSON body, which Spring MVC logs as a warning while answering <code>400</code>.',
+      steps: [['POST', '/api/insights/orders', 1, INSIGHTS_JSON, '{not json']],
+      expect: [['framework-warnings-by-route', 'Framework warnings by route', 'POST /api/insights/orders']]
+    },
+    {
+      key: 'exception-hotspots',
+      label: 'Exception hotspot',
+      text: 'Calls <code>GET /api/sample/boom</code>, which throws on purpose, three times.',
+      steps: [['GET', '/api/sample/boom', 3]],
+      expect: [['exception-hotspots', 'Exception hotspots', 'GET /api/sample/boom']]
+    },
+    {
+      key: 'route-time-breakdown',
+      label: 'Slow route breakdown',
+      text: 'Calls the secured, SQL-backed <code>GET /api/secure/products</code> as admin seven times, so five are warm.',
+      steps: [['GET', '/api/secure/products', 7, {Authorization: basicAuth('admin', 'admin')}]],
+      expect: [['route-time-breakdown', 'Route time breakdown', 'GET /api/secure/products']]
+    },
+    {
+      key: 'ai-usage-by-route',
+      label: 'AI usage by route',
+      gate: 'chat-model',
+      text: 'Asks the Spring AI chat model three short questions through <code>POST /api/chat</code>.',
+      steps: [['POST', '/api/chat', 3, INSIGHTS_JSON, JSON.stringify({message: 'Name one BootUI panel.'})]],
+      expect: [['ai-usage-by-route', 'AI usage by route', 'POST /api/chat']]
+    },
+    {
+      key: 'event-loop-blocking',
+      label: 'Blocking on event loops',
+      text: 'Spring WebFlux and Quarkus only: run <code>node scripts/insights-demo.mjs &lt;url&gt; webflux</code> from <code>e2e</code> against the WebFlux sample.',
+      steps: [],
+      expect: [['event-loop-blocking', 'Blocking on event loops', null]]
+    },
+    {
+      key: 'changed-code-not-executed',
+      label: 'Changed code not executed',
+      text: 'Needs the BootUI agent and a previous run: edit a method, let DevTools restart the app, then click to read what changed but never ran.',
+      steps: [],
+      expect: [['changed-code-not-executed', 'Changed code not executed', null]]
+    }
+  ]
+
+  const insightsAllButton = document.getElementById('insights-all-button')
+  const insightsStatus = document.getElementById('insights-status')
+  const insightsAvailability = document.getElementById('insights-availability')
+  const insightsGrid = document.getElementById('insights-grid')
+  let insightsBusy = false
+
+  function insightCard(family) {
+    const card = document.createElement('article')
+    card.className = 'test-action insight-card'
+    card.dataset.family = family.key
+
+    const button = document.createElement('button')
+    button.className = 'button'
+    button.type = 'button'
+    button.id = `insight-${family.key}-button`
+    button.textContent = family.label
+    button.disabled = true
+    button.setAttribute('aria-describedby', `insight-${family.key}-text insight-${family.key}-reason`)
+
+    const text = document.createElement('p')
+    text.id = `insight-${family.key}-text`
+    text.innerHTML = family.text
+
+    const expect = document.createElement('small')
+    expect.className = 'insight-expect'
+    expect.append('Expect: ')
+    family.expect.forEach(([, title, subject], index) => {
+      if (index > 0) expect.append(' and ')
+      const strong = document.createElement('strong')
+      strong.textContent = title
+      expect.append(strong)
+      if (subject) {
+        const code = document.createElement('code')
+        code.textContent = subject
+        expect.append(' on ', code)
+      }
+    })
+
+    const listing = document.createElement('div')
+    listing.className = 'insight-listing'
+
+    const reason = document.createElement('small')
+    reason.className = 'insight-requirement'
+    reason.id = `insight-${family.key}-reason`
+    reason.hidden = true
+
+    const result = document.createElement('ul')
+    result.className = 'insight-result'
+    result.hidden = true
+
+    card.append(button, text, expect, listing, reason, result)
+    family.ui = {button, listing, reason, result}
+    button.addEventListener('click', () => runInsightFamilies([family], family.label))
+    return card
+  }
+
+  INSIGHT_FAMILIES.forEach(family => insightsGrid.append(insightCard(family)))
+
+  async function fetchInsightsReport() {
+    const response = await fetch(`${BOOTUI_API}/runtime-insights`, {headers: {Accept: 'application/json'}})
+    if (!response.ok) {
+      throw new Error(
+        `GET ${BOOTUI_API}/runtime-insights answered HTTP ${response.status}: BootUI is not running on this app, ` +
+          'or its Runtime Insights panel is disabled.'
+      )
+    }
+    return response.json()
+  }
+
+  async function chatModelReason() {
+    const response = await fetch(`${BOOTUI_API}/beans?q=ChatModel`, {headers: {Accept: 'application/json'}})
+    if (!response.ok) {
+      return `Needs a Spring AI chat model, and the Beans panel could not be read (HTTP ${response.status}).`
+    }
+    const body = await response.json()
+    return (body.beans || []).some(bean => /ChatModel$/.test(bean.type || ''))
+      ? null
+      : 'Needs a Spring AI chat model, and the Beans panel lists none: run the sample with the "docker" profile (Ollama).'
+  }
+
+  function familyRunnable(family) {
+    return family.ui.reason.hidden
+  }
+
+  function setFamilyReason(family, reason) {
+    family.ui.reason.hidden = !reason
+    family.ui.reason.textContent = reason || ''
+    if (reason) {
+      family.ui.button.dataset.unavailable = 'true'
+    } else {
+      delete family.ui.button.dataset.unavailable
+    }
+    family.ui.button.disabled = Boolean(reason) || insightsBusy
+  }
+
+  function renderListing(family, checks) {
+    family.ui.listing.replaceChildren()
+    for (const [kind, title] of family.expect) {
+      const check = checks.get(kind)
+      if (!check) {
+        continue
+      }
+      const listed = INSIGHT_LISTED_VALIDATIONS.has(check.validation)
+      const tag = document.createElement('span')
+      tag.className = `insight-tag ${listed ? 'listed' : 'unlisted'}`
+      tag.textContent = family.expect.length > 1 ? `${check.title || title}: ` : ''
+      tag.textContent += listed ? 'listed by default' : 'only with Show all routes'
+      family.ui.listing.append(tag)
+      if (!listed && check.validationReason) {
+        const why = document.createElement('details')
+        const summary = document.createElement('summary')
+        summary.textContent = 'Why not listed by default'
+        why.append(summary, check.validationReason)
+        family.ui.listing.append(why)
+      }
+    }
+  }
+
+  async function refreshInsightAvailability() {
+    let report
+    try {
+      report = await fetchInsightsReport()
+      if (!report.available) {
+        throw new Error(report.unavailableReason || 'The runtime journal does not record, so Runtime Insights is unavailable.')
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      insightsAvailability.textContent = reason
+      INSIGHT_FAMILIES.forEach(family => setFamilyReason(family, reason))
+      insightsAllButton.disabled = true
+      return
+    }
+    const checks = new Map((report.checks || []).map(check => [check.kind, check]))
+    let chatReason = null
+    if (INSIGHT_FAMILIES.some(family => family.gate === 'chat-model')) {
+      chatReason = await chatModelReason().catch(error => (error instanceof Error ? error.message : String(error)))
+    }
+    for (const family of INSIGHT_FAMILIES) {
+      const check = checks.get(family.expect[0][0])
+      let reason = null
+      if (family.gate === 'chat-model') {
+        reason = chatReason
+      } else if (!check) {
+        reason = 'This version of BootUI does not run this check.'
+      } else if (INSIGHT_BLOCKING_STATUSES.has(check.status)) {
+        reason = check.reason || `This check is ${check.status.toLowerCase().replace('_', ' ')} here.`
+      }
+      setFamilyReason(family, reason)
+      renderListing(family, checks)
+    }
+    const unavailable = INSIGHT_FAMILIES.filter(family => !familyRunnable(family)).length
+    insightsAvailability.textContent = unavailable
+      ? `${unavailable} of ${INSIGHT_FAMILIES.length} findings cannot be generated here; each says why.`
+      : ''
+    insightsAllButton.disabled = insightsBusy
+  }
+
+  function findObservation(report, kind, subject) {
+    return (report.observations || []).find(
+      observation => observation.kind === kind && (subject === null || observation.subject === subject)
+    )
+  }
+
+  function missingFindings(report, families) {
+    return families.some(family =>
+      family.expect.some(([kind, , subject]) => !findObservation(report, kind, subject))
+    )
+  }
+
+  // The journal dispatches events asynchronously, and work after the response ends later still.
+  async function awaitFindings(families) {
+    const deadline = Date.now() + (families.some(family => family.steps.length) ? 10_000 : 0)
+    let report = await fetchInsightsReport()
+    while (missingFindings(report, families) && Date.now() < deadline) {
+      await new Promise(resolve => window.setTimeout(resolve, 500))
+      report = await fetchInsightsReport()
+    }
+    return report
+  }
+
+  function renderResult(family, report) {
+    const checks = new Map((report.checks || []).map(check => [check.kind, check]))
+    const items = family.expect.map(([kind, title, subject]) => {
+      const item = document.createElement('li')
+      const observation = findObservation(report, kind, subject)
+      if (!observation) {
+        const check = checks.get(kind)
+        item.textContent =
+          `${title}: not reported yet. ` +
+          ((check && check.reason) || 'Open the panel to see what this check still needs.')
+        return item
+      }
+      const link = document.createElement('a')
+      link.href = `${INSIGHTS_PANEL}?insight=${encodeURIComponent(observation.id)}`
+      link.textContent = `${title}: ${observation.subject}`
+      const status = INSIGHT_STATUS_WORDS[observation.status] || observation.status.toLowerCase()
+      const listing = observation.listed ? 'listed by default' : 'not listed by default, this link opens it'
+      const sentence = document.createElement('span')
+      // Sentences quote routes and statements between backticks, which the panel shows as code.
+      observation.sentence.split('`').forEach((part, index) => {
+        if (index % 2) {
+          const code = document.createElement('code')
+          code.textContent = part
+          sentence.append(code)
+        } else {
+          sentence.append(part)
+        }
+      })
+      item.append(link, ` (${status}, ${listing})`, sentence)
+      return item
+    })
+    family.ui.result.replaceChildren(...items)
+    family.ui.result.hidden = false
+    return family.expect.every(([kind, , subject]) => findObservation(report, kind, subject))
+  }
+
+  async function sendInsightTraffic(families, label) {
+    const total = families.reduce(
+      (sum, family) => sum + family.steps.reduce((count, step) => count + step[2], 0),
+      0
+    )
+    let sent = 0
+    for (const family of families) {
+      for (const [method, path, times, headers = {}, body] of family.steps) {
+        for (let i = 0; i < times; i += 1) {
+          await fetch(path, {method, headers, body})
+          sent += 1
+          insightsStatus.textContent = `${label}: sent ${sent} of ${total} requests...`
+        }
+      }
+    }
+    return total
+  }
+
+  async function runInsightFamilies(families, label) {
+    if (insightsBusy) {
+      return
+    }
+    insightsBusy = true
+    insightsAllButton.disabled = true
+    INSIGHT_FAMILIES.forEach(family => (family.ui.button.disabled = true))
+    try {
+      const sent = await sendInsightTraffic(families, label)
+      insightsStatus.textContent = `${label}: sent ${sent} requests, reading the Runtime Insights report...`
+      const report = await awaitFindings(families)
+      const found = families.filter(family => renderResult(family, report)).length
+      insightsStatus.textContent =
+        families.length === 1
+          ? `${label}: ${found ? 'found' : 'not reported yet'}. See the results under the button.`
+          : `Generated all findings: ${found} of ${families.length} families reported. See the results under each button.`
+    } catch (error) {
+      insightsStatus.textContent = `${label} failed: ${error instanceof Error ? error.message : String(error)}`
+    } finally {
+      insightsBusy = false
+      INSIGHT_FAMILIES.forEach(family => (family.ui.button.disabled = !familyRunnable(family)))
+      insightsAllButton.disabled = false
+    }
+  }
+
+  insightsAllButton.addEventListener('click', () =>
+    runInsightFamilies(
+      INSIGHT_FAMILIES.filter(family => family.steps.length && familyRunnable(family)),
+      'Generate all findings'
+    )
+  )
+
+  refreshInsightAvailability()
 </script>
 </body>
 </html>

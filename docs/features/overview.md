@@ -798,6 +798,15 @@ the tokens of one model call above which AI usage reports its route from that ca
 The sample apps seed one case for each observation beside the counterexample it must not report, and
 `e2e/scripts/insights-demo.mjs` sends that traffic to a running sample, so the panel can be explored without tracing.
 
+::: details Try it with the sample application
+Open the Spring sample's welcome page (`http://localhost:8080/`) and use its **Runtime Insights** section: one button
+per finding, such as **N+1 selects**, **Error behind a 200**, or **Proxy bypass**, sends the requests that produce it
+and links to the finding, saying whether the panel lists it by default or only with **Show all routes**.
+**Generate all findings** runs them all. Findings this application cannot produce are disabled with BootUI's reason,
+such as **Work after the response** without the BootUI agent. The sample's README, under *Runtime Insights demo*, lists
+what each finding needs.
+:::
+
 **Copy for AI** on an open observation previews it as one Markdown document, its sentence, the checks to run, the
 requests to open, and its evidence, built from what the panel already shows; copying sends nothing. Agents read the
 same facts through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and

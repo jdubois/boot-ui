@@ -24,7 +24,8 @@ test.describe('Runtime Insights demo', () => {
       ['Anonymous success on a restricted route', '/api/insights/reports/{name}'],
       ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
       ['Writes after commit', '/api/insights/orders/{id}/archive'],
-      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush']
+      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush'],
+      ['Large persistence contexts', '/api/insights/tags/export']
     ]) {
       await expect(page.getByRole('heading', {name: title, level: 2, exact: true})).toBeVisible({timeout: 15_000})
       await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()

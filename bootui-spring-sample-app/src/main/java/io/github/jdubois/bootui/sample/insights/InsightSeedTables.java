@@ -8,7 +8,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Creates and fills the small order tables the Runtime Insights seeds read and write ({@code docs/PLAN-v2.md} M3-6),
- * with portable SQL on H2, PostgreSQL, and MySQL, and hands out their row ids. Runs once at startup, outside every
+ * with portable SQL on H2, PostgreSQL, and MySQL, fills the tags the export seeds load, and hands out the order tables'
+ * row ids. Runs once at startup, outside every
  * request, so none of its statements reaches an observation.
  */
 @Component
@@ -18,14 +19,21 @@ public class InsightSeedTables implements ApplicationRunner {
     static final int ORDERS = 6;
 
     private final JdbcTemplate jdbc;
+    private final InsightTagService tags;
     private final AtomicLong ids = new AtomicLong(1_000);
 
-    public InsightSeedTables(JdbcTemplate jdbc) {
+    public InsightSeedTables(JdbcTemplate jdbc, InsightTagService tags) {
         this.jdbc = jdbc;
+        this.tags = tags;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        createOrderTables();
+        tags.ensureExportedTags();
+    }
+
+    private void createOrderTables() {
         jdbc.execute("create table if not exists insight_orders"
                 + " (id bigint primary key, customer varchar(80) not null, total_cents bigint not null)");
         jdbc.execute(
