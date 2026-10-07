@@ -26,6 +26,7 @@ test.describe('Sample application REST API', () => {
     expect(body).toContain('Test native WebSocket echo')
     expect(body).toContain('Test STOMP chat')
     expect(body).toContain('Ask Spring AI')
+    expect(body).toContain('Generate all findings')
   })
 
   test('homepage action lab exercises sample flows', async ({page}) => {
