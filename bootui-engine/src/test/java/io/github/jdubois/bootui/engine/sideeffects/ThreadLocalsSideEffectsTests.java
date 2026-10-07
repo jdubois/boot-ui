@@ -177,9 +177,37 @@ class ThreadLocalsSideEffectsTests {
         outOfTime = false;
         leaveSet(TENANT);
 
+        // The given-up row moved to the holder: one row, both records, no "not resolved" row left.
         assertThat(service.sensor("thread-locals", null, null).rows())
-                .extracting(SideEffectsRowDto::target)
-                .contains(getClass().getName() + ".TENANT");
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.target()).isEqualTo(getClass().getName() + ".TENANT");
+                    assertThat(row.origin()).isEqualTo(SideEffectOrigins.APPLICATION);
+                    assertThat(row.count()).isEqualTo(2L);
+                });
+    }
+
+    @Test
+    void aFrameworksThreadLocalGivenUpOnIsDroppedOnceResolvedAndExcludedByTheBridge() {
+        start();
+        outOfTime = true;
+        leaveSet(FRAMEWORK);
+        assertThat(service.sensor("thread-locals", null, null).rows()).isEmpty();
+        clock.addAndGet(SideEffectsService.HOLDER_WAIT_MILLIS + 1);
+        assertThat(service.sensor("thread-locals", null, null).rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo("holder not resolved (java.lang.ThreadLocal)"));
+        assertThat(excluded).isEmpty();
+
+        outOfTime = false;
+        leaveSet(FRAMEWORK);
+
+        SideEffectsSensorReport report = service.sensor("thread-locals", null, null);
+        assertThat(report.rows()).isEmpty();
+        assertThat(report.limitations())
+                .anySatisfy(limitation -> assertThat(limitation)
+                        .contains("org.springframework.web.context.request.RequestContextHolder 2"));
+        assertThat(excluded).containsExactly(System.identityHashCode(FRAMEWORK));
     }
 
     @Test

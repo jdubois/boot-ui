@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.function.LongSupplier;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.jar.asm.ClassReader;
 import net.bytebuddy.jar.asm.ClassVisitor;
@@ -52,8 +53,9 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     static final long STALE_INDEX_MILLIS = 1_000L;
 
     /**
-     * A rebuild a miss forces walks every loaded class, outside the caller's time budget: at most one every this
-     * long. Meanwhile a miss on a stale index is asked again, and the periodic rebuild answers it within {@value
+     * A rebuild a miss forces walks every loaded class in one {@link Instrumentation#getAllLoadedClasses()} call, which
+     * no deadline bounds: the engine charges its time to its budget once it returns, and it happens at most once every
+     * this long. Meanwhile a miss on a stale index is asked again, and the periodic rebuild answers it within {@value
      * #INDEX_MILLIS} ms.
      */
     static final long FORCED_INDEX_MILLIS = 10_000L;
@@ -76,6 +78,10 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     private long indexedAt = Long.MIN_VALUE / 2;
 
     private long forcedAt = Long.MIN_VALUE / 2;
+
+    /** Tests only: the clock the index's ages are read on; the system's when {@code null}. */
+    LongSupplier clock;
+
     private String[] indexedPackages;
     private Set<String> executed = new HashSet<String>();
     private long executedAt = Long.MIN_VALUE / 2;
@@ -97,7 +103,7 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
         String[] claimed = packages == null ? new String[0] : packages;
         refreshIndex(claimed, holders, false);
         String[] answer = search(threadLocal, claimed, holders, deadline);
-        long now = System.currentTimeMillis();
+        long now = now();
         if (answer != null && answer[0] == null && now - indexedAt >= STALE_INDEX_MILLIS) {
             if (System.nanoTime() >= deadline || now - forcedAt < FORCED_INDEX_MILLIS) {
                 // Never "not resolved" from a stale index: asked again with time to rebuild it, or once rebuilt.
@@ -460,7 +466,7 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     // ---- the loaded classes ----------------------------------------------------------------------------------------
 
     private void refreshIndex(String[] packages, String[] holders, boolean force) {
-        long now = System.currentTimeMillis();
+        long now = now();
         if (!force && now - indexedAt < INDEX_MILLIS && java.util.Arrays.equals(packages, indexedPackages)) {
             return;
         }
@@ -542,6 +548,11 @@ final class ThreadLocalResolver extends ThreadLocals.Resolver {
     }
 
     private List<WeakReference<ClassLoader>> loaders = new ArrayList<WeakReference<ClassLoader>>();
+
+    private long now() {
+        LongSupplier current = clock;
+        return current == null ? System.currentTimeMillis() : current.getAsLong();
+    }
 
     static boolean inPackages(String className, String[] packages) {
         if (packages == null) {
