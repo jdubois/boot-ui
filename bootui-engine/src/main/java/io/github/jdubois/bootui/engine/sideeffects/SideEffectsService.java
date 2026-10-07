@@ -1369,8 +1369,9 @@ public final class SideEffectsService implements AutoCloseable {
                 if (unconfirmed > 0) {
                     limitations.add(unconfirmed
                             + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
-                            + " not shown yet: a value outside an SQL literal or made of digits only may be a word the"
-                            + " text always holds, until a second request confirms the text varies with it.");
+                            + " not shown yet: a value outside an SQL literal, a number, or one whose place in the text"
+                            + " is not known may be a word the text always holds, until a second request confirms the"
+                            + " text varies with it.");
                 }
                 if (current.stale > 0) {
                     limitations.add(current.stale + " records of an earlier run were dropped.");

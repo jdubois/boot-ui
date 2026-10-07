@@ -123,8 +123,9 @@ public final class RequestValues {
     public static final int F_BUSY = 16;
 
     /**
-     * The request matched this same text before: compared again, so its spans redact it as before, but neither counted
-     * as a check nor to be published again, so a statement repeated in a loop spends no check budget.
+     * The request matched this same text before: compared again, so its spans redact it as before (never spans kept from
+     * an earlier text, which a hash collision could misplace), and not published again or counted as a check; its
+     * comparisons still count toward the request's comparison budget.
      */
     public static final int F_SEEN = 32;
 
@@ -243,6 +244,11 @@ public final class RequestValues {
         final long[] matchedHashes = new long[MATCHED_HASHES];
         int matchedCount;
         int count;
+        /**
+         * Bumped by every value added, on a push or a late pull: a text remembered under an earlier epoch is checked
+         * again, as it may hold a value added since.
+         */
+        long epoch;
         /** The held values' lengths summed: a check's comparisons are its scanned length times this. */
         int valueChars;
 
@@ -486,6 +492,7 @@ public final class RequestValues {
             entry.matchedHashes[i] = 0L;
         }
         entry.matchedCount = 0;
+        entry.epoch = 0L;
         entry.count = 0;
         entry.valueChars = 0;
         entry.hashCount = 0;
@@ -522,6 +529,7 @@ public final class RequestValues {
         entry.values[entry.count] = value;
         entry.names[entry.count] = validName(name) ? name : fallbackName(name);
         entry.count++;
+        entry.epoch++;
         entry.valueChars += value.length();
         KEPT.increment();
     }
@@ -937,10 +945,12 @@ public final class RequestValues {
             if (entry.stopped) {
                 return flag(spans, F_STOPPED);
             }
+            // The text's key under the values held now: one remembered before a value was added is checked again.
+            long key = hash ^ (entry.epoch * 0x9E3779B97F4A7C15L);
             // Before the budgets: a statement repeated in a loop costs neither a check nor comparisons. Only texts that
             // matched nothing are remembered, so a repeated text holding a value is compared again and redacted again.
             for (int i = 0; i < entry.hashCount && i < HASHES; i++) {
-                if (entry.hashes[i] == hash) {
+                if (entry.hashes[i] == key) {
                     REPEATED.increment();
                     return flag(spans, F_REPEATED);
                 }
@@ -950,7 +960,7 @@ public final class RequestValues {
             }
             boolean seen = false;
             for (int i = 0; i < entry.matchedCount && i < MATCHED_HASHES; i++) {
-                seen |= entry.matchedHashes[i] == hash;
+                seen |= entry.matchedHashes[i] == key;
             }
             if (!seen && ++entry.checks > MAX_CHECKS) {
                 entry.stopped = true;
@@ -1001,10 +1011,10 @@ public final class RequestValues {
                 // Only a text scanned whole is remembered as holding nothing: a partly scanned one is checked again,
                 // and
                 // reported partial again, each time, so a repeat never reads as checked.
-                entry.hashes[entry.hashCount % HASHES] = hash;
+                entry.hashes[entry.hashCount % HASHES] = key;
                 entry.hashCount++;
             } else if (mask != 0 && !seen && owns(index, token, entry)) {
-                entry.matchedHashes[entry.matchedCount % MATCHED_HASHES] = hash;
+                entry.matchedHashes[entry.matchedCount % MATCHED_HASHES] = key;
                 entry.matchedCount++;
             }
             if (spans != null && spans.length > S_FLAGS) {

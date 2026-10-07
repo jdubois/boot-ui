@@ -166,6 +166,25 @@ class SecuritySinksServiceTests {
     }
 
     @Test
+    void aValueInsideAnotherValuesSpanIsNeverShownFromOneRequestNorSaidToBeInsideALiteral() {
+        start();
+        context.set(CorrelationContext.forRequest(FIRST));
+        AgentRequestValues.begin(
+                FIRST,
+                new AgentRequestValues.Values()
+                        .add("sort", seeded("created_at"))
+                        .add("field", seeded("created")));
+        Launcher.sql("select * from orders order by created_at", context.get());
+        AgentRequestValues.end(FIRST);
+        context.set(CorrelationContext.NONE);
+
+        assertThat(rows()).as("both wait for a second request").isEmpty();
+        assertThat(service.sensor(SideEffectsCatalog.SECURITY_SINKS_ID, null, null)
+                        .limitations())
+                .anyMatch(line -> line.startsWith("2 security-sinks matches are not shown yet"));
+    }
+
+    @Test
     void aDigitsOnlyValueInsideALiteralAlsoWaitsForConfirmation() {
         start();
         inRequest(

@@ -514,6 +514,25 @@ class RequestValuesTests {
     }
 
     @Test
+    void aTextCheckedBeforeAValueWasAddedIsCheckedAgainAfterwards() {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("q"), values("first-value"), null, null);
+        String text = "select * from t where p = 'path-value'";
+        int[] spans = new int[RequestValues.SPANS_LENGTH];
+        assertThat(RequestValues.match(text, RequestValues.SINK_SQL, spans, null))
+                .isZero();
+
+        // A later push of the same request, as Spring MVC's path variables at the handler phase.
+        RequestValues.begin(REQUEST, names("p"), values("path-value"), null, null);
+        spans[RequestValues.S_FLAGS] = 0;
+
+        assertThat(RequestValues.match(text, RequestValues.SINK_SQL, spans, null))
+                .isEqualTo(0b10);
+        assertThat(spans[RequestValues.S_FLAGS]).isZero();
+    }
+
+    @Test
     void signedAndDecimalNumbersAreNumbersAndNothingElseIs() {
         for (String number : List.of("4242", "-33.8688", "+7", "151.2093", ".5")) {
             assertThat(RequestValues.number(number, 0, number.length()))

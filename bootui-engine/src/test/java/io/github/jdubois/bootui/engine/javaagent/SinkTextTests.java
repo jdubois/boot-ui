@@ -97,6 +97,19 @@ class SinkTextTests {
     }
 
     @Test
+    void aValueInsideAnotherValuesSpanIsUnknownSoItsRowWaitsForConfirmation() {
+        String sql = "select * from orders order by created_at";
+        int[] positions = new int[AgentRequestValues.MAX_VALUES];
+
+        String masked = SqlSinkText.mask(
+                sql, spans(sql, "created_at", 0, "created", 1), new String[] {"sort", "field"}, positions);
+
+        assertThat(masked).isEqualTo("select * from orders order by {sort}");
+        assertThat(positions[0]).isEqualTo(AgentRequestValues.POSITION_OUTSIDE_LITERAL);
+        assertThat(positions[1]).isEqualTo(AgentRequestValues.POSITION_UNKNOWN);
+    }
+
+    @Test
     void aSignedNumberIsABareLiteralThatWaitsForConfirmation() {
         String sql = "select * from places where lat = -33.8688 and lon = 151.2093 and name = 'sydney'";
         int[] positions = new int[AgentRequestValues.MAX_VALUES];

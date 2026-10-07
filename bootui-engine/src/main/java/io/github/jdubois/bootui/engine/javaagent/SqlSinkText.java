@@ -9,7 +9,10 @@ import java.util.Arrays;
  * escaping, MySQL's double-quoted strings, PostgreSQL's dollar quoting, prefixed and typed literals, and numbers), whatever
  * the exposure policy, except that a literal holding a matched value shows {@code {name}} in its place; comments are
  * dropped; whitespace runs are collapsed. And, for each matched value, whether it sat inside a literal or outside one,
- * where an identifier, a keyword, or an operator stands. Never a value or a literal's text.
+ * where an identifier, a keyword, or an operator stands. Never a request value: every matched span is replaced by its
+ * value's name, whatever the lexer saw around it. A literal SQL Trace's lexer misreads, as PostgreSQL's {@code 'C:'}
+ * with standard strings, a MySQL {@code "abc123"} it takes for an identifier, or {@code 0xDEAD}, may show as the
+ * statement's own text, as it does in SQL Trace's fingerprint.
  */
 final class SqlSinkText {
 
@@ -22,7 +25,10 @@ final class SqlSinkText {
      * The masked statement, {@code positions} filled per value index with {@link AgentRequestValues#POSITION_IN_LITERAL}
      * or {@link AgentRequestValues#POSITION_OUTSIDE_LITERAL}, from the first span of each value, with
      * {@link AgentRequestValues#FLAG_BARE_LITERAL} for a value inside a number or {@code true}/{@code false}, and
-     * {@link AgentRequestValues#FLAG_CROSSES_LITERAL} for one that crosses a literal's or a comment's bounds.
+     * {@link AgentRequestValues#FLAG_CROSSES_LITERAL} for one that crosses a literal's or a comment's bounds. A value whose
+     * spans another value's covered whole, as {@code created} inside {@code created_at}, is
+     * {@link AgentRequestValues#POSITION_UNKNOWN}: the text names the other value there, so the row waits for
+     * confirmation.
      *
      * <p>Every character is classified first (the literal or comment holding it, or none), then emitted from that alone:
      * a character inside a literal or a comment is never copied, whatever a value's span did beside it.
@@ -50,9 +56,13 @@ final class SqlSinkText {
         // minus SQL Trace's lexer leaves outside the literal.
         boolean[] signed = new boolean[positions.length];
         boolean[] other = new boolean[positions.length];
+        boolean[] reported = new boolean[positions.length];
         for (int s = 0; s < count; s++) {
             int slot = AgentRequestValues.S_FIRST + 3 * s;
             int index = spans[slot];
+            if (index >= 0 && index < reported.length) {
+                reported[index] = true;
+            }
             int from = Math.max(0, spans[slot + 1]);
             int to = Math.min(spans[slot + 2], length);
             if (from >= to) {
@@ -118,7 +128,10 @@ final class SqlSinkText {
             i++;
         }
         for (int index = 0; index < positions.length; index++) {
-            if (crosses[index] && decided[index]) {
+            if (reported[index] && !decided[index]) {
+                // Every character of its spans went to another value: where it sat is not this value's to say.
+                positions[index] = AgentRequestValues.POSITION_UNKNOWN;
+            } else if (crosses[index] && decided[index]) {
                 positions[index] = AgentRequestValues.POSITION_OUTSIDE_LITERAL
                         | AgentRequestValues.FLAG_CROSSES_LITERAL
                         | (signed[index] && !other[index] ? AgentRequestValues.FLAG_BARE_LITERAL : 0);

@@ -861,8 +861,9 @@ holder. The values are not part of BootUI's correlation context, so no executor 
 agent propagated, or any other request's work, is never matched; a task the request hands to a managed executor still
 matches, until the response completes. Matching is bounded per request: at most 256 checks, 16 KB of text per check,
 and 4 Mi character comparisons in all, each check costing its text's length times the held values' total length. An
-identical text scanned whole that matched nothing is not checked again, and one that already matched is redacted again but neither
-counted as a check nor reported twice, so a statement repeated in a loop spends no budget. When a text was scanned only
+identical text scanned whole that matched nothing, while the request's values are unchanged, is not checked again; one that
+already matched is compared and redacted again, not reported twice, and not counted as a check, though its comparisons
+count, so a statement repeated in a long loop can still reach the comparison budget. When a text was scanned only
 in part, or held more matches than could be redacted, the row keeps no text. Once a request reached its budget, its
 later sinks are not checked: a `files` or `processes` row then names its path or executable `(not kept: not checked for
 request input)`, never the text, as it does for a path or executable longer than a check scans; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
