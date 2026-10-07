@@ -65,6 +65,16 @@ class AgentPluginPayloadTests {
     }
 
     @Test
+    void portableAndClaudeCodeManifestsShareThePluginDescription() throws IOException {
+        String portable = Files.readString(RepositoryFiles.file("plugins/bootui/plugin.json"));
+        String claudeCode = Files.readString(RepositoryFiles.file("plugins/bootui/.claude-plugin/plugin.json"));
+
+        assertThat(stringValue(portable, "description"))
+                .as("the portable and Claude Code manifests describe the same BootUI plugin")
+                .isEqualTo(stringValue(claudeCode, "description"));
+    }
+
+    @Test
     void mcpManifestDeclaresTheMatchingStreamableHttpLoopbackServer() throws IOException {
         String plugin = Files.readString(RepositoryFiles.file("plugins/bootui/plugin.json"));
         String mcp = Files.readString(RepositoryFiles.file("plugins/bootui/mcp.json"));
