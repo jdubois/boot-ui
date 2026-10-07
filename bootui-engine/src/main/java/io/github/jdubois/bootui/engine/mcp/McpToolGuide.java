@@ -77,7 +77,8 @@ public final class McpToolGuide {
             Map.entry(
                     "get_runtime_impact",
                     new IdSource(
-                            "a route, bean, class, Class#method, repository, table, cache, host, or event type",
+                            "a route, bean, class, Class#method or a bare method name, repository, table, cache, host, or"
+                                    + " event type",
                             List.of())),
             Map.entry(
                     "get_runtime_run_comparison",
@@ -102,9 +103,14 @@ public final class McpToolGuide {
             "empty (the default list), all (every observation), new, security, diff, latency, an observation kind"
                     + " such as repeated-selects, or a route, table, bean, or class",
             "get_code_inventory",
-            "changed (the default), never-executed, not-tracked, executed, dependencies, or a package or class",
+            "changed (the default), never-executed, not-tracked, executed, dependencies, or a package, class, or"
+                    + " method name",
             "get_code_paths",
-            "empty (the slowest routes), or a route or method name");
+            "empty (the slowest routes), or a route or method name",
+            "get_side_effects",
+            "a sensor id such as processes, network, files, environment, blocking, thread-activity, or"
+                    + " thread-locals, not captured (outbound calls no panel captured), or part of a route, target,"
+                    + " client, or call site");
 
     private McpToolGuide() {}
 

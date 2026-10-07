@@ -4,9 +4,11 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,7 +24,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
-/** Reactive WebFlux transport for the BootUI MCP server. */
+/**
+ * Reactive WebFlux transport for the BootUI MCP server: the same dual-era {@link BootUiMcpService#exchange} as the
+ * servlet {@code BootUiMcpController}, over a bounded {@code DataBuffer} body.
+ */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mcp")
 public class ReactiveBootUiMcpController {
@@ -41,16 +46,12 @@ public class ReactiveBootUiMcpController {
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<String>> rpc(
-            @RequestBody Flux<DataBuffer> requestBody,
-            @RequestHeader(value = McpProtocol.PROTOCOL_VERSION_HEADER, required = false) String protocolVersion) {
-        if (protocolVersion != null && !McpProtocol.KNOWN_VERSIONS.contains(protocolVersion)) {
-            return Mono.just(json(
-                    400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.UNSUPPORTED_PROTOCOL_VERSION_MESSAGE)));
-        }
+            @RequestBody Flux<DataBuffer> requestBody, @RequestHeader HttpHeaders headers) {
+        McpRequestHeaders mcpHeaders = BootUiMcpService.headers(headers);
         return DataBufferUtils.join(requestBody, maxPayloadBytes)
                 .publishOn(Schedulers.boundedElastic())
-                .map(buffer -> handle(readAndRelease(buffer)))
-                .switchIfEmpty(Mono.fromSupplier(() -> handle(new byte[0])))
+                .map(buffer -> handle(readAndRelease(buffer), mcpHeaders))
+                .switchIfEmpty(Mono.fromSupplier(() -> handle(new byte[0], mcpHeaders)))
                 .onErrorResume(
                         DataBufferLimitException.class,
                         ex -> Mono.just(json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE))));
@@ -61,7 +62,7 @@ public class ReactiveBootUiMcpController {
         return Mono.just(ResponseEntity.status(405).build());
     }
 
-    private ResponseEntity<String> handle(byte[] requestBody) {
+    private ResponseEntity<String> handle(byte[] requestBody, McpRequestHeaders headers) {
         if (requestBody != null && requestBody.length > maxPayloadBytes) {
             return json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE));
         }
@@ -71,25 +72,11 @@ public class ReactiveBootUiMcpController {
         } catch (IllegalArgumentException ex) {
             return json(400, error(null, McpProtocol.PARSE_ERROR, ex.getMessage()));
         }
-        if (request != null && request.isArray()) {
-            return json(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
-        }
-        if (!state.isEnabled()) {
-            if (isNotification(request)) {
-                return ResponseEntity.accepted().build();
-            }
-            return json(200, disabledError(request));
-        }
-        JsonNode response = service.handle(request);
-        if (response == null) {
+        BootUiMcpService.Reply reply = service.exchange(request, headers, state.isEnabled());
+        if (reply.body() == null) {
             return ResponseEntity.accepted().build();
         }
-        return json(200, response);
-    }
-
-    private static JsonNode disabledError(JsonNode request) {
-        JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-        return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);
+        return json(reply.status(), reply.body());
     }
 
     private static byte[] readAndRelease(DataBuffer buffer) {
@@ -100,14 +87,6 @@ public class ReactiveBootUiMcpController {
         } finally {
             DataBufferUtils.release(buffer);
         }
-    }
-
-    private static boolean isNotification(JsonNode request) {
-        return request != null
-                && request.isObject()
-                && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asString())
-                && !request.path("method").asString().isBlank();
     }
 
     private static ObjectNode error(JsonNode id, int code, String message) {

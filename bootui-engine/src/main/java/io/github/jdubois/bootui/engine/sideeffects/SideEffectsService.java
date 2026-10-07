@@ -889,7 +889,8 @@ public final class SideEffectsService implements AutoCloseable {
 
     /**
      * Side Effects for agents: every sensor's coverage, then the rows of the shipped sensors matching {@code query}, a
-     * sensor id or part of a row's attribution, target, or call site, most frequent first, at most {@code limit}.
+     * sensor id, part of a row's attribution, target, or call site, or a request id among its exemplars, most frequent
+     * first, at most {@code limit}.
      */
     public SideEffectsAgentReport agentReport(String query, Integer limit) {
         String asked = query == null ? "" : query.trim();
@@ -925,7 +926,11 @@ public final class SideEffectsService implements AutoCloseable {
         List<SideEffectsRowDto> listed = matching.subList(0, Math.min(max, matching.size()));
         List<String> limitations = new ArrayList<>(report.limitations());
         if (matching.isEmpty() && !needle.isEmpty()) {
-            limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them.");
+            limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them."
+                    + (needle.matches("[0-9a-f]{16}")
+                            ? " A request id matches only the rows naming it among their exemplar requests, at most"
+                                    + " three each."
+                            : ""));
         }
         return new SideEffectsAgentReport(
                 true,
@@ -1123,6 +1128,7 @@ public final class SideEffectsService implements AutoCloseable {
                 || contains(row.insideMethod(), needle)
                 || contains(row.sensor(), needle)
                 || contains(row.client(), needle)
+                || row.exemplarRequestIds().stream().anyMatch(id -> id.equalsIgnoreCase(needle))
                 || (SideEffectsRowDto.NOT_CAPTURED.equals(row.capture())
                         && ("not captured by any panel".contains(needle)
                                 || "not-captured".contains(needle)

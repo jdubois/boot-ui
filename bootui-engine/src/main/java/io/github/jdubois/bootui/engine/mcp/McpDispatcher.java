@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.mcp;
 
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.DiscoverResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
@@ -11,8 +12,11 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.ExecutionException;
@@ -24,6 +28,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +66,7 @@ public final class McpDispatcher {
     private final McpFailureReporter failureReporter;
     private final long executionTimeoutMillis;
     private final McpRuntimeStats runtimeStats;
+    private final Function<String, String> panelUnavailableReason;
 
     /**
      * @param tools the advertised tool catalog, in order (each adapter wires its own controllers /
@@ -150,6 +156,37 @@ public final class McpDispatcher {
             int maxConcurrentCalls,
             long executionTimeoutMillis,
             McpFailureReporter failureReporter) {
+        this(
+                toolSupplier,
+                prompts,
+                policy,
+                serverVersion,
+                instructions,
+                maxResults,
+                maxConcurrentCalls,
+                executionTimeoutMillis,
+                failureReporter,
+                panelId -> null);
+    }
+
+    /**
+     * Creates a dispatcher that can say why a catalog tool is not advertised.
+     *
+     * @param panelUnavailableReason the reason a panel is unavailable in this application, or {@code null} when it
+     *     is available or the adapter cannot tell; a call to a catalog tool this server does not advertise reports it
+     */
+    public McpDispatcher(
+            Supplier<List<McpTool>> toolSupplier,
+            List<McpPrompt> prompts,
+            McpPanelPolicy policy,
+            String serverVersion,
+            String instructions,
+            int maxResults,
+            int maxConcurrentCalls,
+            long executionTimeoutMillis,
+            McpFailureReporter failureReporter,
+            Function<String, String> panelUnavailableReason) {
+        this.panelUnavailableReason = Objects.requireNonNull(panelUnavailableReason, "panelUnavailableReason");
         this.toolSupplier = Objects.requireNonNull(toolSupplier, "toolSupplier");
         this.prompts = List.copyOf(prompts);
         this.policy = Objects.requireNonNull(policy, "policy");
@@ -193,6 +230,11 @@ public final class McpDispatcher {
         return List.copyOf(toolSupplier.get());
     }
 
+    /** The server version advertised in {@code initialize}, {@code server/discover}, and modern result metadata. */
+    public String serverVersion() {
+        return serverVersion;
+    }
+
     /** Operational counters exposed by the MCP Server panel. */
     public McpRuntimeStats runtimeStats() {
         return runtimeStats;
@@ -221,18 +263,38 @@ public final class McpDispatcher {
                     : new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_METHOD_MESSAGE);
         }
         McpDispatchOutcome outcome =
-                switch (method) {
-                    case "initialize" -> initialize(request);
-                    case "ping" -> new PingResult();
-                    case "tools/list" ->
-                        new ToolsListResult(
-                                tools().stream().map(McpTool::describe).toList());
-                    case "tools/call" -> callTool(request);
-                    case "prompts/list" -> new PromptsListResult(prompts);
-                    case "prompts/get" -> getPrompt(request);
-                    default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
-                };
+                request.era() == McpEra.MODERN ? dispatchModern(request, method) : dispatchLegacy(request, method);
         return request.notification() ? new NoResponse() : outcome;
+    }
+
+    /** MCP 2025-06-18: the {@code initialize} handshake and {@code ping}, as in BootUI 1.x. */
+    private McpDispatchOutcome dispatchLegacy(McpRequest request, String method) {
+        return switch (method) {
+            case "initialize" -> initialize(request);
+            case "ping" -> new PingResult();
+            default -> dispatchShared(request, method);
+        };
+    }
+
+    /** MCP 2026-07-28: no handshake and no {@code ping}; {@code server/discover} advertises the server instead. */
+    private McpDispatchOutcome dispatchModern(McpRequest request, String method) {
+        if ("server/discover".equals(method)) {
+            return new DiscoverResult(
+                    McpProtocol.SUPPORTED_VERSIONS, McpProtocol.SERVER_NAME, serverVersion, instructions);
+        }
+        return dispatchShared(request, method);
+    }
+
+    private McpDispatchOutcome dispatchShared(McpRequest request, String method) {
+        return switch (method) {
+            case "tools/list" ->
+                new ToolsListResult(
+                        tools().stream().map(tool -> tool.describe(maxResults)).toList());
+            case "tools/call" -> callTool(request);
+            case "prompts/list" -> new PromptsListResult(prompts);
+            case "prompts/get" -> getPrompt(request);
+            default -> new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + method);
+        };
     }
 
     private McpDispatchOutcome initialize(McpRequest request) {
@@ -251,7 +313,10 @@ public final class McpDispatcher {
 
         McpTool tool = findTool(name);
         if (tool == null) {
-            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.unknownToolMessage(name));
+            return McpToolCatalog.byName(name)
+                    .map(this::unavailableTool)
+                    .orElseGet(
+                            () -> new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.unknownToolMessage(name)));
         }
         if (request.argumentsError() != null) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, request.argumentsError());
@@ -375,6 +440,38 @@ public final class McpDispatcher {
                 .findFirst()
                 .<McpDispatchOutcome>map(PromptGetResult::new)
                 .orElseGet(() -> new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name));
+    }
+
+    /**
+     * A catalog tool this server does not advertise: still not callable, but the caller learns why, from the panel
+     * that backs it, rather than a bare "unknown tool" that reads like a typo.
+     */
+    private McpDispatchOutcome unavailableTool(McpToolCatalog.Entry entry) {
+        // Some adapters register a tool only while its panel is enabled, so a disabled panel's tool can be missing
+        // here: it gets the same refusal as an advertised one, not an availability reason that would be wrong.
+        if (!policy.isEnabled(entry.panelId())) {
+            return new ToolCallError(
+                    policy.disabledReason(entry.panelId()), McpDispatchOutcome.ToolErrorReason.PANEL_DISABLED);
+        }
+        String reason = null;
+        try {
+            reason = panelUnavailableReason.apply(entry.panelId());
+        } catch (RuntimeException failure) {
+            failureReporter.report("reading why a panel is unavailable", failure);
+        }
+        String panelTitle = BootUiPanels.byId(entry.panelId())
+                .map(BootUiPanels.Panel::title)
+                .orElse(entry.panelId());
+        Map<String, String> data = new LinkedHashMap<>();
+        data.put("tool", entry.name());
+        data.put("panel", entry.panelId());
+        if (reason != null && !reason.isBlank()) {
+            data.put("reason", reason.trim());
+        }
+        return new ProtocolError(
+                McpProtocol.INVALID_PARAMS,
+                McpProtocol.unavailableToolMessage(entry.name(), panelTitle, reason, entry.stacks()),
+                data);
     }
 
     private McpTool findTool(String name) {

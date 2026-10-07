@@ -384,9 +384,22 @@ public final class JdbcActivityStore implements ActivityStore {
                 rs.getString("parent_entry_id"),
                 rs.getString("secured_principal"),
                 rs.getInt("sql_n_plus_one_suspected") != 0,
-                badges ? decodeBadges(rs.getString(BADGES_COLUMN)) : List.of());
+                badges ? decodeBadges(rs.getString(BADGES_COLUMN)) : List.of(),
+                exceptionGroupId(rs.getString("entry_type"), rs.getString("entry_id")));
         return new StoredActivityEntry(instanceId, seq, entry);
     }
+
+    /**
+     * A stored {@code EXCEPTION} entry's group id, read back from the {@code exc-} id the buffers' feed gives it; an
+     * exception entry the journal's feed stored has no column for it, so {@code null}.
+     */
+    static String exceptionGroupId(String type, String id) {
+        return "EXCEPTION".equals(type) && id != null && id.startsWith(EXCEPTION_ID_PREFIX) && id.length() > 4
+                ? id.substring(EXCEPTION_ID_PREFIX.length())
+                : null;
+    }
+
+    private static final String EXCEPTION_ID_PREFIX = "exc-";
 
     /** An entry's badges, comma-separated (each is an upper-case identifier), or {@code null} when it has none. */
     static String encodeBadges(List<String> badges) {

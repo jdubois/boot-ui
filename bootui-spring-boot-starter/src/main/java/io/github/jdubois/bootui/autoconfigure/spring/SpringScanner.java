@@ -54,7 +54,8 @@ final class SpringScanner {
     SpringReport initialReport() {
         return report(
                 "NOT_SCANNED",
-                "Spring Advisor has not run yet. Click Run Spring checks to inspect the application context.",
+                "Spring Advisor has not run yet. Run Spring checks in the panel, or call spring_scan (bootui spring scan),"
+                        + " to inspect the application context.",
                 null,
                 List.of(),
                 0,

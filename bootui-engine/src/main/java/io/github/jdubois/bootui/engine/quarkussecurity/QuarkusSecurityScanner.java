@@ -56,7 +56,8 @@ public final class QuarkusSecurityScanner {
     public SecurityReport initialReport() {
         return report(
                 "NOT_SCANNED",
-                "Security checks have not run yet. Click Run security checks to evaluate the Quarkus configuration.",
+                "Security checks have not run yet. Run security checks in the panel, or call security_scan"
+                        + " (bootui security scan), to evaluate the Quarkus configuration.",
                 null,
                 List.of(),
                 List.of());

@@ -151,6 +151,52 @@ class CommandTreeTests {
     }
 
     @Test
+    void anActionsHelpPrintsItsWholeDescriptionWithTheApprovalTag() {
+        String probe = help("probe", "start");
+        assertThat(probe)
+                .contains(ToolManifest.Tool.ACTION_TAG)
+                .contains("separate approval")
+                .contains("Metadata only")
+                .contains("never argument or return values");
+        assertThat(help("memory", "scan")).contains(ToolManifest.Tool.ACTION_TAG, "full GC");
+        assertThat(help("sql", "clear")).contains(ToolManifest.Tool.ACTION_TAG);
+        assertThat(help("memory", "report")).doesNotContain(ToolManifest.Tool.ACTION_TAG);
+        assertThat(paths).isEmpty();
+    }
+
+    @Test
+    void theCommandListingTagsEveryActionAndNoRead() {
+        StringWriter output = new StringWriter();
+        BootUiCli.run(
+                new String[] {"--help"}, Map.of(), false, new PrintWriter(output, true), new PrintWriter(output, true));
+        String listing = output.toString();
+        for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
+            String synopsis = tool.synopsis();
+            int at = listing.indexOf("  " + synopsis + System.lineSeparator());
+            assertThat(at).as(synopsis).isNotNegative();
+            String detail = listing.substring(at + synopsis.length() + 2).stripLeading();
+            assertThat(detail.startsWith(ToolManifest.Tool.ACTION_TAG))
+                    .as("%s tagged", tool.command())
+                    .isEqualTo(tool.action());
+        }
+    }
+
+    private String help(String... command) {
+        StringWriter output = new StringWriter();
+        List<String> args = new ArrayList<>(List.of(command));
+        args.add("--help");
+        int status = BootUiCli.run(
+                args.toArray(String[]::new),
+                Map.of(),
+                false,
+                new PrintWriter(output, true),
+                new PrintWriter(output, true));
+        assertThat(status).isEqualTo(ExitCodes.SUCCESS);
+        // picocli wraps descriptions to the terminal width, so a phrase may span two lines.
+        return output.toString().replaceAll("\\s+", " ");
+    }
+
+    @Test
     void everyExampleInTheHelpRunsItsToolWithExactlyTheArgumentsItShows() {
         Map<String, String> failures = new LinkedHashMap<>();
 

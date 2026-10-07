@@ -521,7 +521,11 @@ public class BootUiReactiveAutoConfiguration {
         CliService bootUiReactiveCliService(ReactiveBootUiMcpTools tools, BootUiProperties properties) {
             String version = BootUiReactiveAutoConfiguration.class.getPackage().getImplementationVersion();
             return BootUiCliServiceFactory.create(
-                    tools::tools, new SpringMcpPanelPolicy(properties), properties, version);
+                    tools::tools,
+                    tools::panelUnavailableReason,
+                    new SpringMcpPanelPolicy(properties),
+                    properties,
+                    version);
         }
 
         @Bean

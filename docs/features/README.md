@@ -9,12 +9,12 @@ straight to a panel by name.
 | [Advisors](./advisors.md) | Architecture · REST API · Spring · Quarkus · Database · Hibernate · Memory · Security · Pentesting · Vulnerabilities | What is wrong with my app, and how do I fix it? |
 | [Runtime](./runtime.md) | Health · HTTP Sessions · Metrics · Live Memory · JVM Tuning · Heap Dump · Threads · Startup Timeline · GraalVM · CRaC | How is the JVM behaving right now? |
 | [Configuration](./configuration.md) | Configuration · Profile Diff · Loggers · Beans · Conditions · Mappings | What configuration and wiring is actually effective? |
-| [Database](./database.md) | Connection Pools · PostgreSQL · MySQL · SQL Trace · Hibernate Statistics · Transactions · Spring Data · Flyway · Liquibase | What is my app doing to the database? |
+| [Database](./database.md) | Database Connection Pools · PostgreSQL · MySQL · SQL Trace · Transactions · Hibernate Statistics · Spring Data · Flyway · Liquibase | What is my app doing to the database? |
 | [Security](./security.md) | Spring Security · Security Logs | How is access actually enforced? |
 | [Services](./services.md) | Scheduled Tasks · REST Client · Fault Tolerance · WebSockets · AI Framework · Cache · Email · Kafka · RabbitMQ · JMS | What is my app talking to? |
 | [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe | Why did that request fail? |
-| [Java agent](./java-agent.md) | Java Agent · Code Paths · Code Inventory · Side Effects | Did my change run? Where does the handler's time go? What did my route start? |
-| [Developer tools](./developer-tools.md) | MCP Server · Command Line · Spring DevTools · Dev Services · Copilot · Claude Code | What is my toolchain doing locally? |
+| [Instrumentation](./java-agent.md) | Java Agent · Code Paths · Code Inventory · Side Effects | Did my change run? Where does the handler's time go? What did my route start? |
+| [Developer tools](./developer-tools.md) | MCP Server · Command Line · Spring DevTools · Dev Services · Copilot · Claude Code · GitHub | What is my toolchain doing locally? |
 
 ## Rules that apply to every panel
 
@@ -28,7 +28,7 @@ existing handling.
 
 **Unavailable panels are visible, not hidden.** When a panel's backing infrastructure is missing, the sidebar moves it
 into a collapsed *Disabled / unavailable* group, and opening it shows the reason at the top of the page. The panels that
-need the BootUI agent are the exception: without the agent they stay in the *Java agent* group, dimmed, with the reason
+need the BootUI agent are the exception: without the agent they stay in the *Instrumentation* group, dimmed, with the reason
 as their tooltip, so they can be found before the agent is attached. A panel turned off by configuration always moves to
 *Disabled / unavailable*.
 

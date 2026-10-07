@@ -44,6 +44,7 @@ final class ToolManifestGenerator {
                             .map(JsonValue::of)
                             .toList()));
             tool.put("summary", JsonValue.of(summary(entry.name())));
+            tool.put("description", JsonValue.of(McpToolDescriptions.spring(entry.name())));
             tool.put(
                     "example", JsonValue.of(CliCommandPaths.command(entry.name(), McpToolGuide.example(entry.name()))));
             McpToolGuide.IdSource source = McpToolGuide.idSource(entry.name());
@@ -76,11 +77,11 @@ final class ToolManifestGenerator {
     }
 
     /**
-     * The first sentence of the MCP description.
+     * The first sentence of the MCP description, for the one-line command listing.
      *
-     * <p>MCP descriptions are written for a model deciding whether to call a tool, so they carry guidance a
-     * help listing does not want ("prefer a narrow query", "not proof that a bean is exercised"). The opening
-     * sentence is the part that says what the tool returns, which is exactly what a help line needs.
+     * <p>The listing needs what the tool returns, which the opening sentence says. A command's own {@code --help}
+     * prints the whole description instead, because the rest carries what a caller must not miss: that an action
+     * needs the user's approval, that a scan can trigger a full GC, that a probe records metadata only.
      */
     private static String summary(String toolName) {
         String description = McpToolDescriptions.spring(toolName);

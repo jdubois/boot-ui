@@ -267,6 +267,12 @@ class SideEffectsServiceTests {
                 .satisfies(row -> assertThat(row.target()).isEqualTo("git"));
         assertThat(bySensor.rows()).hasSize(1);
         assertThat(bySensor.omitted()).isEqualTo(1);
+        assertThat(all.rows())
+                .allSatisfy(row -> assertThat(row.exemplarRequestIds()).contains(REQUEST));
+        assertThat(service.agentReport(REQUEST, null).matched())
+                .as("a request id matches the rows naming it among their exemplars")
+                .isEqualTo(2);
+        assertThat(service.agentReport("00000000deadbeef", null).matched()).isZero();
         assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
             assertThat(store.store()).isEqualTo("side-effects");
             assertThat(store.retainedBytes()).isPositive();

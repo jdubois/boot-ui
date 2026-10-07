@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorCon
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
@@ -61,6 +62,7 @@ import io.github.jdubois.bootui.autoconfigure.web.StartupController;
 import io.github.jdubois.bootui.autoconfigure.web.ThreadDumpController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.autoconfigure.web.VulnerabilitiesController;
+import io.github.jdubois.bootui.autoconfigure.websocket.WebSocketController;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.TransactionRecordingRequest;
@@ -69,6 +71,7 @@ import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -547,7 +550,9 @@ public class BootUiMcpTools {
             ObjectProvider<DevServicesController> devServices,
             ObjectProvider<GitHubController> github,
             ObjectProvider<CopilotController> copilot,
-            ObjectProvider<ClaudeCodeController> claudeCode) {
+            ObjectProvider<ClaudeCodeController> claudeCode,
+            ObjectProvider<HibernateStatisticsController> hibernateStatistics,
+            ObjectProvider<WebSocketController> webSockets) {
         List<McpTool> registry = new ArrayList<>(tools);
 
         MetricsController metricsBean = metrics.getIfAvailable();
@@ -570,14 +575,14 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_live_memory",
                     McpToolDescriptions.spring("get_live_memory"),
-                    args -> liveMemoryBean.memory(null, null, null, null, null)));
+                    args -> MemoryAgentViews.liveMemory(liveMemoryBean.memory(null, null, null, null, null))));
         }
         JvmTuningController jvmTuningBean = jvmTuning.getIfAvailable();
         if (jvmTuningBean != null) {
             registry.add(tool(
                     "get_jvm_tuning",
                     McpToolDescriptions.spring("get_jvm_tuning"),
-                    args -> jvmTuningBean.jvmTuning(null, null, null, null, null)));
+                    args -> MemoryAgentViews.jvmTuning(jvmTuningBean.jvmTuning(null, null, null, null, null))));
         }
         HeapDumpController heapDumpBean = heapDump.getIfAvailable();
         if (heapDumpBean != null) {
@@ -723,6 +728,18 @@ public class BootUiMcpTools {
                     McpToolDescriptions.spring("get_claude_code_sessions"),
                     args -> claudeCodeBean.sessions(null, null)));
         }
+        HibernateStatisticsController hibernateStatisticsBean = hibernateStatistics.getIfAvailable();
+        if (hibernateStatisticsBean != null) {
+            registry.add(tool(
+                    "get_hibernate_statistics",
+                    McpToolDescriptions.spring("get_hibernate_statistics"),
+                    args -> hibernateStatisticsBean.statistics()));
+        }
+        WebSocketController webSocketsBean = webSockets.getIfAvailable();
+        if (webSocketsBean != null) {
+            registry.add(tool(
+                    "get_websockets", McpToolDescriptions.spring("get_websockets"), args -> webSocketsBean.report()));
+        }
 
         this.panelsController = panels.getIfAvailable();
         this.tools = List.copyOf(registry);
@@ -732,6 +749,21 @@ public class BootUiMcpTools {
     BootUiMcpTools(List<McpTool> tools) {
         this.panelsController = null;
         this.tools = List.copyOf(tools);
+    }
+
+    /**
+     * Why a panel is unavailable in this application, in the panel manifest's own words, or {@code null} when it is
+     * available or not known, so a call to a tool this registry does not advertise can say why.
+     */
+    public String panelUnavailableReason(String panelId) {
+        if (panelsController == null) {
+            return null;
+        }
+        return panelsController.panels().panels().stream()
+                .filter(panel -> panel.id().equals(panelId) && !panel.available())
+                .map(panel -> panel.unavailableReason() == null ? "" : panel.unavailableReason())
+                .findFirst()
+                .orElse(null);
     }
 
     /** All tools in advertised order. */

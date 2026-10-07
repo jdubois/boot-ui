@@ -21,9 +21,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -159,6 +159,14 @@ public abstract class AbstractBootUiApiConformanceTest {
      */
     protected String routeProbePath() {
         return applicationPath() + "/conformance-route-probe/4711";
+    }
+
+    /**
+     * An application request that fails with an exception BootUI captures into an exception group, or {@code null} when
+     * the host application has none; the Live Activity exception-link contract is skipped then.
+     */
+    protected String exceptionProbePath() {
+        return null;
     }
 
     /** Browser-visible UI mount, including any host application root path. */
@@ -1578,6 +1586,45 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void liveActivityExceptionEntriesNameTheirExceptionGroup() throws InterruptedException {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        assumeTrue(isPanelUsableInLiveManifest("exceptions"), "exceptions panel is not available in this environment");
+        String failing = exceptionProbePath();
+        assumeTrue(failing != null, "this host application has no failing request to send");
+        BootUiHttpProbe probe = probe();
+        probe.get(failing);
+        // The entry's path omits the application's root path; another failing request's entry never counts.
+        String failingPath = failing.substring(applicationPath().length());
+        for (String feed : List.of("/activity?source=journal&type=EXCEPTION&limit=50", "/activity?source=buffers")) {
+            String groupId = null;
+            for (int attempt = 0; attempt < 30 && groupId == null; attempt++) {
+                for (JsonNode entry : probe.get(api(feed)).json().path("entries")) {
+                    if ("EXCEPTION".equals(entry.path("type").asText())) {
+                        assertThat(entry.has("exceptionGroupId"))
+                                .as("%s: an EXCEPTION entry carries exceptionGroupId", feed)
+                                .isTrue();
+                        if (entry.path("path").asText("").endsWith(failingPath)
+                                && !entry.path("exceptionGroupId").asText("").isBlank()) {
+                            groupId = entry.path("exceptionGroupId").asText();
+                            break;
+                        }
+                    }
+                }
+                if (groupId == null) {
+                    Thread.sleep(100);
+                }
+            }
+            assertThat(groupId)
+                    .as("%s lists the exception of %s with its group id", feed, failingPath)
+                    .isNotNull();
+            Response detail = probe.get(api("/exceptions/" + groupId));
+            assertThat(detail.status())
+                    .as("%s: GET /exceptions/{exceptionGroupId} resolves the entry's group", feed)
+                    .isEqualTo(200);
+        }
+    }
+
+    @Test
     void requestJournalProfileKeepsOneShapeForAnUnknownAndARecordedRequest() throws InterruptedException {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
         ReadContract contract = BootUiApiContractCatalog.requestJournalProfile();
@@ -1816,21 +1863,25 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
                 .isEqualTo(23);
-        // Each kind's external validation (docs/PLAN-v2.md M4-20), from the engine's one registry, on every stack.
-        Map<String, String> validation = new HashMap<>();
+        // Each kind's external validation (docs/PLAN-v2.md M4-20) decides its default listing on every stack, but
+        // stays internal: no check carries it, and no row's reason mentions it.
         for (JsonNode check : report.path("checks")) {
-            assertThat(check.path("validation").asText())
-                    .as("check %s says how its external validation went", check.path("kind"))
-                    .isIn("PASSED", "NOT_VALIDATED", "FAILED", "UNDER_SAMPLED", "NOT_LISTED", "NOT_JUDGED");
-            assertThat(check.path("validationReason").asText()).isNotBlank();
-            validation.put(check.path("kind").asText(), check.path("validation").asText());
+            assertThat(check.has("validation") || check.has("validationReason"))
+                    .as("check %s does not expose its external validation", check.path("kind"))
+                    .isFalse();
         }
-        assertThat(validation)
-                .containsEntry("route-time-breakdown", "FAILED")
-                .containsEntry("exception-hotspots", "FAILED")
-                .containsEntry("errors-behind-2xx", "PASSED")
-                .containsEntry("repeated-selects", "UNDER_SAMPLED")
-                .containsEntry("safe-method-dml", "NOT_VALIDATED");
+        Set<String> notListedByDefault = Set.of(
+                "route-time-breakdown",
+                "exception-hotspots",
+                "connections-per-request",
+                "ai-usage-by-route",
+                "repeated-selects",
+                "lazy-sql-after-handler",
+                "split-transaction-writes",
+                "framework-warnings-by-route",
+                "anonymous-data-reach",
+                "gc-inflated-latency",
+                "heap-growth-after-gc");
         for (JsonNode observation : report.path("observations")) {
             // The default list (docs/PLAN-v2.md M4-19): every row says whether it is listed, and why when it is not.
             assertThat(observation.path("listed").isBoolean())
@@ -1839,12 +1890,14 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(observation.path("unlistedReason").isTextual())
                     .as("observation %s says why it is left out exactly when it is", observation.path("id"))
                     .isEqualTo(!observation.path("listed").asBoolean());
-            String outcome = validation.get(observation.path("kind").asText());
-            if (!"PASSED".equals(outcome) && !"NOT_VALIDATED".equals(outcome)) {
+            if (notListedByDefault.contains(observation.path("kind").asText())) {
                 assertThat(observation.path("listed").asBoolean())
                         .as("observation %s of a kind that is not listed by default (M4-20)", observation.path("id"))
                         .isFalse();
             }
+            assertThat(observation.path("unlistedReason").asText().toLowerCase(Locale.ROOT))
+                    .as("observation %s never tells users about the external validation", observation.path("id"))
+                    .doesNotContain("validat");
         }
         boolean httpCovered = false;
         for (JsonNode coverage : report.path("coverage")) {
