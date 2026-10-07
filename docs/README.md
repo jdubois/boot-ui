@@ -52,6 +52,19 @@ showcaseVideo: true
 | Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
 | Ask a running application from a terminal or CI | [Command line](CLI.md) |
 
+## Install the BootUI agent skill
+
+Give your coding agent BootUI's installation, runtime-diagnostics, advisor, and safety guidance:
+
+| Agent | Install |
+| ---- | ------- |
+| GitHub Copilot | `gh skill install jdubois/boot-ui skills/bootui` |
+| Claude Code | `/plugin marketplace add jdubois/boot-ui`, then `/plugin install bootui@bootui` |
+| Other compatible agents | `npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui` |
+
+The Claude Code plugin also configures BootUI's local MCP server. Read [AI agents](AI-AGENTS.md) to preview the skill,
+connect another MCP client, or configure a non-default application port.
+
 ## How BootUI works
 
 Your application serves the console at `/bootui/` and its JSON API at `/bootui/api/**`. The Vue UI is packaged inside

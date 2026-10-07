@@ -37,7 +37,7 @@ eligible for Agent Finder.
 Checked on 2026-10-07:
 
 - `gh skill search bootui` already found the skill directly in this repository, and
-  `gh skill preview jdubois/boot-ui bootui` loaded it successfully.
+  `gh skill preview jdubois/boot-ui skills/bootui` loaded the canonical consumer skill successfully.
 - Agent Finder itself did not return BootUI for either an exact `BootUI` search or a task asking to diagnose a running
   Spring Boot or Quarkus application. It returned generic Spring Boot and MCP skills instead.
 - [`github/agentfinder-catalog#66`](https://github.com/github/agentfinder-catalog/pull/66) was opened to add the
@@ -182,10 +182,16 @@ None of this needs repeating.
   skill. The maintainer-only `bootui-java-development` skill is deliberately kept out of the plugin payload.
 - `ClaudeCodePluginPayloadTests` in `bootui-engine` — the drift guard. It fails the build if the shipped skill stops
   matching the canonical one, and if any skill other than `bootui` ever appears in the plugin payload.
+- `AgentSkillDiscoverabilityTests` in `bootui-engine` — the discoverability guard. It fails the build if the canonical
+  skill loses its installable frontmatter, if a documented `gh skill` or `npx skills add` command stops naming the
+  canonical `skills/bootui` path, if a document outside the checked set grows its own install command, or if the
+  advertised marketplace plugin stops carrying the skill. It runs offline, so it never asks whether a registry is up.
 - `docs/AI-AGENTS.md` and `plugins/README.md` — the user-facing installation instructions for the plugin, and the
   maintainer note explaining why the plugin payload is a curated copy rather than the repository root.
-- The `npx skills add jdubois/boot-ui` command in the documentation, which is the whole skills.sh mechanism: that site
-  lists a repository once people install its skills that way, and there is nothing else to submit.
+- The exact-path
+  `npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui` command in the documentation, which is
+  the whole skills.sh mechanism: that site lists a repository once people install its skill that way, and there is
+  nothing else to submit.
 
 ## Keeping this honest
 
