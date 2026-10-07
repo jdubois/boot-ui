@@ -1479,9 +1479,9 @@ API, all `GET`, paged with `offset` and `limit` where they list:
 | `/bootui/api/code-inventory/dependencies` | The dependency use, declared jars not loaded first, filtered by `status` |
 
 `get_code_inventory` and `bootui code inventory` return the counts first, then at most `limit` (25) rows of `query`:
-`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
-`verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
-`changed-code-not-executed`.
+`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package, class, or method
+name. The `verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request
+executed as `changed-code-not-executed`.
 
 ## Side Effects
 
