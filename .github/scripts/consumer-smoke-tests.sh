@@ -48,6 +48,10 @@ readonly PUBLISHED_ARTIFACTS=(
   bootui-agent
 )
 
+sha1_hex() {
+  if command -v sha1sum >/dev/null 2>&1; then sha1sum; else shasum -a 1; fi | cut -d ' ' -f 1
+}
+
 if [[ $# -eq 2 ]]; then
   STAGED_REPOSITORY="$(cd "$2" && pwd)"
   if [[ ! -d "$STAGED_REPOSITORY/com/julien-dubois/bootui" ]]; then
@@ -55,13 +59,28 @@ if [[ $# -eq 2 ]]; then
     exit 2
   fi
   readonly EXPECTED_ORIGIN="bootui-staged"
+  readonly EXPECTED_ORIGIN_URL="file://${STAGED_REPOSITORY}"
   readonly SOURCE_LABEL="the staged release candidate in $STAGED_REPOSITORY"
 else
   STAGED_REPOSITORY=""
   readonly EXPECTED_ORIGIN="central"
+  readonly EXPECTED_ORIGIN_URL="https://repo.maven.apache.org/maven2"
   readonly SOURCE_LABEL="Maven Central"
 fi
 readonly STAGED_REPOSITORY
+# Maven records where it downloaded a file from in _remote.repositories: Maven Resolver 1 (Maven 3.9) as the
+# repository id, Maven Resolver 2 (Maven 3.10 and later) as the id, a hyphen, and the SHA-1 of the repository URL.
+EXPECTED_ORIGIN_KEY="${EXPECTED_ORIGIN}-$(printf '%s' "$EXPECTED_ORIGIN_URL" | sha1_hex)"
+readonly EXPECTED_ORIGIN_KEY
+
+# Whether this file in the local repository was downloaded from the source under test, in either format. Both name
+# exactly that repository, never another one or a locally installed file, whose origin is empty.
+resolved_from_source_under_test() {
+  local name
+  name="$(basename "$1")"
+  grep -Fxq -e "${name}>${EXPECTED_ORIGIN}=" -e "${name}>${EXPECTED_ORIGIN_KEY}=" \
+    "$(dirname "$1")/_remote.repositories" 2>/dev/null
+}
 
 WORK_DIR="$(mktemp -d)"
 readonly WORK_DIR
@@ -540,8 +559,7 @@ echo "Java agent smoke test passed."
 # ── Where BootUI came from ──────────────────────────────────────────────────────────────────────────────────
 # Together, the consumers above resolved every published coordinate, and only those: a parent POM, the agent
 # bridge, or a pre-2.0 coordinate here means a consumer POM still points at an artifact that is not published.
-# Each file must have been downloaded from the source under test; Maven records that origin in
-# _remote.repositories, and an empty origin would mean a locally installed file.
+# Each file must have been downloaded from the source under test (resolved_from_source_under_test).
 BOOTUI_LOCAL="$LOCAL_REPO/com/julien-dubois/bootui"
 RESOLVED_ARTIFACTS="$(find "$BOOTUI_LOCAL" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)"
 EXPECTED_ARTIFACTS="$(printf '%s\n' "${PUBLISHED_ARTIFACTS[@]}" | sort)"
@@ -557,8 +575,8 @@ for artifact in "${PUBLISHED_ARTIFACTS[@]}"; do
   artifact_dir="$BOOTUI_LOCAL/$artifact/$VERSION"
   for file in "$artifact_dir"/*.pom "$artifact_dir"/*.jar; do
     [[ -e "$file" ]] || continue
-    if ! grep -Fxq -- "$(basename "$file")>${EXPECTED_ORIGIN}=" "$artifact_dir/_remote.repositories" 2>/dev/null; then
-      echo "::error::$(basename "$file") was not resolved from ${SOURCE_LABEL} (repository id '${EXPECTED_ORIGIN}'):"
+    if ! resolved_from_source_under_test "$file"; then
+      echo "::error::$(basename "$file") was not resolved from ${SOURCE_LABEL} (origin '${EXPECTED_ORIGIN}' or '${EXPECTED_ORIGIN_KEY}'):"
       cat "$artifact_dir/_remote.repositories" 2>/dev/null || echo "(no _remote.repositories)"
       origin_errors=$((origin_errors + 1))
     fi
