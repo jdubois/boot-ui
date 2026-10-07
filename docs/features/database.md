@@ -11,9 +11,9 @@ The Database Connection Pools panel inspects supported JDBC pool beans. It is re
 borrows a connection, or resizes a pool, and it fails closed when no supported pool implementation or pool bean is
 present.
 
-The connections each request held at once, which Runtime Insights no longer lists by default since `connections-per-request` did not pass its external
-validation ([overview](overview.md#runtime-insights), M4-20), are linked from this panel: the link opens Runtime
-Insights with every row shown.
+The connections each request held at once, from the runtime journal, are in [Runtime Insights](overview.md#runtime-insights)
+(`connections-per-request`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
+every row shown.
 
 For each pool it shows the pool identity, the masked JDBC URL and username, the driver, the minimum and maximum
 sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry a clear unavailable reason. A live

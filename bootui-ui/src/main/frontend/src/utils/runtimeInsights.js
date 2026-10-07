@@ -72,7 +72,8 @@ function shown(observation, {query = '', all = false, selectedId = null} = {}) {
 
 /**
  * The observations matching the search text and theme, grouped by check in the report's check order. The search
- * matches the route or subject, the sentence, and the evidence a sentence names, such as a table or a logger. Without
+ * matches the check's title and kind, the route or subject, the sentence, and the evidence a sentence names, such as a
+ * table or a logger. Without
  * `all` or a search, only the observations listed by default are shown, and the selected one, so a refresh that leaves
  * it out never takes it away from the developer; with them, the listed ones stay first.
  */
@@ -85,7 +86,8 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
   }
   for (const observation of report?.observations ?? []) {
     if (theme && themeOf(observation.kind) !== theme) continue
-    if (needle && !`${observation.subject} ${observation.sentence}`.toLowerCase().includes(needle)) continue
+    const searched = `${titles.get(observation.kind) ?? ''} ${observation.kind} ${observation.subject} ${observation.sentence}`
+    if (needle && !searched.toLowerCase().includes(needle)) continue
     if (!shown(observation, {query, all, selectedId})) continue
     if (!groups.has(observation.kind)) {
       groups.set(observation.kind, {

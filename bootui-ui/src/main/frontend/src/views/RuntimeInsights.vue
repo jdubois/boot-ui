@@ -422,8 +422,8 @@ provide(
                 v-model="query"
                 type="search"
                 class="form-control form-control-sm insight-search"
-                aria-label="Search observations by route, table, or logger"
-                placeholder="Search routes, tables, loggers…"
+                aria-label="Search observations by check, route, table, or logger"
+                placeholder="Search checks, routes, tables, loggers…"
               />
               <div class="d-flex flex-wrap gap-1" role="group" aria-label="Filter observations by theme">
                 <button

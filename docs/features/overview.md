@@ -685,22 +685,17 @@ request's own |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 | `changed-code-not-executed` | Per class, the methods changed or added since the previous run that the agent tracked and that nothing executed in this run, worded "your change has not run yet". Its check names the declared routes mapped to the changed methods, by their own HTTP method and path, or says no route is known to be mapped to them, as when another class's handler of the same name may inherit it, since Spring and Quarkus name an inherited handler by its concrete class; never another route of the class. The routes that executed the class's other methods are listed among its limitations. Reads [Code Inventory](java-agent.md#code-inventory): needs the [BootUI agent](java-agent.md)'s `inventory` sensor and a previous run of the application kept in this JVM, and is not applicable, with the reason, without either, or while the Code Inventory panel is disabled; a changed method that executed, or one the agent could not track, is never reported |
 
-**External validation** decides which kinds the default list shows ([validation report](../V2-VALIDATION-REPORT.md#per-kind-gates),
-[PLAN-v2.md](../PLAN-v2.md) M4-20). Each kind was judged by two reviewers on seven applications not written for BootUI,
-and its outcome is recorded once in the engine, so every stack, the panel, and the agent tools list the same rows. The
-outcome itself stays in the plan and the validation report: the panel, the JSON, MCP, and the CLI never show it, and a
-row left out of the default list says only where its evidence is shown:
+Each kind's place in **the default list** is recorded once in the engine, so every stack, the panel, and the agent
+tools list the same rows:
 
-| Outcome | Kinds | Default list |
-| --- | --- | --- |
-| Passed | `errors-behind-2xx`, `changed-code-not-executed` | Listed |
-| Silent or never exercised | `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response` | Listed |
-| Failed, folded into its panel | `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI) | Not listed; the panel links to its rows |
-| Too few facts to judge | `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed; reached with **Show all routes**, a search, or a query naming it |
-| Not listed by design | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
+| Kinds | Default list |
+| --- | --- |
+| `errors-behind-2xx`, `changed-code-not-executed`, `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response` | Listed |
+| `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI) | Not listed; the named panel shows the same evidence and links to its rows |
+| `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach` | Not listed; reached with **Show all routes**, a search, or a query naming it |
+| `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
 
-The observations planned with the BootUI agent are not judged yet: they are shown as rows of their own panel, such as
-Side Effects, until their own external run passes the gate (D36).
+The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list.
 
 **The default list** shows less than the report holds, so the rows worth reading first are not buried under the others.
 A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the toggle **Show

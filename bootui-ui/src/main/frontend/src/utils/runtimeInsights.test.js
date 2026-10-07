@@ -81,6 +81,15 @@ describe('runtimeInsights helpers', () => {
     expect(themeOf('ai-usage-by-route')).toBe('ai')
   })
 
+  it('finds the rows of a check by its title or kind by its title or kind, as the reason of a left-out row says', () => {
+    const ids = (query) =>
+      groupObservations(report, {query})
+        .flatMap((group) => group.observations)
+        .map((observation) => observation.id)
+    expect(ids('repeated selects')).toEqual(['b', 'a'])
+    expect(ids('route-time-breakdown')).toEqual(['c'])
+  })
+
   it('shows only the rows listed by default unless every row or a search is asked for, listed rows first', () => {
     const withUnlisted = {
       ...report,
