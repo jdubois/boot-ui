@@ -647,12 +647,14 @@ live exposure policy changes. Sentences and evidence that quote recorded text, s
 a request path, follow the same rule as [Live Activity](#safety-and-limits).
 
 The panel leads with a **verdict** on the run: how many things it lists to check across how many requests, how many rows
-the default list leaves out, the share of events linked to their request, and the comparison with the previous run. Four
+the default list leaves out, the share of events linked to their request, and the comparison with the previous run. Five
 tabs follow. **Findings** is one list in the report's check order, searchable and filtered by theme, each theme counting
 its rows; a row opens in place on its sentence, what to check, the requests to open, its evidence, and its limits.
-**Changes** holds the comparison with the previous run and change impact, **Profile** the resource profiler, and
-**Coverage & limits** how the run's events were linked, the checks that did not fully run, and the routes not exercised.
-Nothing opens on its own: a deep link opens the row, the theme, or the change impact it names.
+**Changes** holds the comparison with the previous run, where each changed or added method offers **See its impact**;
+**Change impact** opens on its search field, offering the methods changed since the previous run as the first things
+to check; **Profile** holds the resource profiler, and **Coverage & limits** how the run's events were linked, the
+checks that did not fully run, and the routes not exercised. Nothing opens on its own: a deep link opens the row, the
+theme, the tab (`?tab=changes`, `impact`, `profile`, or `coverage`), or the change impact (`?impact=<symbol>`) it names.
 
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 

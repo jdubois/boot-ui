@@ -253,4 +253,81 @@ class ConditionsControllerTests {
                 .andExpect(jsonPath("$.counts.positiveTotal").value(2))
                 .andExpect(jsonPath("$.counts.positiveMatched").value(2));
     }
+
+    @Test
+    void conditionsPagesBothOutcomesTogetherAndFiltersTheClassListsOnlyWithoutAnOutcome() throws Exception {
+        MessageAndConditionDescriptor alpha = mock(MessageAndConditionDescriptor.class);
+        when(alpha.getCondition()).thenReturn("OnClassCondition");
+        when(alpha.getMessage()).thenReturn("alpha matched");
+
+        MessageAndConditionDescriptor beta = mock(MessageAndConditionDescriptor.class);
+        when(beta.getCondition()).thenReturn("OnClassCondition");
+        when(beta.getMessage()).thenReturn("beta matched");
+
+        MessageAndConditionDescriptor gamma = mock(MessageAndConditionDescriptor.class);
+        when(gamma.getCondition()).thenReturn("OnBeanCondition");
+        when(gamma.getMessage()).thenReturn("gamma did not match");
+
+        MessageAndConditionsDescriptor gammaEntry = mock(MessageAndConditionsDescriptor.class);
+        when(gammaEntry.getNotMatched()).thenReturn(List.of(gamma));
+        when(gammaEntry.getMatched()).thenReturn(List.of());
+
+        ContextConditionsDescriptor ccd = inlineMock(ContextConditionsDescriptor.class);
+        when(ccd.getPositiveMatches())
+                .thenReturn(Map.of(
+                        "org.example.AlphaConfig", List.of(alpha),
+                        "org.example.BetaConfig", List.of(beta)));
+        when(ccd.getNegativeMatches()).thenReturn(Map.of("org.example.GammaConfig", gammaEntry));
+        when(ccd.getUnconditionalClasses()).thenReturn(Set.of("org.example.ConfigUnconditional", "org.example.Other"));
+        when(ccd.getExclusions()).thenReturn(List.of("org.example.ExcludedConfig", "org.example.Skipped"));
+
+        ConditionsDescriptor descriptor = inlineMock(ConditionsDescriptor.class);
+        when(descriptor.getContexts()).thenReturn(Map.of("application", ccd));
+
+        ConditionsReportEndpoint endpoint = mock(ConditionsReportEndpoint.class);
+        when(endpoint.conditions()).thenReturn(descriptor);
+
+        MockMvc mvc =
+                standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
+
+        // The second page of two spans both outcomes: Beta (positive), then Gamma (negative).
+        mvc.perform(get("/bootui/api/conditions")
+                        .param("q", "Config")
+                        .param("offset", "1")
+                        .param("limit", "2")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positiveMatches.length()").value(1))
+                .andExpect(
+                        jsonPath("$.positiveMatches[0].autoConfigurationClass").value("org.example.BetaConfig"))
+                .andExpect(jsonPath("$.negativeMatches.length()").value(1))
+                .andExpect(
+                        jsonPath("$.negativeMatches[0].autoConfigurationClass").value("org.example.GammaConfig"))
+                .andExpect(jsonPath("$.page.total").value(3))
+                .andExpect(jsonPath("$.page.matched").value(3))
+                .andExpect(jsonPath("$.page.returned").value(2))
+                .andExpect(jsonPath("$.page.hasMore").value(false))
+                .andExpect(jsonPath("$.unconditionalClasses.length()").value(1))
+                .andExpect(jsonPath("$.unconditionalClasses[0]").value("org.example.ConfigUnconditional"))
+                .andExpect(jsonPath("$.exclusions.length()").value(1))
+                .andExpect(jsonPath("$.exclusions[0]").value("org.example.ExcludedConfig"))
+                .andExpect(jsonPath("$.counts.unconditionalTotal").value(2))
+                .andExpect(jsonPath("$.counts.exclusionsTotal").value(2));
+
+        // The browser always asks for an outcome, and keeps the whole class lists.
+        mvc.perform(get("/bootui/api/conditions")
+                        .param("outcome", "positive")
+                        .param("q", "Config")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unconditionalClasses.length()").value(2))
+                .andExpect(jsonPath("$.exclusions.length()").value(2));
+
+        mvc.perform(get("/bootui/api/conditions").param("limit", "1").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positiveMatches.length()").value(1))
+                .andExpect(jsonPath("$.negativeMatches").isEmpty())
+                .andExpect(jsonPath("$.page.returned").value(1))
+                .andExpect(jsonPath("$.page.hasMore").value(true));
+    }
 }

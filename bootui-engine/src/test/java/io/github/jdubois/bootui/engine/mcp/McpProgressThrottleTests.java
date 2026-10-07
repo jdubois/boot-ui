@@ -33,16 +33,17 @@ class McpProgressThrottleTests {
     }
 
     @Test
-    void whileAnEventIsHeldANewOneNeverOvertakesIt() {
+    void aNewerEventThatFindsATokenIsSentAndSupersedesTheHeldOne() {
         for (int i = 1; i <= McpProgressThrottle.BURST; i++) {
             throttle.offer(event(i));
         }
         throttle.offer(event(9));
         advance(250);
         assertThat(throttle.offer(event(10)))
-                .as("a freed token goes to the held event first, through poll")
-                .isNull();
-        assertThat(throttle.poll()).isEqualTo(event(10));
+                .as("no timer is needed: the next report sends itself")
+                .isEqualTo(event(10));
+        assertThat(throttle.poll()).as("the older held event is dropped").isNull();
+        assertThat(throttle.drainPending()).isNull();
     }
 
     @Test

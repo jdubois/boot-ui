@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.engine.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.mcp.McpEraDecision.Serve;
+import io.github.jdubois.bootui.engine.mcp.McpExchange.Envelope;
+import io.github.jdubois.bootui.engine.mcp.McpExchange.IdEcho;
+import io.github.jdubois.bootui.engine.mcp.McpExchange.IdShape;
 import io.github.jdubois.bootui.engine.mcp.McpExchange.Plan;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta.Field;
 import java.util.List;
@@ -18,11 +21,7 @@ class McpExchangeTests {
     @Test
     void aBatchIsRefusedBeforeAnyHeaderIsJudged() {
         assertThat(McpExchange.plan(
-                        true,
-                        null,
-                        false,
-                        null,
-                        McpRequestMeta.NONE,
+                        Envelope.notAnObject(true),
                         new McpRequestHeaders(List.of("2099-01-01"), List.of(), List.of()),
                         false))
                 .isEqualTo(new Plan.Reject(
@@ -32,14 +31,13 @@ class McpExchangeTests {
                         McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE,
                         List.of(),
                         null,
-                        false));
+                        IdEcho.NULL));
     }
 
     @Test
     void eraRejectionsPrecedeTheDisabledShortCircuitAndCarryWireCodes() {
         McpRequestHeaders mismatch = new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of());
-        Plan plan = McpExchange.plan(false, "tools/list", false, null, MODERN_META, mismatch, false);
-        assertThat(plan)
+        assertThat(McpExchange.plan(modern("tools/list"), mismatch, false))
                 .isEqualTo(new Plan.Reject(
                         McpEra.MODERN,
                         400,
@@ -47,44 +45,77 @@ class McpExchangeTests {
                         McpProtocol.METHOD_HEADER_MISMATCH_MESSAGE,
                         List.of(),
                         null,
-                        true));
+                        IdEcho.READABLE));
         Plan legacy = McpExchange.plan(
-                false,
-                "ping",
-                false,
-                null,
-                McpRequestMeta.NONE,
-                new McpRequestHeaders(List.of("2099-01-01"), List.of(), List.of()),
-                true);
-        assertThat(((Plan.Reject) legacy).echoId())
+                legacy("ping"), new McpRequestHeaders(List.of("2099-01-01"), List.of(), List.of()), true);
+        assertThat(((Plan.Reject) legacy).idEcho())
                 .as("legacy refusals keep a null id")
-                .isFalse();
+                .isEqualTo(IdEcho.NULL);
     }
 
     @Test
     void aDisabledServerAcceptsNotificationsAndRefusesRequestsInTheirEra() {
-        assertThat(McpExchange.plan(
-                        false,
-                        "notifications/initialized",
-                        true,
-                        null,
-                        McpRequestMeta.NONE,
-                        McpRequestHeaders.NONE,
-                        false))
+        Envelope notification = new Envelope(
+                false,
+                true,
+                true,
+                IdShape.ABSENT_OR_NULL,
+                true,
+                "notifications/initialized",
+                null,
+                McpRequestMeta.NONE);
+        assertThat(notification.notification()).isTrue();
+        assertThat(McpExchange.plan(notification, McpRequestHeaders.NONE, false))
                 .isEqualTo(new Plan.Accept());
-        Plan.Disabled legacy = (Plan.Disabled)
-                McpExchange.plan(false, "ping", false, null, McpRequestMeta.NONE, McpRequestHeaders.NONE, false);
-        assertThat(legacy.code()).isEqualTo(-32000);
-        Plan.Disabled modern =
-                (Plan.Disabled) McpExchange.plan(false, "tools/list", false, null, MODERN_META, MODERN_HEADERS, false);
-        assertThat(modern.code()).isEqualTo(-31000);
+        assertThat(((Plan.Disabled) McpExchange.plan(legacy("ping"), McpRequestHeaders.NONE, false)).code())
+                .isEqualTo(-32000);
+        assertThat(((Plan.Disabled) McpExchange.plan(modern("tools/list"), MODERN_HEADERS, false)).code())
+                .isEqualTo(-31000);
+        assertThat(McpExchange.plan(withJsonrpc(false), McpRequestHeaders.NONE, false))
+                .as("the disabled short-circuit precedes envelope validation, as in BootUI 1.x")
+                .isInstanceOf(Plan.Disabled.class);
+    }
+
+    @Test
+    void envelopeRefusalsAreTwoHundredsWithBootUiOneIdEcho() {
+        assertThat(McpExchange.plan(Envelope.notAnObject(false), McpRequestHeaders.NONE, true))
+                .isEqualTo(reject200(McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE, IdEcho.NULL));
+        assertThat(McpExchange.plan(withJsonrpc(false), McpRequestHeaders.NONE, true))
+                .isEqualTo(reject200(McpProtocol.INVALID_REQUEST, McpProtocol.MISSING_JSONRPC_MESSAGE, IdEcho.AS_SENT));
+        assertThat(McpExchange.plan(
+                        new Envelope(false, true, true, IdShape.INVALID, true, "ping", null, McpRequestMeta.NONE),
+                        McpRequestHeaders.NONE,
+                        true))
+                .isEqualTo(reject200(McpProtocol.INVALID_REQUEST, McpProtocol.INVALID_ID_MESSAGE, IdEcho.NULL));
+        assertThat(McpExchange.plan(
+                        new Envelope(
+                                false, true, true, IdShape.STRING_OR_NUMBER, false, "ping", null, McpRequestMeta.NONE),
+                        McpRequestHeaders.NONE,
+                        true))
+                .isEqualTo(reject200(McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE, IdEcho.AS_SENT));
     }
 
     @Test
     void anEnabledServerDispatchesInTheResolvedEra() {
-        assertThat(McpExchange.plan(false, "tools/list", false, null, MODERN_META, MODERN_HEADERS, true))
+        assertThat(McpExchange.plan(modern("tools/list"), MODERN_HEADERS, true))
                 .isEqualTo(new Plan.Dispatch(new Serve(McpEra.MODERN, "2026-07-28", null)));
-        assertThat(McpExchange.plan(false, "ping", false, null, McpRequestMeta.NONE, McpRequestHeaders.NONE, true))
+        assertThat(McpExchange.plan(legacy("ping"), McpRequestHeaders.NONE, true))
                 .isEqualTo(new Plan.Dispatch(new Serve(McpEra.LEGACY, null, null)));
+    }
+
+    private static Plan.Reject reject200(int code, String message, IdEcho echo) {
+        return new Plan.Reject(McpEra.LEGACY, 200, code, message, List.of(), null, echo);
+    }
+
+    private static Envelope legacy(String method) {
+        return new Envelope(false, true, true, IdShape.STRING_OR_NUMBER, true, method, null, McpRequestMeta.NONE);
+    }
+
+    private static Envelope modern(String method) {
+        return new Envelope(false, true, true, IdShape.STRING_OR_NUMBER, true, method, null, MODERN_META);
+    }
+
+    private static Envelope withJsonrpc(boolean valid) {
+        return new Envelope(false, true, valid, IdShape.STRING_OR_NUMBER, true, "ping", null, McpRequestMeta.NONE);
     }
 }
