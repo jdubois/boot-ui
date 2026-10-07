@@ -177,11 +177,11 @@ public class BootUiMcpService {
     }
 
     /**
-     * A {@code tools/call} to answer on a request-scoped {@code text/event-stream}: the controller opens the stream,
+     * A {@code tools/call} to answer on a request-scoped {@code text/event-stream}: the transport opens the stream,
      * renders each event with {@link #renderProgress} and {@link #renderFinal}, and {@linkplain McpStreamingCall#start
      * starts} the call, or {@linkplain McpStreamingCall#cancel cancels} it if the stream cannot be opened.
      *
-     * @param call the started-on-demand call, holding a concurrency permit
+     * @param call the call, holding a concurrency permit until it ends
      * @param id the request id the final response echoes
      */
     public record Stream(McpStreamingCall call, JsonNode id) {}
@@ -195,9 +195,8 @@ public class BootUiMcpService {
     }
 
     /**
-     * Answers one parsed MCP {@code POST} body: refuses a batch, selects the protocol era and validates its metadata,
-     * short-circuits while the server is disabled, then dispatches. Shared by the Spring MVC and WebFlux controllers so
-     * both stacks answer byte-identically.
+     * Answers one parsed MCP {@code POST} body through the engine's request flow ({@link McpExchange}): this codec only
+     * extracts the envelope fields and renders the plan, so every stack answers byte-identically.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled) {
         return exchange(request, headers, enabled, false);
@@ -208,7 +207,10 @@ public class BootUiMcpService {
      * {@code Accept} lists {@code text/event-stream} may answer with a {@link Stream}.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled, boolean acceptsEventStream) {
-        McpExchange.Plan plan = plan(request, headers, enabled);
+        return answer(request, McpExchange.plan(envelope(request), headers, enabled), acceptsEventStream);
+    }
+
+    private Reply answer(JsonNode request, McpExchange.Plan plan, boolean acceptsEventStream) {
         if (plan instanceof McpExchange.Plan.Reject reject) {
             return new Reply(reject.httpStatus(), rejection(request, reject));
         }
@@ -223,22 +225,29 @@ public class BootUiMcpService {
         return reply.body() == null && reply.stream() == null ? new Reply(202, null) : reply;
     }
 
-    /** Extracts the envelope fields the engine's request flow needs; the decision itself is {@link McpExchange}'s. */
-    private static McpExchange.Plan plan(JsonNode request, McpRequestHeaders headers, boolean enabled) {
+    /** The neutral envelope fields of {@code request}; the decisions are {@link McpExchange}'s. */
+    private static McpExchange.Envelope envelope(JsonNode request) {
         if (request == null || !request.isObject()) {
-            return McpExchange.plan(
-                    request != null && request.isArray(), null, false, null, McpRequestMeta.NONE, headers, enabled);
+            return McpExchange.Envelope.notAnObject(request != null && request.isArray());
         }
+        JsonNode id = request.get("id");
+        JsonNode jsonrpc = request.get("jsonrpc");
+        JsonNode params = request.get("params");
         JsonNode method = request.get("method");
         JsonNode name = request.path("params").get("name");
-        return McpExchange.plan(
+        return new McpExchange.Envelope(
                 false,
+                true,
+                jsonrpc != null && McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc)),
+                id == null || id.isNull()
+                        ? McpExchange.IdShape.ABSENT_OR_NULL
+                        : id.isString() || id.isNumber()
+                                ? McpExchange.IdShape.STRING_OR_NUMBER
+                                : McpExchange.IdShape.INVALID,
+                params == null || params.isObject(),
                 method != null && method.isString() ? method.asString() : null,
-                isNotification(request),
                 name != null && name.isString() ? name.asString() : null,
-                meta(request),
-                headers,
-                enabled);
+                meta(request));
     }
 
     private static McpRequestMeta meta(JsonNode request) {
@@ -267,14 +276,6 @@ public class BootUiMcpService {
                 progressToken);
     }
 
-    private static boolean isNotification(JsonNode request) {
-        return request != null
-                && request.isObject()
-                && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(text(request.path("jsonrpc")))
-                && !text(request.path("method")).isBlank();
-    }
-
     /**
      * The text of an envelope field ({@code jsonrpc}, {@code method}, {@code params.name}, {@code
      * params.protocolVersion}): the string when it is one, otherwise empty. Jackson 3 and Jackson 2 coerce {@code
@@ -284,12 +285,12 @@ public class BootUiMcpService {
         return node.isString() ? node.asString() : "";
     }
 
-    /** A modern rejection echoes a readable request id; a legacy one keeps BootUI 1.x's {@code null} id. */
     private static ObjectNode rejection(JsonNode request, McpExchange.Plan.Reject reject) {
         JsonNode id = null;
-        if (reject.echoId() && request != null && request.isObject()) {
+        if (request != null && request.isObject() && reject.idEcho() != McpExchange.IdEcho.NULL) {
             JsonNode candidate = request.get("id");
-            if (candidate != null && (candidate.isString() || candidate.isNumber())) {
+            if (reject.idEcho() == McpExchange.IdEcho.AS_SENT
+                    || (candidate != null && (candidate.isString() || candidate.isNumber()))) {
                 id = candidate;
             }
         }
@@ -303,8 +304,7 @@ public class BootUiMcpService {
         }
         return response;
     }
-
-    /** One {@code notifications/progress} of a modern stream, as compact JSON. */
+    /** One {@code notifications/progress} of a stream, as compact JSON. */
     public String renderProgress(McpProgressToken token, ProgressEvent event) {
         ObjectNode params = JsonNodeFactory.instance.objectNode();
         if (token.isText()) {
@@ -334,24 +334,29 @@ public class BootUiMcpService {
     }
 
     /**
-     * The final JSON-RPC response of a modern stream, as compact JSON: rendered and size-limited exactly like a JSON
-     * response, so a stream never carries more than {@code bootui.mcp.max-response-bytes}.
+     * The final JSON-RPC response of a stream in {@code era}, as compact JSON: rendered and size-limited exactly like a
+     * JSON response, so a stream never carries more than {@code bootui.mcp.max-response-bytes}.
      */
-    public String renderFinal(JsonNode id, McpDispatchOutcome outcome) {
+    public String renderFinal(JsonNode id, McpEra era, McpDispatchOutcome outcome) {
         try {
-            JsonNode response = render(outcome, id, McpEra.MODERN);
+            JsonNode response = render(outcome, id, era);
             byte[] bytes = objectMapper.writeValueAsBytes(response);
             if (bytes.length > maxResponseBytes) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return error(id, McpEra.MODERN, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE)
+                return error(id, era, McpProtocol.RESPONSE_TOO_LARGE, McpProtocol.RESPONSE_TOO_LARGE_MESSAGE)
                         .toString();
             }
             return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
         } catch (RuntimeException | Error failure) {
             failureReporter.report("rendering a response", failure);
-            return error(id, McpEra.MODERN, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE)
+            return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE)
                     .toString();
         }
+    }
+
+    /** {@link #renderFinal(JsonNode, McpEra, McpDispatchOutcome)} for a modern stream. */
+    public String renderFinal(JsonNode id, McpDispatchOutcome outcome) {
+        return renderFinal(id, McpEra.MODERN, outcome);
     }
 
     /** Parse raw request bytes into a Jackson node. */
@@ -363,36 +368,19 @@ public class BootUiMcpService {
         }
     }
 
-    /**
-     * Handles a single JSON-RPC request or notification.
-     *
-     * @return the JSON-RPC response, or {@code null} for notifications (which have no response)
-     */
     public JsonNode handle(JsonNode request) {
-        return respond(request, new Serve(McpEra.LEGACY, null, null), false).body();
+        McpExchange.Envelope envelope = envelope(request);
+        McpExchange.Plan.Reject invalid = McpExchange.checkEnvelope(envelope, McpEra.LEGACY);
+        return answer(
+                        request,
+                        invalid != null ? invalid : new McpExchange.Plan.Dispatch(new Serve(McpEra.LEGACY, null, null)),
+                        false)
+                .body();
     }
-
-    /**
-     * The JSON-RPC response with the HTTP status its outcome implies, a {@code null} body for a notification, or a
-     * {@link Stream}.
-     */
+    /** The JSON-RPC response with the HTTP status its outcome implies; a {@code null} body for a notification. */
     private Reply respond(JsonNode request, Serve serve, boolean acceptsEventStream) {
         McpEra era = serve.era();
-        if (request == null || !request.isObject()) {
-            return new Reply(200, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.MALFORMED_REQUEST_MESSAGE));
-        }
         JsonNode id = request.get("id");
-        JsonNode jsonrpc = request.get("jsonrpc");
-        if (jsonrpc == null || !McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc))) {
-            return new Reply(200, error(id, McpProtocol.INVALID_REQUEST, "Request must include jsonrpc: \"2.0\""));
-        }
-        if (id != null && !id.isNull() && !id.isString() && !id.isNumber()) {
-            return new Reply(200, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.INVALID_ID_MESSAGE));
-        }
-        JsonNode params = request.get("params");
-        if (params != null && !params.isObject()) {
-            return new Reply(200, error(id, McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE));
-        }
         try {
             McpCallStart start = dispatcher.start(parse(request, serve), acceptsEventStream);
             if (start instanceof McpCallStart.Stream stream) {
@@ -533,6 +521,9 @@ public class BootUiMcpService {
         if (outcome instanceof ToolCallResult r) {
             return renderToolCall(id, era, r);
         }
+        if (outcome instanceof McpDispatchOutcome.Cancelled) {
+            return error(id, era, McpProtocol.REQUEST_CANCELLED, McpProtocol.REQUEST_CANCELLED_MESSAGE);
+        }
         throw new IllegalStateException("Unknown MCP outcome: " + outcome);
     }
 
@@ -581,7 +572,6 @@ public class BootUiMcpService {
             node.set("annotations", annotations(tool.annotations()));
             ObjectNode outputSchema = JsonNodeFactory.instance.objectNode();
             outputSchema.put("type", tool.outputSchemaType());
-            outputSchema.put("description", tool.outputSchemaDescription());
             node.set("outputSchema", outputSchema);
             array.add(node);
         }

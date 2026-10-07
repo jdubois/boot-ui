@@ -47,11 +47,13 @@ class ArchitectureScannerTests {
         int rules = report.rulesEvaluated();
         assertThat(rules).isPositive();
         double total = rules + 3;
-        assertThat(events).hasSize(rules + 4);
+        assertThat(events).hasSize(rules + 3);
         assertThat(events.get(0)).isEqualTo(new ProgressEvent(0, total, "Importing application classes"));
         assertThat(events.get(1)).isEqualTo(new ProgressEvent(1, total, "Checking generated code"));
         assertThat(events.get(2)).isEqualTo(new ProgressEvent(2, total, "Evaluating architecture rules"));
-        assertThat(events.get(events.size() - 1)).isEqualTo(new ProgressEvent(total, total, "Locating violations"));
+        assertThat(events.get(events.size() - 1))
+                .as("the final response, not a notification, marks completion")
+                .isEqualTo(new ProgressEvent(total - 1, total, "Locating violations"));
         for (int i = 1; i < events.size(); i++) {
             assertThat(events.get(i).progress()).isGreaterThan(events.get(i - 1).progress());
             assertThat(events.get(i).total()).isEqualTo(total);
@@ -92,6 +94,35 @@ class ArchitectureScannerTests {
         assertThat(scanner.scan().scan().status())
                 .as("the single-flight claim is released")
                 .isEqualTo("SCANNED");
+    }
+
+    @Test
+    void anInterruptSwallowedWhileLocatingViolationsNeverReplacesThePreviousReport() {
+        java.util.concurrent.atomic.AtomicBoolean interrupt = new java.util.concurrent.atomic.AtomicBoolean();
+        ArchitectureScanner scanner = new ArchitectureScanner(
+                () -> List.of(FIXTURES),
+                new ClassFileArchitectureImporter(),
+                ArchitecturePlatform.SPRING,
+                CLOCK,
+                ArchitectureRuleRegistry.activeRules(),
+                ArchitectureGeneratedCode::resolve,
+                (classes, located) -> {
+                    if (interrupt.get()) {
+                        // What SourceLocator does with a ClosedByInterruptException: the file reads as unreadable.
+                        Thread.currentThread().interrupt();
+                    }
+                    return io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations.resolve(classes, located);
+                });
+        ArchitectureReport previous = scanner.scan();
+        String scanId = previous.violationDetails().scanId();
+        interrupt.set(true);
+        try {
+            assertThatThrownBy(scanner::scan).isInstanceOf(OperationCancelledException.class);
+        } finally {
+            Thread.interrupted();
+        }
+        assertThat(scanner.lastReport()).isEqualTo(previous);
+        assertThat(scanner.lastReport().violationDetails().scanId()).isEqualTo(scanId);
     }
 
     @Test

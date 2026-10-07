@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
+  comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
+  with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
 - **MCP 2026-07-28 beside MCP 2025-06-18.** The MCP endpoint also serves modern clients, with `server/discover`, result
   envelopes, and header checks, while existing clients answer as before ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Live MCP progress for long scans.** A modern MCP client that asks for progress sees `architecture_scan` and
@@ -382,6 +385,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Timed-out scans stop.** An MCP or CLI `architecture_scan` or `vulnerabilities_scan` past its execution timeout now
   stops at its next step and keeps the previous report, instead of running on or publishing an "interrupted" error
   ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
+  when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
+  report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
+  conditions, which now pages both outcomes together. `get_config` drops the browser's property suggestions, agent status and Side Effects
+  summarize sensors until a query names one, and `tools/list` is smaller. A 1.x CLI keeps working
+  ([Agent-sized defaults](docs/AI-AGENTS.md#agent-sized-defaults)).
 - **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
   (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
   never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.
@@ -719,7 +728,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 - **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
   repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
-  documented client error on Spring and Quarkus ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+  documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`
+  with the request id rather than `-32600` with a `null` one ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Links between MCP and CLI results.** `get_runtime_impact` resolves a bare method name such as `applyDiscount`
   (`AMBIGUOUS` with each declaring class when several do), names the real overloads when the asked parameters match
   none, and names every route beyond the 8 it lists per list; `get_code_inventory` matches method names. Side Effects

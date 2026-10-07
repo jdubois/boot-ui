@@ -5,9 +5,10 @@ import java.util.regex.Pattern;
 /**
  * A fixed, human-readable label for a phase of an operation, sent to the client as the progress {@code message}.
  *
- * <p>Labels are engine-authored constants, never built from runtime values: the pattern admits letters, digits,
- * spaces, and {@code , . ' ( ) -} only, so a label cannot carry a path, a URL, SQL, a property value, or exception text.
- * A violating label fails when its constant is created, which the owning class's tests catch.
+ * <p>Labels are engine-authored constants, never built from runtime values. The pattern admits letters, digits,
+ * spaces, and {@code , . ' ( ) -} only, so a label has no path, URL, {@code :}, or {@code =}; an architecture test
+ * keeps every call in a static initializer, which is what keeps runtime values out. A violating label fails when its
+ * constant is created.
  *
  * @param label the label, 1 to 80 characters, starting with a letter
  */

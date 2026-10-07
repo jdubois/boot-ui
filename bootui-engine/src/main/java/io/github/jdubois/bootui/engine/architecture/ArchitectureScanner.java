@@ -159,7 +159,11 @@ public final class ArchitectureScanner {
     public ArchitectureReport scan() {
         return singleFlight.run(ActionOperations.ARCHITECTURE_SCAN, () -> {
             AdvisorViolationCollector collector = violationState.collector();
-            return violationState.publish(doScan(collector), collector);
+            ArchitectureReport report = doScan(collector);
+            // An interrupt can surface as an unreadable source file or an early return rather than at a checkpoint;
+            // a scan its caller abandoned must never replace the previous report.
+            OperationProgress.current().checkCancelled();
+            return violationState.publish(report, collector);
         });
     }
 
@@ -193,7 +197,8 @@ public final class ArchitectureScanner {
                     List.of());
         }
 
-        // Units: the import, the generated-code check, each rule, then locating violations.
+        // Units: the import, the generated-code check, each rule, and locating violations. Locating is reported when it
+        // starts, short of the total: the final response, not a progress notification, marks completion.
         OperationProgress progress = OperationProgress.current();
         double total = rules.size() + 3;
         progress.checkCancelled();
@@ -255,10 +260,12 @@ public final class ArchitectureScanner {
                 unreported.add(result.id() + ": required architecture observations could not be resolved.");
             }
             usable |= context.evidence().usable();
-            progress.report(EVALUATING_RULES, 2 + ++evaluated, total);
+            if (++evaluated < rules.size()) {
+                progress.report(EVALUATING_RULES, 2 + evaluated, total);
+            }
         }
         progress.checkCancelled();
-        progress.report(LOCATING_VIOLATIONS, total, total);
+        progress.report(LOCATING_VIOLATIONS, 2 + rules.size(), total);
         results = completeLocations(classes, results, collector);
         long errors = results.stream()
                 .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))

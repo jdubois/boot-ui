@@ -2,19 +2,21 @@ package io.github.jdubois.bootui.engine.progress;
 
 import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /**
  * Progress and cancellation of the operation running on the current thread.
  *
- * <p>The MCP dispatcher binds one instance to the tool thread for a call that asked for progress ({@link #runWith}).
+ * <p>The MCP dispatcher binds one instance to the tool thread of every {@code tools/call} ({@link #runWith}): one with
+ * a listener when the caller asked for progress, one without otherwise, so the call can be cancelled either way.
  * Everywhere else {@link #current()} is {@link #NONE}, which ignores reports and is cancelled only when the thread is
  * interrupted, so an operation never branches on who called it.
  *
  * <p>Reports are filtered before they reach the listener: a non-finite or non-increasing {@code completed} is
- * dropped, a non-finite or non-positive {@code total} is omitted, and nothing is reported once the operation is
- * cancelled.
+ * dropped, and a non-finite or non-positive {@code total} is omitted. The cancellation check, the order check, and the
+ * listener call happen under the lock {@link #cancel()} takes, so reports reach the listener in increasing order and
+ * none starts once {@code cancel()} has returned. A phase label changes only together with an advance of {@code
+ * completed}, because a report that does not advance is dropped.
  */
 public final class OperationProgress {
 
@@ -24,7 +26,7 @@ public final class OperationProgress {
     private static final ThreadLocal<OperationProgress> CURRENT = new BootUiThreadLocal<>();
 
     private final ProgressListener listener;
-    private final AtomicBoolean cancelled = new AtomicBoolean();
+    private volatile boolean cancelled;
     private double lastProgress = Double.NEGATIVE_INFINITY;
 
     /** Progress delivered to {@code listener}, or no progress when it is {@code null}. */
@@ -67,29 +69,34 @@ public final class OperationProgress {
      */
     public void report(ProgressPhase phase, double completed, double total) {
         Objects.requireNonNull(phase, "phase");
-        if (listener == null || cancelled() || !Double.isFinite(completed)) {
+        if (listener == null || !Double.isFinite(completed)) {
             return;
         }
         Double reportedTotal = Double.isFinite(total) && total > 0 ? total : null;
         synchronized (this) {
-            if (completed <= lastProgress) {
+            if (cancelled || completed <= lastProgress) {
                 return;
             }
             lastProgress = completed;
+            listener.onProgress(new ProgressEvent(completed, reportedTotal, phase.label()));
         }
-        listener.onProgress(new ProgressEvent(completed, reportedTotal, phase.label()));
     }
 
-    /** Marks the operation cancelled; later reports are dropped and {@link #checkCancelled()} throws. */
+    /**
+     * Marks the operation cancelled: once this returns, no report reaches the listener and {@link #checkCancelled()}
+     * throws. A no-op on {@link #NONE}.
+     */
     public void cancel() {
         if (this != NONE) {
-            cancelled.set(true);
+            synchronized (this) {
+                cancelled = true;
+            }
         }
     }
 
     /** {@code true} once the operation was cancelled or its thread interrupted (the interrupt flag is kept). */
     public boolean cancelled() {
-        return cancelled.get() || Thread.currentThread().isInterrupted();
+        return cancelled || Thread.currentThread().isInterrupted();
     }
 
     /** Throws {@link OperationCancelledException} when {@link #cancelled()}; call it between units of work. */
