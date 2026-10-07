@@ -3447,7 +3447,8 @@ Design rules:
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
     `get_code_paths`, `get_method_probe`, `get_devtools_status`,
     `get_code_paths`, `get_side_effects`, `get_devtools_status`,
-    `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
+    `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
+    `get_hibernate_statistics`, and `get_websockets`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
@@ -3461,8 +3462,16 @@ Design rules:
   interpret partial evidence and server scope rather than applying advisor-score semantics.
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
-  commands are deliberately excluded. Tools whose backing controller is absent or not applicable to the running stack
-  are not advertised.
+  commands are deliberately excluded, as are Profile resources (JFR), enabling Hibernate statistics, the WebSockets
+  capture switch, the Java agent's sensor switches, and logger-level changes, which stay browser-only. Tools whose
+  backing controller is absent or not applicable to the running stack are not advertised; a `tools/call` naming one of
+  them answers `-32602` with `Tool not available in this application: <name>.` and the panel's unavailable reason, also
+  in `error.data` (`tool`, `panel`, `reason`), while a name outside the catalog keeps `Unknown tool: <name>`. The CLI
+  facade answers both with `404`.
+- **Tool hints and argument schemas.** Each `tools/list` entry carries MCP `annotations` derived from the catalog's
+  action flag: reads are `readOnlyHint`/`idempotentHint`; `clear_*` actions are `destructiveHint`; clear, pause, and
+  resume are `idempotentHint`; `vulnerabilities_scan` is `openWorldHint`. `inputSchema` describes each argument per tool
+  from the shared tool guide (id source, query words, an example) with its effective `default` page size.
 - **Strict inputs.** The transport rejects invalid JSON-RPC id/params types, non-object tool arguments, unknown
   arguments, and values whose type does not match the advertised schema with `-32600`/`-32602`; malformed values are
   never silently coerced or replaced with broad defaults.

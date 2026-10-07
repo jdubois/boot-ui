@@ -218,7 +218,18 @@ agent will see before you wire it up.
 ### Tools the agent can call
 
 Tools whose backing panel/controller is absent (for example Hibernate or Spring Security when those libraries are not on
-the classpath) are simply not advertised.
+the classpath) are not advertised. Calling one anyway answers JSON-RPC `-32602` with the reason in the message, such as
+`Tool not available in this application: get_kafka_activity. Its Kafka panel is unavailable: …`, and in `error.data`
+(`tool`, `panel`, and `reason` when the panel gives one). A name BootUI does not know at all still answers
+`Unknown tool: <name>`.
+
+Each `tools/list` entry carries MCP `annotations` derived from the tool's kind: a read has `readOnlyHint: true` and
+`idempotentHint: true`; an action has `readOnlyHint: false`, the `clear_*` actions `destructiveHint: true` (they discard
+buffered evidence), clearing, pausing, and resuming `idempotentHint: true`, and `vulnerabilities_scan`
+`openWorldHint: true` (it contacts OSV.dev). Its `inputSchema` describes each argument for that tool: where an `id`
+comes from, the words a `query` understands, one example, and the `default` a call gets when it omits `limit` (a
+compacted tool's short page, otherwise `bootui.mcp.max-results`). The hints help an agent host decide when to ask the
+user; BootUI's own panel and read-only gates still apply.
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `database_advisor_scan`,
   `memory_scan`, `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, and
@@ -273,8 +284,10 @@ the classpath) are simply not advertised.
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
-  `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. Stack-specific or
-  unavailable capabilities are omitted.
+  `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
+  `get_hibernate_statistics` (Hibernate ORM counters; it never enables statistics, and reports `available: false` with
+  the reason while they are off), and `get_websockets` (endpoints, sessions, subscriptions, and frame metadata, never a
+  payload). Stack-specific or unavailable capabilities are omitted.
 - **Code Inventory read:** `get_code_inventory`, whether the code changed since the previous run executed in this run;
   see [Did my change run?](#did-my-change-run).
 - **Code Paths read:** `get_code_paths`, which application methods each route spends its time in; see
@@ -289,6 +302,10 @@ the classpath) are simply not advertised.
   `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, and `start_method_probe`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
   command.
+- **Browser only, by design:** HTTP Probe (it sends requests the user composes), Profile resources and its JDK Flight
+  Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, the Java agent's
+  sensor switches, changing a logger level, and the other panel controls not listed above have no MCP tool or CLI
+  command. An agent should point the user to the panel rather than work around it.
 
 ### Investigate one request
 
@@ -620,7 +637,11 @@ them:
 | `offset` | Where this page starts within the matched items |
 | `limit` | The page size actually used, capped by `bootui.mcp.max-results` (`bootui.cli.max-results` from the CLI) |
 | `returned` | How many rows this response carries |
-| `hasMore` | Whether matched items remain past this page — raise `offset` to walk them |
+| `hasMore` | Whether matched items remain past this page: narrow the `query`, or raise `limit` up to the server's maximum |
+
+List and search tools take no `offset`; only the advisor violation reads page with one (see
+[Reading retained advisor violations](#reading-retained-advisor-violations)). The `offset` in the envelope is where the
+page starts, `0` for these tools.
 
 The distinction that matters is `total` versus `matched`. A large `total` beside `matched: 0` does **not** mean the
 data is missing; it means the query matched none of it. Retry with a shorter query before concluding a property,
