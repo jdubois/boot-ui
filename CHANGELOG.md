@@ -378,6 +378,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Change impact names its unexercised routes for their scope.** The list is now **Reaches it, but didn't run**
+  (with the BootUI agent, **Reaches it, but didn't run it**), and a line says it holds only routes that reach what you
+  checked, linking to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**. The
+  `notExercised` field is unchanged.
 - **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
   when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
   report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and

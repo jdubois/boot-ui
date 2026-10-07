@@ -78,7 +78,11 @@ describe('ChangeImpact', () => {
     const observed = wrapper.find('[data-list="observed"]')
     expect(observed.text()).toContain('12 requests · 2 anonymous · 1 error')
     expect(observed.text()).toContain('Reads TABLE sample_products')
-    expect(wrapper.find('[data-list="not-exercised"] code').text()).toBe('GET /api/products/{id}')
+    const notExercised = wrapper.find('[data-list="not-exercised"]')
+    expect(notExercised.find('h3').text()).toContain("Reaches it, but didn't run")
+    expect(notExercised.find('h3').text()).not.toContain('Not exercised')
+    expect(notExercised.find('.insight-impact-scope').text()).toContain('Only routes that reach what you checked')
+    expect(notExercised.find('code').text()).toBe('GET /api/products/{id}')
     expect(wrapper.find('[data-list="shared"]').text()).toContain(
       'No other route uses what the routes through it touched.'
     )
@@ -97,7 +101,7 @@ describe('ChangeImpact', () => {
     await flushPromises()
 
     const list = wrapper.find('[data-list="not-exercised"]')
-    expect(list.text()).toContain('Not exercised (incomplete)')
+    expect(list.find('h3').text()).toContain("Reaches it, but didn't run (incomplete)")
     expect(list.text()).toContain('Cannot determine whether every mapped route ran')
     expect(list.text()).not.toContain('Every mapped route that reaches it ran.')
   })
@@ -150,7 +154,26 @@ describe('ChangeImpact', () => {
     expect(observed.text()).toContain('3 ran it of 12 requests · 2 anonymous · 1 error · partial')
     expect(wrapper.find('[data-list="not-observed"]').text()).toContain('Ran without showing it')
     expect(wrapper.find('[data-list="not-observed"]').text()).toContain('without its call trees showing the method')
+    expect(wrapper.find('[data-list="not-exercised"] h3').text()).toContain(
+      "Reaches it, but didn't run it (incomplete)"
+    )
     expect(wrapper.find('[data-list="not-exercised"]').text()).toContain('No route is proven not to have run it')
+  })
+
+  it('points from its scoped list to the app-wide list in Coverage & limits', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(resolved)))
+    wrapper = mountImpact({initialSymbol: 'ProductRepository'})
+    await flushPromises()
+
+    expect(wrapper.findAll('.insight-impact-scope')).toHaveLength(1)
+    const link = wrapper.get('[data-list="not-exercised"] .insight-impact-coverage-link')
+    expect(link.element.tagName).toBe('BUTTON')
+    expect(link.attributes('type')).toBe('button')
+    expect(link.text()).toBe('see Coverage & limits')
+    expect(link.attributes('href')).toBeUndefined()
+
+    await link.trigger('click')
+    expect(wrapper.emitted('show-coverage')).toHaveLength(1)
   })
 
   it('shows a failed read as its message, never as an object', async () => {
