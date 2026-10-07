@@ -16,10 +16,11 @@ final class DefaultListing {
 
     /**
      * {@code finding} of {@code kind}, left out of the default list when its kind's external validation says so
-     * ({@link ExternalValidation}). That reason replaces the kind's own, since no row of the kind is listed.
+     * ({@link ExternalValidation}). Its unlisted reason, which never mentions the validation, replaces the kind's own,
+     * since no row of the kind is listed.
      */
     static Finding apply(String kind, Finding finding) {
         ExternalValidation.Entry validation = ExternalValidation.of(kind);
-        return validation.outcome().listed() ? finding : finding.unlistedWhole(validation.reason());
+        return validation.outcome().listed() ? finding : finding.unlistedWhole(validation.unlistedReason());
     }
 }

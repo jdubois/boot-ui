@@ -972,6 +972,11 @@ public abstract class AbstractMcpConformanceTest {
                                 "framework-warnings-by-route",
                                 "anonymous-data-reach");
             }
+            for (JsonNode limitation : byDefault.path("limitations")) {
+                assertThat(limitation.asText().toLowerCase(java.util.Locale.ROOT))
+                        .as("a limitation never tells agents about the external validation (M4-20)")
+                        .doesNotContain("validat");
+            }
             JsonNode everything = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
             assertThat(everything.path("observations").size()
                             + everything.path("omitted").asInt())

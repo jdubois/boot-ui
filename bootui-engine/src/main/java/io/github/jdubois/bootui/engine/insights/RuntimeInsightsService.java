@@ -1212,19 +1212,10 @@ public final class RuntimeInsightsService {
         return newest;
     }
 
-    /** One check row, with its kind's external validation ({@code docs/PLAN-v2.md} M4-20). */
+    /** One check row. */
     private static RuntimeInsightCheckDto check(
             Observation observation, String status, long eligible, int findings, String reason) {
-        ExternalValidation.Entry validation = ExternalValidation.of(observation.kind());
-        return new RuntimeInsightCheckDto(
-                observation.kind(),
-                observation.title(),
-                status,
-                eligible,
-                findings,
-                reason,
-                validation.outcome().name(),
-                validation.reason());
+        return new RuntimeInsightCheckDto(observation.kind(), observation.title(), status, eligible, findings, reason);
     }
 
     /**
@@ -1270,9 +1261,7 @@ public final class RuntimeInsightsService {
                         check.status(),
                         check.eligibleRequests(),
                         kept.size(),
-                        check.reason() == null ? leftOut : check.reason() + " " + leftOut,
-                        check.validation(),
-                        check.validationReason()));
+                        check.reason() == null ? leftOut : check.reason() + " " + leftOut));
     }
 
     /**
