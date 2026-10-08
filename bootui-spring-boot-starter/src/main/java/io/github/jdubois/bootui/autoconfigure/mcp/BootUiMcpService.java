@@ -226,6 +226,23 @@ public class BootUiMcpService {
         return reply.body() == null && reply.stream() == null ? new Reply(202, null) : reply;
     }
 
+    /** The JSON type of a request id, which the engine judges per era. */
+    private static McpExchange.IdShape idShape(JsonNode id) {
+        if (id == null) {
+            return McpExchange.IdShape.ABSENT;
+        }
+        if (id.isNull()) {
+            return McpExchange.IdShape.NULL;
+        }
+        if (id.isString()) {
+            return McpExchange.IdShape.STRING;
+        }
+        if (id.isIntegralNumber()) {
+            return McpExchange.IdShape.INTEGER;
+        }
+        return id.isNumber() ? McpExchange.IdShape.FRACTIONAL : McpExchange.IdShape.INVALID;
+    }
+
     /** The neutral envelope fields of {@code request}; the decisions are {@link McpExchange}'s. */
     private static McpExchange.Envelope envelope(JsonNode request) {
         if (request == null || !request.isObject()) {
@@ -240,11 +257,7 @@ public class BootUiMcpService {
                 false,
                 true,
                 jsonrpc != null && McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc)),
-                id == null || id.isNull()
-                        ? McpExchange.IdShape.ABSENT_OR_NULL
-                        : id.isString() || id.isNumber()
-                                ? McpExchange.IdShape.STRING_OR_NUMBER
-                                : McpExchange.IdShape.INVALID,
+                idShape(id),
                 params == null || params.isObject(),
                 method != null && method.isString() ? method.asString() : null,
                 name != null && name.isString() ? name.asString() : null,

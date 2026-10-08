@@ -188,6 +188,53 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testModernRequestsNeedAStringOrIntegerIdAndNeverRunWithoutOne() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            long callsBefore = probe().get("/bootui/api/mcp-server")
+                    .json()
+                    .path("callCount")
+                    .asLong();
+            String meta = "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                    + "\"io.modelcontextprotocol/clientCapabilities\":{}}";
+            Map<String, String> json = Map.of("Content-Type", "application/json");
+            String[][] cases = {
+                // id, then the error message; the request carries no Mcp-Method or Mcp-Name, as reported
+                {",\"id\":null", "Request id must be a string or an integer"},
+                {",\"id\":1.5", "Request id must be a string or an integer"},
+                {"", "A request needs an id; only notifications/ methods omit it"}
+            };
+            for (String[] each : cases) {
+                Response response = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                json,
+                                "{\"jsonrpc\":\"2.0\"" + each[0]
+                                        + ",\"method\":\"tools/call\",\"params\":{\"name\":\"get_health\",\"arguments\":{},"
+                                        + meta + "}}");
+                assertThat(response.status()).as(each[0]).isEqualTo(400);
+                assertThat(response.body())
+                        .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\""
+                                + each[1] + "\"}}");
+            }
+            assertThat(probe().get("/bootui/api/mcp-server")
+                            .json()
+                            .path("callCount")
+                            .asLong())
+                    .as("no refused modern call ran its tool")
+                    .isEqualTo(callsBefore);
+
+            // Without a modern _meta, an absent or null id is still a notification, answered 202, as in BootUI 1.x.
+            for (String id : List.of("", ",\"id\":null")) {
+                Response legacy = probe().request(
+                                "POST", "/bootui/api/mcp", json, "{\"jsonrpc\":\"2.0\"" + id + ",\"method\":\"ping\"}");
+                assertThat(legacy.status()).as(id).isEqualTo(202);
+                assertThat(legacy.body()).isEmpty();
+            }
+        }
+    }
+
+    @Test
     void testModernProtocolErrorsAreExplicitAndByteIdentical() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {

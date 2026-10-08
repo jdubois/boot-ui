@@ -761,7 +761,10 @@ compatibility rules describe:
   tool name` on every stack. `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or
   batch body reports that problem first.
 - **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
-  being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
+  being `400`: when `_meta` names `2026-07-28`, the `id` must first be a string or an integer (`-32600`, with a `null`
+  id echoed), so `null` and fractional ids are refused and a request method sent without an id is refused rather than
+  run as a notification (only a `notifications/` method may omit it); the version must be a string (`-32602`);
+  `MCP-Protocol-Version` must be sent once and equal it
   (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
   `data.requested`; `io.modelcontextprotocol/clientCapabilities` must be an object (`-32602`); `Mcp-Method` must be sent
   once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal

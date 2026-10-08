@@ -56,14 +56,7 @@ class McpExchangeTests {
     @Test
     void aDisabledServerAcceptsNotificationsAndRefusesRequestsInTheirEra() {
         Envelope notification = new Envelope(
-                false,
-                true,
-                true,
-                IdShape.ABSENT_OR_NULL,
-                true,
-                "notifications/initialized",
-                null,
-                McpRequestMeta.NONE);
+                false, true, true, IdShape.ABSENT, true, "notifications/initialized", null, McpRequestMeta.NONE);
         assertThat(notification.notification()).isTrue();
         assertThat(McpExchange.plan(notification, McpRequestHeaders.NONE, false))
                 .isEqualTo(new Plan.Accept());
@@ -88,11 +81,66 @@ class McpExchangeTests {
                         true))
                 .isEqualTo(reject200(McpProtocol.INVALID_REQUEST, McpProtocol.INVALID_ID_MESSAGE, IdEcho.NULL));
         assertThat(McpExchange.plan(
-                        new Envelope(
-                                false, true, true, IdShape.STRING_OR_NUMBER, false, "ping", null, McpRequestMeta.NONE),
+                        new Envelope(false, true, true, IdShape.INTEGER, false, "ping", null, McpRequestMeta.NONE),
                         McpRequestHeaders.NONE,
                         true))
                 .isEqualTo(reject200(McpProtocol.INVALID_PARAMS, McpProtocol.PARAMS_OBJECT_MESSAGE, IdEcho.AS_SENT));
+    }
+
+    @Test
+    void aModernRequestNeedsAStringOrIntegerIdAndNeverRunsAsANotification() {
+        McpRequestHeaders call =
+                new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan"));
+        for (IdShape bad : List.of(IdShape.NULL, IdShape.FRACTIONAL)) {
+            Envelope envelope =
+                    new Envelope(false, true, true, bad, true, "tools/call", "architecture_scan", MODERN_META);
+            assertThat(McpExchange.plan(envelope, call, true))
+                    .as(bad.name())
+                    .isEqualTo(Plan.Reject.of(
+                            McpEra.MODERN,
+                            400,
+                            McpProtocol.INVALID_REQUEST,
+                            McpProtocol.MODERN_ID_TYPE_MESSAGE,
+                            IdEcho.NULL));
+            assertThat(McpExchange.plan(envelope, call, false))
+                    .as("judged before the disabled short-circuit, like every era decision")
+                    .isInstanceOf(Plan.Reject.class);
+        }
+        Envelope noId =
+                new Envelope(false, true, true, IdShape.ABSENT, true, "tools/call", "architecture_scan", MODERN_META);
+        assertThat(McpExchange.plan(noId, call, true))
+                .isEqualTo(Plan.Reject.of(
+                        McpEra.MODERN,
+                        400,
+                        McpProtocol.INVALID_REQUEST,
+                        McpProtocol.MODERN_ID_REQUIRED_MESSAGE,
+                        IdEcho.NULL));
+        Envelope notification =
+                new Envelope(false, true, true, IdShape.ABSENT, true, "notifications/cancelled", null, MODERN_META);
+        assertThat(McpExchange.plan(notification, McpRequestHeaders.NONE, true))
+                .as("a notification may omit its id")
+                .isNotInstanceOf(Plan.Reject.class);
+        assertThat(McpExchange.plan(
+                        new Envelope(false, true, true, IdShape.STRING, true, "tools/list", null, MODERN_META),
+                        MODERN_HEADERS,
+                        true))
+                .isInstanceOf(Plan.Dispatch.class);
+    }
+
+    @Test
+    void legacyIdsAreJudgedAsInBootUiOne() {
+        for (IdShape notificationId : List.of(IdShape.ABSENT, IdShape.NULL)) {
+            Envelope envelope = new Envelope(
+                    false, true, true, notificationId, true, "tools/call", "architecture_scan", McpRequestMeta.NONE);
+            assertThat(envelope.notification()).as(notificationId.name()).isTrue();
+            assertThat(McpExchange.plan(envelope, McpRequestHeaders.NONE, true))
+                    .isEqualTo(new Plan.Dispatch(new Serve(McpEra.LEGACY, null, null)));
+        }
+        assertThat(McpExchange.plan(
+                        new Envelope(false, true, true, IdShape.FRACTIONAL, true, "ping", null, McpRequestMeta.NONE),
+                        McpRequestHeaders.NONE,
+                        true))
+                .isEqualTo(new Plan.Dispatch(new Serve(McpEra.LEGACY, null, null)));
     }
 
     @Test
@@ -118,14 +166,14 @@ class McpExchangeTests {
     }
 
     private static Envelope legacy(String method) {
-        return new Envelope(false, true, true, IdShape.STRING_OR_NUMBER, true, method, null, McpRequestMeta.NONE);
+        return new Envelope(false, true, true, IdShape.INTEGER, true, method, null, McpRequestMeta.NONE);
     }
 
     private static Envelope modern(String method) {
-        return new Envelope(false, true, true, IdShape.STRING_OR_NUMBER, true, method, null, MODERN_META);
+        return new Envelope(false, true, true, IdShape.INTEGER, true, method, null, MODERN_META);
     }
 
     private static Envelope withJsonrpc(boolean valid) {
-        return new Envelope(false, true, valid, IdShape.STRING_OR_NUMBER, true, "ping", null, McpRequestMeta.NONE);
+        return new Envelope(false, true, valid, IdShape.INTEGER, true, "ping", null, McpRequestMeta.NONE);
     }
 }
