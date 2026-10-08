@@ -582,6 +582,12 @@ run its sample without `-am`:
 The Quarkus sample requires JDK 17 to 27 for augmentation and uses Dev
 Services, so Docker or Podman must be available.
 
+Each sample also has launchers that build it with the isolated `.m2`
+repository, then run it: `run-local.sh`, `run-local-agent.sh` (with the BootUI
+Java agent and its default sensors) and `run-local-all.sh` (with every sensor),
+for example `./bootui-spring-webflux-sample-app/run-local-agent.sh`. The Spring
+MVC sample has more; see its README.
+
 ## Front-end development
 
 The Vue source lives in `bootui-ui/src/main/frontend`. For a fast inner loop:
