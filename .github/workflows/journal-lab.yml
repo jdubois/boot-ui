@@ -1,0 +1,48 @@
+name: Journal overhead lab (temporary)
+on:
+  push:
+    branches: [ jdubois-journal-lab ]
+permissions:
+  contents: read
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+      - name: Tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq apache2-utils > /dev/null
+          curl -sSL https://github.com/async-profiler/async-profiler/releases/download/v4.5/async-profiler-4.5-linux-x64.tar.gz | tar xz -C /tmp
+          mv /tmp/async-profiler-4.5-linux-x64 /tmp/async-profiler
+          sudo sysctl -w kernel.perf_event_paranoid=1 kernel.kptr_restrict=0 || true
+          nproc
+      - name: Build jars
+        run: |
+          set -e
+          cat .github/lab/jars.txt
+          while read -r name ref; do
+            [ -z "$name" ] && continue
+            git worktree add -f /tmp/src-$name "$ref"
+            (cd /tmp/src-$name && ./mvnw -T 1C -B -ntp -q -pl bootui-spring-sample-app -am -DskipTests install)
+            cp /tmp/src-$name/bootui-spring-sample-app/target/bootui-spring-sample-app-*[0-9].jar /tmp/$name.jar
+          done < .github/lab/jars.txt
+          ls -la /tmp/*.jar
+      - name: Measure
+        run: bash .github/lab/run.sh
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: journal-lab
+          path: /tmp/lab-out/
+          retention-days: 7
